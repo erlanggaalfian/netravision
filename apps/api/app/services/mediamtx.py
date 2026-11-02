@@ -41,14 +41,16 @@ class MediaMTXClient:
     async def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
         try:
             resp = await self._client.request(method, path, **kwargs)
-        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            if resp.status_code == 404:
+                return resp
+            resp.raise_for_status()
+            return resp
+        except httpx.HTTPError as exc:
+            # Semua error HTTP/timeout/connection -> RuntimeError agar pemanggil
+            # cukup tangkap satu tipe (kontrak: gagal = RuntimeError).
             raise RuntimeError(
                 f"MediaMTX tidak terjangkau di {self._client.base_url}: {exc}"
             ) from exc
-        if resp.status_code == 404:
-            return resp
-        resp.raise_for_status()
-        return resp
 
     async def get_paths(self) -> list[dict]:
         """Daftar semua path yang terdaftar di MediaMTX."""
@@ -68,7 +70,7 @@ class MediaMTXClient:
         if await self.get_path(name):
             return
         await self._request(
-            "POST", "/v3/config/paths/add", json={"name": name, "source": source}
+            "POST", f"/v3/config/paths/add/{name}", json={"source": source}
         )
 
     async def delete_path(self, name: str) -> None:

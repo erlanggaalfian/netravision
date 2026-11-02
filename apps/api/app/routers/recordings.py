@@ -125,17 +125,27 @@ async def _serve_segment(
     up = await uploader_for_stream(db, stream)
     if up is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "segmen tidak ditemukan")
-    file_id = seg.drive_file_id
-    if not file_id:
-        folder_id = await up.ensure_folder(stream.name)
-        file_id = await up.find_file(folder_id, seg.name)
+    try:
+        file_id = seg.drive_file_id
+        if not file_id:
+            folder_id = await up.ensure_folder(stream.name)
+            file_id = await up.find_file(folder_id, seg.name)
+    except Exception as e:  # noqa: BLE001 - Drive API bisa HttpError/timeout -> 502, bukan 500
+        log.warning("Drive lookup segmen %s gagal: %s", seg.id, e)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, f"Google Drive tidak terjangkau: {e}"
+        ) from e
     if not file_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "segmen tidak ditemukan")
 
     async def gen():
         start = 0
         while True:
-            chunk = await up.stream_drive_file(file_id, start, start + CHUNK - 1)
+            try:
+                chunk = await up.stream_drive_file(file_id, start, start + CHUNK - 1)
+            except Exception as e:  # noqa: BLE001 - streaming Drive gagal di tengah jalan
+                log.warning("Drive stream segmen %s gagal: %s", seg.id, e)
+                break
             if not chunk:
                 break
             yield chunk

@@ -186,7 +186,7 @@ export default function AdminStreamsPage() {
   useEffect(() => {
     load();
     /* Akun Drive opsional — sembunyikan field bila gagal dimuat. */
-    api.get<{ folders: DriveFolder[] }>("/admin/storage/google-drive").then((d) => setDriveFolders(d.folders)).catch(() => {});
+    api.get<{ folders: DriveFolder[] }>("/admin/storage/google-drive").then((d) => setDriveFolders(d.folders ?? [])).catch(() => {});
     /* Grup untuk filter. */
     api
       .get<Group[]>("/admin/groups")
@@ -853,14 +853,28 @@ function AddStreamModal({
               >
                 <span className="flex items-center justify-between gap-2">
                   <span className="text-sm font-medium text-white">{c.brand}</span>
-                  <Badge tone="info">{c.method}</Badge>
+                  <span className="flex items-center gap-1.5">
+                    {c.main_ok === true && (
+                      <Badge tone="ok">Main OK</Badge>
+                    )}
+                    {c.main_ok === false && (
+                      <Badge tone="bad">Main gagal</Badge>
+                    )}
+                    <Badge tone="info">{c.method}</Badge>
+                  </span>
                 </span>
                 <span className="mt-1 block truncate text-xs text-slate-500">
                   {c.main_url}
                 </span>
                 {c.sub_url && (
-                  <span className="block truncate text-xs text-slate-600">
-                    sub: {c.sub_url}
+                  <span className="flex items-center gap-1.5 truncate text-xs text-slate-600">
+                    <span>sub: {c.sub_url}</span>
+                    {c.sub_ok === true && (
+                      <span className="shrink-0 rounded bg-ok-400/15 px-1.5 py-0.5 text-[10px] font-medium text-ok-400">OK</span>
+                    )}
+                    {c.sub_ok === false && (
+                      <span className="shrink-0 rounded bg-bad-400/15 px-1.5 py-0.5 text-[10px] font-medium text-bad-400">gagal</span>
+                    )}
                   </span>
                 )}
               </button>

@@ -78,6 +78,7 @@ class ScanRequest(BaseModel):
     password: str | None = None
     port: int = Field(default=554, ge=1, le=65535)
     channel: int = Field(default=1, ge=1)
+    probe: bool = True  # tes koneksi RTSP tiap kandidat via DESCRIBE
 
 
 class ScanCandidate(BaseModel):
@@ -85,6 +86,9 @@ class ScanCandidate(BaseModel):
     sub_url: str | None
     brand: str
     method: str  # explicit | onvif | brand | generic
+    main_ok: bool | None = None   # hasil probe RTSP (None = tidak di-probe)
+    sub_ok: bool | None = None
+    probe_status: str | None = None
 
 
 class ScanResult(BaseModel):

@@ -36,9 +36,15 @@ webrtcAddress: :8889
 # Control API: dipakai service api untuk register/unregister path kamera.
 # Di dalam container listen di semua interface agar reachable via network
 # docker (mediamtx:9997); ke host hanya 127.0.0.1 (lihat compose).
-# TODO Fase 4: aktifkan authInternalUsers untuk control API.
+# MediaMTX versi baru hanya mengizinkan control API dari localhost —
+# izinkan subnet privat (jaringan Docker) via authInternalUsers.
 api: yes
 apiAddress: :9997
+authInternalUsers:
+  - user: internal
+    pass:
+    ips: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+    permissions: ["api"]
 
 # Metrics tidak diekspos ke host pada Fase 0.
 metrics: no

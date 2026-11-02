@@ -76,7 +76,7 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     load();
-    api.get<Stream[]>("/admin/streams").then(setStreams).catch(() => {});
+    api.get<Stream[]>("/admin/streams").then((d) => setStreams(d ?? [])).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

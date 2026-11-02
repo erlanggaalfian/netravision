@@ -127,7 +127,7 @@ export default function AdminKeysPage() {
 
   useEffect(() => {
     loadKeys();
-    api.get<Stream[]>("/admin/streams").then(setStreams).catch(() => {});
+    api.get<Stream[]>("/admin/streams").then((d) => setStreams(d ?? [])).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -137,12 +137,18 @@ export default function AdminKeysPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [logKeyF, logStatusF]);
 
+  const [togglingId, setTogglingId] = useState<number | null>(null);
+
   async function toggleActive(k: KeyOut) {
+    if (togglingId !== null) return;
+    setTogglingId(k.id);
     try {
       await api.put(`/admin/api-keys/${k.id}`, { is_active: !k.is_active });
       loadKeys();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Gagal memperbarui");
+    } finally {
+      setTogglingId(null);
     }
   }
 
@@ -229,9 +235,14 @@ export default function AdminKeysPage() {
                   <Button
                     variant="subtle"
                     onClick={() => toggleActive(k)}
+                    disabled={togglingId === k.id}
                     className="px-3"
                   >
-                    {k.is_active ? "Nonaktifkan" : "Aktifkan"}
+                    {togglingId === k.id
+                      ? "Memproses…"
+                      : k.is_active
+                        ? "Nonaktifkan"
+                        : "Aktifkan"}
                   </Button>
                   <Button
                     variant="danger"

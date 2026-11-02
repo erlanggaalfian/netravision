@@ -164,7 +164,7 @@ async def admin_delete_stream(
     try:
         await mediamtx.delete_path(f"stream_{stream_id}")
         await mediamtx.delete_path(f"stream_{stream_id}_sub")
-    except RuntimeError as e:
+    except Exception as e:  # noqa: BLE001 - best-effort, jangan gagalkan hapus kamera
         log.warning("hapus path MediaMTX stream %s gagal: %s", stream_id, e)
     await db.delete(stream)
     await db.commit()
@@ -393,7 +393,10 @@ async def disk_info(db: AsyncSession = Depends(get_db)):
 )
 async def scan_camera(data: ScanRequest):
     """Coba brand yang diminta; bila 'auto', coba 5 brand umum berurutan.
-    Bila rtsp_url diisi, langsung resolve URL tersebut (tanpa host)."""
+    Bila rtsp_url diisi, langsung resolve URL tersebut (tanpa host).
+    Bila probe=True, tiap kandidat dites koneksi RTSP-nya via DESCRIBE."""
+    from app.services.stream_resolver import probe_rtsp
+
     candidates: list[ScanCandidate] = []
     if data.rtsp_url and data.rtsp_url.strip():
         try:
@@ -406,30 +409,37 @@ async def scan_camera(data: ScanRequest):
                 brand=res.brand, method=res.method,
             )
         )
-        return ScanResult(candidates=candidates)
-    if not data.host:
-        raise HTTPException(
-            status_code=400, detail="host wajib diisi bila tanpa URL RTSP langsung"
-        )
-    brands = [data.brand] if data.brand and data.brand != "auto" else _AUTO_BRANDS
-    candidates: list[ScanCandidate] = []
-    for brand in brands:
-        try:
-            res = await resolve_stream(
-                brand=brand, rtsp_url=None, user=data.user,
-                password=data.password, host=data.host, port=data.port,
-                channel=data.channel,
+    else:
+        if not data.host:
+            raise HTTPException(
+                status_code=400, detail="host wajib diisi bila tanpa URL RTSP langsung"
             )
-        except ValueError:
-            continue
-        candidates.append(
-            ScanCandidate(
-                main_url=res.main_url, sub_url=res.sub_url,
-                brand=res.brand, method=res.method,
+        brands = [data.brand] if data.brand and data.brand != "auto" else _AUTO_BRANDS
+        for brand in brands:
+            try:
+                res = await resolve_stream(
+                    brand=brand, rtsp_url=None, user=data.user,
+                    password=data.password, host=data.host, port=data.port,
+                    channel=data.channel,
+                )
+            except ValueError:
+                continue
+            candidates.append(
+                ScanCandidate(
+                    main_url=res.main_url, sub_url=res.sub_url,
+                    brand=res.brand, method=res.method,
+                )
             )
-        )
     if not candidates:
         raise HTTPException(status_code=400, detail="tidak ada kandidat stream dari input ini")
+    if data.probe:
+        for c in candidates:
+            main_probe = await probe_rtsp(c.main_url)
+            c.main_ok = main_probe.reachable and main_probe.status in ("ok", "auth_required")
+            c.probe_status = main_probe.status
+            if c.sub_url:
+                sub_probe = await probe_rtsp(c.sub_url)
+                c.sub_ok = sub_probe.reachable and sub_probe.status in ("ok", "auth_required")
     return ScanResult(candidates=candidates)
 
 

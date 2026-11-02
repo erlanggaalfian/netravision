@@ -361,7 +361,7 @@ async def add_gdrive_folder(
             info = await gr.check_folder_access(folder_id)
             if not folder_name:
                 folder_name = info.get("name", "")
-        except RuntimeError as e:
+        except Exception as e:  # noqa: BLE001 - rclone/subprocess bisa OSError, bukan cuma RuntimeError
             raise HTTPException(status_code=400, detail=str(e)) from e
     row = GoogleDriveFolder(
         folder_url=payload.folder_url.strip(),
@@ -449,7 +449,7 @@ async def gdrive_connect(payload: RcloneTokenIn):
         info = await gr.save_token(payload.token)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    except RuntimeError as e:
+    except Exception as e:  # noqa: BLE001 - subprocess/IO bisa OSError, bukan cuma RuntimeError
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True, **info}
 
@@ -482,7 +482,7 @@ async def gdrive_connect_start():
 
     try:
         return await gc.start_session()
-    except RuntimeError as e:
+    except Exception as e:  # noqa: BLE001 - jangan 500 untuk kegagalan setup sesi
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
@@ -493,5 +493,5 @@ async def gdrive_connect_finish(payload: GdriveCodeIn):
 
     try:
         return await gc.finish_session(payload.session_id, payload.code)
-    except RuntimeError as e:
+    except Exception as e:  # noqa: BLE001 - httpx bisa ConnectError/Timeout, bukan cuma RuntimeError
         raise HTTPException(status_code=400, detail=str(e)) from e

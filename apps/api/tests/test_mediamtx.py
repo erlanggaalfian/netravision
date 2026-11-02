@@ -14,7 +14,7 @@ def _handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"name": "stream_1", "ready": True})
     if request.method == "GET" and path.startswith("/v3/config/paths/get/"):
         return httpx.Response(404, json={"status": "error"})
-    if request.method == "POST" and path == "/v3/config/paths/add":
+    if request.method == "POST" and path.startswith("/v3/config/paths/add/"):
         return httpx.Response(200, json={})
     if request.method == "DELETE" and path.startswith("/v3/config/paths/delete/"):
         return httpx.Response(200, json={})

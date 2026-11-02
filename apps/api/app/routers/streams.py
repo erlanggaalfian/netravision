@@ -143,7 +143,7 @@ async def reconnect_stream(
         await mediamtx.delete_path(f"stream_{stream_id}_sub")
         if stream.sub_url:
             await mediamtx.create_path(f"stream_{stream_id}_sub", stream.sub_url)
-    except RuntimeError as e:
+    except Exception as e:  # noqa: BLE001 - semua kegagalan MediaMTX -> 502, bukan 500
         log.warning("reconnect stream %s gagal: %s", stream_id, e)
         raise HTTPException(status_code=502, detail=f"MediaMTX tidak terjangkau: {e}")
     return {"ok": True}

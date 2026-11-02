@@ -8,7 +8,11 @@ di streams.main_url/sub_url — tidak di-derive ulang setiap request.
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import re
 from dataclasses import dataclass
+from urllib.parse import unquote, urlparse
 
 from app.services.brands import resolve_brand_urls
 
@@ -150,3 +154,133 @@ async def resolve_stream(
         "Tidak cukup input: berikan rtsp_url, atau host+user+password, "
         "atau brand yang dikenal beserta host."
     )
+
+
+@dataclass
+class ProbeResult:
+    url: str
+    reachable: bool       # TCP + respons RTSP valid
+    status: str           # ok | auth_required | not_found | connection_failed | timeout | error
+    authenticated: bool = False
+
+
+def _parse_www_authenticate(header_value: str) -> dict | None:
+    """Parse header WWW-Authenticate Digest -> dict param. None bila Basic/unknown."""
+    if "digest" not in header_value.lower():
+        return None
+    params: dict[str, str] = {}
+    for m in re.finditer(r'(\w+)\s*=\s*(?:"([^"]*)"|([^\s,]+))', header_value):
+        params[m.group(1).lower()] = m.group(2) if m.group(2) is not None else m.group(3)
+    return params if "nonce" in params else None
+
+
+def _digest_auth_value(user: str, password: str, method: str, uri: str,
+                       params: dict, cnonce: str = "netravision") -> str:
+    realm = params.get("realm", "")
+    nonce = params["nonce"]
+    qop = params.get("qop", "")
+    ha1 = hashlib.md5(f"{user}:{realm}:{password}".encode()).hexdigest()
+    ha2 = hashlib.md5(f"{method}:{uri}".encode()).hexdigest()
+    if "auth" in qop:
+        nc = "00000001"
+        resp = hashlib.md5(f"{ha1}:{nonce}:{nc}:{cnonce}:auth:{ha2}".encode()).hexdigest()
+        return (f'Digest username="{user}", realm="{realm}", nonce="{nonce}", '
+                f'uri="{uri}", qop=auth, nc={nc}, cnonce="{cnonce}", response="{resp}"')
+    resp = hashlib.md5(f"{ha1}:{nonce}:{ha2}".encode()).hexdigest()
+    return (f'Digest username="{user}", realm="{realm}", nonce="{nonce}", '
+            f'uri="{uri}", response="{resp}"')
+
+
+async def _rtsp_describe(reader: asyncio.StreamReader,
+                         writer: asyncio.StreamWriter,
+                         url: str, auth: str | None,
+                         timeout: float) -> str:
+    cseq = 2
+    req = (f"DESCRIBE {url} RTSP/1.0\r\nCSeq: {cseq}\r\n"
+           f"Accept: application/sdp\r\n")
+    if auth:
+        req += f"Authorization: {auth}\r\n"
+    req += "User-Agent: NetraVision/3.0\r\n\r\n"
+    writer.write(req.encode())
+    await writer.drain()
+    try:
+        data = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=timeout)
+    except asyncio.LimitOverrunError as e:
+        data = await reader.read(e.consumed)
+    return data.decode("utf-8", errors="replace")
+
+
+async def probe_rtsp(url: str, timeout: float = 6.0) -> ProbeResult:
+    """Tes koneksi RTSP via DESCRIBE (tanpa ffmpeg).
+
+    Mengembalikan apakah URL dapat dijangkau dan apakah kredensial valid.
+    401 = server ada & path valid tapi butuh auth; 404 = path tidak ada.
+    """
+    parsed = urlparse(url)
+    host = parsed.hostname
+    if not host:
+        return ProbeResult(url=url, reachable=False, status="invalid_url")
+    port = parsed.port or 554
+    user = unquote(parsed.username) if parsed.username else None
+    password = unquote(parsed.password) if parsed.password else None
+    path = parsed.path or "/"
+    clean = f"rtsp://{host}:{port}{path}"
+    if parsed.query:
+        clean += f"?{parsed.query}"
+
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=timeout)
+    except asyncio.TimeoutError:
+        return ProbeResult(url=url, reachable=False, status="timeout")
+    except OSError:
+        return ProbeResult(url=url, reachable=False, status="connection_failed")
+
+    try:
+        resp = await _rtsp_describe(reader, writer, clean, None, timeout)
+        if resp.startswith("RTSP/1.0 200"):
+            return ProbeResult(url=url, reachable=True, status="ok",
+                               authenticated=True)
+        if resp.startswith("RTSP/1.0 404"):
+            return ProbeResult(url=url, reachable=True, status="not_found")
+        if resp.startswith("RTSP/1.0 401") and user and password:
+            # Coba auth: Basic dulu, lalu Digest bila ditantang.
+            basic = "Basic " + base64.b64encode(
+                f"{user}:{password}".encode()).decode()
+            resp2 = await _rtsp_describe(reader, writer, clean, basic, timeout)
+            if resp2.startswith("RTSP/1.0 200"):
+                return ProbeResult(url=url, reachable=True, status="ok",
+                                   authenticated=True)
+            m = re.search(r"WWW-Authenticate:\s*(.+)",
+                          resp if not resp2.startswith("RTSP/1.0 401") else resp2,
+                          re.IGNORECASE)
+            if m:
+                params = _parse_www_authenticate(m.group(1))
+                if params:
+                    digest = _digest_auth_value(user, password, "DESCRIBE",
+                                                clean, params)
+                    resp3 = await _rtsp_describe(reader, writer, clean,
+                                                 digest, timeout)
+                    if resp3.startswith("RTSP/1.0 200"):
+                        return ProbeResult(url=url, reachable=True,
+                                           status="ok", authenticated=True)
+                    if resp3.startswith("RTSP/1.0 401"):
+                        return ProbeResult(url=url, reachable=True,
+                                           status="auth_failed")
+            return ProbeResult(url=url, reachable=True,
+                               status="auth_required")
+        if resp.startswith("RTSP/1.0 401"):
+            return ProbeResult(url=url, reachable=True,
+                               status="auth_required")
+        first_line = resp.split("\r\n", 1)[0][:40]
+        return ProbeResult(url=url, reachable=True,
+                           status=f"unexpected:{first_line}")
+    except (asyncio.TimeoutError, OSError):
+        return ProbeResult(url=url, reachable=False, status="timeout")
+    except Exception:  # noqa: BLE001
+        return ProbeResult(url=url, reachable=False, status="error")
+    finally:
+        try:
+            writer.close()
+        except Exception:  # noqa: BLE001
+            pass

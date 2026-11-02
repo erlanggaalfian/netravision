@@ -99,6 +99,9 @@ export interface ScanCandidate {
   sub_url: string | null;
   brand: string;
   method: string;
+  main_ok?: boolean | null;
+  sub_ok?: boolean | null;
+  probe_status?: string | null;
 }
 
 export interface StatusChange {
