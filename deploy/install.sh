@@ -21,8 +21,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEPLOY_DIR="$REPO_ROOT/deploy"
 COMPOSE_FILE="$DEPLOY_DIR/docker-compose.yml"
 ENV_FILE="$DEPLOY_DIR/.env"
+# Domain bisa dioverride: DOMAIN=cctv.netbackup.my.id ./install.sh
+DOMAIN="${DOMAIN:-netra.mamura.net.id}"
 VHOST_SRC="$DEPLOY_DIR/apache/netra.mamura.net.id.conf"
-VHOST_DST="/etc/apache2/sites-available/netra.mamura.net.id.conf"
+VHOST_DST="/etc/apache2/sites-available/${DOMAIN}.conf"
 DOCROOT="/var/www/netravision/out"
 
 step()  { echo -e "\n\033[1;34m[install]\033[0m $*"; }
@@ -107,7 +109,7 @@ else
 fi
 
 # ------------------------------------------------- 5. vhost Apache
-step "5/6 — Pasang vhost Apache netra.mamura.net.id"
+step "5/6 — Pasang vhost Apache $DOMAIN"
 mkdir -p "$DOCROOT"
 # Placeholder bila frontend (Fase 2) belum di-build — diganti update.sh.
 if [ ! -f "$DOCROOT/index.html" ]; then
@@ -119,11 +121,17 @@ if [ ! -f "$DOCROOT/index.html" ]; then
 HTML
     ok "Placeholder index.html dipasang (frontend Fase 2 akan mengganti)."
 fi
-cp "$VHOST_SRC" "$VHOST_DST"
+# Backup vhost lama bila ada (jangan menimpa v2 yang masih hidup tanpa jejak).
+if [ -f "$VHOST_DST" ]; then
+    cp "$VHOST_DST" "$VHOST_DST.bak-$(date +%Y%m%d%H%M%S)"
+    warn "Vhost lama dibackup sebelum ditimpa."
+fi
+# Sesuaikan ServerName dengan domain yang dipakai.
+sed "s/netra\.mamura\.net\.id/${DOMAIN//./\\.}/g" "$VHOST_SRC" > "$VHOST_DST"
 a2enmod -q proxy proxy_http proxy_wstunnel rewrite ssl headers \
     || fail "Gagal mengaktifkan modul Apache."
-a2ensite -q netra.mamura.net.id \
-    || fail "Gagal a2ensite netra.mamura.net.id."
+a2ensite -q "$DOMAIN" \
+    || fail "Gagal a2ensite $DOMAIN."
 apachectl configtest || fail "apachectl configtest GAGAL — perbaiki vhost dulu."
 systemctl reload apache2 || fail "Gagal reload apache2."
 ok "Vhost aktif. Port 80/443 tetap milik Apache; vhost lain tidak disentuh."

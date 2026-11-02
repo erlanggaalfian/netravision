@@ -667,7 +667,7 @@ function AddStreamModal({
     try {
       const lat = latitude.trim() === "" ? null : parseFloat(latitude);
       const lon = longitude.trim() === "" ? null : parseFloat(longitude);
-      await api.post<Stream>(
+      const res = await api.post<Stream & { mediamtx_registered?: boolean; mediamtx_error?: string | null }>(
         "/admin/streams",
         {
           name: name.trim(),
@@ -680,6 +680,14 @@ function AddStreamModal({
           longitude: lon !== null && !Number.isNaN(lon) ? lon : null,
         },
       );
+      if (res.mediamtx_registered === false) {
+        setError(
+          "Kamera tersimpan, tapi gagal didaftarkan ke MediaMTX" +
+          (res.mediamtx_error ? `: ${res.mediamtx_error}` : "") +
+          ". Path akan terdaftar otomatis saat MediaMTX pulih (sync berkala)."
+        );
+        return;
+      }
       onDone();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Gagal menyimpan kamera");

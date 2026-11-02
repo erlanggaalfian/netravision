@@ -65,12 +65,22 @@ class MediaMTXClient:
             return None
         return resp.json()
 
-    async def create_path(self, name: str, source: str) -> None:
+    async def create_path(self, name: str, source: str,
+                          record: bool = False) -> None:
         """Daftarkan path dengan source RTSP (idempoten bila sudah ada)."""
         if await self.get_path(name):
             return
+        body: dict = {"source": source}
+        if record:
+            body["record"] = True
         await self._request(
-            "POST", f"/v3/config/paths/add/{name}", json={"source": source}
+            "POST", f"/v3/config/paths/add/{name}", json=body
+        )
+
+    async def patch_path(self, name: str, patch: dict) -> None:
+        """Ubah konfigurasi path yang sudah ada (mis. record on/off)."""
+        await self._request(
+            "PATCH", f"/v3/config/paths/patch/{name}", json=patch
         )
 
     async def delete_path(self, name: str) -> None:

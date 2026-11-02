@@ -47,15 +47,23 @@ _AUTO_BRANDS = ["hikvision", "dahua", "uniview_ipc", "tplink_vigi", "reolink"]
 
 
 async def _register_paths(
-    mediamtx: MediaMTXClient, stream_id: int, main_url: str, sub_url: str | None
-) -> None:
-    """Daftarkan path ke MediaMTX (best-effort: warning bila down)."""
+    mediamtx: MediaMTXClient, stream_id: int, main_url: str, sub_url: str | None,
+    record: bool = False,
+) -> tuple[bool, str | None]:
+    """Daftarkan path ke MediaMTX. Return (ok, pesan_error).
+
+    Kamera tetap disimpan ke DB walau gagal — dengan sync berkala (poin 3
+    laporan staging), path akan terdaftar sendiri begitu MediaMTX pulih.
+    """
     try:
-        await mediamtx.create_path(f"stream_{stream_id}", main_url)
+        await mediamtx.create_path(f"stream_{stream_id}", main_url, record=record)
         if sub_url:
-            await mediamtx.create_path(f"stream_{stream_id}_sub", sub_url)
+            await mediamtx.create_path(f"stream_{stream_id}_sub", sub_url, record=record)
+        return True, None
     except Exception as e:  # noqa: BLE001 - best-effort, jangan gagalkan tambah kamera
-        log.warning("MediaMTX tidak terjangkau (stream %s): %s", stream_id, e)
+        msg = f"MediaMTX tidak terjangkau (stream {stream_id}): {e}"
+        log.warning(msg)
+        return False, str(e)
 
 
 @router.get("/admin/streams", response_model=list[StreamOut])
@@ -106,13 +114,21 @@ async def admin_create_stream(
     db.add(stream)
     await db.commit()
     await db.refresh(stream)
-    await _register_paths(mediamtx, stream.id, res.main_url, res.sub_url)
-    return stream_to_out(stream, get_settings())
+    ok, err = await _register_paths(mediamtx, stream.id, res.main_url, res.sub_url,
+                                    record=data.recording_enabled)
+    out = stream_to_out(stream, get_settings())
+    # Status registrasi MediaMTX dikembalikan ke UI (bukan 500, bukan diam).
+    out_dict = out.model_dump()
+    out_dict["mediamtx_registered"] = ok
+    out_dict["mediamtx_error"] = err
+    return out_dict
 
 
 @router.put("/admin/streams/{stream_id}", response_model=StreamOut)
 async def admin_update_stream(
-    stream_id: int, data: StreamUpdate, db: AsyncSession = Depends(get_db)
+    stream_id: int, data: StreamUpdate,
+    db: AsyncSession = Depends(get_db),
+    mediamtx: MediaMTXClient = Depends(get_mediamtx),
 ):
     stream = await _get_stream_or_404(db, stream_id)
     if data.name is not None:
@@ -147,6 +163,15 @@ async def admin_update_stream(
         stream.longitude = data.longitude
     if data.recording_enabled is not None:
         stream.recording_enabled = data.recording_enabled
+        # Sinkronkan flag record di MediaMTX (best-effort).
+        try:
+            await mediamtx.patch_path(
+                f"stream_{stream_id}", {"record": data.recording_enabled})
+            if stream.sub_url:
+                await mediamtx.patch_path(
+                    f"stream_{stream_id}_sub", {"record": data.recording_enabled})
+        except Exception as e:  # noqa: BLE001
+            log.warning("patch record MediaMTX stream %s gagal: %s", stream_id, e)
     if data.retention_days is not None:
         stream.retention_days = data.retention_days
     await db.commit()

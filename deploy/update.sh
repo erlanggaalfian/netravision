@@ -39,8 +39,10 @@ ok "Repo terbaru: $(git rev-parse --short HEAD)"
 # ------------------------------------------------- 2. build frontend
 step "2/5 — Build frontend"
 if [ -f "$REPO_ROOT/apps/web/package.json" ]; then
-    command -v npm >/dev/null 2>&1 || fail "npm belum terinstal (dibutuhkan untuk build frontend)."
-    (cd "$REPO_ROOT/apps/web" && npm ci && npm run build) \
+    # Build di container Node 20 (host bisa Node 18 — Tailwind v4 butuh 20+).
+    # Tidak mengganggu aplikasi lain di server.
+    docker run --rm -v "$REPO_ROOT/apps/web:/app" -w /app node:20-alpine \
+        sh -c "npm ci && npm run build" \
         || fail "Build frontend gagal."
     [ -d "$REPO_ROOT/apps/web/out" ] || fail "Hasil build apps/web/out tidak ditemukan (cek output: 'export' di next.config)."
     mkdir -p "$DOCROOT"
@@ -60,7 +62,9 @@ step "3/5 — Migrasi database"
 if [ -f "$REPO_ROOT/apps/api/Dockerfile" ]; then
     docker compose -f "$COMPOSE_FILE" up -d api >/dev/null \
         || fail "Gagal menjalankan container api."
-    docker compose -f "$COMPOSE_FILE" exec -T api alembic upgrade head \
+    # PYTHONPATH=/srv/api agar alembic menemukan modul 'app'.
+    docker compose -f "$COMPOSE_FILE" exec -T -w /srv/api \
+        -e PYTHONPATH=/srv/api api alembic upgrade head \
         || fail "Migrasi gagal. Cek: docker compose -f $COMPOSE_FILE logs api"
     ok "Migrasi selesai."
 else

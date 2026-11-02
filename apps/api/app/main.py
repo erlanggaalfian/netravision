@@ -3,7 +3,6 @@
 import asyncio
 import logging
 import shutil
-from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -53,7 +52,70 @@ async def _status_broadcaster() -> None:
         await mediamtx.aclose()
 
 
-@asynccontextmanager
+async def _mediamtx_sync_loop() -> None:
+    """Sinkronisasi path kamera ke MediaMTX: saat start + tiap 60 detik.
+
+    Path MediaMTX bersifat dinamis (tidak tersimpan) — bila MediaMTX restart,
+    semua path hilang. Loop ini mendaftarkan ulang semua kamera aktif dan
+    menghapus path milik kamera yang sudah dihapus/dinonaktifkan.
+    """
+    from app.services.mediamtx import get_mediamtx
+
+    log = logging.getLogger("netravision.mediamtx_sync")
+    first = True
+    while True:
+        if not first:
+            await asyncio.sleep(60)
+        first = False
+        try:
+            from sqlalchemy import select
+
+            from app.db import get_session_factory
+            from app.models.stream import Stream
+
+            factory = get_session_factory()
+            async with factory() as db:
+                result = await db.execute(
+                    select(Stream).where(Stream.is_active.is_(True)))
+                streams = list(result.scalars().all())
+            mediamtx = get_mediamtx()
+            try:
+                paths = await mediamtx.get_paths()
+                existing = {p.get("name") for p in paths if isinstance(p, dict)}
+            except Exception:  # noqa: BLE001 - MediaMTX down, coba lagi nanti
+                continue
+            wanted: set[str] = set()
+            for s in streams:
+                wanted.add(f"stream_{s.id}")
+                try:
+                    await mediamtx.create_path(
+                        f"stream_{s.id}", s.main_url or s.rtsp_url or "",
+                        record=bool(s.recording_enabled))
+                except Exception as e:  # noqa: BLE001
+                    log.warning("sync path stream_%s gagal: %s", s.id, e)
+                    continue
+                if s.sub_url:
+                    wanted.add(f"stream_{s.id}_sub")
+                    try:
+                        await mediamtx.create_path(
+                            f"stream_{s.id}_sub", s.sub_url,
+                            record=bool(s.recording_enabled))
+                    except Exception as e:  # noqa: BLE001
+                        log.warning("sync path stream_%s_sub gagal: %s", s.id, e)
+            # Hapus path yatim (kamera dihapus/dinonaktifkan).
+            for name in existing - wanted:
+                if name.startswith("stream_"):
+                    try:
+                        await mediamtx.delete_path(name)
+                    except Exception:  # noqa: BLE001
+                        pass
+            await mediamtx.aclose()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log.warning("mediamtx sync loop error: %s", e)
+
+
 async def lifespan(app: FastAPI):
     settings = get_settings()
     log = logging.getLogger("netravision")
@@ -86,6 +148,9 @@ async def lifespan(app: FastAPI):
     from app.services.drive_uploader import upload_loop
 
     tasks.append(asyncio.create_task(upload_loop()))
+
+    # Sinkronisasi path kamera ke MediaMTX (hilang saat MediaMTX restart).
+    tasks.append(asyncio.create_task(_mediamtx_sync_loop()))
 
     try:
         yield

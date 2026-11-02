@@ -32,19 +32,40 @@ hlsSegmentDuration: 1s
 # media via UDP port 8189 (default) — di-publish ke host di docker-compose.yml.
 webrtc: yes
 webrtcAddress: :8889
+# PENTING: isi dengan IP publik server agar browser menerima kandidat ICE
+# yang benar. Tanpa ini browser hanya dapat IP internal Docker (video hitam).
+# Ganti 0.0.0.0 dengan IP publik server sebelum deploy.
+# Contoh: webrtcAdditionalHosts: [103.210.52.66]
+webrtcAdditionalHosts: [0.0.0.0]
+# Jangan iklankan IP internal Docker ke browser.
+webrtcIPsFromInterfaces: no
 
 # Control API: dipakai service api untuk register/unregister path kamera.
 # Di dalam container listen di semua interface agar reachable via network
 # docker (mediamtx:9997); ke host hanya 127.0.0.1 (lihat compose).
 # MediaMTX versi baru hanya mengizinkan control API dari localhost —
 # izinkan subnet privat (jaringan Docker) via authInternalUsers.
+# PENTING: begitu authInternalUsers ditulis, daftar bawaan diganti total,
+# jadi izin publish/read/playback untuk semua orang harus ditulis eksplisit.
 api: yes
 apiAddress: :9997
 authInternalUsers:
-  - user: internal
+  # siapa pun boleh publish/read/playback stream
+  - user: any
     pass:
-    ips: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
-    permissions: ["api"]
+    ips: []
+    permissions:
+      - action: publish
+      - action: read
+      - action: playback
+  # control API hanya dari localhost + jaringan privat (Docker)
+  - user: any
+    pass:
+    ips: ['127.0.0.1', '::1', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']
+    permissions:
+      - action: api
+      - action: metrics
+      - action: pprof
 
 # Metrics tidak diekspos ke host pada Fase 0.
 metrics: no
@@ -56,10 +77,13 @@ pathDefaults:
   # API mem-publish path via control API; source publisher = API mendorong
   # konfigurasi path (termasuk RTSP URL kamera) saat kamera ditambahkan.
   source: publisher
+  # Stream hanya ditarik dari kamera saat ada penonton (hemat sesi RTSP —
+  # sebagian kamera membatasi jumlah sesi sekaligus).
+  sourceOnDemand: yes
 
-  # Perekaman: segmen fMP4 per kamera, siap untuk opsi lokal / Drive / keduanya
-  # (Fase 3). Format & pola path dipertahankan kompatibel dengan arsip v2.0.
-  record: true
+  # Perekaman: default MATI. API menyalakan per kamera via create_path
+  # bila recording_enabled=true. Format & pola path kompatibel v2.0.
+  record: false
   recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f.mp4
   recordFormat: fmp4
   recordPartDuration: 1s

@@ -21,8 +21,11 @@ class FakeMediaMTX:
         self.paths: dict[str, str] = {}
         self.deleted: list[str] = []
 
-    async def create_path(self, name: str, source: str) -> None:
+    async def create_path(self, name: str, source: str, record: bool = False) -> None:
         self.paths[name] = source
+
+    async def patch_path(self, name: str, patch: dict) -> None:
+        pass
 
     async def delete_path(self, name: str) -> None:
         self.deleted.append(name)

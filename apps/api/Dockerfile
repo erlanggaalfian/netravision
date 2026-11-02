@@ -7,7 +7,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /srv/api
 
 COPY pyproject.toml ./
-RUN pip install .
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg \
+ && rm -rf /var/lib/apt/lists/* \
+ && pip install .
 
 COPY app ./app
 COPY alembic ./alembic
