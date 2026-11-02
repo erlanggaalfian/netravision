@@ -115,3 +115,78 @@ async def test_metrics_admin_only(app_client):
         assert "nv_http_requests_total" in body
         assert "nv_http_latency_seconds" in body
         assert 'path_template="/api/health"' in body
+
+
+async def test_scan_rate_limited(app_client):
+    """Scan dibatasi 10/menit — request ke-11 harus 429."""
+    app, _, db = app_client
+    admin = make_user()
+    db.add(admin)
+    await db.commit()
+    auth_as(app, admin)
+    async with _client(app) as c:
+        statuses = []
+        for _ in range(11):
+            r = await c.post(
+                "/api/admin/scan",
+                json={"brand": "auto", "host": "192.168.1.10",
+                      "user": "admin", "password": "x"},
+            )
+            statuses.append(r.status_code)
+        assert statuses[:10] == [200] * 10, statuses
+        assert statuses[10] == 429, statuses
+        assert "retry-after" in {k.lower() for k in r.headers}
+
+
+async def test_audit_logs_failed_mutation(app_client):
+    """Mutasi admin yang gagal tetap tercatat beserta status code-nya."""
+    app, _, db = app_client
+    app.state.audit_session_factory = _audit_factory_for(db)
+    admin = make_user()
+    db.add(admin)
+    await db.commit()
+    auth_as(app, admin)
+    async with _client(app) as c:
+        r = await c.post("/api/admin/streams/999/sharing", json={"user_ids": []})
+        assert r.status_code == 404
+
+    rows = (
+        await db.execute(
+            select(AuditLog).where(
+                AuditLog.action == "POST /api/admin/streams/999/sharing")
+        )
+    ).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].detail["status_code"] == 404
+
+
+async def test_audit_logs_real_actor(app_client):
+    """Dengan JWT asli (tanpa override), actor tercatat sebagai username."""
+    from app.core.config import get_settings
+    from app.core.security import create_access_token
+
+    app, _, db = app_client
+    app.state.audit_session_factory = _audit_factory_for(db)
+    admin = make_user()
+    db.add(admin)
+    await db.commit()
+    tok = create_access_token(admin.id, admin.username, admin.role, get_settings())
+    # Tanpa auth_as — auth route memakai JWT asli end-to-end.
+    async with _client(app) as c:
+        r = await c.post(
+            "/api/admin/users",
+            json={"username": "auditreal", "password": "rahasia123", "role": "user"},
+            headers={"Authorization": f"Bearer {tok}"},
+        )
+        assert r.status_code == 201, r.text
+
+    rows = (
+        await db.execute(
+            select(AuditLog).where(AuditLog.action == "POST /api/admin/users")
+        )
+    ).scalars().all()
+    assert len(rows) >= 1
+    row = rows[-1]
+    assert row.detail["actor"] == "admin"
+    assert row.actor_id == admin.id
+    assert row.detail["status_code"] == 201

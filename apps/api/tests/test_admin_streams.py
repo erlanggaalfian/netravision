@@ -131,3 +131,67 @@ async def test_disks(app_client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["total"] > 0 and body["free"] >= 0
+
+
+async def _seed_stream(db):
+    s = Stream(id=1, name="Cam 1", rtsp_url="rtsp://cam/1",
+               main_url="rtsp://cam/1", is_active=True)
+    db.add(s)
+    await db.commit()
+    return s
+
+
+async def test_sharing_crud(app_client):
+    app, _, db = app_client
+    admin, op = await _seed(db)
+    await _seed_stream(db)
+    auth_as(app, admin)
+    async with _client(app) as c:
+        r = await c.get("/api/admin/streams/1/sharing")
+        assert r.status_code == 200 and r.json() == {"user_ids": []}
+
+        r = await c.post("/api/admin/streams/1/sharing", json={"user_ids": [op.id]})
+        assert r.status_code == 200, r.text
+        assert r.json()["user_ids"] == [op.id]
+
+        r = await c.get("/api/admin/streams/1/sharing")
+        assert r.json() == {"user_ids": [op.id]}
+
+        # Cabut akses.
+        r = await c.post("/api/admin/streams/1/sharing", json={"user_ids": []})
+        assert r.status_code == 200
+        r = await c.get("/api/admin/streams/1/sharing")
+        assert r.json() == {"user_ids": []}
+
+        # Stream tidak ada / user tidak ada.
+        r = await c.get("/api/admin/streams/99/sharing")
+        assert r.status_code == 404
+        r = await c.post("/api/admin/streams/1/sharing", json={"user_ids": [999]})
+        assert r.status_code == 400
+
+
+async def test_sharing_grants_view_access(app_client):
+    """User biasa hanya melihat kamera yang di-sharing kepadanya."""
+    app, _, db = app_client
+    admin, op = await _seed(db)
+    db.add(Stream(id=1, name="Cam 1", rtsp_url="rtsp://cam/1",
+                  main_url="rtsp://cam/1", is_active=True))
+    db.add(Stream(id=2, name="Cam 2", rtsp_url="rtsp://cam/2",
+                  main_url="rtsp://cam/2", is_active=True))
+    await db.commit()
+
+    auth_as(app, op)
+    async with _client(app) as c:
+        r = await c.get("/api/streams")
+        assert r.json() == []
+
+    auth_as(app, admin)
+    async with _client(app) as c:
+        r = await c.post("/api/admin/streams/1/sharing", json={"user_ids": [op.id]})
+        assert r.status_code == 200
+
+    auth_as(app, op)
+    async with _client(app) as c:
+        r = await c.get("/api/streams")
+        names = [s["name"] for s in r.json()]
+        assert names == ["Cam 1"]
