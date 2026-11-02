@@ -5,6 +5,13 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "../../components/AppShell";
 import { CameraTile } from "../../components/CameraTile";
 import { FocusModal } from "../../components/FocusModal";
+import {
+  Button,
+  ConfirmModal,
+  ErrorBox,
+  SectionTitle,
+  Spinner,
+} from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { useCameraStatus } from "../../hooks/useCameraStatus";
@@ -26,7 +33,7 @@ const COLS_CLASS: Record<number, string> = {
   1: "grid-cols-1",
   2: "grid-cols-1 sm:grid-cols-2",
   3: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3",
-  4: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4",
+  4: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4",
 };
 
 function loadLayouts(): MonitorLayout[] {
@@ -123,7 +130,7 @@ function GroupSections({
   if (loading || groups === null) {
     return (
       <div className="flex items-center justify-center gap-2 py-16 text-sm text-neutral-400">
-        <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/15 border-t-accent-400 motion-reduce:animate-none" />
+        <span className="h-5 w-5 animate-spin rounded-full border-2 border-ink-700 border-t-accent-400 motion-reduce:animate-none" />
         Memuat grup…
       </div>
     );
@@ -201,6 +208,7 @@ export default function MonitorsPage() {
   const [groups, setGroups] = useState<{ id: number; name: string; stream_ids: number[] }[] | null>(null);
   const [groupsError, setGroupsError] = useState<string | null>(null);
   const [groupsLoading, setGroupsLoading] = useState(false);
+  const [deleting, setDeleting] = useState<MonitorLayout | null>(null);
   const gridWrapRef = useRef<HTMLDivElement>(null);
 
   // form state
@@ -363,69 +371,62 @@ export default function MonitorsPage() {
   if (loading || (!user && !loading)) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-ink-950">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/15 border-t-accent-400 motion-reduce:animate-none" />
+        <Spinner />
       </div>
     );
   }
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-6xl px-4 py-5 md:px-6 md:py-7">
+      <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-7">
         {error && (
-          <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-bad-400">
-            {error}
+          <div className="mb-4">
+            <ErrorBox message={error} />
           </div>
         )}
 
         {openLayout ? (
           /* ===== Tampilan layout terbuka ===== */
           <div>
-            <div className="mb-4 flex flex-wrap items-center gap-3">
-              <button
-                onClick={() => setOpenId(null)}
-                className="flex h-11 min-w-[44px] items-center justify-center rounded-xl bg-ink-900 px-3 text-base text-neutral-200 ring-1 ring-white/10 transition hover:bg-ink-800 active:scale-95"
-                aria-label="Kembali ke daftar monitor"
-              >
-                ←
-              </button>
-              <div className="min-w-0 flex-1">
-                <h1 className="truncate text-xl font-bold tracking-tight text-white">
-                  {openLayout.name}
-                </h1>
-                <p className="text-sm text-neutral-400">
-                  {openStreams.length} kamera · {openLayout.cols} kolom
-                  {groupMode ? " · mode grup" : ""}
-                </p>
-              </div>
-              <button
-                onClick={toggleGroupMode}
-                aria-pressed={groupMode}
-                className={`flex h-11 items-center gap-2 rounded-xl px-4 text-sm font-medium transition active:scale-95 ${
-                  groupMode
-                    ? "bg-accent-600 text-onaccent hover:bg-accent-500"
-                    : "bg-ink-900 text-neutral-200 ring-1 ring-white/10 hover:bg-ink-800"
-                }`}
-              >
-                Grup
-              </button>
-              <button
-                onClick={toggleFullscreen}
-                className="flex h-11 items-center gap-2 rounded-xl bg-ink-900 px-4 text-sm font-medium text-neutral-200 ring-1 ring-white/10 transition hover:bg-ink-800 active:scale-95"
-                aria-label="Layar penuh"
-                title="Layar penuh"
-              >
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-                  <path
-                    d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"
-                    stroke="currentColor"
-                    strokeWidth="1.6"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-                <span className="hidden sm:inline">Penuh</span>
-              </button>
-            </div>
+            <SectionTitle
+              title={openLayout.name}
+              desc={`${openStreams.length} kamera · ${openLayout.cols} kolom${groupMode ? " · mode grup" : ""}`}
+              action={
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setOpenId(null)}
+                    className="flex h-11 min-w-[44px] items-center justify-center rounded-xl bg-ink-900 px-3 text-base text-neutral-200 ring-1 ring-white/10 transition hover:bg-ink-800 active:scale-95"
+                    aria-label="Kembali ke daftar monitor"
+                  >
+                    ←
+                  </button>
+                  <Button
+                    variant={groupMode ? "primary" : "subtle"}
+                    onClick={toggleGroupMode}
+                    aria-pressed={groupMode}
+                  >
+                    Grup
+                  </Button>
+                  <button
+                    onClick={toggleFullscreen}
+                    className="flex h-11 items-center gap-2 rounded-xl bg-ink-900 px-4 text-sm font-medium text-neutral-200 ring-1 ring-white/10 transition hover:bg-ink-800 active:scale-95"
+                    aria-label="Layar penuh"
+                    title="Layar penuh"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+                      <path
+                        d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    <span className="hidden sm:inline">Penuh</span>
+                  </button>
+                </div>
+              }
+            />
             <div ref={gridWrapRef} className="bg-ink-950">
               {fetching ? (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -464,9 +465,9 @@ export default function MonitorsPage() {
         ) : editing ? (
           /* ===== Form buat/ubah ===== */
           <div className="mx-auto max-w-2xl">
-            <h1 className="mb-5 text-2xl font-bold tracking-tight text-white">
-              {editing.id ? "Ubah monitor" : "Monitor baru"}
-            </h1>
+            <SectionTitle
+              title={editing.id ? "Ubah monitor" : "Monitor baru"}
+            />
             <div className="rounded-2xl bg-ink-900 p-5 ring-1 ring-white/10">
               <label className="mb-1.5 block text-sm font-medium text-neutral-300">
                 Nama monitor
@@ -531,7 +532,7 @@ export default function MonitorsPage() {
                         type="checkbox"
                         checked={checked}
                         onChange={() => toggleId(s.id)}
-                        className="h-5 w-5 shrink-0 accent-[#2563eb]"
+                        className="h-5 w-5 shrink-0 accent-accent-500"
                       />
                       <span
                         className={`h-2 w-2 shrink-0 rounded-full ${s.is_online ? "bg-ok-400" : "bg-bad-400"}`}
@@ -548,7 +549,7 @@ export default function MonitorsPage() {
                               moveId(s.id, -1);
                             }}
                             disabled={formIds.indexOf(s.id) === 0}
-                            className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/5 text-neutral-300 transition hover:bg-white/10 active:scale-95 disabled:opacity-30"
+                            className="flex h-11 w-11 items-center justify-center rounded-lg bg-white/5 text-neutral-300 transition hover:bg-white/10 active:scale-95 disabled:opacity-30"
                             aria-label={`Geser ${s.name} ke atas`}
                           >
                             ↑
@@ -560,7 +561,7 @@ export default function MonitorsPage() {
                               moveId(s.id, 1);
                             }}
                             disabled={formIds.indexOf(s.id) === formIds.length - 1}
-                            className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/5 text-neutral-300 transition hover:bg-white/10 active:scale-95 disabled:opacity-30"
+                            className="flex h-11 w-11 items-center justify-center rounded-lg bg-white/5 text-neutral-300 transition hover:bg-white/10 active:scale-95 disabled:opacity-30"
                             aria-label={`Geser ${s.name} ke bawah`}
                           >
                             ↓
@@ -578,41 +579,33 @@ export default function MonitorsPage() {
               </div>
 
               <div className="flex gap-2">
-                <button
-                  onClick={cancelEdit}
-                  className="h-11 flex-1 rounded-xl bg-white/5 px-4 text-sm font-medium text-neutral-200 transition hover:bg-white/10 active:scale-[0.99]"
-                >
+                <Button variant="ghost" onClick={cancelEdit} className="flex-1">
                   Batal
-                </button>
-                <button
+                </Button>
+                <Button
                   onClick={saveForm}
                   disabled={!formName.trim() || formIds.length === 0}
-                  className="h-11 flex-1 rounded-xl bg-accent-600 px-4 text-sm font-semibold text-onaccent transition hover:bg-accent-500 active:scale-[0.99] disabled:opacity-40"
+                  className="flex-1"
                 >
                   Simpan
-                </button>
+                </Button>
               </div>
             </div>
           </div>
         ) : (
           /* ===== Daftar layout ===== */
           <div>
-            <div className="mb-5 flex items-center justify-between">
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight text-white">
-                  Monitor tersimpan
-                </h1>
-              </div>
-              <button
-                onClick={startCreate}
-                className="flex h-11 items-center gap-1.5 rounded-xl bg-accent-600 px-5 text-sm font-semibold text-onaccent transition hover:bg-accent-500 active:scale-95"
-              >
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-                  <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                </svg>
-                Baru
-              </button>
-            </div>
+            <SectionTitle
+              title="Monitor tersimpan"
+              action={
+                <Button onClick={startCreate}>
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+                    <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  </svg>
+                  Baru
+                </Button>
+              }
+            />
 
             {fetching && layouts.length === 0 ? (
               <div className="flex flex-col gap-3">
@@ -647,12 +640,9 @@ export default function MonitorsPage() {
                   Buat tata letak kisi kamera favoritmu — tersimpan di perangkat
                   ini.
                 </p>
-                <button
-                  onClick={startCreate}
-                  className="mt-1 h-11 rounded-xl bg-accent-600 px-5 text-sm font-semibold text-onaccent transition hover:bg-accent-500 active:scale-95"
-                >
+                <Button onClick={startCreate} className="mt-1">
                   Buat monitor pertama
-                </button>
+                </Button>
               </div>
             ) : (
               <div className="flex flex-col gap-3">
@@ -689,27 +679,15 @@ export default function MonitorsPage() {
                       {/* Aksi — hanya setelah expand */}
                       {expanded && (
                         <div className="flex gap-2 border-t border-white/10 px-4 py-3 sm:px-5">
-                          <button
-                            onClick={() => setOpenId(l.id)}
-                            className="h-11 flex-1 rounded-xl bg-accent-600 px-3 text-sm font-semibold text-onaccent transition hover:bg-accent-500 active:scale-[0.99]"
-                          >
+                          <Button onClick={() => setOpenId(l.id)} className="flex-1">
                             Buka
-                          </button>
-                          <button
-                            onClick={() => startEdit(l)}
-                            className="h-11 flex-1 rounded-xl bg-white/5 px-3 text-sm font-medium text-neutral-200 transition hover:bg-white/10 active:scale-[0.99]"
-                          >
+                          </Button>
+                          <Button variant="ghost" onClick={() => startEdit(l)} className="flex-1">
                             Ubah
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (window.confirm(`Hapus monitor "${l.name}"?`))
-                                removeLayout(l.id);
-                            }}
-                            className="h-11 rounded-xl bg-bad-400/10 px-4 text-sm font-medium text-bad-400 ring-1 ring-bad-400/30 transition hover:bg-bad-400/20 active:scale-[0.99]"
-                          >
+                          </Button>
+                          <Button variant="danger" onClick={() => setDeleting(l)}>
                             Hapus
-                          </button>
+                          </Button>
                         </div>
                       )}
                     </div>
@@ -722,6 +700,18 @@ export default function MonitorsPage() {
       </div>
 
       <FocusModal stream={focus} onClose={() => setFocus(null)} />
+
+      {deleting && (
+        <ConfirmModal
+          title="Hapus monitor"
+          message={`Hapus monitor "${deleting.name}"?`}
+          onCancel={() => setDeleting(null)}
+          onConfirm={() => {
+            removeLayout(deleting.id);
+            setDeleting(null);
+          }}
+        />
+      )}
     </AppShell>
   );
 }

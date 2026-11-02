@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { api, ApiError } from "../../lib/api";
 import { playWhep, stopWhep } from "../../lib/whep";
 import { AdBanner } from "../../components/AdBanner";
+import { Button } from "../../components/ui";
 import type { AdConfig } from "../../lib/types";
 
 /* Halaman embed PUBLIK (tanpa login) untuk pihak ketiga.
@@ -146,13 +147,9 @@ function EmbedPlayer({
                 <p className="max-w-xs text-xs leading-relaxed text-bad-400">
                   {failed}
                 </p>
-                <button
-                  onClick={() => start()}
-                  disabled={loadingSession}
-                  className="flex h-11 items-center gap-2 rounded-xl bg-accent-600 px-5 text-sm font-semibold text-onaccent transition hover:bg-accent-500 active:scale-95 disabled:opacity-50"
-                >
+                <Button onClick={() => start()} disabled={loadingSession}>
                   {loadingSession ? "Memuat…" : "Coba lagi"}
-                </button>
+                </Button>
               </>
             ) : (
               <>
@@ -191,13 +188,13 @@ function EmbedPlayer({
                 {fmtCountdown(left)}
               </span>
             </span>
-            <button
+            <Button
               onClick={extend}
               disabled={loadingSession}
-              className="flex h-9 items-center rounded-lg bg-accent-600 px-3 text-xs font-semibold text-onaccent transition hover:bg-accent-500 active:scale-95 disabled:opacity-50"
+              className="h-11 px-3 text-xs"
             >
               {loadingSession ? "…" : "Perpanjang"}
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -213,15 +210,16 @@ function EmbedPlayer({
         </span>
         <span className="flex shrink-0 items-center gap-2">
           {playing && (
-            <button
+            <Button
+              variant="danger"
               onClick={stop}
-              className="flex h-9 items-center gap-1.5 rounded-lg bg-bad-400/15 px-3 text-xs font-semibold text-bad-400 ring-1 ring-bad-400/30 transition hover:bg-bad-400/25 active:scale-95"
+              className="h-11 gap-1.5 px-3 text-xs"
             >
               <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
                 <rect x="2" y="2" width="8" height="8" rx="1.5" />
               </svg>
               Stop
-            </button>
+            </Button>
           )}
           <span className="flex items-center gap-1.5 text-[11px] text-neutral-500">
             <span className="flex h-5 w-5 items-center justify-center rounded-md bg-accent-600 text-[9px] font-bold text-onaccent">

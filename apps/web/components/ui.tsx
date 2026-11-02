@@ -55,7 +55,7 @@ export function Card({
 }) {
   return (
     <div
-      className={`rounded-2xl border border-white/8 bg-ink-900 p-5 shadow-[0_1px_2px_rgba(0,0,0,0.45)] ${className}`}
+      className={`rounded-2xl border border-white/8 bg-ink-900 p-5 card-shadow ${className}`}
     >
       {children}
     </div>
@@ -124,11 +124,11 @@ export function Button({
     "inline-flex min-h-[44px] cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]";
   const styles: Record<BtnVariant, string> = {
     primary:
-      "bg-accent-600 text-onaccent shadow-[0_1px_2px_rgba(0,0,0,0.45)] hover:bg-accent-500",
+      "bg-accent-600 text-onaccent card-shadow hover:bg-accent-500",
     ghost:
       "border border-white/10 bg-transparent text-slate-200 hover:border-white/20 hover:bg-white/5 hover:text-white",
     danger:
-      "border border-red-500/30 bg-red-600/15 text-bad-400 hover:bg-red-600/25",
+      "border border-bad-400/30 bg-bad-400/15 text-bad-400 hover:bg-bad-400/25",
     subtle: "bg-ink-800 text-slate-200 hover:bg-ink-700 hover:text-white",
   };
   return (
@@ -175,6 +175,37 @@ export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
   );
 }
 
+/* Toggle switch bersama (dipindah dari app/admin/ads/page.tsx).
+   Warna track memakai token ok-400 agar adaptif di kedua tema. */
+export function Switch({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-150 ${
+        checked ? "bg-ok-400" : "bg-ink-600"
+      }`}
+    >
+      <span
+        className={`absolute left-[2px] top-[2px] h-5 w-5 rounded-full bg-onaccent shadow transition-transform duration-150 ${
+          checked ? "translate-x-5" : "translate-x-0"
+        }`}
+      />
+    </button>
+  );
+}
+
 export function Badge({
   tone,
   children,
@@ -183,9 +214,9 @@ export function Badge({
   children: ReactNode;
 }) {
   const styles = {
-    ok: "border-emerald-500/30 bg-emerald-500/15 text-ok-400",
-    bad: "border-red-500/30 bg-red-500/15 text-bad-400",
-    warn: "border-amber-500/30 bg-amber-500/15 text-warn-400",
+    ok: "border-ok-400/30 bg-ok-400/15 text-ok-400",
+    bad: "border-bad-400/30 bg-bad-400/15 text-bad-400",
+    warn: "border-warn-400/30 bg-warn-400/15 text-warn-400",
     info: "border-accent-500/30 bg-accent-500/15 text-accent-300",
     muted: "border-white/10 bg-ink-800 text-slate-400",
   } as const;
@@ -195,6 +226,54 @@ export function Badge({
     >
       {children}
     </span>
+  );
+}
+
+/* Segmented control bersama — gantikan 6 varian tab/pill custom di
+   halaman (live, playback, monitors, streams, access). Memakai radiogroup
+   yang benar untuk aksesibilitas keyboard. */
+export function SegmentedControl<T extends string | number>({
+  options,
+  value,
+  onChange,
+  ariaLabel,
+  size = "md",
+}: {
+  options: { value: T; label: ReactNode; title?: string }[];
+  value: T;
+  onChange: (v: T) => void;
+  ariaLabel?: string;
+  size?: "sm" | "md";
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={ariaLabel}
+      className="inline-flex items-center gap-1 rounded-xl border border-white/10 bg-ink-950 p-1"
+    >
+      {options.map((o) => {
+        const active = o.value === value;
+        return (
+          <button
+            key={String(o.value)}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            title={o.title}
+            onClick={() => onChange(o.value)}
+            className={`inline-flex cursor-pointer items-center justify-center rounded-lg px-3.5 text-sm font-semibold transition-colors duration-150 ${
+              size === "sm" ? "min-h-[36px]" : "min-h-[44px]"
+            } ${
+              active
+                ? "bg-accent-600 text-onaccent card-shadow"
+                : "text-slate-400 hover:bg-white/5 hover:text-white"
+            }`}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -229,7 +308,7 @@ export function Modal({
           <button
             onClick={onClose}
             aria-label="Tutup"
-            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl text-slate-400 transition-colors duration-150 hover:bg-white/5 hover:text-white"
+            className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-xl text-slate-400 transition-colors duration-150 hover:bg-white/5 hover:text-white"
           >
             <XIcon />
           </button>
@@ -280,7 +359,7 @@ export function Accordion({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="rounded-2xl border border-white/8 bg-ink-900 shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
+    <div className="rounded-2xl border border-white/8 bg-ink-900 card-shadow">
       <button
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
@@ -300,16 +379,26 @@ export function Accordion({
 
 export function ErrorBox({ message }: { message: string }) {
   return (
-    <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3.5 py-2.5 text-sm text-bad-400">
+    <div className="rounded-xl border border-bad-400/30 bg-bad-400/10 px-3.5 py-2.5 text-sm text-bad-400">
       {message}
     </div>
   );
 }
 
-export function EmptyState({ text }: { text: string }) {
+export function EmptyState({
+  text,
+  icon,
+  action,
+}: {
+  text: string;
+  icon?: ReactNode;
+  action?: ReactNode;
+}) {
   return (
     <div className="rounded-2xl border border-dashed border-white/10 bg-ink-900/50 px-4 py-12 text-center text-sm text-slate-500">
-      {text}
+      {icon && <div className="mb-3 flex justify-center">{icon}</div>}
+      <p>{text}</p>
+      {action && <div className="mt-4 flex justify-center">{action}</div>}
     </div>
   );
 }

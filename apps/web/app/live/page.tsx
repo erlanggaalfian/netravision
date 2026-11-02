@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "../../components/AppShell";
 import { CameraTile } from "../../components/CameraTile";
 import { FocusModal } from "../../components/FocusModal";
+import { Button, SectionTitle, Spinner } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { useCameraStatus } from "../../hooks/useCameraStatus";
@@ -111,7 +112,7 @@ export default function LivePage() {
   if (loading || (!user && !loading)) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-ink-950">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/15 border-t-accent-400 motion-reduce:animate-none" />
+        <Spinner />
       </div>
     );
   }
@@ -120,75 +121,68 @@ export default function LivePage() {
     <AppShell>
       <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-7">
         {/* Header */}
-        <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-white">
-              Live
-            </h1>
-            <p className="mt-1 flex items-center gap-2 text-sm text-neutral-400">
-              <span>{merged.length} kamera</span>
-              <span className="font-medium text-ok-400">
-                {onlineCount} online
-              </span>
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <span
-              className="flex h-11 items-center gap-2 rounded-full bg-ink-900 px-4 text-xs font-medium text-neutral-300 ring-1 ring-white/10"
-              title={connected ? "WebSocket terhubung" : "Menghubungkan…"}
-            >
+        <SectionTitle
+          title="Live"
+          desc={`${merged.length} kamera · ${onlineCount} online`}
+          action={
+            <div className="flex items-center gap-2">
               <span
-                className={`h-2 w-2 rounded-full ${connected ? "bg-ok-400" : "bg-warn-400"}`}
-              />
-              {connected ? "Real-time" : "Menghubungkan…"}
-            </span>
-            <div
-              className="flex items-center gap-1 rounded-full bg-ink-900 p-1 ring-1 ring-white/10"
-              role="tablist"
-              aria-label="Tata letak grid"
-            >
-              {GRID_OPTS.map((g) => (
-                <button
-                  key={g.cols}
-                  role="tab"
-                  aria-selected={gridCols === g.cols}
-                  title={`Grid ${g.label}`}
-                  onClick={() => setGridCols(g.cols)}
-                  className={`flex h-10 min-w-[52px] items-center justify-center rounded-full px-3 text-xs font-semibold transition active:scale-95 ${
-                    gridCols === g.cols
-                      ? "bg-accent-600 text-onaccent"
-                      : "text-neutral-400 hover:text-white"
-                  }`}
-                >
-                  {g.label}
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={load}
-              disabled={fetching}
-              className="flex h-11 items-center gap-2 rounded-full bg-ink-900 px-4 text-sm font-medium text-neutral-200 ring-1 ring-white/10 transition hover:bg-ink-800 active:scale-95 disabled:opacity-50"
-            >
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 16 16"
-                fill="none"
-                className={fetching ? "animate-spin motion-reduce:animate-none" : ""}
-                aria-hidden
+                className="flex h-11 items-center gap-2 rounded-full bg-ink-900 px-4 text-xs font-medium text-neutral-300 ring-1 ring-white/10"
+                title={connected ? "WebSocket terhubung" : "Menghubungkan…"}
               >
-                <path
-                  d="M13.5 8a5.5 5.5 0 11-1.6-3.9M13.5 1.5v3h-3"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+                <span
+                  className={`h-2 w-2 rounded-full ${connected ? "bg-ok-400" : "bg-warn-400"}`}
                 />
-              </svg>
-              Muat ulang
-            </button>
-          </div>
-        </div>
+                {connected ? "Real-time" : "Menghubungkan…"}
+              </span>
+              <div
+                className="flex items-center gap-1 rounded-full bg-ink-900 p-1 ring-1 ring-white/10"
+                role="tablist"
+                aria-label="Tata letak grid"
+              >
+                {GRID_OPTS.map((g) => (
+                  <button
+                    key={g.cols}
+                    role="tab"
+                    aria-selected={gridCols === g.cols}
+                    title={`Grid ${g.label}`}
+                    onClick={() => setGridCols(g.cols)}
+                    className={`flex h-11 min-w-[52px] items-center justify-center rounded-full px-3 text-xs font-semibold transition active:scale-95 ${
+                      gridCols === g.cols
+                        ? "bg-accent-600 text-onaccent"
+                        : "text-neutral-400 hover:text-white"
+                    }`}
+                  >
+                    {g.label}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={load}
+                disabled={fetching}
+                className="flex h-11 items-center gap-2 rounded-full bg-ink-900 px-4 text-sm font-medium text-neutral-200 ring-1 ring-white/10 transition hover:bg-ink-800 active:scale-95 disabled:opacity-50"
+              >
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  className={fetching ? "animate-spin motion-reduce:animate-none" : ""}
+                  aria-hidden
+                >
+                  <path
+                    d="M13.5 8a5.5 5.5 0 11-1.6-3.9M13.5 1.5v3h-3"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                Muat ulang
+              </button>
+            </div>
+          }
+        />
 
         {/* Search + filter segmented */}
         <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -228,7 +222,7 @@ export default function LivePage() {
                 role="tab"
                 aria-selected={filter === f.id}
                 onClick={() => setFilter(f.id)}
-                className={`flex h-10 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-5 text-sm font-medium transition active:scale-95 lg:flex-none ${
+                className={`flex h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-5 text-sm font-medium transition active:scale-95 lg:flex-none ${
                   filter === f.id
                     ? "bg-accent-600 text-onaccent"
                     : "text-neutral-400 hover:text-white"
@@ -236,7 +230,7 @@ export default function LivePage() {
               >
                 {f.label}
                 <span
-                  className={`text-xs ${filter === f.id ? "text-white/80" : "text-neutral-600"}`}
+                  className={`text-xs ${filter === f.id ? "text-white/80" : "text-neutral-400"}`}
                 >
                   {counts[f.id]}
                 </span>
@@ -255,7 +249,7 @@ export default function LivePage() {
               height="36"
               viewBox="0 0 24 24"
               fill="none"
-              className="text-neutral-600"
+              className="text-neutral-400"
               aria-hidden
             >
               <path
@@ -271,12 +265,9 @@ export default function LivePage() {
               </p>
               <p className="mt-1 text-xs text-neutral-500">{error}</p>
             </div>
-            <button
-              onClick={load}
-              className="h-11 rounded-full bg-accent-600 px-6 text-sm font-medium text-onaccent transition hover:bg-accent-500 active:scale-95"
-            >
+            <Button onClick={load}>
               Coba lagi
-            </button>
+            </Button>
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center gap-3 rounded-2xl bg-ink-900 px-6 py-16 text-center ring-1 ring-white/10">
@@ -285,7 +276,7 @@ export default function LivePage() {
               height="40"
               viewBox="0 0 20 20"
               fill="none"
-              className="text-neutral-600"
+              className="text-neutral-400"
               aria-hidden
             >
               <path

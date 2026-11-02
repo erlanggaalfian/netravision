@@ -17,6 +17,7 @@ interface Props {
    Visual: header rapi (status + nama + info stream), kontrol jelas ≥44px. */
 export function FocusModal({ stream, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const [failed, setFailed] = useState(false);
   const [ad, setAd] = useState<AdConfig | null>(null);
@@ -67,6 +68,41 @@ export function FocusModal({ stream, onClose }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  /* Focus trap (I3): fokus awal ke tombol tutup, Tab berputar di dalam
+     dialog, fokus dikembalikan ke pemicu saat modal ditutup. */
+  useEffect(() => {
+    if (!stream) return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const prev = document.activeElement as HTMLElement | null;
+    dialog
+      .querySelector<HTMLElement>("[data-focus-close]")
+      ?.focus({ preventScroll: true });
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const els = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => el.getClientRects().length > 0);
+      if (els.length === 0) return;
+      const first = els[0];
+      const last = els[els.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    dialog.addEventListener("keydown", onKeyDown);
+    return () => {
+      dialog.removeEventListener("keydown", onKeyDown);
+      prev?.focus?.({ preventScroll: true });
+    };
+  }, [stream]);
+
   if (!stream) return null;
 
   const snapshot = () => {
@@ -88,6 +124,7 @@ export function FocusModal({ stream, onClose }: Props) {
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
         className="nv-stage w-full max-w-5xl overflow-hidden rounded-2xl bg-ink-900 ring-1 ring-white/15"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
@@ -104,7 +141,7 @@ export function FocusModal({ stream, onClose }: Props) {
               <h2 className="truncate text-base font-semibold text-white">
                 {stream.name}
               </h2>
-              <p className="text-xs text-neutral-500">
+              <p className="text-xs text-slate-400">
                 {stream.brand ? `Stream utama, ${stream.brand}` : "Stream utama"}
               </p>
             </div>
@@ -133,6 +170,7 @@ export function FocusModal({ stream, onClose }: Props) {
             </button>
             <button
               onClick={onClose}
+              data-focus-close
               className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/20 active:scale-95"
               aria-label="Tutup"
             >
@@ -164,7 +202,7 @@ export function FocusModal({ stream, onClose }: Props) {
                 height="32"
                 viewBox="0 0 24 24"
                 fill="none"
-                className="text-neutral-600"
+                className="text-slate-500"
                 aria-hidden
               >
                 <path
@@ -185,10 +223,10 @@ export function FocusModal({ stream, onClose }: Props) {
                   strokeLinecap="round"
                 />
               </svg>
-              <p className="text-sm font-medium text-neutral-300">
+              <p className="text-sm font-medium text-slate-300">
                 {stream.is_online ? "Gagal memutar stream utama" : "Kamera offline"}
               </p>
-              <p className="text-xs text-neutral-500">
+              <p className="text-xs text-slate-400">
                 {stream.is_online
                   ? "Coba tutup dan buka kembali"
                   : "Kamera tidak terjangkau saat ini"}
@@ -211,7 +249,7 @@ export function FocusModal({ stream, onClose }: Props) {
           >
             {stream.is_online ? "● Online" : "● Offline"}
           </span>
-          <span className="hidden text-xs text-neutral-600 sm:block">
+          <span className="hidden text-xs text-slate-500 sm:block">
             Tekan ESC untuk menutup
           </span>
         </div>

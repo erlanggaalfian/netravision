@@ -72,6 +72,14 @@ export function CameraTile({ stream, onExpand }: Props) {
     <div
       ref={boxRef}
       onClick={toggleControls}
+      /* Fallback keyboard untuk :focus-within (I1): tampilkan kontrol saat
+         fokus keyboard masuk ke tile, sembunyikan saat fokus keluar. */
+      onFocus={() => setShowControls(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+          setShowControls(false);
+        }
+      }}
       className={`nv-stage vk-touch-toggle ${showControls ? "cam-show-controls" : ""} group relative aspect-video select-none overflow-hidden rounded-2xl bg-ink-900 ring-2 ${ring}`}
     >
       {stream.is_online && !failed ? (
@@ -92,7 +100,7 @@ export function CameraTile({ stream, onExpand }: Props) {
               />
             ) : (
               <div className="absolute inset-0 flex items-center justify-center">
-                <span className="flex items-center gap-2 text-xs text-neutral-400">
+                <span className="flex items-center gap-2 text-xs text-slate-400">
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/15 border-t-accent-400 motion-reduce:animate-none" />
                   Menghubungkan…
                 </span>
@@ -121,7 +129,7 @@ export function CameraTile({ stream, onExpand }: Props) {
             height="30"
             viewBox="0 0 24 24"
             fill="none"
-            className="relative text-neutral-600"
+            className="relative text-slate-500"
             aria-hidden
           >
             <path
@@ -142,10 +150,10 @@ export function CameraTile({ stream, onExpand }: Props) {
               strokeLinecap="round"
             />
           </svg>
-          <span className="relative text-sm font-medium text-neutral-300">
+          <span className="relative text-sm font-medium text-slate-300">
             {stream.is_online ? "Gagal memuat" : "Offline"}
           </span>
-          <span className="relative text-xs text-neutral-500">
+          <span className="relative text-xs text-slate-400">
             {stream.is_online
               ? "Stream tidak dapat diputar"
               : "Kamera tidak terjangkau"}

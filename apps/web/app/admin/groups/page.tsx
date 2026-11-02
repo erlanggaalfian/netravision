@@ -104,7 +104,7 @@ export default function AdminGroupsPage() {
               <Button
                 variant="subtle"
                 onClick={() => setGrantsFor(g)}
-                className="min-h-[40px] px-3"
+                className="px-3"
               >
                 Kelola Kamera
               </Button>
@@ -276,14 +276,14 @@ function GrantsModal({
               <button
                 type="button"
                 onClick={() => setChecked(new Set(streams.map((s) => s.id)))}
-                className="min-h-[36px] rounded-md px-2 text-xs font-medium text-accent-300 transition-colors hover:bg-ink-800"
+                className="min-h-[44px] rounded-md px-2 text-xs font-medium text-accent-300 transition-colors hover:bg-ink-800"
               >
                 Pilih semua
               </button>
               <button
                 type="button"
                 onClick={() => setChecked(new Set())}
-                className="min-h-[36px] rounded-md px-2 text-xs font-medium text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-200"
+                className="min-h-[44px] rounded-md px-2 text-xs font-medium text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-200"
               >
                 Bersihkan
               </button>
@@ -299,7 +299,7 @@ function GrantsModal({
                   type="checkbox"
                   checked={checked.has(s.id)}
                   onChange={() => toggle(s.id)}
-                  className="h-5 w-5 shrink-0 accent-blue-500"
+                  className="h-5 w-5 shrink-0 accent-accent-500"
                 />
                 <span className="text-sm text-slate-200">{s.name}</span>
               </label>

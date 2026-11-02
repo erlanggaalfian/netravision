@@ -7,8 +7,10 @@ import {
   Button,
   Card,
   ConfirmModal,
+  EmptyState,
   ErrorBox,
   Field,
+  Modal,
   SectionTitle,
   Spinner,
   TextInput,
@@ -170,7 +172,7 @@ export default function AdminStoragePage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="font-medium">Koneksi Google Drive</p>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            <p className="mt-1 text-sm text-slate-500">
               {conn?.connected ? (
                 <>
                   Terhubung{conn.email && conn.email !== "terhubung" ? ` sebagai ${conn.email}` : ""} — rekaman ter-upload otomatis.
@@ -180,7 +182,7 @@ export default function AdminStoragePage() {
               )}
             </p>
             {conn && !conn.rclone_found && (
-              <p className="mt-1 text-sm text-amber-600 dark:text-amber-400">
+              <p className="mt-1 text-sm text-amber-600">
                 rclone belum terinstal di server — hubungi admin server.
               </p>
             )}
@@ -188,7 +190,7 @@ export default function AdminStoragePage() {
           {conn?.connected ? (
             <div className="flex items-center gap-2">
               <Badge tone="ok">Terhubung</Badge>
-              <Button variant="danger" onClick={disconnect} className="min-h-[40px] px-3">
+              <Button variant="danger" onClick={disconnect} className="px-3">
                 Putuskan
               </Button>
             </div>
@@ -203,11 +205,7 @@ export default function AdminStoragePage() {
       {/* Daftar tautan */}
       <div className="mb-6 space-y-3">
         {data && data.folders.length === 0 && (
-          <Card>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Belum ada tautan. Tambahkan tautan folder Google Drive di bawah.
-            </p>
-          </Card>
+          <EmptyState text="Belum ada tautan. Tambahkan tautan folder Google Drive di bawah." />
         )}
         {data?.folders.map((f, i) => (
           <Card key={f.id}>
@@ -219,10 +217,10 @@ export default function AdminStoragePage() {
                   </span>
                   {i === 0 && <Badge tone="info">Default</Badge>}
                 </p>
-                <p className="mt-1 break-all font-mono text-xs text-slate-500 dark:text-slate-400">
+                <p className="mt-1 break-all font-mono text-xs text-slate-500">
                   ID: {f.folder_id}
                 </p>
-                <p className="mt-0.5 break-all text-xs text-slate-500 dark:text-slate-400">
+                <p className="mt-0.5 break-all text-xs text-slate-500">
                   Mount: {f.local_path || "—"}
                   {!f.local_path_custom && data.staging_default && (
                     <span> (default)</span>
@@ -238,7 +236,7 @@ export default function AdminStoragePage() {
               <Button
                 variant="danger"
                 onClick={() => setDeleting(f)}
-                className="min-h-[40px] px-3"
+                className="px-3"
               >
                 Hapus
               </Button>
@@ -292,7 +290,7 @@ export default function AdminStoragePage() {
 
       <Card className="mt-6 max-w-2xl">
         <p className="mb-2 font-medium">Cara kerja</p>
-        <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-600 dark:text-slate-400">
+        <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-600">
           <li>Klik “Hubungkan Google Drive” di atas dan ikuti 3 langkahnya (sekali saja).</li>
           <li>Tempel tautan foldernya di atas (bisa banyak).</li>
           <li>
@@ -314,23 +312,21 @@ export default function AdminStoragePage() {
 
       {/* Modal Hubungkan Google Drive */}
       {showConnect && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-900">
-            <p className="text-lg font-semibold">Hubungkan Google Drive</p>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+        <Modal title="Hubungkan Google Drive" onClose={() => setShowConnect(false)}>
+            <p className="text-sm text-slate-500">
               Sekali saja — tanpa SSH, tanpa Cloud Console.
             </p>
-            <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-600 dark:text-slate-300">
+            <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-600">
               <li>
                 Di <b>komputer/laptop Anda</b>, pasang rclone sekali dari{" "}
-                <a href="https://rclone.org/downloads/" target="_blank" rel="noreferrer" className="text-blue-600 underline dark:text-blue-400">
+                <a href="https://rclone.org/downloads/" target="_blank" rel="noreferrer" className="text-blue-600 underline">
                   rclone.org/downloads
                 </a>
                 .
               </li>
               <li>
                 Jalankan perintah ini, lalu izinkan di browser:
-                <code className="mt-1 block rounded bg-slate-100 px-2 py-1 font-mono text-xs dark:bg-slate-800">
+                <code className="mt-1 block rounded bg-slate-100 px-2 py-1 font-mono text-xs">
                   rclone authorize &quot;drive&quot;
                 </code>
               </li>
@@ -338,15 +334,17 @@ export default function AdminStoragePage() {
                 Salin <b>seluruh token JSON</b> yang muncul, tempel di bawah, lalu Simpan.
               </li>
             </ol>
+            <div className="mt-4">
             <Field label="Token rclone" hint='Mulai dengan {"access_token": ...'>
               <textarea
                 rows={4}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-xs dark:border-slate-700 dark:bg-slate-800"
+                className="w-full rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 font-mono text-xs"
                 placeholder='{"access_token":"ya29...","token_type":"Bearer","refresh_token":"1//...","expiry":"..."}'
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
               />
             </Field>
+            </div>
             {connectError && (
               <div className="mt-3">
                 <ErrorBox message={connectError} />
@@ -360,8 +358,7 @@ export default function AdminStoragePage() {
                 {connectBusy ? "Menghubungkan…" : "Simpan & Hubungkan"}
               </Button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

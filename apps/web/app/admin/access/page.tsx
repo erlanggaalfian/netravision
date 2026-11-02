@@ -91,7 +91,7 @@ export default function AdminAccessPage() {
               <button
                 key={a}
                 onClick={() => setArah(a)}
-                className={`min-h-[40px] rounded-lg px-4 text-sm font-medium transition-colors ${
+                className={`rounded-lg px-4 text-sm font-medium transition-colors ${
                   arah === a
                     ? "bg-accent-600 text-white"
                     : "text-slate-400 hover:text-white"
@@ -120,9 +120,9 @@ export default function AdminAccessPage() {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-ink-700 text-xs uppercase tracking-wider text-slate-500">
-                  <th className="px-3 py-3 font-semibold">Akun</th>
-                  <th className="px-3 py-3 font-semibold">Peran</th>
-                  <th className="px-3 py-3 text-center font-semibold">Aksi</th>
+                  <th scope="col" className="px-3 py-3 font-semibold">Akun</th>
+                  <th scope="col" className="px-3 py-3 font-semibold">Peran</th>
+                  <th scope="col" className="px-3 py-3 text-center font-semibold">Aksi</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-700/60">
@@ -164,12 +164,12 @@ export default function AdminAccessPage() {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-ink-700 text-xs uppercase tracking-wider text-slate-500">
-                  <th className="px-3 py-3 font-semibold">Kamera</th>
-                  <th className="px-3 py-3 font-semibold">Status</th>
-                  <th className="px-3 py-3 text-center font-semibold">
+                  <th scope="col" className="px-3 py-3 font-semibold">Kamera</th>
+                  <th scope="col" className="px-3 py-3 font-semibold">Status</th>
+                  <th scope="col" className="px-3 py-3 text-center font-semibold">
                     Akun berakses
                   </th>
-                  <th className="px-3 py-3 text-center font-semibold">Aksi</th>
+                  <th scope="col" className="px-3 py-3 text-center font-semibold">Aksi</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-700/60">
@@ -309,7 +309,7 @@ function AccessByUserModal({
                   type="checkbox"
                   checked={checked.has(s.id)}
                   onChange={() => toggle(s.id)}
-                  className="h-5 w-5 shrink-0 accent-blue-500"
+                  className="h-5 w-5 shrink-0 accent-accent-500"
                 />
                 <span className="flex-1 text-sm text-slate-200">{s.name}</span>
                 <Badge tone={s.is_online ? "ok" : "bad"}>
@@ -408,7 +408,7 @@ function AccessByCameraModal({
                 type="checkbox"
                 checked={guestAccess}
                 onChange={(e) => setGuestAccess(e.target.checked)}
-                className="h-5 w-5 shrink-0 accent-blue-500"
+                className="h-5 w-5 shrink-0 accent-accent-500"
               />
               <span className="flex-1 text-sm text-slate-200">
                 Tamu <span className="text-slate-500">(semua sesi guest)</span>
@@ -424,7 +424,7 @@ function AccessByCameraModal({
                   type="checkbox"
                   checked={checked.has(u.id)}
                   onChange={() => toggle(u.id)}
-                  className="h-5 w-5 shrink-0 accent-blue-500"
+                  className="h-5 w-5 shrink-0 accent-accent-500"
                 />
                 <span className="flex-1 text-sm text-slate-200">
                   {u.username}

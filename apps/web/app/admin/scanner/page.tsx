@@ -235,19 +235,19 @@ export default function AdminScannerPage() {
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-ink-700 text-xs uppercase tracking-wider text-slate-500">
-                    <th className="w-10 px-3 py-3">
+                    <th scope="col" className="w-10 px-3 py-3">
                       <input
                         type="checkbox"
                         checked={checked.size === candidates.length}
                         onChange={toggleAll}
-                        className="h-4 w-4 accent-blue-500"
+                        className="h-5 w-5 accent-accent-500"
                         aria-label="Pilih semua"
                       />
                     </th>
-                    <th className="px-3 py-3 font-semibold">IP</th>
-                    <th className="px-3 py-3 font-semibold">Port</th>
-                    <th className="px-3 py-3 font-semibold">Merek</th>
-                    <th className="px-3 py-3 font-semibold">URL Stream</th>
+                    <th scope="col" className="px-3 py-3 font-semibold">IP</th>
+                    <th scope="col" className="px-3 py-3 font-semibold">Port</th>
+                    <th scope="col" className="px-3 py-3 font-semibold">Merek</th>
+                    <th scope="col" className="px-3 py-3 font-semibold">URL Stream</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-ink-700/60">
@@ -258,7 +258,7 @@ export default function AdminScannerPage() {
                           type="checkbox"
                           checked={checked.has(key(c))}
                           onChange={() => toggle(c)}
-                          className="h-4 w-4 accent-blue-500"
+                          className="h-5 w-5 accent-accent-500"
                           aria-label={`Pilih ${c.host}`}
                         />
                       </td>

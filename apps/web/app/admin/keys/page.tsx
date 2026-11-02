@@ -227,14 +227,14 @@ export default function AdminKeysPage() {
                   <Button
                     variant="subtle"
                     onClick={() => toggleActive(k)}
-                    className="min-h-[40px] px-3"
+                    className="px-3"
                   >
                     {k.is_active ? "Nonaktifkan" : "Aktifkan"}
                   </Button>
                   <Button
                     variant="danger"
                     onClick={() => setDeleting(k)}
-                    className="min-h-[40px] px-3"
+                    className="px-3"
                   >
                     Hapus
                   </Button>
@@ -256,14 +256,14 @@ export default function AdminKeysPage() {
               setLogsOffset(0);
               loadLogs(true);
             }}
-            className="min-h-[40px]"
+           
           >
             Muat ulang
           </Button>
           <Button
             variant="danger"
             onClick={() => setClearingLogs(true)}
-            className="min-h-[40px]"
+           
           >
             Hapus semua log
           </Button>
@@ -304,12 +304,12 @@ export default function AdminKeysPage() {
           <Card className="overflow-x-auto p-0">
             <table className="w-full min-w-[640px] text-sm">
               <thead>
-                <tr className="border-b border-ink-700 text-left text-xs text-slate-500">
-                  <th className="px-4 py-2.5 font-medium">Waktu</th>
-                  <th className="px-4 py-2.5 font-medium">Key</th>
-                  <th className="px-4 py-2.5 font-medium">Kamera</th>
-                  <th className="px-4 py-2.5 font-medium">Aksi</th>
-                  <th className="px-4 py-2.5 font-medium">IP</th>
+                <tr className="border-b border-ink-700 text-left text-xs uppercase tracking-wider text-slate-500">
+                  <th scope="col" className="px-4 py-2.5 font-semibold">Waktu</th>
+                  <th scope="col" className="px-4 py-2.5 font-semibold">Key</th>
+                  <th scope="col" className="px-4 py-2.5 font-semibold">Kamera</th>
+                  <th scope="col" className="px-4 py-2.5 font-semibold">Aksi</th>
+                  <th scope="col" className="px-4 py-2.5 font-semibold">IP</th>
                 </tr>
               </thead>
               <tbody>
@@ -478,7 +478,7 @@ function EmbedPlayerSettings() {
               type="checkbox"
               checked={cfg.click_to_play ?? true}
               onChange={(e) => setCfg({ ...cfg, click_to_play: e.target.checked })}
-              className="h-5 w-5 shrink-0 accent-blue-500"
+              className="h-5 w-5 shrink-0 accent-accent-500"
               aria-label="Klik untuk memutar"
             />
           </label>
@@ -575,7 +575,7 @@ function IntegrationGuideModal({
               variant="subtle"
               disabled={!key}
               onClick={() => doCopy(m.id, m.code)}
-              className="mt-2 min-h-[40px]"
+              className="mt-2"
             >
               {copied === m.id ? "Tersalin ✓" : "Salin"}
             </Button>
@@ -697,7 +697,7 @@ function KeyFormModal({
             type="checkbox"
             checked={includePlayback}
             onChange={(e) => setIncludePlayback(e.target.checked)}
-            className="h-5 w-5 shrink-0 accent-blue-500"
+            className="h-5 w-5 shrink-0 accent-accent-500"
             aria-label="Sertakan playback"
           />
         </label>
@@ -712,7 +712,7 @@ function KeyFormModal({
                   type="checkbox"
                   checked={ordered.includes(s.id)}
                   onChange={() => toggle(s.id)}
-                  className="h-5 w-5 shrink-0 accent-blue-500"
+                  className="h-5 w-5 shrink-0 accent-accent-500"
                 />
                 <span className="text-sm text-slate-200">{s.name}</span>
               </label>
@@ -737,7 +737,7 @@ function KeyFormModal({
                     type="button"
                     onClick={() => move(id, -1)}
                     disabled={i === 0}
-                    className="flex min-h-[36px] min-w-[36px] items-center justify-center rounded-md text-slate-400 hover:bg-ink-700 hover:text-white disabled:opacity-30"
+                    className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-slate-400 hover:bg-ink-700 hover:text-white disabled:opacity-30"
                     aria-label={`Naikkan ${nameOf(id)}`}
                   >
                     ↑
@@ -746,7 +746,7 @@ function KeyFormModal({
                     type="button"
                     onClick={() => move(id, 1)}
                     disabled={i === ordered.length - 1}
-                    className="flex min-h-[36px] min-w-[36px] items-center justify-center rounded-md text-slate-400 hover:bg-ink-700 hover:text-white disabled:opacity-30"
+                    className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-slate-400 hover:bg-ink-700 hover:text-white disabled:opacity-30"
                     aria-label={`Turunkan ${nameOf(id)}`}
                   >
                     ↓

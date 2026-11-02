@@ -6,7 +6,7 @@ import "leaflet/dist/leaflet.css";
 import type * as LType from "leaflet";
 import { AppShell } from "../../components/AppShell";
 import { FocusModal } from "../../components/FocusModal";
-import { Card } from "../../components/ui";
+import { Button, Card, ErrorBox, SectionTitle } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { isAdminRole, useAuth } from "../../lib/auth";
 import { useCameraStatus } from "../../hooks/useCameraStatus";
@@ -29,12 +29,14 @@ function escapeHtml(s: string): string {
 
 function markerIcon(L: typeof LType, online: boolean): LType.DivIcon {
   const color = online ? "#34d399" : "#f87171"; // ok-400 / bad-400
+  const size = L.Browser.touch ? 28 : 20; // lebih besar di layar sentuh
+  const half = size / 2;
   return L.divIcon({
     className: "nv-marker",
-    html: `<span style="display:block;width:20px;height:20px;border-radius:9999px;background:${color};border:3px solid #0c0e12;box-shadow:0 0 0 2px ${color}66, 0 2px 8px rgba(0,0,0,.55)"></span>`,
-    iconSize: [20, 20],
-    iconAnchor: [10, 10],
-    popupAnchor: [0, -11],
+    html: `<span style="display:block;width:${size}px;height:${size}px;border-radius:9999px;background:${color};border:3px solid #0c0e12;box-shadow:0 0 0 2px ${color}66, 0 2px 8px rgba(0,0,0,.55)"></span>`,
+    iconSize: [size, size],
+    iconAnchor: [half, half],
+    popupAnchor: [0, -half - 1],
   });
 }
 
@@ -42,9 +44,9 @@ function popupHtml(s: Stream): string {
   const sub = s.brand ? escapeHtml(s.brand) : "";
   return `
     <div style="min-width:170px">
-      <div style="font-weight:700;font-size:14px;color:#111827;margin-bottom:2px">${escapeHtml(s.name)}</div>
-      ${sub ? `<div style="font-size:11px;color:#6b7280;margin-bottom:6px">${sub}</div>` : `<div style="margin-bottom:6px"></div>`}
-      <div style="font-size:11px;font-weight:600;margin-bottom:10px;color:${s.is_online ? "#059669" : "#dc2626"}">${s.is_online ? "● Online" : "● Offline"}</div>
+      <div style="font-weight:700;font-size:14px;color:var(--nv-white);margin-bottom:2px">${escapeHtml(s.name)}</div>
+      ${sub ? `<div style="font-size:11px;color:var(--nv-neutral-400,#a3a3a3);margin-bottom:6px">${sub}</div>` : `<div style="margin-bottom:6px"></div>`}
+      <div style="font-size:11px;font-weight:600;margin-bottom:10px;color:${s.is_online ? "var(--nv-ok-400)" : "var(--nv-bad-400)"}">${s.is_online ? "● Online" : "● Offline"}</div>
     </div>
   `;
 }
@@ -247,20 +249,33 @@ export default function MapsPage() {
 
   return (
     <AppShell>
-      <div className="flex h-[calc(100dvh-220px)] min-h-[420px] flex-col gap-4 p-4 md:h-[calc(100dvh-64px)] md:flex-row md:p-5">
+      {/* Override tema Leaflet: popup + kontrol zoom ikut data-theme */}
+      <style>{`
+        .leaflet-popup-content-wrapper { background: var(--nv-ink-900); color: var(--nv-white); border-radius: 14px; }
+        .leaflet-popup-content { margin: 14px 16px; line-height: 1.4; }
+        .leaflet-popup-tip { background: var(--nv-ink-900); }
+        .leaflet-bar a { width: 44px !important; height: 44px !important; line-height: 44px !important; }
+      `}</style>
+      <div className="px-4 pt-5 md:px-6 md:pt-7">
+        <SectionTitle
+          title="Peta Kamera"
+          desc="Lokasi semua kamera. Seret marker untuk memindahkan posisi (admin)."
+        />
+      </div>
+      <div className="flex h-[calc(100dvh-300px)] min-h-[420px] flex-col gap-4 p-4 md:h-[calc(100dvh-150px)] md:flex-row md:p-5">
         {/* Peta */}
         <div className="relative min-h-[320px] flex-1 overflow-hidden rounded-2xl ring-1 ring-white/10">
           <div ref={containerRef} className="absolute inset-0 z-0" />
           {fetching && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-ink-950/60">
               <span className="flex items-center gap-2 text-sm text-neutral-400">
-                <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/15 border-t-accent-400 motion-reduce:animate-none" />
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-ink-700 border-t-accent-400 motion-reduce:animate-none" />
                 Memuat peta…
               </span>
             </div>
           )}
           {isAdmin && (
-            <div className="absolute left-3 top-3 z-10 rounded-xl bg-ink-900/95 px-3.5 py-2.5 text-xs text-neutral-300 ring-1 ring-white/10">
+            <div className="absolute right-3 top-3 z-10 rounded-xl bg-ink-900/95 px-3.5 py-2.5 text-xs text-neutral-300 ring-1 ring-white/10">
               Seret marker untuk memindahkan posisi kamera
             </div>
           )}
@@ -303,16 +318,8 @@ export default function MapsPage() {
             />
           </div>
 
-          {error && (
-            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-bad-400">
-              {error}
-            </div>
-          )}
-          {saveError && (
-            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-bad-400">
-              {saveError}
-            </div>
-          )}
+          {error && <ErrorBox message={error} />}
+          {saveError && <ErrorBox message={saveError} />}
 
           <Card className="!p-4">
             <div className="mb-3 flex items-center justify-between">
@@ -343,13 +350,14 @@ export default function MapsPage() {
                       </span>
                     </div>
                     {isAdmin && (
-                      <button
+                      <Button
+                        variant="primary"
                         onClick={() => placeAtCenter(s)}
                         disabled={savingId === s.id}
-                        className="h-9 shrink-0 rounded-lg bg-accent-600 px-3 text-xs font-semibold text-onaccent transition hover:bg-accent-500 active:scale-95 disabled:opacity-50"
+                        className="h-11 shrink-0 px-3 text-xs"
                       >
                         {savingId === s.id ? "…" : "Tengah peta"}
-                      </button>
+                      </Button>
                     )}
                   </li>
                 ))}
@@ -386,7 +394,7 @@ export default function MapsPage() {
                           });
                         }
                       }}
-                      className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition hover:bg-ink-800 active:scale-[0.99]"
+                      className="flex min-h-[44px] w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition hover:bg-ink-800 active:scale-[0.99]"
                     >
                       <span
                         className={`h-2 w-2 shrink-0 rounded-full ${s.is_online ? "bg-ok-400" : "bg-bad-400"}`}

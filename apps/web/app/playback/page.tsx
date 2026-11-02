@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "../../components/AppShell";
-import { Card } from "../../components/ui";
+import { Button, Card, ErrorBox, SectionTitle, Spinner } from "../../components/ui";
 import { api, apiFetch, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import type { Stream } from "../../lib/types";
@@ -151,20 +151,12 @@ function PlaybackPanel({
         <span className="truncate text-sm font-semibold text-white">
           {streamName}
         </span>
-        <button
-          onClick={load}
-          disabled={phase === "loading"}
-          className="h-9 shrink-0 rounded-lg bg-ink-800 px-3 text-xs font-medium text-neutral-200 ring-1 ring-white/10 transition hover:bg-ink-700 active:scale-95 disabled:opacity-50"
-        >
+        <Button variant="subtle" onClick={load} disabled={phase === "loading"}>
           {phase === "loading" ? "Memuat…" : "Muat"}
-        </button>
+        </Button>
       </div>
 
-      {error && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-bad-400">
-          {error}
-        </div>
-      )}
+      {error && <ErrorBox message={error} />}
 
       {phase === "idle" && (
         <div className="rounded-2xl bg-ink-900 px-6 py-10 text-center text-xs text-neutral-500 ring-1 ring-white/10">
@@ -202,7 +194,7 @@ function PlaybackPanel({
                 {timeline.entries.length} segmen
               </span>
             </div>
-            <div className="relative h-11 overflow-hidden rounded-xl bg-ink-950 ring-1 ring-white/5">
+            <div className="relative h-12 overflow-hidden rounded-xl bg-ink-950 ring-1 ring-white/5">
               {Array.from({ length: 25 }).map((_, h) => (
                 <span
                   key={h}
@@ -220,14 +212,14 @@ function PlaybackPanel({
                     onClick={() => playEntry(e)}
                     title={`${fmtTime(e.start)} – ${fmtTime(e.end)}${e.has_event ? " · ada event" : ""}`}
                     aria-label={`Putar segmen ${fmtTime(e.start)}`}
-                    className={`absolute top-1.5 h-8 rounded-md transition ${
+                    className={`absolute top-0.5 h-11 rounded-md transition ${
                       isActive
                         ? "bg-accent-400"
                         : e.has_event
                           ? "bg-warn-400/80 hover:bg-warn-400"
                           : "bg-accent-600/60 hover:bg-accent-500"
                     }`}
-                    style={{ left: `${left}%`, width: `${width}%` }}
+                    style={{ left: `${left}%`, width: `${width}%`, minWidth: "12px" }}
                   />
                 );
               })}
@@ -284,13 +276,13 @@ function PlaybackPanel({
                     </span>
                   )}
                 </span>
-                <button
+                <Button
+                  variant="subtle"
                   onClick={downloadActive}
                   disabled={downloading}
-                  className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-ink-800 px-3 text-xs font-medium text-neutral-200 ring-1 ring-white/10 transition hover:bg-ink-700 active:scale-95 disabled:opacity-50"
                 >
                   {downloading ? "Mengunduh…" : "Unduh"}
-                </button>
+                </Button>
               </div>
             )}
           </div>
@@ -344,7 +336,7 @@ export default function PlaybackPage() {
   if (loading || (!user && !loading)) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-ink-950">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/15 border-t-accent-400 motion-reduce:animate-none" />
+        <Spinner />
       </div>
     );
   }
@@ -360,12 +352,19 @@ export default function PlaybackPage() {
   return (
     <AppShell>
       <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-7">
-        <h1 className="text-2xl font-bold tracking-tight text-white">
-          Putar Ulang
-        </h1>
-        <p className="mb-5 mt-1 text-sm text-neutral-400">
-          Pilih kamera dan tanggal, lalu muat linimasa rekaman.
-        </p>
+        <SectionTitle
+          title="Putar Ulang"
+          desc="Pilih kamera dan tanggal, lalu muat linimasa rekaman."
+          action={
+            <Button
+              variant={multi ? "primary" : "subtle"}
+              onClick={() => setMulti((v) => !v)}
+              aria-pressed={multi}
+            >
+              {multi ? "Multi aktif" : "Multi kamera"}
+            </Button>
+          }
+        />
 
         {/* Kontrol */}
         <Card className="mb-4">
@@ -401,7 +400,7 @@ export default function PlaybackPage() {
                           key={s.id}
                           onClick={() => toggleMultiId(s.id)}
                           aria-pressed={on}
-                          className={`flex h-10 items-center gap-2 rounded-full px-3.5 text-xs font-medium transition active:scale-95 ${
+                          className={`flex h-11 items-center gap-2 rounded-full px-3.5 text-xs font-medium transition active:scale-95 ${
                             on
                               ? "bg-accent-600 text-onaccent"
                               : "bg-ink-800 text-neutral-300 ring-1 ring-white/10 hover:bg-ink-700"
@@ -429,17 +428,6 @@ export default function PlaybackPage() {
                   className="h-11 rounded-xl border border-ink-700 bg-ink-950 px-3 text-base text-white outline-none transition-colors focus:border-accent-500"
                 />
               </label>
-              <button
-                onClick={() => setMulti((v) => !v)}
-                aria-pressed={multi}
-                className={`h-11 shrink-0 rounded-xl px-5 text-sm font-semibold transition active:scale-95 ${
-                  multi
-                    ? "bg-accent-600 text-onaccent hover:bg-accent-500"
-                    : "bg-ink-800 text-neutral-200 ring-1 ring-white/10 hover:bg-ink-700"
-                }`}
-              >
-                {multi ? "Multi aktif" : "Multi kamera"}
-              </button>
             </div>
             {multi && (
               <div className="flex items-center gap-2">
@@ -457,7 +445,7 @@ export default function PlaybackPage() {
                       role="tab"
                       aria-selected={gridCols === g.cols}
                       onClick={() => setGridCols(g.cols)}
-                      className={`flex h-9 min-w-[52px] items-center justify-center rounded-full px-3 text-xs font-semibold transition active:scale-95 ${
+                      className={`flex h-11 min-w-[52px] items-center justify-center rounded-full px-3 text-xs font-semibold transition active:scale-95 ${
                         gridCols === g.cols
                           ? "bg-accent-600 text-onaccent"
                           : "text-neutral-400 hover:text-white"
@@ -483,7 +471,7 @@ export default function PlaybackPage() {
           </div>
         ) : (
           <div
-            className={`grid grid-cols-1 gap-5 ${multi ? (GRID_CLASS[gridCols] ?? GRID_CLASS[2]) : "mx-auto max-w-3xl"}`}
+            className={`grid grid-cols-1 gap-5 ${multi ? (GRID_CLASS[gridCols] ?? GRID_CLASS[2]) : "mx-auto max-w-5xl"}`}
           >
             {selectedStreams.map((s) => (
               <PlaybackPanel

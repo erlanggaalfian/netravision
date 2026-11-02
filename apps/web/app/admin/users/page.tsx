@@ -141,21 +141,21 @@ export default function AdminUsersPage() {
                 <Button
                   variant="subtle"
                   onClick={() => setAccessFor(u)}
-                  className="min-h-[40px] px-3"
+                  className="px-3"
                 >
                   Akses Kamera
                 </Button>
                 <Button
                   variant="subtle"
                   onClick={() => setEditing(u)}
-                  className="min-h-[40px] px-3"
+                  className="px-3"
                 >
                   Ubah
                 </Button>
                 <Button
                   variant="danger"
                   onClick={() => setDeleting(u)}
-                  className="min-h-[40px] px-3"
+                  className="px-3"
                 >
                   Hapus
                 </Button>
@@ -304,7 +304,7 @@ function UserFormModal({
             type="checkbox"
             checked={showAds}
             onChange={(e) => setShowAds(e.target.checked)}
-            className="h-5 w-5 shrink-0 accent-blue-500"
+            className="h-5 w-5 shrink-0 accent-accent-500"
             aria-label="Tampilkan Iklan"
           />
         </label>
@@ -389,14 +389,14 @@ function AccessModal({
               <button
                 type="button"
                 onClick={() => setChecked(new Set(streams.map((s) => s.id)))}
-                className="min-h-[36px] rounded-md px-2 text-xs font-medium text-accent-300 transition-colors hover:bg-ink-800"
+                className="min-h-[44px] rounded-md px-2 text-xs font-medium text-accent-300 transition-colors hover:bg-ink-800"
               >
                 Pilih semua
               </button>
               <button
                 type="button"
                 onClick={() => setChecked(new Set())}
-                className="min-h-[36px] rounded-md px-2 text-xs font-medium text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-200"
+                className="min-h-[44px] rounded-md px-2 text-xs font-medium text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-200"
               >
                 Bersihkan
               </button>
@@ -412,7 +412,7 @@ function AccessModal({
                   type="checkbox"
                   checked={checked.has(s.id)}
                   onChange={() => toggle(s.id)}
-                  className="h-5 w-5 shrink-0 accent-blue-500"
+                  className="h-5 w-5 shrink-0 accent-accent-500"
                 />
                 <span className="text-sm text-slate-200">{s.name}</span>
               </label>

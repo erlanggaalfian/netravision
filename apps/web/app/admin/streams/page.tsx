@@ -96,7 +96,7 @@ function StreamRow({
       checked={selected}
       onChange={onToggleSelect}
       onClick={(e) => e.stopPropagation()}
-      className="h-5 w-5 shrink-0 accent-blue-500"
+      className="h-5 w-5 shrink-0 accent-accent-500"
       aria-label={`Pilih ${s.name}`}
     />
   );
@@ -118,13 +118,13 @@ function StreamRow({
   );
   const actions = (
     <div className="flex gap-2">
-      <Button variant="subtle" onClick={onShare} className="min-h-[40px] px-3">
+      <Button variant="subtle" onClick={onShare} className="px-3">
         Bagikan
       </Button>
-      <Button variant="subtle" onClick={onEdit} className="min-h-[40px] px-3">
+      <Button variant="subtle" onClick={onEdit} className="px-3">
         Ubah
       </Button>
-      <Button variant="danger" onClick={onDelete} className="min-h-[40px] px-3">
+      <Button variant="danger" onClick={onDelete} className="px-3">
         Hapus
       </Button>
     </div>
@@ -337,7 +337,7 @@ export default function AdminStreamsPage() {
               </Badge>
             </span>
             {filtersActive && (
-              <Button variant="subtle" onClick={clearFilters} className="min-h-[40px]">
+              <Button variant="subtle" onClick={clearFilters}>
                 Bersihkan
               </Button>
             )}
@@ -354,21 +354,21 @@ export default function AdminStreamsPage() {
           <Button
             variant="subtle"
             onClick={() => setShowCoords(true)}
-            className="min-h-[40px]"
+           
           >
             Set koordinat ({selected.size})
           </Button>
           <Button
             variant="danger"
             onClick={() => setBulkDeleting(true)}
-            className="min-h-[40px]"
+           
           >
             Hapus terpilih ({selected.size})
           </Button>
           <button
             type="button"
             onClick={() => setSelected(new Set())}
-            className="min-h-[40px] rounded-lg px-3 text-sm text-slate-400 hover:text-slate-200"
+            className="rounded-lg px-3 text-sm text-slate-400 hover:text-slate-200"
           >
             Batalkan pilihan
           </button>
@@ -388,7 +388,7 @@ export default function AdminStreamsPage() {
       ) : (
         <>
           <div className="mb-2 flex items-center gap-3 px-1">
-            <label className="flex min-h-[40px] cursor-pointer items-center gap-2 text-sm text-slate-400">
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-400">
               <input
                 type="checkbox"
                 checked={
@@ -396,7 +396,7 @@ export default function AdminStreamsPage() {
                   pageItems.every((s) => selected.has(s.id))
                 }
                 onChange={toggleSelectAllPage}
-                className="h-5 w-5 accent-blue-500"
+                className="h-5 w-5 accent-accent-500"
               />
               Pilih semua di halaman ini
             </label>
@@ -422,7 +422,7 @@ export default function AdminStreamsPage() {
                 variant="subtle"
                 disabled={curPage <= 1}
                 onClick={() => setPage(1)}
-                className="min-h-[40px] px-3"
+                className="px-3"
               >
                 «
               </Button>
@@ -430,7 +430,7 @@ export default function AdminStreamsPage() {
                 variant="subtle"
                 disabled={curPage <= 1}
                 onClick={() => setPage(curPage - 1)}
-                className="min-h-[40px] px-3"
+                className="px-3"
               >
                 ‹
               </Button>
@@ -441,7 +441,7 @@ export default function AdminStreamsPage() {
                 variant="subtle"
                 disabled={curPage >= totalPages}
                 onClick={() => setPage(curPage + 1)}
-                className="min-h-[40px] px-3"
+                className="px-3"
               >
                 ›
               </Button>
@@ -449,7 +449,7 @@ export default function AdminStreamsPage() {
                 variant="subtle"
                 disabled={curPage >= totalPages}
                 onClick={() => setPage(totalPages)}
-                className="min-h-[40px] px-3"
+                className="px-3"
               >
                 »
               </Button>
@@ -798,7 +798,7 @@ function AddStreamModal({
               type="checkbox"
               checked={recordingEnabled}
               onChange={(e) => setRecordingEnabled(e.target.checked)}
-              className="h-5 w-5 accent-blue-500"
+              className="h-5 w-5 accent-accent-500"
             />
             Simpan rekaman ke disk
           </label>
@@ -945,7 +945,7 @@ function EditStreamModal({
               type="checkbox"
               checked={isActive}
               onChange={(e) => setIsActive(e.target.checked)}
-              className="h-5 w-5 accent-blue-500"
+              className="h-5 w-5 accent-accent-500"
             />
             Kamera aktif
           </label>
@@ -959,7 +959,7 @@ function EditStreamModal({
               type="checkbox"
               checked={recordingEnabled}
               onChange={(e) => setRecordingEnabled(e.target.checked)}
-              className="h-5 w-5 accent-blue-500"
+              className="h-5 w-5 accent-accent-500"
             />
             Simpan rekaman ke disk
           </label>
