@@ -31,7 +31,7 @@ export default function AdminAdsPage() {
 
   useEffect(() => {
     api
-      .get<AdConfig>("/admin/ad-config")
+      .get<AdConfig>("/ad-config")
       .then(setCfg)
       .catch((e) =>
         setError(e instanceof ApiError ? e.message : "Gagal memuat konfigurasi"),
