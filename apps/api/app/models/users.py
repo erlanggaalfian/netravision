@@ -28,6 +28,11 @@ class User(Base, TimestampMixin):
     role: Mapped[str] = mapped_column(String(16), nullable=False, default="user")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
+    # Apakah banner iklan tampil untuk akun ini (paritas v2.0).
+    show_ads: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
+    )
+
     # SHA-256 dari refresh token aktif. Dibersihkan saat logout, dirotasi
     # setiap refresh dipakai.
     refresh_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)

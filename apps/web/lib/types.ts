@@ -30,6 +30,27 @@ export interface User {
   id: number;
   username: string;
   role: "admin" | "user" | "guest";
+  is_active: boolean;
+  show_ads: boolean;
+}
+
+export interface AdConfig {
+  image_url: string;
+  marquee_text: string;
+  bg_color: string;
+  text_color: string;
+  scroll_speed: number;
+  font_size: number;
+  font_family: string;
+  image_opacity: number;
+  bg_opacity: number;
+  text_opacity: number;
+  is_active: boolean;
+  box_width: number;
+  text_align: string;
+  image_height: number;
+  embed_timeout_seconds: number;
+  click_to_play: boolean;
 }
 
 export interface Group {

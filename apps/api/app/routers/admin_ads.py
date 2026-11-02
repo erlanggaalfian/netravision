@@ -1,6 +1,8 @@
-"""Router admin: konfigurasi iklan/banner + upload gambar.
+"""Router admin: konfigurasi iklan/banner + upload gambar (paritas v2.0).
 
-- GET /api/ad-config: publik (dibaca player/embed).
+- GET /api/ad-config: publik (dibaca player/embed). Bila pemanggil dikenali
+  sebagai user login (bukan super_admin) dengan show_ads=False, kembalikan
+  config nonaktif.
 - POST /api/admin/ad-config, upload-image, PUT grup ads: butuh peran admin.
 Disimpan sebagai baris key/value di tabel ad_config (key "default",
 "group:<nama>").
@@ -9,31 +11,52 @@ Disimpan sebagai baris key/value di tabel ad_config (key "default",
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.rbac import require_roles
+from app.core.rbac import _user_from_token, bearer_scheme, require_roles
 from app.db.session import get_db
 from app.models.misc import AdConfig
-
-_DEFAULT = {"enabled": False, "title": None, "image_url": None, "link_url": None, "position": None}
+from app.models.users import User
 
 router = APIRouter(tags=["admin-ads"])
 admin_router = APIRouter(tags=["admin-ads"], dependencies=[Depends(require_roles("admin"))])
 
 
 class AdConfigIn(BaseModel):
-    enabled: bool = False
-    title: str | None = None
-    image_url: str | None = None
-    link_url: str | None = None
-    position: str | None = None
+    image_url: str = ""
+    marquee_text: str = ""
+    bg_color: str = "#1e293b"
+    text_color: str = "#ffffff"
+    scroll_speed: int = 5
+    font_size: int = 10
+    font_family: str = "monospace"
+    image_opacity: float = 1.0
+    bg_opacity: float = 1.0
+    text_opacity: float = 1.0
+    is_active: bool = True
+    box_width: int = 100
+    text_align: str = "left"
+    image_height: int = 20
+    embed_timeout_seconds: int = 300
+    click_to_play: bool = True
 
 
 class GroupAdsIn(BaseModel):
     ads_enabled: bool
+
+
+_DEFAULT = AdConfigIn().model_dump()
+
+
+def _inactive_config() -> dict:
+    """Config nonaktif untuk user yang show_ads=False (paritas v2.0)."""
+    cfg = dict(_DEFAULT)
+    cfg.update(image_url="", marquee_text="", is_active=False)
+    return cfg
 
 
 async def _get_value(db: AsyncSession, key: str) -> dict:
@@ -57,7 +80,20 @@ async def _set_value(db: AsyncSession, key: str, value: dict) -> dict:
 
 
 @router.get("/ad-config")
-async def public_ad_config(db: AsyncSession = Depends(get_db)):
+async def public_ad_config(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    token: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Config iklan publik; nonaktifkan bila user login punya show_ads=False."""
+    raw = credentials.credentials if credentials else token
+    if raw:
+        try:
+            user = await _user_from_token(raw, db)
+        except HTTPException:
+            user = None
+        if isinstance(user, User) and user.role != "super_admin" and not user.show_ads:
+            return _inactive_config()
     return await _get_value(db, "default")
 
 

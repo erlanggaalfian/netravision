@@ -21,18 +21,21 @@ class UserOut(BaseModel):
     username: str
     role: str
     is_active: bool
+    show_ads: bool
 
 
 class UserCreate(BaseModel):
     username: str
     password: str
     role: str = "user"
+    show_ads: bool = True
 
 
 class UserUpdate(BaseModel):
     password: str | None = None
     role: str | None = None
     is_active: bool | None = None
+    show_ads: bool | None = None
 
 
 class StreamIdsIn(BaseModel):
@@ -41,7 +44,11 @@ class StreamIdsIn(BaseModel):
 
 def _out(u: User) -> UserOut:
     return UserOut(
-        id=u.id, username=u.username, role=u.role, is_active=u.is_active
+        id=u.id,
+        username=u.username,
+        role=u.role,
+        is_active=u.is_active,
+        show_ads=u.show_ads,
     )
 
 
@@ -78,6 +85,7 @@ async def create_user(
         username=data.username,
         password_hash=hash_password(data.password),
         role=data.role,
+        show_ads=data.show_ads,
     )
     db.add(user)
     await db.commit()
@@ -101,6 +109,8 @@ async def update_user(
         user.role = data.role
     if data.is_active is not None:
         user.is_active = data.is_active
+    if data.show_ads is not None:
+        user.show_ads = data.show_ads
     await db.commit()
     await db.refresh(user)
     return _out(user)

@@ -113,7 +113,7 @@ export default function AdminUsersPage() {
                   <span className="block truncate font-medium text-white">
                     {u.username}
                   </span>
-                  <span className="mt-0.5">
+                  <span className="mt-0.5 flex flex-wrap gap-1">
                     <Badge
                       tone={
                         u.role === "admin"
@@ -124,6 +124,9 @@ export default function AdminUsersPage() {
                       }
                     >
                       {ROLE_LABEL[u.role] ?? u.role}
+                    </Badge>
+                    <Badge tone={u.show_ads ? "ok" : "muted"}>
+                      Iklan: {u.show_ads ? "Ya" : "Tidak"}
                     </Badge>
                   </span>
                 </span>
@@ -221,6 +224,7 @@ function UserFormModal({
   const [username, setUsername] = useState(user?.username ?? "");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<string>(user?.role ?? "user");
+  const [showAds, setShowAds] = useState(user?.show_ads ?? true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -229,7 +233,11 @@ function UserFormModal({
     setBusy(true);
     try {
       if (user) {
-        const body: Record<string, unknown> = { username: username.trim(), role };
+        const body: Record<string, unknown> = {
+          username: username.trim(),
+          role,
+          show_ads: showAds,
+        };
         if (password) body.password = password;
         await api.put(`/admin/users/${user.id}`, body);
       } else {
@@ -237,6 +245,7 @@ function UserFormModal({
           username: username.trim(),
           password,
           role,
+          show_ads: showAds,
         });
       }
       onDone();
@@ -278,6 +287,23 @@ function UserFormModal({
             <option value="guest">Tamu</option>
           </Select>
         </Field>
+        <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 rounded-xl border border-ink-700/60 bg-ink-900/60 px-4 py-3">
+          <span>
+            <span className="block text-sm font-medium text-white">
+              Tampilkan Iklan
+            </span>
+            <span className="block text-xs text-slate-400">
+              Banner iklan tampil untuk akun ini
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            checked={showAds}
+            onChange={(e) => setShowAds(e.target.checked)}
+            className="h-5 w-5 shrink-0 accent-blue-500"
+            aria-label="Tampilkan Iklan"
+          />
+        </label>
         <Button
           onClick={save}
           disabled={busy || !username.trim() || (!user && !password)}
