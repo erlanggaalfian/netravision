@@ -80,6 +80,13 @@ async def lifespan(app: FastAPI):
 
     tasks.append(asyncio.create_task(mirror_loop()))
 
+    # Uploader Drive via rclone copyto (tanpa mount): aktif bila koneksi
+    # "Hubungkan Google Drive" sudah dipasang. Loop-nya sendiri yang
+    # memeriksa status koneksi tiap putaran.
+    from app.services.drive_uploader import upload_loop
+
+    tasks.append(asyncio.create_task(upload_loop()))
+
     try:
         yield
     finally:

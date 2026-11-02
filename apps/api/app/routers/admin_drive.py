@@ -336,7 +336,11 @@ async def add_gdrive_folder(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_user),
 ):
-    """Tambah satu tautan folder Google Drive."""
+    """Tambah satu tautan folder Google Drive.
+
+    Bila koneksi rclone Drive aktif, akses folder diverifikasi dulu —
+    gagal = 400 dengan pesan jelas.
+    """
     folder_id = parse_gdrive_folder_id(payload.folder_url)
     if not folder_id:
         raise HTTPException(
@@ -344,10 +348,25 @@ async def add_gdrive_folder(
             detail="Tautan folder Google Drive tidak dikenali. Tempel tautan folder, "
             "mis. https://drive.google.com/drive/folders/<ID>",
         )
+    folder_name = (payload.folder_name or "").strip()
+    # Verifikasi via rclone bila terhubung
+    from app.services import gdrive_rclone as gr
+
+    try:
+        st = await gr.connection_status()
+    except Exception:  # noqa: BLE001
+        st = {"connected": False}
+    if st.get("connected"):
+        try:
+            info = await gr.check_folder_access(folder_id)
+            if not folder_name:
+                folder_name = info.get("name", "")
+        except RuntimeError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
     row = GoogleDriveFolder(
         folder_url=payload.folder_url.strip(),
         folder_id=folder_id,
-        folder_name=(payload.folder_name or "").strip(),
+        folder_name=folder_name,
         local_path=(payload.local_path or "").strip(),
         updated_at=datetime.now(timezone.utc),
         updated_by=admin.username,
@@ -396,4 +415,49 @@ async def delete_gdrive_folder(folder_id: int, db: AsyncSession = Depends(get_db
     )
     await db.delete(row)
     await db.commit()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Koneksi Google Drive via rclone (tombol "Hubungkan" di aplikasi)
+# ---------------------------------------------------------------------------
+
+class RcloneTokenIn(BaseModel):
+    token: str
+
+
+@admin_router.get("/admin/storage/google-drive/connection")
+async def gdrive_connection_status():
+    """Status koneksi rclone Drive: {connected, email, rclone_found}."""
+    from app.services import gdrive_rclone as gr
+
+    st = await gr.connection_status()
+    st["rclone_found"] = bool(gr.find_rclone())
+    return st
+
+
+@admin_router.post("/admin/storage/google-drive/connect", status_code=201)
+async def gdrive_connect(payload: RcloneTokenIn):
+    """Simpan token dari `rclone authorize "drive"` + verifikasi ke Google.
+
+    Token ditempel user dari aplikasi (tombol Hubungkan) — tanpa SSH,
+    tanpa Cloud Console.
+    """
+    from app.services import gdrive_rclone as gr
+
+    try:
+        info = await gr.save_token(payload.token)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, **info}
+
+
+@admin_router.delete("/admin/storage/google-drive/connection")
+async def gdrive_disconnect():
+    """Putuskan koneksi Drive (hapus token rclone)."""
+    from app.services import gdrive_rclone as gr
+
+    await gr.disconnect()
     return {"ok": True}
