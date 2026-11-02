@@ -392,7 +392,25 @@ async def disk_info(db: AsyncSession = Depends(get_db)):
     dependencies=[Depends(rate_limited(10, 60))],
 )
 async def scan_camera(data: ScanRequest):
-    """Coba brand yang diminta; bila 'auto', coba 5 brand umum berurutan."""
+    """Coba brand yang diminta; bila 'auto', coba 5 brand umum berurutan.
+    Bila rtsp_url diisi, langsung resolve URL tersebut (tanpa host)."""
+    candidates: list[ScanCandidate] = []
+    if data.rtsp_url and data.rtsp_url.strip():
+        try:
+            res = await resolve_stream(brand=None, rtsp_url=data.rtsp_url.strip())
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        candidates.append(
+            ScanCandidate(
+                main_url=res.main_url, sub_url=res.sub_url,
+                brand=res.brand, method=res.method,
+            )
+        )
+        return ScanResult(candidates=candidates)
+    if not data.host:
+        raise HTTPException(
+            status_code=400, detail="host wajib diisi bila tanpa URL RTSP langsung"
+        )
     brands = [data.brand] if data.brand and data.brand != "auto" else _AUTO_BRANDS
     candidates: list[ScanCandidate] = []
     for brand in brands:

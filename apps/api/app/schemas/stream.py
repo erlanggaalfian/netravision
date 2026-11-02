@@ -72,7 +72,8 @@ class GroupOut(BaseModel):
 
 class ScanRequest(BaseModel):
     brand: str | None = None  # None / "auto" = coba semua brand umum
-    host: str = Field(min_length=1)
+    host: str | None = Field(default=None, min_length=1)
+    rtsp_url: str | None = None  # mode URL RTSP langsung (tanpa host)
     user: str | None = None
     password: str | None = None
     port: int = Field(default=554, ge=1, le=65535)
