@@ -24,6 +24,9 @@ class ApiKey(Base, TimestampMixin):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # TTL token sesi embed (menit). Dibaca endpoint /api/external/*.
     session_ttl_mnt: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Opsi embed ala v2.0.
+    custom_camera_name: Mapped[str | None] = mapped_column(String(128), nullable=True, default="")
+    include_playback: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
 class ApiKeyStream(Base):
@@ -35,6 +38,7 @@ class ApiKeyStream(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     api_key_id: Mapped[int] = mapped_column(ForeignKey("api_keys.id", ondelete="CASCADE"))
     stream_id: Mapped[int] = mapped_column(ForeignKey("streams.id", ondelete="CASCADE"))
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class ApiAccessLog(Base):

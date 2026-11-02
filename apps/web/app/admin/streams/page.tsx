@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import { useCameraStatus } from "../../../hooks/useCameraStatus";
-import type { DriveAccount, ScanCandidate, Stream } from "../../../lib/types";
+import type { DriveAccount, Group, ScanCandidate, Stream } from "../../../lib/types";
 import {
   Accordion,
   Badge,
@@ -41,6 +41,8 @@ const STORAGE_LABEL: Record<string, string> = {
   both: "Keduanya",
 };
 
+const PAGE_SIZE = 12;
+
 function CameraIcon({ className = "" }: { className?: string }) {
   return (
     <svg
@@ -73,22 +75,40 @@ function ListEmptyState({ text }: { text: string }) {
 function StreamRow({
   s,
   online,
+  selected,
+  onToggleSelect,
   onEdit,
   onDelete,
 }: {
   s: Stream;
   online: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const checkbox = (
+    <input
+      type="checkbox"
+      checked={selected}
+      onChange={onToggleSelect}
+      onClick={(e) => e.stopPropagation()}
+      className="h-5 w-5 shrink-0 accent-blue-500"
+      aria-label={`Pilih ${s.name}`}
+    />
+  );
   const summary = (
-    <span className="flex items-center justify-between gap-3">
+    <span className="flex min-w-0 flex-1 items-center gap-3">
+      {checkbox}
       <span className="min-w-0">
         <span className="block truncate font-medium text-white">{s.name}</span>
         <span className="mt-0.5 flex flex-wrap gap-1.5">
           <Badge tone={online ? "ok" : "bad"}>{online ? "Online" : "Offline"}</Badge>
           {s.brand && <Badge tone="muted">{s.brand}</Badge>}
           <Badge tone="info">{STORAGE_LABEL[s.storage_mode] ?? s.storage_mode}</Badge>
+          <Badge tone={s.recording_enabled ? "ok" : "muted"}>
+            Rekaman: {s.recording_enabled ? "Aktif" : "Mati"}
+          </Badge>
         </span>
       </span>
     </span>
@@ -126,11 +146,24 @@ function StreamRow({
 export default function AdminStreamsPage() {
   const { status } = useCameraStatus();
   const [streams, setStreams] = useState<Stream[] | null>(null);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [groupMap, setGroupMap] = useState<Record<number, string[]>>({});
   const [driveAccounts, setDriveAccounts] = useState<DriveAccount[]>([]);
   const [error, setError] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Stream | null>(null);
   const [deleting, setDeleting] = useState<Stream | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [showCoords, setShowCoords] = useState(false);
+
+  /* Filter */
+  const [q, setQ] = useState("");
+  const [statusF, setStatusF] = useState("all");
+  const [groupF, setGroupF] = useState("all");
+  /* Bulk */
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  /* Pagination */
+  const [page, setPage] = useState(1);
 
   const load = () =>
     api
@@ -145,17 +178,91 @@ export default function AdminStreamsPage() {
     load();
     /* Akun Drive opsional — sembunyikan field bila gagal dimuat. */
     api.get<DriveAccount[]>("/admin/drive-accounts").then(setDriveAccounts).catch(() => {});
+    /* Grup untuk filter. */
+    api
+      .get<Group[]>("/admin/groups")
+      .then(async (gs) => {
+        setGroups(gs);
+        const m: Record<number, string[]> = {};
+        await Promise.all(
+          gs.map(async (g) => {
+            try {
+              const r = await api.get<{ stream_ids: number[] }>(
+                `/admin/groups/${encodeURIComponent(g.name)}/camera-grants`,
+              );
+              r.stream_ids.forEach((id) => {
+                (m[id] = m[id] || []).push(g.name);
+              });
+            } catch {
+              /* abaikan grup yang gagal dimuat */
+            }
+          }),
+        );
+        setGroupMap(m);
+      })
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function doDelete() {
-    if (!deleting) return;
+  const filtered = useMemo(() => {
+    if (!streams) return [];
+    const needle = q.trim().toLowerCase();
+    return streams.filter((s) => {
+      if (needle && !s.name.toLowerCase().includes(needle)) return false;
+      if (statusF !== "all") {
+        const on = status.get(s.id) ?? s.is_online;
+        if ((statusF === "online") !== on) return false;
+      }
+      if (groupF !== "all" && !(groupMap[s.id] || []).includes(groupF))
+        return false;
+      return true;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streams, q, statusF, groupF, groupMap, status]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const curPage = Math.min(page, totalPages);
+  const pageItems = filtered.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE);
+  const filtersActive = q.trim() !== "" || statusF !== "all" || groupF !== "all";
+
+  function clearFilters() {
+    setQ("");
+    setStatusF("all");
+    setGroupF("all");
+    setPage(1);
+  }
+
+  function toggleSelect(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAllPage() {
+    const ids = pageItems.map((s) => s.id);
+    const allChecked = ids.every((id) => selected.has(id));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allChecked) ids.forEach((id) => next.delete(id));
+      else ids.forEach((id) => next.add(id));
+      return next;
+    });
+  }
+
+  async function doBulkDelete() {
+    setError("");
     try {
-      await api.del(`/admin/streams/${deleting.id}`);
-      setDeleting(null);
+      for (const id of selected) {
+        await api.del(`/admin/streams/${id}`);
+      }
+      setSelected(new Set());
+      setBulkDeleting(false);
       load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Gagal menghapus");
+      setError(e instanceof ApiError ? e.message : "Gagal menghapus terpilih");
     }
   }
 
@@ -173,22 +280,174 @@ export default function AdminStreamsPage() {
           <ErrorBox message={error} />
         </div>
       )}
+
+      {/* Filter */}
+      <Card className="mb-4 p-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Field label="Cari kamera">
+            <TextInput
+              placeholder="Nama kamera…"
+              value={q}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setPage(1);
+              }}
+            />
+          </Field>
+          <Field label="Grup">
+            <Select
+              value={groupF}
+              onChange={(e) => {
+                setGroupF(e.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="all">Semua grup</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.name}>
+                  {g.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Status">
+            <Select
+              value={statusF}
+              onChange={(e) => {
+                setStatusF(e.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="all">Semua status</option>
+              <option value="online">Online</option>
+              <option value="offline">Offline</option>
+            </Select>
+          </Field>
+          <div className="flex items-end gap-2">
+            <span className="tabular-nums">
+              <Badge tone="info">
+                {filtered.length} dari {(streams ?? []).length}
+              </Badge>
+            </span>
+            {filtersActive && (
+              <Button variant="subtle" onClick={clearFilters} className="min-h-[40px]">
+                Bersihkan
+              </Button>
+            )}
+          </div>
+        </div>
+      </Card>
+
+      {/* Bulk bar */}
+      {selected.size > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-ink-700 bg-ink-900 px-4 py-3">
+          <span className="text-sm text-slate-300">
+            {selected.size} dipilih
+          </span>
+          <Button
+            variant="subtle"
+            onClick={() => setShowCoords(true)}
+            className="min-h-[40px]"
+          >
+            Set koordinat ({selected.size})
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => setBulkDeleting(true)}
+            className="min-h-[40px]"
+          >
+            Hapus terpilih ({selected.size})
+          </Button>
+          <button
+            type="button"
+            onClick={() => setSelected(new Set())}
+            className="min-h-[40px] rounded-lg px-3 text-sm text-slate-400 hover:text-slate-200"
+          >
+            Batalkan pilihan
+          </button>
+        </div>
+      )}
+
       {streams === null ? (
         <Spinner />
-      ) : streams.length === 0 ? (
-        <ListEmptyState text="Belum ada kamera. Tambahkan yang pertama." />
+      ) : pageItems.length === 0 ? (
+        <ListEmptyState
+          text={
+            filtersActive
+              ? "Tidak ada kamera yang cocok dengan filter."
+              : "Belum ada kamera. Tambahkan yang pertama."
+          }
+        />
       ) : (
-        <div className="space-y-2">
-          {streams.map((s) => (
-            <StreamRow
-              key={s.id}
-              s={s}
-              online={status.get(s.id) ?? s.is_online}
-              onEdit={() => setEditing(s)}
-              onDelete={() => setDeleting(s)}
-            />
-          ))}
-        </div>
+        <>
+          <div className="mb-2 flex items-center gap-3 px-1">
+            <label className="flex min-h-[40px] cursor-pointer items-center gap-2 text-sm text-slate-400">
+              <input
+                type="checkbox"
+                checked={
+                  pageItems.length > 0 &&
+                  pageItems.every((s) => selected.has(s.id))
+                }
+                onChange={toggleSelectAllPage}
+                className="h-5 w-5 accent-blue-500"
+              />
+              Pilih semua di halaman ini
+            </label>
+          </div>
+          <div className="space-y-2">
+            {pageItems.map((s) => (
+              <StreamRow
+                key={s.id}
+                s={s}
+                online={status.get(s.id) ?? s.is_online}
+                selected={selected.has(s.id)}
+                onToggleSelect={() => toggleSelect(s.id)}
+                onEdit={() => setEditing(s)}
+                onDelete={() => setDeleting(s)}
+              />
+            ))}
+          </div>
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-1.5">
+              <Button
+                variant="subtle"
+                disabled={curPage <= 1}
+                onClick={() => setPage(1)}
+                className="min-h-[40px] px-3"
+              >
+                «
+              </Button>
+              <Button
+                variant="subtle"
+                disabled={curPage <= 1}
+                onClick={() => setPage(curPage - 1)}
+                className="min-h-[40px] px-3"
+              >
+                ‹
+              </Button>
+              <span className="px-2 text-sm tabular-nums text-slate-400">
+                {curPage} / {totalPages}
+              </span>
+              <Button
+                variant="subtle"
+                disabled={curPage >= totalPages}
+                onClick={() => setPage(curPage + 1)}
+                className="min-h-[40px] px-3"
+              >
+                ›
+              </Button>
+              <Button
+                variant="subtle"
+                disabled={curPage >= totalPages}
+                onClick={() => setPage(totalPages)}
+                className="min-h-[40px] px-3"
+              >
+                »
+              </Button>
+            </div>
+          )}
+        </>
       )}
 
       {showAdd && (
@@ -216,10 +475,120 @@ export default function AdminStreamsPage() {
           title="Hapus kamera"
           message={`Hapus "${deleting.name}"? Path MediaMTX ikut dilepas.`}
           onCancel={() => setDeleting(null)}
-          onConfirm={doDelete}
+          onConfirm={async () => {
+            setDeleting(null);
+            try {
+              await api.del(`/admin/streams/${deleting.id}`);
+              load();
+            } catch (e) {
+              setError(e instanceof ApiError ? e.message : "Gagal menghapus");
+            }
+          }}
+        />
+      )}
+      {bulkDeleting && (
+        <ConfirmModal
+          title="Hapus kamera terpilih"
+          message={`Hapus ${selected.size} kamera terpilih?`}
+          onCancel={() => setBulkDeleting(false)}
+          onConfirm={doBulkDelete}
+        />
+      )}
+      {showCoords && (
+        <BulkCoordsModal
+          count={selected.size}
+          onClose={() => setShowCoords(false)}
+          onDone={async (lat, lon) => {
+            setError("");
+            try {
+              for (const id of selected) {
+                await api.put(`/admin/streams/${id}`, {
+                  latitude: lat,
+                  longitude: lon,
+                });
+              }
+              setShowCoords(false);
+              setSelected(new Set());
+              load();
+            } catch (e) {
+              setError(
+                e instanceof ApiError ? e.message : "Gagal menyimpan koordinat",
+              );
+            }
+          }}
         />
       )}
     </div>
+  );
+}
+
+function BulkCoordsModal({
+  count,
+  onClose,
+  onDone,
+}: {
+  count: number;
+  onClose: () => void;
+  onDone: (lat: number, lon: number) => Promise<void>;
+}) {
+  const [lat, setLat] = useState("");
+  const [lon, setLon] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const latN = parseFloat(lat);
+  const lonN = parseFloat(lon);
+  const valid =
+    lat.trim() !== "" &&
+    lon.trim() !== "" &&
+    !Number.isNaN(latN) &&
+    !Number.isNaN(lonN) &&
+    latN >= -90 &&
+    latN <= 90 &&
+    lonN >= -180 &&
+    lonN <= 180;
+
+  return (
+    <Modal title={`Set koordinat (${count} kamera)`} onClose={onClose}>
+      {error && (
+        <div className="mb-4">
+          <ErrorBox message={error} />
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Latitude" hint="-90 s/d 90">
+          <TextInput
+            inputMode="decimal"
+            placeholder="-6.2"
+            value={lat}
+            onChange={(e) => setLat(e.target.value)}
+          />
+        </Field>
+        <Field label="Longitude" hint="-180 s/d 180">
+          <TextInput
+            inputMode="decimal"
+            placeholder="106.8"
+            value={lon}
+            onChange={(e) => setLon(e.target.value)}
+          />
+        </Field>
+      </div>
+      <Button
+        className="mt-4 w-full"
+        disabled={!valid || busy}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            await onDone(latN, lonN);
+          } catch (e) {
+            setError(e instanceof ApiError ? e.message : "Gagal menyimpan");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? "Menyimpan…" : "Terapkan ke semua terpilih"}
+      </Button>
+    </Modal>
   );
 }
 
@@ -240,6 +609,10 @@ function AddStreamModal({
   const [rtspUrl, setRtspUrl] = useState("");
   const [useRtsp, setUseRtsp] = useState(false);
   const [candidates, setCandidates] = useState<ScanCandidate[] | null>(null);
+  const [recordingEnabled, setRecordingEnabled] = useState(false);
+  const [retentionDays, setRetentionDays] = useState("7");
+  const [latitude, setLatitude] = useState("");
+  const [longitude, setLongitude] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -275,6 +648,8 @@ function AddStreamModal({
     setError("");
     setBusy(true);
     try {
+      const lat = latitude.trim() === "" ? null : parseFloat(latitude);
+      const lon = longitude.trim() === "" ? null : parseFloat(longitude);
       await api.post<Stream>(
         "/admin/streams",
         {
@@ -282,6 +657,10 @@ function AddStreamModal({
           rtsp_url: c.main_url,
           brand: c.brand,
           storage_mode: "local",
+          recording_enabled: recordingEnabled,
+          retention_days: Math.min(365, Math.max(1, parseInt(retentionDays, 10) || 7)),
+          latitude: lat !== null && !Number.isNaN(lat) ? lat : null,
+          longitude: lon !== null && !Number.isNaN(lon) ? lon : null,
         },
       );
       onDone();
@@ -397,6 +776,44 @@ function AddStreamModal({
           </>
         )}
 
+        <div className="space-y-4 rounded-xl border border-ink-700/60 bg-ink-950/60 p-4">
+          <p className="text-[13px] font-medium text-slate-400">Rekaman & lokasi</p>
+          <label className="flex min-h-[44px] items-center gap-3 text-sm text-slate-300">
+            <input
+              type="checkbox"
+              checked={recordingEnabled}
+              onChange={(e) => setRecordingEnabled(e.target.checked)}
+              className="h-5 w-5 accent-blue-500"
+            />
+            Simpan rekaman ke disk
+          </label>
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Retensi (hari)" hint="1–365">
+              <TextInput
+                inputMode="numeric"
+                value={retentionDays}
+                onChange={(e) => setRetentionDays(e.target.value)}
+              />
+            </Field>
+            <Field label="Latitude">
+              <TextInput
+                inputMode="decimal"
+                placeholder="-6.2"
+                value={latitude}
+                onChange={(e) => setLatitude(e.target.value)}
+              />
+            </Field>
+            <Field label="Longitude">
+              <TextInput
+                inputMode="decimal"
+                placeholder="106.8"
+                value={longitude}
+                onChange={(e) => setLongitude(e.target.value)}
+              />
+            </Field>
+          </div>
+        </div>
+
         <Button
           onClick={doScan}
           disabled={busy || !name.trim() || (useRtsp ? !rtspUrl.trim() : !host.trim())}
@@ -450,10 +867,18 @@ function EditStreamModal({
   onDone: () => void;
 }) {
   const [name, setName] = useState(stream.name);
-  const [isActive, setIsActive] = useState(true);
+  const [isActive, setIsActive] = useState(stream.is_active);
   const [storageMode, setStorageMode] = useState(stream.storage_mode);
   const [driveAccountId, setDriveAccountId] = useState<string>(
     stream.drive_account_id ?? "",
+  );
+  const [recordingEnabled, setRecordingEnabled] = useState(stream.recording_enabled);
+  const [retentionDays, setRetentionDays] = useState(String(stream.retention_days));
+  const [latitude, setLatitude] = useState(
+    stream.latitude !== null ? String(stream.latitude) : "",
+  );
+  const [longitude, setLongitude] = useState(
+    stream.longitude !== null ? String(stream.longitude) : "",
   );
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -468,10 +893,16 @@ function EditStreamModal({
     setError("");
     setBusy(true);
     try {
+      const lat = latitude.trim() === "" ? null : parseFloat(latitude);
+      const lon = longitude.trim() === "" ? null : parseFloat(longitude);
       await api.put(`/admin/streams/${stream.id}`, {
         name: name.trim(),
         is_active: isActive,
         storage_mode: storageMode,
+        recording_enabled: recordingEnabled,
+        retention_days: Math.min(365, Math.max(1, parseInt(retentionDays, 10) || 7)),
+        latitude: lat !== null && !Number.isNaN(lat) ? lat : null,
+        longitude: lon !== null && !Number.isNaN(lon) ? lon : null,
       });
       const next = driveAccountId || null;
       if (next !== (stream.drive_account_id ?? null)) {
@@ -514,6 +945,40 @@ function EditStreamModal({
           <p className="text-[13px] font-medium text-slate-400">
             Penyimpanan rekaman
           </p>
+          <label className="flex min-h-[44px] items-center gap-3 text-sm text-slate-300">
+            <input
+              type="checkbox"
+              checked={recordingEnabled}
+              onChange={(e) => setRecordingEnabled(e.target.checked)}
+              className="h-5 w-5 accent-blue-500"
+            />
+            Simpan rekaman ke disk
+          </label>
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Retensi (hari)" hint="1–365">
+              <TextInput
+                inputMode="numeric"
+                value={retentionDays}
+                onChange={(e) => setRetentionDays(e.target.value)}
+              />
+            </Field>
+            <Field label="Latitude">
+              <TextInput
+                inputMode="decimal"
+                placeholder="-6.2"
+                value={latitude}
+                onChange={(e) => setLatitude(e.target.value)}
+              />
+            </Field>
+            <Field label="Longitude">
+              <TextInput
+                inputMode="decimal"
+                placeholder="106.8"
+                value={longitude}
+                onChange={(e) => setLongitude(e.target.value)}
+              />
+            </Field>
+          </div>
           <Field label="Mode penyimpanan rekaman">
             <Select
               value={storageMode}

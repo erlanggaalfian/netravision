@@ -5,6 +5,7 @@ export interface Stream {
   name: string;
   brand: string | null;
   is_online: boolean;
+  is_active: boolean;
   last_seen_at: string | null;
   whep_main_url: string | null;
   whep_sub_url: string | null;
@@ -13,6 +14,8 @@ export interface Stream {
   drive_account_id: string | null;
   latitude: number | null;
   longitude: number | null;
+  recording_enabled: boolean;
+  retention_days: number;
 }
 
 export interface DriveAccount {
@@ -29,9 +32,10 @@ export interface DriveAccount {
 export interface User {
   id: number;
   username: string;
-  role: "admin" | "user" | "guest";
+  role: "admin" | "user" | "guest" | "super_admin";
   is_active: boolean;
   show_ads: boolean;
+  dibuat_oleh?: string | null;
 }
 
 export interface AdConfig {
@@ -63,6 +67,11 @@ export interface ApiKey {
   id: number;
   name: string;
   last_used_at: string | null;
+  domain_lock: string | null;
+  is_active: boolean;
+  stream_ids: number[];
+  custom_camera_name: string;
+  include_playback: boolean;
 }
 
 export interface DiskInfo {

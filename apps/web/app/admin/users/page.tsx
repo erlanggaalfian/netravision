@@ -22,6 +22,7 @@ const ROLE_LABEL: Record<string, string> = {
   admin: "Admin",
   user: "Pengguna",
   guest: "Tamu",
+  super_admin: "Super Admin",
 };
 
 function UserIcon({ className = "" }: { className?: string }) {
@@ -128,6 +129,9 @@ export default function AdminUsersPage() {
                     <Badge tone={u.show_ads ? "ok" : "muted"}>
                       Iklan: {u.show_ads ? "Ya" : "Tidak"}
                     </Badge>
+                  </span>
+                  <span className="mt-1 block text-xs text-slate-500">
+                    Dibuat oleh: {u.dibuat_oleh ?? "—"}
                   </span>
                 </span>
               </span>

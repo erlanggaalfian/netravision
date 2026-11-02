@@ -14,12 +14,17 @@ class StreamOut(BaseModel):
     name: str
     brand: str | None
     is_online: bool
+    is_active: bool = True
     last_seen_at: datetime | None
     whep_main_url: str
     whep_sub_url: str | None
     poster_url: str
     latitude: float | None = None
     longitude: float | None = None
+    storage_mode: str = "local"
+    drive_account_id: uuid.UUID | None = None
+    recording_enabled: bool = False
+    retention_days: int = 7
 
 
 class StreamCreate(BaseModel):
@@ -33,6 +38,10 @@ class StreamCreate(BaseModel):
     port: int = Field(default=554, ge=1, le=65535)
     channel: int = Field(default=1, ge=1)
     storage_mode: StorageMode = "local"
+    recording_enabled: bool = False
+    retention_days: int = Field(default=7, ge=1, le=365)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
 
 
 class StreamUpdate(BaseModel):
@@ -42,6 +51,8 @@ class StreamUpdate(BaseModel):
     drive_account_id: uuid.UUID | None = None  # null eksplisit = kembali ke default
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
+    recording_enabled: bool | None = None
+    retention_days: int | None = Field(default=None, ge=1, le=365)
 
 
 class GroupCreate(BaseModel):
