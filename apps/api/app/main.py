@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
+from app.core import audit, metrics, security_headers
 from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.db.session import dispose_engine, get_session_factory
@@ -137,8 +138,15 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Hardening Fase 4: security_headers -> metrics -> audit (urutan eksekusi).
+    # add_middleware yang dipanggil terakhir = paling luar = jalan duluan,
+    # jadi urutan tambah di bawah ini dibalik dari urutan eksekusi.
+    app.add_middleware(audit.AuditMiddleware)
+    app.add_middleware(metrics.MetricsMiddleware)
+    app.add_middleware(security_headers.SecurityHeadersMiddleware)
     # Path /api/* dipertahankan persis seperti v2.0 (kontrak embed tidak rusak).
     app.include_router(system.router, prefix="/api")
+    app.include_router(metrics.router, prefix="/api")
     app.include_router(auth.router, prefix="/api")
     app.include_router(streams.router, prefix="/api")
     app.include_router(admin_streams.router, prefix="/api")

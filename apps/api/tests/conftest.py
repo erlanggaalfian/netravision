@@ -1,5 +1,6 @@
 """Fixture bersama test Fase 1: DB sqlite file + override dependency."""
 
+import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -77,3 +78,13 @@ async def app_client(db_session):
 
 def auth_as(app, user: User):
     app.dependency_overrides[get_current_user] = lambda: user
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiters():
+    """Rate limiter in-memory harus bersih antar-test."""
+    from app.core.rate_limit import reset_rate_limits
+
+    reset_rate_limits()
+    yield
+    reset_rate_limits()

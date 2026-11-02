@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.rate_limit import rate_limited
 from app.core.rbac import get_current_user
 from app.core.security import (
     create_access_token,
@@ -45,7 +46,11 @@ def _token_pair(user: User) -> TokenOut:
     )
 
 
-@router.post("/auth/login", response_model=TokenOut)
+@router.post(
+    "/auth/login",
+    response_model=TokenOut,
+    dependencies=[Depends(rate_limited(5, 60))],
+)
 async def login(data: LoginIn, db: AsyncSession = Depends(get_db)) -> TokenOut:
     user = await _get_active_user(db, data.username)
     if user is None or not verify_password(data.password, user.password_hash):
@@ -57,7 +62,11 @@ async def login(data: LoginIn, db: AsyncSession = Depends(get_db)) -> TokenOut:
     return pair
 
 
-@router.post("/auth/refresh", response_model=TokenOut)
+@router.post(
+    "/auth/refresh",
+    response_model=TokenOut,
+    dependencies=[Depends(rate_limited(20, 60))],
+)
 async def refresh(data: RefreshIn, db: AsyncSession = Depends(get_db)) -> TokenOut:
     settings = get_settings()
     try:
@@ -96,7 +105,11 @@ async def logout(
     return {"ok": True}
 
 
-@router.post("/auth/guest", response_model=TokenOut)
+@router.post(
+    "/auth/guest",
+    response_model=TokenOut,
+    dependencies=[Depends(rate_limited(5, 60))],
+)
 async def guest(data: GuestIn) -> TokenOut:
     """Login tamu terbatas ala v2.0. Nonaktif secara default (GUEST_ENABLED)."""
     settings = get_settings()

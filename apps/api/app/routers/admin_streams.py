@@ -12,6 +12,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.rate_limit import rate_limited
 from app.core.rbac import require_roles
 from app.db.session import get_db
 from app.models.access import UserStreamAccess
@@ -241,7 +242,11 @@ async def disk_info():
     }
 
 
-@router.post("/admin/scan", response_model=ScanResult)
+@router.post(
+    "/admin/scan",
+    response_model=ScanResult,
+    dependencies=[Depends(rate_limited(10, 60))],
+)
 async def scan_camera(data: ScanRequest):
     """Coba brand yang diminta; bila 'auto', coba 5 brand umum berurutan."""
     brands = [data.brand] if data.brand and data.brand != "auto" else _AUTO_BRANDS
@@ -266,7 +271,9 @@ async def scan_camera(data: ScanRequest):
     return ScanResult(candidates=candidates)
 
 
-@router.post("/admin/scan/preview")
+@router.post(
+    "/admin/scan/preview", dependencies=[Depends(rate_limited(10, 60))]
+)
 async def scan_preview(data: PreviewIn):
     # TODO Fase 2: frontend memutar URL hasil resolve untuk preview visual
     # sebelum kamera disimpan.
