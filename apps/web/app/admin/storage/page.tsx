@@ -53,11 +53,21 @@ export default function AdminStoragePage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState<GDriveFolder | null>(null);
-  // Modal hubungkan
+  // Modal hubungkan: 2 langkah (start -> buka URL -> finish dengan kode)
   const [showConnect, setShowConnect] = useState(false);
-  const [token, setToken] = useState("");
+  const [connStep, setConnStep] = useState<"start" | "code">("start");
+  const [sessionId, setSessionId] = useState("");
+  const [authUrl, setAuthUrl] = useState("");
+  const [code, setCode] = useState("");
   const [connectBusy, setConnectBusy] = useState(false);
   const [connectError, setConnectError] = useState("");
+
+  function openConnect() {
+    setConnectError("");
+    setCode("");
+    setConnStep("start");
+    setShowConnect(true);
+  }
 
   async function load() {
     try {
@@ -80,16 +90,40 @@ export default function AdminStoragePage() {
     loadConn();
   }, []);
 
-  async function connect() {
-    if (!token.trim()) {
-      setConnectError("Tempel dulu token dari `rclone authorize`.");
+  async function connectStart() {
+    setConnectError("");
+    setConnectBusy(true);
+    try {
+      const r = await api.post<{ session_id: string; auth_url: string }>(
+        "/admin/storage/google-drive/connect/start",
+        {},
+      );
+      setSessionId(r.session_id);
+      setAuthUrl(r.auth_url);
+      setConnStep("code");
+    } catch (e) {
+      setConnectError(e instanceof ApiError ? e.message : "Gagal memulai");
+    } finally {
+      setConnectBusy(false);
+    }
+  }
+
+  async function connectFinish() {
+    if (!code.trim()) {
+      setConnectError("Tempel dulu kode verifikasi dari Google.");
       return;
     }
     setConnectError("");
     setConnectBusy(true);
     try {
-      await api.post("/admin/storage/google-drive/connect", { token: token.trim() });
-      setToken("");
+      await api.post("/admin/storage/google-drive/connect/finish", {
+        session_id: sessionId,
+        code: code.trim(),
+      });
+      setCode("");
+      setSessionId("");
+      setAuthUrl("");
+      setConnStep("start");
       setShowConnect(false);
       await loadConn();
     } catch (e) {
@@ -187,7 +221,7 @@ export default function AdminStoragePage() {
               </Button>
             </div>
           ) : (
-            <Button onClick={() => { setConnectError(""); setShowConnect(true); }} className="min-h-[44px]">
+            <Button onClick={openConnect} className="min-h-[44px]">
               Hubungkan Google Drive
             </Button>
           )}
@@ -287,7 +321,7 @@ export default function AdminStoragePage() {
       <Card className="mt-6 max-w-2xl">
         <p className="mb-2 font-medium">Cara kerja</p>
         <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-600 dark:text-slate-400">
-          <li>Klik “Hubungkan Google Drive” di atas dan ikuti 3 langkahnya (sekali saja).</li>
+          <li>Klik “Hubungkan Google Drive” di atas — buka link Google di browser Anda, tempel kodenya (sekali saja).</li>
           <li>Tempel tautan foldernya di atas (bisa banyak).</li>
           <li>
             Di modal kamera, pilih mode penyimpanan “Google Drive”/“Keduanya”
@@ -306,54 +340,74 @@ export default function AdminStoragePage() {
         />
       )}
 
-      {/* Modal Hubungkan Google Drive */}
+      {/* Modal Hubungkan Google Drive — 2 langkah */}
       {showConnect && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center">
           <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-900">
             <p className="text-lg font-semibold">Hubungkan Google Drive</p>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Sekali saja — tanpa SSH, tanpa Cloud Console.
+              Sekali saja — tanpa instal apa pun, tanpa SSH.
             </p>
-            <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-600 dark:text-slate-300">
-              <li>
-                Di <b>komputer/HP Anda</b>, instal rclone sekali dari{" "}
-                <a href="https://rclone.org/downloads/" target="_blank" rel="noreferrer" className="text-blue-600 underline dark:text-blue-400">
-                  rclone.org/downloads
-                </a>{" "}
-                (atau pakai yang sudah ada).
-              </li>
-              <li>
-                Jalankan perintah ini, lalu izinkan di browser:
-                <code className="mt-1 block rounded bg-slate-100 px-2 py-1 font-mono text-xs dark:bg-slate-800">
-                  rclone authorize &quot;drive&quot;
-                </code>
-              </li>
-              <li>
-                Salin <b>seluruh token JSON</b> yang muncul, tempel di bawah, lalu Simpan.
-              </li>
-            </ol>
-            <Field label="Token rclone" hint='Mulai dengan {"access_token": ...'>
-              <textarea
-                rows={4}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-xs dark:border-slate-700 dark:bg-slate-800"
-                placeholder='{"access_token":"ya29...","token_type":"Bearer","refresh_token":"1//...","expiry":"..."}'
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-              />
-            </Field>
-            {connectError && (
-              <div className="mt-3">
-                <ErrorBox message={connectError} />
-              </div>
+
+            {connStep === "start" ? (
+              <>
+                <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-600 dark:text-slate-300">
+                  <li>Klik tombol di bawah — server menyiapkan koneksi.</li>
+                  <li>Buka link Google yang muncul di <b>browser HP/laptop Anda</b>, login dan izinkan.</li>
+                  <li>Salin <b>kode verifikasi</b> dari Google, tempel di sini.</li>
+                </ol>
+                {connectError && (
+                  <div className="mt-3">
+                    <ErrorBox message={connectError} />
+                  </div>
+                )}
+                <div className="mt-4 flex justify-end gap-2">
+                  <Button variant="ghost" onClick={() => setShowConnect(false)}>
+                    Batal
+                  </Button>
+                  <Button onClick={connectStart} disabled={connectBusy} className="min-h-[44px]">
+                    {connectBusy ? "Menyiapkan…" : "Mulai Hubungkan"}
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-600 dark:text-slate-300">
+                  <li>
+                    Buka link ini di browser Anda dan izinkan akses:
+                    <a
+                      href={authUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-1 block break-all rounded bg-slate-100 px-2 py-1 font-mono text-xs text-blue-600 underline dark:bg-slate-800 dark:text-blue-400"
+                    >
+                      {authUrl.slice(0, 60)}…
+                    </a>
+                  </li>
+                  <li>Salin kode verifikasi yang diberikan Google, tempel di bawah.</li>
+                </ol>
+                <Field label="Kode verifikasi Google">
+                  <TextInput
+                    placeholder="4/0AbC..."
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                  />
+                </Field>
+                {connectError && (
+                  <div className="mt-3">
+                    <ErrorBox message={connectError} />
+                  </div>
+                )}
+                <div className="mt-4 flex justify-end gap-2">
+                  <Button variant="ghost" onClick={() => setShowConnect(false)}>
+                    Batal
+                  </Button>
+                  <Button onClick={connectFinish} disabled={connectBusy} className="min-h-[44px]">
+                    {connectBusy ? "Menghubungkan…" : "Selesaikan"}
+                  </Button>
+                </div>
+              </>
             )}
-            <div className="mt-4 flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setShowConnect(false)}>
-                Batal
-              </Button>
-              <Button onClick={connect} disabled={connectBusy} className="min-h-[44px]">
-                {connectBusy ? "Menghubungkan…" : "Simpan & Hubungkan"}
-              </Button>
-            </div>
           </div>
         </div>
       )}

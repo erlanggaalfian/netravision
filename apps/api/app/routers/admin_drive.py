@@ -461,3 +461,37 @@ async def gdrive_disconnect():
 
     await gr.disconnect()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Koneksi Google Drive via rclone config otomatis (tanpa instal lokal/SSH)
+# ---------------------------------------------------------------------------
+
+class GdriveCodeIn(BaseModel):
+    session_id: str
+    code: str
+
+
+@admin_router.post("/admin/storage/google-drive/connect/start")
+async def gdrive_connect_start():
+    """Mulai sesi hubung: jalankan rclone config sampai URL auth muncul.
+
+    Return {session_id, auth_url} — user buka URL di browser, salin kode.
+    """
+    from app.services import gdrive_connect as gc
+
+    try:
+        return await gc.start_session()
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@admin_router.post("/admin/storage/google-drive/connect/finish")
+async def gdrive_connect_finish(payload: GdriveCodeIn):
+    """Selesaikan sesi hubung dengan kode verifikasi dari user."""
+    from app.services import gdrive_connect as gc
+
+    try:
+        return await gc.finish_session(payload.session_id, payload.code)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
