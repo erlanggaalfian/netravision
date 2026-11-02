@@ -9,7 +9,6 @@ import {
   Badge,
   Button,
   ConfirmModal,
-  EmptyState,
   ErrorBox,
   Field,
   Modal,
@@ -22,6 +21,53 @@ function statusBadge(a: DriveAccount) {
   if (a.status === "connected") return <Badge tone="ok">Terhubung</Badge>;
   if (a.status === "error") return <Badge tone="bad">Bermasalah</Badge>;
   return <Badge tone="warn">Menunggu</Badge>;
+}
+
+function CloudIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      width="40"
+      height="40"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="shrink-0"
+      aria-hidden
+    >
+      <path d="M20 6L9 17l-5-5" />
+    </svg>
+  );
+}
+
+function ListEmptyState({ text }: { text: string }) {
+  return (
+    <div className="rounded-xl border border-dashed border-ink-700 bg-ink-900/50 px-4 py-12 text-center">
+      <CloudIcon className="mx-auto text-slate-600" />
+      <p className="mt-3 text-sm text-slate-500">{text}</p>
+    </div>
+  );
 }
 
 function AccountRow({
@@ -82,7 +128,7 @@ function AccountRow({
           <div className="space-y-3">{actions}</div>
         </Accordion>
       </div>
-      <div className="hidden items-center justify-between gap-3 rounded-xl border border-ink-700/60 bg-ink-900 px-4 py-3 md:flex">
+      <div className="hidden items-center justify-between gap-3 rounded-xl border border-ink-700/60 bg-ink-900 px-4 py-3 transition-colors hover:border-ink-500 md:flex">
         {summary}
         {actions}
       </div>
@@ -181,7 +227,8 @@ function DrivePageInner() {
         }
       />
       {notice && (
-        <div className="mb-4 rounded-xl border border-ok-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-ok-400">
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-ok-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-ok-400">
+          <CheckIcon />
           {notice}
         </div>
       )}
@@ -193,7 +240,7 @@ function DrivePageInner() {
       {accounts === null ? (
         <Spinner />
       ) : accounts.length === 0 ? (
-        <EmptyState text="Belum ada akun Google Drive. Tambahkan yang pertama." />
+        <ListEmptyState text="Belum ada akun Google Drive. Tambahkan yang pertama." />
       ) : (
         <div className="space-y-2">
           {accounts.map((a) => (

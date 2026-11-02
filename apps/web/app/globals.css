@@ -1,21 +1,23 @@
 @import "tailwindcss";
 
-/* NetraVision design tokens — dark-first, bahasa vibekoding. */
+/* NetraVision — "ruang kendali siaran": konsol NVR dark-first yang tenang-tegas.
+   Satu ground (#0a0e13), permukaan bertingkat, satu aksen biru. Tanpa gradien,
+   tanpa kaca, tanpa blob. */
 @theme {
-  --color-ink-950: #0a0e13;
-  --color-ink-900: #0f141b;
-  --color-ink-850: #131a23;
-  --color-ink-800: #182029;
-  --color-ink-700: #232d38;
+  --color-ink-950: #0a0e13; /* base */
+  --color-ink-900: #0d141c; /* kartu */
+  --color-ink-850: #111a24; /* raised */
+  --color-ink-800: #16202c;
+  --color-ink-700: #212c3a;
   --color-accent-300: #8db9ff;
-  --color-accent-400: #5b9bff;
+  --color-accent-400: #5b9bff; /* brand — jangan diganti */
   --color-accent-500: #3b82f6;
   --color-accent-600: #2563eb;
   --color-ok-400: #34d399;
   --color-warn-400: #fbbf24;
   --color-bad-400: #f87171;
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 :root {
@@ -30,8 +32,25 @@ body {
 body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   background: var(--color-ink-950);
-  color: #e8edf3;
+  color: #e9eef5;
+}
+
+::selection {
+  background: rgb(91 155 255 / 0.3);
+  color: #fff;
+}
+
+/* Default focus yang terlihat di semua kontrol. */
+:focus-visible {
+  outline: 2px solid var(--color-accent-400);
+  outline-offset: 2px;
+}
+
+/* Angka tabular untuk metrik/statistik. */
+.tnum {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Cegah auto-zoom iOS pada input (pola mobile yang dikunci). */
@@ -62,6 +81,21 @@ textarea {
 .vk-touch-toggle.cam-show-controls .cam-controls,
 .vk-touch-toggle:hover .cam-controls {
   opacity: 1;
+}
+
+/* Kemunculan dialog: halus, sekali jalan. */
+@keyframes nv-pop {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.nv-pop {
+  animation: nv-pop 0.18s ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {

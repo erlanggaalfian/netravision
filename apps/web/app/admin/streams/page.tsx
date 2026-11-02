@@ -10,7 +10,6 @@ import {
   Button,
   Card,
   ConfirmModal,
-  EmptyState,
   ErrorBox,
   Field,
   Modal,
@@ -41,6 +40,35 @@ const STORAGE_LABEL: Record<string, string> = {
   drive: "Google Drive",
   both: "Keduanya",
 };
+
+function CameraIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      width="40"
+      height="40"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+      <circle cx="12" cy="13" r="4" />
+    </svg>
+  );
+}
+
+function ListEmptyState({ text }: { text: string }) {
+  return (
+    <div className="rounded-xl border border-dashed border-ink-700 bg-ink-900/50 px-4 py-12 text-center">
+      <CameraIcon className="mx-auto text-slate-600" />
+      <p className="mt-3 text-sm text-slate-500">{text}</p>
+    </div>
+  );
+}
 
 function StreamRow({
   s,
@@ -87,7 +115,7 @@ function StreamRow({
           </div>
         </Accordion>
       </div>
-      <div className="hidden items-center justify-between gap-3 rounded-xl border border-ink-700/60 bg-ink-900 px-4 py-3 md:flex">
+      <div className="hidden items-center justify-between gap-3 rounded-xl border border-ink-700/60 bg-ink-900 px-4 py-3 transition-colors hover:border-ink-500 md:flex">
         {summary}
         {actions}
       </div>
@@ -148,7 +176,7 @@ export default function AdminStreamsPage() {
       {streams === null ? (
         <Spinner />
       ) : streams.length === 0 ? (
-        <EmptyState text="Belum ada kamera. Tambahkan yang pertama." />
+        <ListEmptyState text="Belum ada kamera. Tambahkan yang pertama." />
       ) : (
         <div className="space-y-2">
           {streams.map((s) => (
@@ -280,25 +308,29 @@ function AddStreamModal({
           />
         </Field>
 
-        <div className="flex gap-4 text-sm">
-          <label className="flex items-center gap-2 text-slate-300">
-            <input
-              type="radio"
-              checked={!useRtsp}
-              onChange={() => setUseRtsp(false)}
-              className="accent-blue-500"
-            />
-            Brand + kredensial
-          </label>
-          <label className="flex items-center gap-2 text-slate-300">
-            <input
-              type="radio"
-              checked={useRtsp}
-              onChange={() => setUseRtsp(true)}
-              className="accent-blue-500"
-            />
-            URL RTSP langsung
-          </label>
+        <div
+          className="grid grid-cols-2 gap-1 rounded-xl border border-ink-700 bg-ink-950 p-1"
+          role="group"
+          aria-label="Metode penambahan kamera"
+        >
+          {[
+            { rtsp: false, label: "Brand + kredensial" },
+            { rtsp: true, label: "URL RTSP langsung" },
+          ].map((o) => (
+            <button
+              key={o.label}
+              type="button"
+              aria-pressed={useRtsp === o.rtsp}
+              onClick={() => setUseRtsp(o.rtsp)}
+              className={`min-h-[44px] rounded-lg px-3 text-sm font-medium transition-colors ${
+                useRtsp === o.rtsp
+                  ? "bg-ink-700 text-white"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
         </div>
 
         {useRtsp ? (
@@ -462,48 +494,56 @@ function EditStreamModal({
           <ErrorBox message={error} />
         </div>
       )}
-      <div className="space-y-4">
-        <Field label="Nama kamera">
-          <TextInput value={name} onChange={(e) => setName(e.target.value)} />
-        </Field>
-        <Field label="Mode penyimpanan rekaman">
-          <Select
-            value={storageMode}
-            onChange={(e) => setStorageMode(e.target.value)}
-          >
-            <option value="local">Lokal</option>
-            <option value="drive">Google Drive</option>
-            <option value="both">Keduanya</option>
-          </Select>
-        </Field>
-        {showDrive && (
-          <Field
-            label="Akun Google Drive"
-            hint="Kamera ini mengunggah rekaman ke akun ini"
-          >
+      <div className="space-y-5">
+        <div className="space-y-4">
+          <p className="text-[13px] font-medium text-slate-400">Kamera</p>
+          <Field label="Nama kamera">
+            <TextInput value={name} onChange={(e) => setName(e.target.value)} />
+          </Field>
+          <label className="flex min-h-[44px] items-center gap-3 text-sm text-slate-300">
+            <input
+              type="checkbox"
+              checked={isActive}
+              onChange={(e) => setIsActive(e.target.checked)}
+              className="h-5 w-5 accent-blue-500"
+            />
+            Kamera aktif
+          </label>
+        </div>
+        <div className="space-y-4 border-t border-ink-700/60 pt-5">
+          <p className="text-[13px] font-medium text-slate-400">
+            Penyimpanan rekaman
+          </p>
+          <Field label="Mode penyimpanan rekaman">
             <Select
-              value={driveAccountId}
-              onChange={(e) => setDriveAccountId(e.target.value)}
+              value={storageMode}
+              onChange={(e) => setStorageMode(e.target.value)}
             >
-              <option value="">Ikuti bawaan (default)</option>
-              {connectedAccounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                  {a.is_default ? " · default" : ""}
-                </option>
-              ))}
+              <option value="local">Lokal</option>
+              <option value="drive">Google Drive</option>
+              <option value="both">Keduanya</option>
             </Select>
           </Field>
-        )}
-        <label className="flex min-h-[44px] items-center gap-3 text-sm text-slate-300">
-          <input
-            type="checkbox"
-            checked={isActive}
-            onChange={(e) => setIsActive(e.target.checked)}
-            className="h-5 w-5 accent-blue-500"
-          />
-          Kamera aktif
-        </label>
+          {showDrive && (
+            <Field
+              label="Akun Google Drive"
+              hint="Kamera ini mengunggah rekaman ke akun ini"
+            >
+              <Select
+                value={driveAccountId}
+                onChange={(e) => setDriveAccountId(e.target.value)}
+              >
+                <option value="">Ikuti bawaan (default)</option>
+                {connectedAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                    {a.is_default ? " · default" : ""}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+        </div>
         <Button onClick={save} disabled={busy || !name.trim()} className="w-full">
           {busy ? "Menyimpan…" : "Simpan"}
         </Button>

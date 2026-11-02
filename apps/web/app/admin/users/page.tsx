@@ -24,6 +24,35 @@ const ROLE_LABEL: Record<string, string> = {
   guest: "Tamu",
 };
 
+function UserIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      width="40"
+      height="40"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  );
+}
+
+function ListEmptyState({ text }: { text: string }) {
+  return (
+    <div className="rounded-xl border border-dashed border-ink-700 bg-ink-900/50 px-4 py-12 text-center">
+      <UserIcon className="mx-auto text-slate-600" />
+      <p className="mt-3 text-sm text-slate-500">{text}</p>
+    </div>
+  );
+}
+
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<User[] | null>(null);
   const [streams, setStreams] = useState<Stream[]>([]);
@@ -74,7 +103,7 @@ export default function AdminUsersPage() {
       {users === null ? (
         <Spinner />
       ) : users.length === 0 ? (
-        <EmptyState text="Belum ada pengguna." />
+        <ListEmptyState text="Belum ada pengguna." />
       ) : (
         <div className="space-y-2">
           {users.map((u) => {
@@ -132,7 +161,7 @@ export default function AdminUsersPage() {
                     <div className="space-y-3">{actions}</div>
                   </Accordion>
                 </div>
-                <div className="hidden items-center justify-between gap-3 rounded-xl border border-ink-700/60 bg-ink-900 px-4 py-3 md:flex">
+                <div className="hidden items-center justify-between gap-3 rounded-xl border border-ink-700/60 bg-ink-900 px-4 py-3 transition-colors hover:border-ink-500 md:flex">
                   {summary}
                   {actions}
                 </div>
@@ -321,21 +350,44 @@ function AccessModal({
       ) : streams.length === 0 ? (
         <EmptyState text="Belum ada kamera." />
       ) : (
-        <div className="space-y-1">
-          {streams.map((s) => (
-            <label
-              key={s.id}
-              className="flex min-h-[48px] cursor-pointer items-center gap-3 rounded-lg px-3 py-2 hover:bg-ink-800"
-            >
-              <input
-                type="checkbox"
-                checked={checked.has(s.id)}
-                onChange={() => toggle(s.id)}
-                className="h-5 w-5 shrink-0 accent-blue-500"
-              />
-              <span className="text-sm text-slate-200">{s.name}</span>
-            </label>
-          ))}
+        <div>
+          <div className="mb-2 flex items-center justify-between gap-2 px-1">
+            <p className="text-xs tabular-nums text-slate-500">
+              {checked.size} dari {streams.length} dipilih
+            </p>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => setChecked(new Set(streams.map((s) => s.id)))}
+                className="min-h-[36px] rounded-md px-2 text-xs font-medium text-accent-300 transition-colors hover:bg-ink-800"
+              >
+                Pilih semua
+              </button>
+              <button
+                type="button"
+                onClick={() => setChecked(new Set())}
+                className="min-h-[36px] rounded-md px-2 text-xs font-medium text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-200"
+              >
+                Bersihkan
+              </button>
+            </div>
+          </div>
+          <div className="max-h-64 space-y-1 overflow-y-auto">
+            {streams.map((s) => (
+              <label
+                key={s.id}
+                className="flex min-h-[48px] cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-ink-800"
+              >
+                <input
+                  type="checkbox"
+                  checked={checked.has(s.id)}
+                  onChange={() => toggle(s.id)}
+                  className="h-5 w-5 shrink-0 accent-blue-500"
+                />
+                <span className="text-sm text-slate-200">{s.name}</span>
+              </label>
+            ))}
+          </div>
         </div>
       )}
       <div className="mt-5 flex justify-end gap-2">

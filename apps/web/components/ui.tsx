@@ -2,7 +2,49 @@
 
 import { useState, type ReactNode } from "react";
 
-/* Komponen UI bersama — dark-first, bahasa vibekoding. */
+/* Komponen UI bersama — "ruang kendali siaran": permukaan bertingkat,
+   hairline white/8, radius 12–16px, satu aksen biru. API tidak berubah. */
+
+function XIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden
+    >
+      <path
+        d="M4 4l8 8M12 4l-8 8"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function ChevronIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden
+    >
+      <path
+        d="M4 6l4 4 4-4"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 export function Card({
   children,
@@ -13,7 +55,7 @@ export function Card({
 }) {
   return (
     <div
-      className={`rounded-xl border border-ink-700/60 bg-ink-900 p-4 shadow-sm sm:p-5 ${className}`}
+      className={`rounded-2xl border border-white/8 bg-ink-900 p-5 shadow-[0_1px_2px_rgba(0,0,0,0.45)] ${className}`}
     >
       {children}
     </div>
@@ -30,12 +72,16 @@ export function SectionTitle({
   action?: ReactNode;
 }) {
   return (
-    <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+    <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight text-white sm:text-2xl">
+        <h1 className="text-2xl font-bold tracking-tight text-white">
           {title}
         </h1>
-        {desc && <p className="mt-1 text-sm text-slate-400">{desc}</p>}
+        {desc && (
+          <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-400">
+            {desc}
+          </p>
+        )}
       </div>
       {action}
     </div>
@@ -52,12 +98,14 @@ export function Stat({
   sub?: string;
 }) {
   return (
-    <Card className="p-4">
-      <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
+    <Card className="p-5">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
         {label}
       </p>
-      <p className="mt-1 text-2xl font-bold text-white">{value}</p>
-      {sub && <p className="mt-1 text-xs text-slate-400">{sub}</p>}
+      <p className="tnum mt-1.5 text-[28px] font-bold leading-none tracking-tight text-white">
+        {value}
+      </p>
+      {sub && <p className="mt-1.5 text-xs text-slate-500">{sub}</p>}
     </Card>
   );
 }
@@ -73,13 +121,15 @@ export function Button({
   variant?: BtnVariant;
 }) {
   const base =
-    "inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
+    "inline-flex min-h-[44px] cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]";
   const styles: Record<BtnVariant, string> = {
-    primary: "bg-accent-600 text-white hover:bg-accent-500",
+    primary:
+      "bg-accent-600 text-white shadow-[0_1px_2px_rgba(0,0,0,0.45)] hover:bg-accent-500",
     ghost:
-      "border border-ink-700 bg-transparent text-slate-200 hover:border-accent-500 hover:text-white",
-    danger: "bg-red-600/15 text-bad-400 hover:bg-red-600/25 border border-red-500/30",
-    subtle: "bg-ink-800 text-slate-200 hover:bg-ink-700",
+      "border border-white/10 bg-transparent text-slate-200 hover:border-white/20 hover:bg-white/5 hover:text-white",
+    danger:
+      "border border-red-500/30 bg-red-600/15 text-bad-400 hover:bg-red-600/25",
+    subtle: "bg-ink-800 text-slate-200 hover:bg-ink-700 hover:text-white",
   };
   return (
     <button className={`${base} ${styles[variant]} ${className}`} {...rest}>
@@ -99,17 +149,17 @@ export function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-sm font-medium text-slate-300">
+      <span className="mb-1.5 block text-sm font-medium text-slate-300">
         {label}
       </span>
       {children}
-      {hint && <span className="mt-1 block text-xs text-slate-500">{hint}</span>}
+      {hint && <span className="mt-1.5 block text-xs text-slate-500">{hint}</span>}
     </label>
   );
 }
 
 const inputCls =
-  "w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2.5 text-slate-100 placeholder:text-slate-600 outline-none transition-colors focus:border-accent-500";
+  "w-full rounded-xl border border-white/10 bg-ink-950 px-3.5 py-2.5 text-slate-100 placeholder:text-slate-600 outline-none transition-all duration-150 ease-out focus:border-accent-400 focus:ring-4 focus:ring-accent-500/15";
 
 export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`${inputCls} ${props.className ?? ""}`} />;
@@ -133,15 +183,15 @@ export function Badge({
   children: ReactNode;
 }) {
   const styles = {
-    ok: "bg-emerald-500/15 text-ok-400 border-emerald-500/30",
-    bad: "bg-red-500/15 text-bad-400 border-red-500/30",
-    warn: "bg-amber-500/15 text-warn-400 border-amber-500/30",
-    info: "bg-accent-500/15 text-accent-300 border-accent-500/30",
-    muted: "bg-ink-800 text-slate-400 border-ink-700",
+    ok: "border-emerald-500/30 bg-emerald-500/15 text-ok-400",
+    bad: "border-red-500/30 bg-red-500/15 text-bad-400",
+    warn: "border-amber-500/30 bg-amber-500/15 text-warn-400",
+    info: "border-accent-500/30 bg-accent-500/15 text-accent-300",
+    muted: "border-white/10 bg-ink-800 text-slate-400",
   } as const;
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${styles[tone]}`}
+      className={`inline-flex items-center rounded-full border px-2.5 py-[3px] text-[11px] font-semibold ${styles[tone]}`}
     >
       {children}
     </span>
@@ -167,19 +217,21 @@ export function Modal({
       aria-modal="true"
     >
       <div
-        className={`max-h-[92vh] w-full overflow-y-auto rounded-t-2xl border border-ink-700 bg-ink-900 p-5 sm:rounded-2xl ${
+        className={`nv-pop max-h-[92vh] w-full overflow-y-auto rounded-t-2xl border border-white/10 bg-ink-900 p-5 shadow-2xl sm:rounded-2xl sm:p-6 ${
           wide ? "sm:max-w-2xl" : "sm:max-w-lg"
         }`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-white">{title}</h2>
+          <h2 className="text-lg font-bold tracking-tight text-white">
+            {title}
+          </h2>
           <button
             onClick={onClose}
             aria-label="Tutup"
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-ink-800 hover:text-white"
+            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl text-slate-400 transition-colors duration-150 hover:bg-white/5 hover:text-white"
           >
-            ✕
+            <XIcon />
           </button>
         </div>
         {children}
@@ -203,8 +255,8 @@ export function ConfirmModal({
 }) {
   return (
     <Modal title={title} onClose={onCancel}>
-      <p className="text-sm text-slate-300">{message}</p>
-      <div className="mt-5 flex justify-end gap-2">
+      <p className="text-sm leading-relaxed text-slate-300">{message}</p>
+      <div className="mt-6 flex justify-end gap-2">
         <Button variant="ghost" onClick={onCancel}>
           Batal
         </Button>
@@ -228,28 +280,27 @@ export function Accordion({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="rounded-xl border border-ink-700/60 bg-ink-900">
+    <div className="rounded-2xl border border-white/8 bg-ink-900 shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
       <button
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="flex w-full items-center justify-between gap-3 p-4 text-left"
+        className="flex min-h-[44px] w-full cursor-pointer items-center justify-between gap-3 p-4 text-left transition-colors duration-150 hover:bg-white/[0.02]"
       >
         <span className="min-w-0 flex-1">{summary}</span>
-        <span
-          className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
-          aria-hidden
-        >
-          ⌄
-        </span>
+        <ChevronIcon
+          className={`shrink-0 text-slate-400 transition-transform duration-200 ease-out ${open ? "rotate-180" : ""}`}
+        />
       </button>
-      {open && <div className="border-t border-ink-700/60 p-4">{children}</div>}
+      {open && (
+        <div className="border-t border-white/8 p-4">{children}</div>
+      )}
     </div>
   );
 }
 
 export function ErrorBox({ message }: { message: string }) {
   return (
-    <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-bad-400">
+    <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3.5 py-2.5 text-sm text-bad-400">
       {message}
     </div>
   );
@@ -257,7 +308,7 @@ export function ErrorBox({ message }: { message: string }) {
 
 export function EmptyState({ text }: { text: string }) {
   return (
-    <div className="rounded-xl border border-dashed border-ink-700 bg-ink-900/50 px-4 py-10 text-center text-sm text-slate-500">
+    <div className="rounded-2xl border border-dashed border-white/10 bg-ink-900/50 px-4 py-12 text-center text-sm text-slate-500">
       {text}
     </div>
   );

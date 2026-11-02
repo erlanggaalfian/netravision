@@ -178,7 +178,22 @@ export default function AdminAdsPage() {
                 {busy ? "Menyimpan…" : "Simpan"}
               </Button>
               {saved && (
-                <span className="text-sm text-ok-400">Tersimpan ✓</span>
+                <span className="inline-flex items-center gap-1.5 text-sm text-ok-400">
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2.5}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                  >
+                    <path d="M20 6L9 17l-5-5" />
+                  </svg>
+                  Tersimpan
+                </span>
               )}
             </div>
           </div>

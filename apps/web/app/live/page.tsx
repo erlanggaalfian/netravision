@@ -20,11 +20,11 @@ const FILTERS: { id: StatusFilter; label: string }[] = [
 
 function SkeletonGrid() {
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {Array.from({ length: 8 }).map((_, i) => (
         <div
           key={i}
-          className="aspect-video animate-pulse rounded-lg bg-ink-800"
+          className="aspect-video animate-pulse rounded-2xl bg-ink-800 motion-reduce:animate-none"
         />
       ))}
     </div>
@@ -87,47 +87,61 @@ export default function LivePage() {
   }, [merged, query, filter]);
 
   const onlineCount = merged.filter((s) => s.is_online).length;
+  const counts: Record<StatusFilter, number> = {
+    all: merged.length,
+    online: onlineCount,
+    offline: merged.length - onlineCount,
+  };
 
   if (loading || (!user && !loading)) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-ink-950">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/15 border-t-accent-400" />
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/15 border-t-accent-400 motion-reduce:animate-none" />
       </div>
     );
   }
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-7xl px-4 py-4 md:px-6 md:py-6">
+      <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-7">
         {/* Header */}
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-lg font-bold text-white md:text-xl">Live</h1>
-            <p className="text-xs text-neutral-400">
-              {merged.length} kamera · {onlineCount} online
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-neutral-500">
+              Pemantauan
+            </p>
+            <h1 className="text-2xl font-bold tracking-tight text-white">
+              Live
+            </h1>
+            <p className="mt-1 text-sm text-neutral-400">
+              {merged.length} kamera ·{" "}
+              <span className="font-medium text-ok-400">
+                {onlineCount} online
+              </span>
             </p>
           </div>
           <div className="flex items-center gap-2">
             <span
-              className="flex items-center gap-1.5 rounded-full bg-ink-800 px-3 py-1.5 text-[11px] text-neutral-300"
+              className="flex h-11 items-center gap-2 rounded-full bg-ink-900 px-4 text-xs font-medium text-neutral-300 ring-1 ring-white/10"
               title={connected ? "WebSocket terhubung" : "Menghubungkan…"}
             >
               <span
-                className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-ok-400" : "bg-warn-400"}`}
+                className={`h-2 w-2 rounded-full ${connected ? "bg-ok-400" : "bg-warn-400"}`}
               />
               {connected ? "Real-time" : "Menghubungkan…"}
             </span>
             <button
               onClick={load}
               disabled={fetching}
-              className="flex h-9 items-center gap-2 rounded-lg bg-ink-800 px-3 text-xs font-medium text-neutral-200 ring-1 ring-white/10 transition hover:bg-ink-700 active:scale-95 disabled:opacity-50"
+              className="flex h-11 items-center gap-2 rounded-full bg-ink-900 px-4 text-sm font-medium text-neutral-200 ring-1 ring-white/10 transition hover:bg-ink-800 active:scale-95 disabled:opacity-50"
             >
               <svg
-                width="14"
-                height="14"
+                width="15"
+                height="15"
                 viewBox="0 0 16 16"
                 fill="none"
-                className={fetching ? "animate-spin" : ""}
+                className={fetching ? "animate-spin motion-reduce:animate-none" : ""}
+                aria-hidden
               >
                 <path
                   d="M13.5 8a5.5 5.5 0 11-1.6-3.9M13.5 1.5v3h-3"
@@ -142,27 +156,56 @@ export default function LivePage() {
           </div>
         </div>
 
-        {/* Filter */}
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Cari kamera…"
-            className="h-10 w-full rounded-lg bg-ink-800 px-3 text-sm text-white ring-1 ring-white/10 placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-accent-500 sm:max-w-64"
-          />
-          <div className="flex gap-2">
+        {/* Search + filter segmented */}
+        <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="relative w-full lg:max-w-xs">
+            <svg
+              width="17"
+              height="17"
+              viewBox="0 0 16 16"
+              fill="none"
+              className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-500"
+              aria-hidden
+            >
+              <path
+                d="M7.5 12.5a5 5 0 100-10 5 5 0 000 10zM11.5 11.5L14 14"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+              />
+            </svg>
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Cari kamera…"
+              aria-label="Cari kamera"
+              className="h-11 w-full rounded-full bg-ink-900 pl-10 pr-4 text-base text-white ring-1 ring-white/10 placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-accent-500"
+            />
+          </div>
+          <div
+            className="flex w-full items-center gap-1 overflow-x-auto rounded-full bg-ink-900 p-1 ring-1 ring-white/10 lg:w-auto"
+            role="tablist"
+            aria-label="Filter status kamera"
+          >
             {FILTERS.map((f) => (
               <button
                 key={f.id}
+                role="tab"
+                aria-selected={filter === f.id}
                 onClick={() => setFilter(f.id)}
-                className={`h-9 rounded-full px-4 text-xs font-medium transition active:scale-95 ${
+                className={`flex h-10 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-5 text-sm font-medium transition active:scale-95 lg:flex-none ${
                   filter === f.id
                     ? "bg-accent-600 text-white"
-                    : "bg-ink-800 text-neutral-400 ring-1 ring-white/10 hover:text-white"
+                    : "text-neutral-400 hover:text-white"
                 }`}
               >
                 {f.label}
+                <span
+                  className={`text-xs ${filter === f.id ? "text-white/80" : "text-neutral-600"}`}
+                >
+                  {counts[f.id]}
+                </span>
               </button>
             ))}
           </div>
@@ -172,18 +215,45 @@ export default function LivePage() {
         {fetching ? (
           <SkeletonGrid />
         ) : error ? (
-          <div className="flex flex-col items-center gap-3 rounded-xl bg-ink-900 px-6 py-16 text-center ring-1 ring-white/10">
-            <p className="text-sm text-neutral-300">{error}</p>
+          <div className="flex flex-col items-center gap-4 rounded-2xl bg-ink-900 px-6 py-16 text-center ring-1 ring-white/10">
+            <svg
+              width="36"
+              height="36"
+              viewBox="0 0 24 24"
+              fill="none"
+              className="text-neutral-600"
+              aria-hidden
+            >
+              <path
+                d="M12 8v5M12 16.5v.01M4.9 4.9l14.2 14.2M10.3 3.9A9 9 0 0121 12a9 9 0 01-1.5 5M3.1 6.5A9 9 0 003 12a9 9 0 0013.7 7.7"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+              />
+            </svg>
+            <div>
+              <p className="text-sm font-medium text-neutral-200">
+                Gagal memuat kamera
+              </p>
+              <p className="mt-1 text-xs text-neutral-500">{error}</p>
+            </div>
             <button
               onClick={load}
-              className="rounded-lg bg-accent-600 px-4 py-2 text-xs font-medium text-white transition hover:bg-accent-500 active:scale-95"
+              className="h-11 rounded-full bg-accent-600 px-6 text-sm font-medium text-white transition hover:bg-accent-500 active:scale-95"
             >
               Coba lagi
             </button>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 rounded-xl bg-ink-900 px-6 py-16 text-center ring-1 ring-white/10">
-            <svg width="40" height="40" viewBox="0 0 20 20" fill="none" className="text-neutral-600">
+          <div className="flex flex-col items-center gap-3 rounded-2xl bg-ink-900 px-6 py-16 text-center ring-1 ring-white/10">
+            <svg
+              width="40"
+              height="40"
+              viewBox="0 0 20 20"
+              fill="none"
+              className="text-neutral-600"
+              aria-hidden
+            >
               <path
                 d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM2.5 10s3-5.5 7.5-5.5S17.5 10 17.5 10s-3 5.5-7.5 5.5S2.5 10 2.5 10z"
                 stroke="currentColor"
@@ -192,19 +262,19 @@ export default function LivePage() {
                 strokeLinejoin="round"
               />
             </svg>
-            <p className="text-sm font-medium text-neutral-300">
+            <p className="text-sm font-medium text-neutral-200">
               {merged.length === 0
                 ? "Belum ada kamera"
                 : "Tidak ada kamera yang cocok"}
             </p>
-            <p className="max-w-xs text-xs text-neutral-500">
+            <p className="max-w-xs text-xs leading-relaxed text-neutral-500">
               {merged.length === 0
                 ? "Tambahkan kamera lewat halaman Admin untuk mulai memantau."
                 : "Coba ubah kata kunci atau filter status."}
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {filtered.map((s) => (
               <CameraTile key={s.id} stream={s} onExpand={setFocus} />
             ))}

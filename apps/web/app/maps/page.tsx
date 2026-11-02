@@ -6,6 +6,7 @@ import "leaflet/dist/leaflet.css";
 import type * as LType from "leaflet";
 import { AppShell } from "../../components/AppShell";
 import { FocusModal } from "../../components/FocusModal";
+import { Card } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { useCameraStatus } from "../../hooks/useCameraStatus";
@@ -30,11 +31,22 @@ function markerIcon(L: typeof LType, online: boolean): LType.DivIcon {
   const color = online ? "#34d399" : "#f87171"; // ok-400 / bad-400
   return L.divIcon({
     className: "nv-marker",
-    html: `<span style="display:block;width:18px;height:18px;border-radius:9999px;background:${color};border:3px solid #0c0e12;box-shadow:0 0 0 2px ${color}55, 0 2px 6px rgba(0,0,0,.5)"></span>`,
-    iconSize: [18, 18],
-    iconAnchor: [9, 9],
-    popupAnchor: [0, -10],
+    html: `<span style="display:block;width:20px;height:20px;border-radius:9999px;background:${color};border:3px solid #0c0e12;box-shadow:0 0 0 2px ${color}66, 0 2px 8px rgba(0,0,0,.55)"></span>`,
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
+    popupAnchor: [0, -11],
   });
+}
+
+function popupHtml(s: Stream): string {
+  const sub = s.brand ? escapeHtml(s.brand) : "";
+  return `
+    <div style="min-width:170px">
+      <div style="font-weight:700;font-size:14px;color:#111827;margin-bottom:2px">${escapeHtml(s.name)}</div>
+      ${sub ? `<div style="font-size:11px;color:#6b7280;margin-bottom:6px">${sub}</div>` : `<div style="margin-bottom:6px"></div>`}
+      <div style="font-size:11px;font-weight:600;margin-bottom:10px;color:${s.is_online ? "#059669" : "#dc2626"}">${s.is_online ? "● Online" : "● Offline"}</div>
+    </div>
+  `;
 }
 
 export default function MapsPage() {
@@ -117,15 +129,11 @@ export default function MapsPage() {
   );
 
   const mapped = useMemo(
-    () =>
-      merged.filter(
-        (s) => s.latitude != null && s.longitude != null,
-      ),
+    () => merged.filter((s) => s.latitude != null && s.longitude != null),
     [merged],
   );
   const unmapped = useMemo(
-    () =>
-      merged.filter((s) => s.latitude == null || s.longitude == null),
+    () => merged.filter((s) => s.latitude == null || s.longitude == null),
     [merged],
   );
 
@@ -148,21 +156,17 @@ export default function MapsPage() {
       });
 
       const el = document.createElement("div");
-      el.className = "nv-popup";
-      el.innerHTML = `
-        <div style="font-weight:600;font-size:13px;margin-bottom:2px;color:#111">${escapeHtml(s.name)}</div>
-        <div style="font-size:11px;margin-bottom:8px;color:${s.is_online ? "#059669" : "#dc2626"}">${s.is_online ? "● Online" : "● Offline"}</div>
-      `;
+      el.innerHTML = popupHtml(s);
       const btn = document.createElement("button");
       btn.textContent = "Lihat live";
       btn.style.cssText =
-        "width:100%;padding:8px 12px;border-radius:8px;background:#4f46e5;color:#fff;font-size:12px;font-weight:600;border:none;cursor:pointer;min-height:40px";
+        "width:100%;padding:10px 12px;border-radius:10px;background:#2563eb;color:#fff;font-size:13px;font-weight:600;border:none;cursor:pointer;min-height:44px";
       btn.onclick = () => {
         map.closePopup();
         focusRef.current(s);
       };
       el.appendChild(btn);
-      marker.bindPopup(el);
+      marker.bindPopup(el, { closeButton: false });
 
       if (isAdmin) {
         marker.on("dragend", async () => {
@@ -230,55 +234,71 @@ export default function MapsPage() {
 
   return (
     <AppShell>
-      <div className="flex h-[calc(100dvh-220px)] min-h-[420px] flex-col gap-3 p-4 md:h-[calc(100dvh-64px)] md:flex-row">
+      <div className="flex h-[calc(100dvh-220px)] min-h-[420px] flex-col gap-4 p-4 md:h-[calc(100dvh-64px)] md:flex-row md:p-5">
         {/* Peta */}
-        <div className="relative min-h-[320px] flex-1 overflow-hidden rounded-xl ring-1 ring-white/10">
+        <div className="relative min-h-[320px] flex-1 overflow-hidden rounded-2xl ring-1 ring-white/10">
           <div ref={containerRef} className="absolute inset-0 z-0" />
           {fetching && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-ink-950/60">
-              <span className="text-sm text-neutral-400">Memuat peta…</span>
+              <span className="flex items-center gap-2 text-sm text-neutral-400">
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/15 border-t-accent-400 motion-reduce:animate-none" />
+                Memuat peta…
+              </span>
             </div>
           )}
           {isAdmin && (
-            <div className="absolute left-3 top-3 z-10 rounded-lg bg-ink-900/90 px-3 py-2 text-[11px] text-neutral-300 ring-1 ring-white/10 backdrop-blur">
+            <div className="absolute left-3 top-3 z-10 rounded-xl bg-ink-900/95 px-3.5 py-2.5 text-xs text-neutral-300 ring-1 ring-white/10">
               Seret marker untuk memindahkan posisi kamera
             </div>
           )}
+          <div className="absolute bottom-3 left-3 z-10 flex items-center gap-3 rounded-xl bg-ink-900/95 px-3.5 py-2.5 text-[11px] font-medium text-neutral-300 ring-1 ring-white/10">
+            <span className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-ok-400" /> Online
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-bad-400" /> Offline
+            </span>
+          </div>
         </div>
 
         {/* Panel samping */}
-        <div className="flex w-full flex-col gap-3 md:w-72 md:shrink-0">
+        <div className="flex w-full flex-col gap-4 md:w-80 md:shrink-0">
           {error && (
-            <div className="rounded-lg bg-bad-400/10 px-3 py-2 text-xs text-bad-400 ring-1 ring-bad-400/30">
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-bad-400">
               {error}
             </div>
           )}
           {saveError && (
-            <div className="rounded-lg bg-bad-400/10 px-3 py-2 text-xs text-bad-400 ring-1 ring-bad-400/30">
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-bad-400">
               {saveError}
             </div>
           )}
 
-          <div className="rounded-xl bg-ink-900 p-3 ring-1 ring-white/10">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-400">
-              Belum dipetakan ({unmapped.length})
+          <Card className="!p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-white">
+                Belum dipetakan
+              </h2>
+              <span className="rounded-full bg-ink-800 px-2.5 py-0.5 text-[11px] font-medium text-neutral-400">
+                {unmapped.length}
+              </span>
             </div>
             {unmapped.length === 0 ? (
-              <div className="text-xs text-neutral-500">
+              <p className="text-xs leading-relaxed text-neutral-500">
                 Semua kamera sudah punya posisi.
-              </div>
+              </p>
             ) : (
               <ul className="flex max-h-48 flex-col gap-1.5 overflow-y-auto md:max-h-64">
                 {unmapped.map((s) => (
                   <li
                     key={s.id}
-                    className="flex items-center justify-between gap-2 rounded-lg bg-ink-800 px-2.5 py-2"
+                    className="flex items-center justify-between gap-2 rounded-xl bg-ink-800/70 px-3 py-2"
                   >
-                    <div className="flex min-w-0 items-center gap-2">
+                    <div className="flex min-w-0 items-center gap-2.5">
                       <span
                         className={`h-2 w-2 shrink-0 rounded-full ${s.is_online ? "bg-ok-400" : "bg-bad-400"}`}
                       />
-                      <span className="truncate text-xs text-neutral-200">
+                      <span className="truncate text-sm text-neutral-200">
                         {s.name}
                       </span>
                     </div>
@@ -286,7 +306,7 @@ export default function MapsPage() {
                       <button
                         onClick={() => placeAtCenter(s)}
                         disabled={savingId === s.id}
-                        className="shrink-0 rounded-md bg-accent-600 px-2 py-1.5 text-[11px] font-medium text-white transition hover:bg-accent-500 active:scale-95 disabled:opacity-50"
+                        className="h-9 shrink-0 rounded-lg bg-accent-600 px-3 text-xs font-semibold text-white transition hover:bg-accent-500 active:scale-95 disabled:opacity-50"
                       >
                         {savingId === s.id ? "…" : "Tengah peta"}
                       </button>
@@ -296,41 +316,65 @@ export default function MapsPage() {
               </ul>
             )}
             {isAdmin && unmapped.length > 0 && (
-              <p className="mt-2 text-[11px] leading-relaxed text-neutral-500">
+              <p className="mt-3 text-[11px] leading-relaxed text-neutral-500">
                 Geser peta ke lokasi kamera, lalu tekan “Tengah peta”.
               </p>
             )}
-          </div>
+          </Card>
 
-          <div className="rounded-xl bg-ink-900 p-3 ring-1 ring-white/10">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-400">
-              Di peta ({mapped.length})
+          <Card className="!p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-white">Di peta</h2>
+              <span className="rounded-full bg-ink-800 px-2.5 py-0.5 text-[11px] font-medium text-neutral-400">
+                {mapped.length}
+              </span>
             </div>
-            <ul className="flex max-h-40 flex-col gap-1 overflow-y-auto md:max-h-56">
-              {mapped.map((s) => (
-                <li key={s.id}>
-                  <button
-                    onClick={() => {
-                      const map = mapRef.current;
-                      if (map && s.latitude != null && s.longitude != null) {
-                        map.flyTo([s.latitude, s.longitude], 15, {
-                          duration: 0.8,
-                        });
-                      }
-                    }}
-                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition hover:bg-ink-800 active:scale-[0.99]"
-                  >
-                    <span
-                      className={`h-2 w-2 shrink-0 rounded-full ${s.is_online ? "bg-ok-400" : "bg-bad-400"}`}
-                    />
-                    <span className="truncate text-xs text-neutral-200">
-                      {s.name}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
+            {mapped.length === 0 ? (
+              <p className="text-xs leading-relaxed text-neutral-500">
+                Belum ada kamera yang dipetakan.
+              </p>
+            ) : (
+              <ul className="flex max-h-40 flex-col gap-1 overflow-y-auto md:max-h-56">
+                {mapped.map((s) => (
+                  <li key={s.id}>
+                    <button
+                      onClick={() => {
+                        const map = mapRef.current;
+                        if (map && s.latitude != null && s.longitude != null) {
+                          map.flyTo([s.latitude, s.longitude], 15, {
+                            duration: 0.8,
+                          });
+                        }
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition hover:bg-ink-800 active:scale-[0.99]"
+                    >
+                      <span
+                        className={`h-2 w-2 shrink-0 rounded-full ${s.is_online ? "bg-ok-400" : "bg-bad-400"}`}
+                      />
+                      <span className="min-w-0 flex-1 truncate text-sm text-neutral-200">
+                        {s.name}
+                      </span>
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        className="shrink-0 text-neutral-600"
+                        aria-hidden
+                      >
+                        <path
+                          d="M8 14s5-4.6 5-8a5 5 0 10-10 0c0 3.4 5 8 5 8z"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                        />
+                        <circle cx="8" cy="6" r="1.8" stroke="currentColor" strokeWidth="1.5" />
+                      </svg>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
         </div>
       </div>
 

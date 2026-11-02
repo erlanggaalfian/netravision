@@ -48,6 +48,7 @@ function Chevron({ open }: { open: boolean }) {
       viewBox="0 0 16 16"
       fill="none"
       className={`shrink-0 text-neutral-400 transition-transform ${open ? "rotate-180" : ""}`}
+      aria-hidden
     >
       <path
         d="M4 6l4 4 4-4"
@@ -57,6 +58,45 @@ function Chevron({ open }: { open: boolean }) {
         strokeLinejoin="round"
       />
     </svg>
+  );
+}
+
+/* Pratinjau mini isi layout: sel kecil per kamera + status, sisa diringkas +N. */
+function MiniPreview({
+  layout,
+  byId,
+}: {
+  layout: MonitorLayout;
+  byId: Map<number, Stream>;
+}) {
+  const cells = layout.streamIds.slice(0, 3);
+  const rest = layout.streamIds.length - cells.length;
+  return (
+    <div className="mt-3 grid grid-cols-4 gap-1.5" aria-hidden>
+      {cells.map((id) => {
+        const s = byId.get(id);
+        return (
+          <div
+            key={id}
+            className="relative aspect-video overflow-hidden rounded-lg bg-ink-800 ring-1 ring-white/10"
+          >
+            <span
+              className={`absolute left-1.5 top-1.5 h-1.5 w-1.5 rounded-full ${s?.is_online ? "bg-ok-400" : "bg-bad-400"}`}
+            />
+            <span className="absolute inset-x-1.5 bottom-1 truncate text-[9px] text-neutral-500">
+              {s?.name ?? "—"}
+            </span>
+          </div>
+        );
+      })}
+      {rest > 0 ? (
+        <div className="flex aspect-video items-center justify-center rounded-lg bg-ink-800 text-[11px] font-semibold text-neutral-300 ring-1 ring-white/10">
+          +{rest}
+        </div>
+      ) : (
+        <div className="aspect-video rounded-lg border border-dashed border-white/10" />
+      )}
+    </div>
   );
 }
 
@@ -181,11 +221,19 @@ export default function MonitorsPage() {
         .filter((s): s is Stream => !!s)
     : [];
 
+  if (loading || (!user && !loading)) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-ink-950">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/15 border-t-accent-400 motion-reduce:animate-none" />
+      </div>
+    );
+  }
+
   return (
     <AppShell>
-      <div className="mx-auto max-w-6xl p-4">
+      <div className="mx-auto max-w-6xl px-4 py-5 md:px-6 md:py-7">
         {error && (
-          <div className="mb-3 rounded-lg bg-bad-400/10 px-3 py-2 text-xs text-bad-400 ring-1 ring-bad-400/30">
+          <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-bad-400">
             {error}
           </div>
         )}
@@ -193,46 +241,42 @@ export default function MonitorsPage() {
         {openLayout ? (
           /* ===== Tampilan layout terbuka ===== */
           <div>
-            <div className="mb-3 flex items-center gap-3">
+            <div className="mb-4 flex items-center gap-3">
               <button
                 onClick={() => setOpenId(null)}
-                className="flex h-10 min-w-[44px] items-center justify-center rounded-lg bg-white/5 px-3 text-sm text-neutral-200 transition hover:bg-white/10 active:scale-95"
+                className="flex h-11 min-w-[44px] items-center justify-center rounded-xl bg-ink-900 px-3 text-base text-neutral-200 ring-1 ring-white/10 transition hover:bg-ink-800 active:scale-95"
                 aria-label="Kembali ke daftar monitor"
               >
                 ←
               </button>
               <div className="min-w-0">
-                <h1 className="truncate text-base font-bold text-white">
+                <h1 className="truncate text-xl font-bold tracking-tight text-white">
                   {openLayout.name}
                 </h1>
-                <p className="text-xs text-neutral-400">
+                <p className="text-sm text-neutral-400">
                   {openStreams.length} kamera · {openLayout.cols} kolom
                 </p>
               </div>
             </div>
             {fetching ? (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {Array.from({ length: 4 }).map((_, i) => (
                   <div
                     key={i}
-                    className="aspect-video animate-pulse rounded-lg bg-ink-800"
+                    className="aspect-video animate-pulse rounded-2xl bg-ink-800 motion-reduce:animate-none"
                   />
                 ))}
               </div>
             ) : openStreams.length === 0 ? (
-              <div className="rounded-xl bg-ink-900 p-8 text-center text-sm text-neutral-400 ring-1 ring-white/10">
+              <div className="rounded-2xl bg-ink-900 p-8 text-center text-sm text-neutral-400 ring-1 ring-white/10">
                 Tidak ada kamera yang cocok — mungkin kamera sudah dihapus.
               </div>
             ) : (
               <div
-                className={`grid gap-3 ${COLS_CLASS[openLayout.cols] ?? COLS_CLASS[2]}`}
+                className={`grid gap-4 ${COLS_CLASS[openLayout.cols] ?? COLS_CLASS[2]}`}
               >
                 {openStreams.map((s) => (
-                  <CameraTile
-                    key={s.id}
-                    stream={s}
-                    onExpand={setFocus}
-                  />
+                  <CameraTile key={s.id} stream={s} onExpand={setFocus} />
                 ))}
               </div>
             )}
@@ -240,32 +284,36 @@ export default function MonitorsPage() {
         ) : editing ? (
           /* ===== Form buat/ubah ===== */
           <div className="mx-auto max-w-2xl">
-            <h1 className="mb-4 text-base font-bold text-white">
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-neutral-500">
+              Monitor
+            </p>
+            <h1 className="mb-5 text-2xl font-bold tracking-tight text-white">
               {editing.id ? "Ubah monitor" : "Monitor baru"}
             </h1>
-            <div className="rounded-xl bg-ink-900 p-4 ring-1 ring-white/10">
-              <label className="mb-1 block text-xs font-medium text-neutral-300">
+            <div className="rounded-2xl bg-ink-900 p-5 ring-1 ring-white/10">
+              <label className="mb-1.5 block text-sm font-medium text-neutral-300">
                 Nama monitor
               </label>
               <input
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
                 placeholder="cth. Lantai 1"
-                className="mb-4 w-full rounded-lg bg-ink-800 px-3 py-2.5 text-sm text-white ring-1 ring-white/10 outline-none placeholder:text-neutral-500 focus:ring-accent-500"
+                className="mb-5 h-11 w-full rounded-xl bg-ink-800 px-3.5 text-base text-white ring-1 ring-white/10 outline-none placeholder:text-neutral-500 focus:ring-2 focus:ring-accent-500"
               />
 
-              <div className="mb-1 text-xs font-medium text-neutral-300">
+              <div className="mb-1.5 text-sm font-medium text-neutral-300">
                 Jumlah kolom
               </div>
-              <div className="mb-4 flex gap-2">
+              <div className="mb-5 flex gap-2">
                 {[1, 2, 3, 4].map((c) => (
                   <button
                     key={c}
                     onClick={() => setFormCols(c)}
-                    className={`flex h-11 min-w-[48px] items-center justify-center rounded-lg text-sm font-semibold transition active:scale-95 ${
+                    aria-pressed={formCols === c}
+                    className={`flex h-11 min-w-[52px] items-center justify-center rounded-xl text-sm font-semibold transition active:scale-95 ${
                       formCols === c
                         ? "bg-accent-600 text-white"
-                        : "bg-ink-800 text-neutral-300 ring-1 ring-white/10 hover:bg-white/5"
+                        : "bg-ink-800 text-neutral-300 ring-1 ring-white/10 hover:bg-ink-700"
                     }`}
                   >
                     {c}
@@ -273,26 +321,28 @@ export default function MonitorsPage() {
                 ))}
               </div>
 
-              <div className="mb-1 flex items-center justify-between">
-                <span className="text-xs font-medium text-neutral-300">
+              <div className="mb-1.5 flex items-center justify-between">
+                <span className="text-sm font-medium text-neutral-300">
                   Pilih kamera ({formIds.size})
                 </span>
               </div>
-              <div className="mb-4 flex max-h-72 flex-col gap-1.5 overflow-y-auto rounded-lg bg-ink-950/50 p-2">
+              <div className="mb-5 flex max-h-72 flex-col gap-1.5 overflow-y-auto rounded-xl bg-ink-950/60 p-2 ring-1 ring-white/5">
                 {streams.map((s) => {
                   const checked = formIds.has(s.id);
                   return (
                     <label
                       key={s.id}
-                      className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 transition active:scale-[0.99] ${
-                        checked ? "bg-accent-600/15 ring-1 ring-accent-500/40" : "hover:bg-white/5"
+                      className={`flex cursor-pointer items-center gap-3 rounded-xl px-3.5 py-3 transition active:scale-[0.99] ${
+                        checked
+                          ? "bg-accent-600/15 ring-1 ring-accent-500/40"
+                          : "hover:bg-white/5"
                       }`}
                     >
                       <input
                         type="checkbox"
                         checked={checked}
                         onChange={() => toggleId(s.id)}
-                        className="h-5 w-5 shrink-0 accent-[#4f46e5]"
+                        className="h-5 w-5 shrink-0 accent-[#2563eb]"
                       />
                       <span
                         className={`h-2 w-2 shrink-0 rounded-full ${s.is_online ? "bg-ok-400" : "bg-bad-400"}`}
@@ -313,14 +363,14 @@ export default function MonitorsPage() {
               <div className="flex gap-2">
                 <button
                   onClick={cancelEdit}
-                  className="flex-1 rounded-lg bg-white/5 px-4 py-3 text-sm text-neutral-200 transition hover:bg-white/10 active:scale-[0.99]"
+                  className="h-11 flex-1 rounded-xl bg-white/5 px-4 text-sm font-medium text-neutral-200 transition hover:bg-white/10 active:scale-[0.99]"
                 >
                   Batal
                 </button>
                 <button
                   onClick={saveForm}
                   disabled={!formName.trim() || formIds.size === 0}
-                  className="flex-1 rounded-lg bg-accent-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-accent-500 active:scale-[0.99] disabled:opacity-40"
+                  className="h-11 flex-1 rounded-xl bg-accent-600 px-4 text-sm font-semibold text-white transition hover:bg-accent-500 active:scale-[0.99] disabled:opacity-40"
                 >
                   Simpan
                 </button>
@@ -330,95 +380,119 @@ export default function MonitorsPage() {
         ) : (
           /* ===== Daftar layout ===== */
           <div>
-            <div className="mb-4 flex items-center justify-between">
-              <h1 className="text-base font-bold text-white">
-                Monitor tersimpan
-              </h1>
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <p className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-neutral-500">
+                  Tata letak
+                </p>
+                <h1 className="text-2xl font-bold tracking-tight text-white">
+                  Monitor tersimpan
+                </h1>
+              </div>
               <button
                 onClick={startCreate}
-                className="rounded-lg bg-accent-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-accent-500 active:scale-95"
+                className="flex h-11 items-center gap-1.5 rounded-xl bg-accent-600 px-5 text-sm font-semibold text-white transition hover:bg-accent-500 active:scale-95"
               >
-                + Baru
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+                  <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+                Baru
               </button>
             </div>
 
             {fetching && layouts.length === 0 ? (
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-3">
                 {Array.from({ length: 3 }).map((_, i) => (
                   <div
                     key={i}
-                    className="h-16 animate-pulse rounded-xl bg-ink-800"
+                    className="h-24 animate-pulse rounded-2xl bg-ink-800 motion-reduce:animate-none"
                   />
                 ))}
               </div>
             ) : layouts.length === 0 ? (
-              <div className="rounded-xl bg-ink-900 p-8 text-center ring-1 ring-white/10">
-                <div className="mb-1 text-sm font-medium text-white">
+              <div className="flex flex-col items-center gap-3 rounded-2xl bg-ink-900 px-6 py-16 text-center ring-1 ring-white/10">
+                <svg
+                  width="40"
+                  height="40"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  className="text-neutral-600"
+                  aria-hidden
+                >
+                  <path
+                    d="M3 5.5A1.5 1.5 0 014.5 4h15A1.5 1.5 0 0121 5.5v13a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5v-13z"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                  />
+                  <path d="M3 9.5h18M9.5 9.5V20" stroke="currentColor" strokeWidth="1.6" />
+                </svg>
+                <div className="text-sm font-medium text-white">
                   Belum ada monitor tersimpan
                 </div>
-                <p className="mb-4 text-xs text-neutral-400">
+                <p className="max-w-xs text-xs leading-relaxed text-neutral-400">
                   Buat tata letak kisi kamera favoritmu — tersimpan di perangkat
                   ini.
                 </p>
                 <button
                   onClick={startCreate}
-                  className="rounded-lg bg-accent-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-accent-500 active:scale-95"
+                  className="mt-1 h-11 rounded-xl bg-accent-600 px-5 text-sm font-semibold text-white transition hover:bg-accent-500 active:scale-95"
                 >
                   Buat monitor pertama
                 </button>
               </div>
             ) : (
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-3">
                 {layouts.map((l) => {
                   const expanded = expandedId === l.id;
                   const count = l.streamIds.length;
+                  const onlineN = l.streamIds.filter((id) => byId.get(id)?.is_online).length;
                   return (
                     <div
                       key={l.id}
-                      className="overflow-hidden rounded-xl bg-ink-900 ring-1 ring-white/10"
+                      className="overflow-hidden rounded-2xl bg-ink-900 ring-1 ring-white/10"
                     >
-                      {/* Baris ringkasan — collapsed-first di mobile */}
+                      {/* Baris ringkasan + pratinjau — collapsed-first di mobile */}
                       <button
-                        onClick={() =>
-                          setExpandedId(expanded ? null : l.id)
-                        }
-                        className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition hover:bg-white/[0.03] active:scale-[0.995]"
+                        onClick={() => setExpandedId(expanded ? null : l.id)}
+                        aria-expanded={expanded}
+                        className="block w-full px-4 py-4 text-left transition hover:bg-white/[0.03] active:scale-[0.995] sm:px-5"
                       >
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-semibold text-white">
-                            {l.name}
+                        <div className="flex items-center gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-base font-semibold text-white">
+                              {l.name}
+                            </div>
+                            <div className="mt-0.5 text-xs text-neutral-400">
+                              {count} kamera ·{" "}
+                              <span className="text-ok-400">{onlineN} online</span>{" "}
+                              · {l.cols} kolom
+                            </div>
                           </div>
-                          <div className="text-xs text-neutral-400">
-                            {count} kamera · {l.cols} kolom
-                          </div>
+                          <Chevron open={expanded} />
                         </div>
-                        <Chevron open={expanded} />
+                        <MiniPreview layout={l} byId={byId} />
                       </button>
                       {/* Aksi — hanya setelah expand */}
                       {expanded && (
-                        <div className="flex gap-2 border-t border-white/10 px-4 py-3">
+                        <div className="flex gap-2 border-t border-white/10 px-4 py-3 sm:px-5">
                           <button
                             onClick={() => setOpenId(l.id)}
-                            className="flex-1 rounded-lg bg-accent-600 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-accent-500 active:scale-[0.99]"
+                            className="h-11 flex-1 rounded-xl bg-accent-600 px-3 text-sm font-semibold text-white transition hover:bg-accent-500 active:scale-[0.99]"
                           >
                             Buka
                           </button>
                           <button
                             onClick={() => startEdit(l)}
-                            className="flex-1 rounded-lg bg-white/5 px-3 py-2.5 text-sm text-neutral-200 transition hover:bg-white/10 active:scale-[0.99]"
+                            className="h-11 flex-1 rounded-xl bg-white/5 px-3 text-sm font-medium text-neutral-200 transition hover:bg-white/10 active:scale-[0.99]"
                           >
                             Ubah
                           </button>
                           <button
                             onClick={() => {
-                              if (
-                                window.confirm(
-                                  `Hapus monitor "${l.name}"?`,
-                                )
-                              )
+                              if (window.confirm(`Hapus monitor "${l.name}"?`))
                                 removeLayout(l.id);
                             }}
-                            className="rounded-lg bg-bad-400/10 px-4 py-2.5 text-sm text-bad-400 ring-1 ring-bad-400/30 transition hover:bg-bad-400/20 active:scale-[0.99]"
+                            className="h-11 rounded-xl bg-bad-400/10 px-4 text-sm font-medium text-bad-400 ring-1 ring-bad-400/30 transition hover:bg-bad-400/20 active:scale-[0.99]"
                           >
                             Hapus
                           </button>

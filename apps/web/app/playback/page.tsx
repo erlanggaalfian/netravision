@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "../../components/AppShell";
+import { Card } from "../../components/ui";
 import { api, apiFetch, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import type { Stream } from "../../lib/types";
@@ -151,7 +152,7 @@ export default function PlaybackPage() {
   if (loading || (!user && !loading)) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-ink-950">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/15 border-t-accent-400" />
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/15 border-t-accent-400 motion-reduce:animate-none" />
       </div>
     );
   }
@@ -160,80 +161,108 @@ export default function PlaybackPage() {
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-5xl px-4 py-4 md:px-6 md:py-6">
-        <h1 className="mb-1 text-lg font-bold text-white md:text-xl">
+      <div className="mx-auto max-w-5xl px-4 py-5 md:px-6 md:py-7">
+        <p className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-neutral-500">
+          Arsip
+        </p>
+        <h1 className="text-2xl font-bold tracking-tight text-white">
           Putar Ulang
         </h1>
-        <p className="mb-4 text-xs text-neutral-400">
+        <p className="mb-5 mt-1 text-sm text-neutral-400">
           Pilih kamera dan tanggal, lalu muat linimasa rekaman.
         </p>
 
         {/* Kontrol */}
-        <div className="mb-4 flex flex-col gap-3 rounded-xl bg-ink-900 p-4 ring-1 ring-white/10 sm:flex-row sm:items-end">
-          <label className="flex flex-1 flex-col gap-1.5">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">
-              Kamera
-            </span>
-            <select
-              value={streamId}
-              onChange={(e) => setStreamId(e.target.value)}
-              className="h-10 rounded-lg bg-ink-800 px-3 text-sm text-white ring-1 ring-white/10 focus:outline-none focus:ring-2 focus:ring-accent-500"
+        <Card className="mb-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+            <label className="flex flex-1 flex-col gap-1.5">
+              <span className="text-xs font-medium text-neutral-400">
+                Kamera
+              </span>
+              <select
+                value={streamId}
+                onChange={(e) => setStreamId(e.target.value)}
+                className="h-11 rounded-xl border border-ink-700 bg-ink-950 px-3 text-base text-white outline-none transition-colors focus:border-accent-500"
+              >
+                {streams.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-neutral-400">
+                Tanggal
+              </span>
+              <input
+                type="date"
+                value={date}
+                max={todayStr()}
+                onChange={(e) => setDate(e.target.value)}
+                className="h-11 rounded-xl border border-ink-700 bg-ink-950 px-3 text-base text-white outline-none transition-colors focus:border-accent-500 [color-scheme:dark]"
+              />
+            </label>
+            <button
+              onClick={load}
+              disabled={!streamId || phase === "loading"}
+              className="h-11 shrink-0 rounded-xl bg-accent-600 px-6 text-sm font-semibold text-white transition hover:bg-accent-500 active:scale-95 disabled:opacity-50"
             >
-              {streams.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">
-              Tanggal
-            </span>
-            <input
-              type="date"
-              value={date}
-              max={todayStr()}
-              onChange={(e) => setDate(e.target.value)}
-              className="h-10 rounded-lg bg-ink-800 px-3 text-sm text-white ring-1 ring-white/10 focus:outline-none focus:ring-2 focus:ring-accent-500 [color-scheme:dark]"
-            />
-          </label>
-          <button
-            onClick={load}
-            disabled={!streamId || phase === "loading"}
-            className="h-10 shrink-0 rounded-lg bg-accent-600 px-5 text-sm font-medium text-white transition hover:bg-accent-500 active:scale-95 disabled:opacity-50"
-          >
-            {phase === "loading" ? "Memuat…" : "Muat"}
-          </button>
-        </div>
+              {phase === "loading" ? "Memuat…" : "Muat linimasa"}
+            </button>
+          </div>
+        </Card>
 
         {error && (
-          <div className="mb-4 rounded-lg bg-bad-400/10 px-4 py-3 text-xs text-bad-400 ring-1 ring-bad-400/30">
+          <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-bad-400">
             {error}
           </div>
         )}
 
         {/* Status */}
         {phase === "idle" && (
-          <div className="rounded-xl bg-ink-900 px-6 py-16 text-center ring-1 ring-white/10">
+          <div className="flex flex-col items-center gap-3 rounded-2xl bg-ink-900 px-6 py-16 text-center ring-1 ring-white/10">
+            <svg
+              width="36"
+              height="36"
+              viewBox="0 0 24 24"
+              fill="none"
+              className="text-neutral-600"
+              aria-hidden
+            >
+              <path
+                d="M12 8v4l2.5 2.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
             <p className="text-sm text-neutral-400">
               Pilih kamera dan tanggal, lalu tekan{" "}
-              <span className="font-medium text-neutral-200">Muat</span>.
+              <span className="font-medium text-neutral-200">Muat linimasa</span>.
             </p>
           </div>
         )}
 
         {phase === "loading" && (
-          <div className="animate-pulse rounded-xl bg-ink-900 p-4 ring-1 ring-white/10">
+          <div className="animate-pulse rounded-2xl bg-ink-900 p-5 ring-1 ring-white/10 motion-reduce:animate-none">
             <div className="mb-3 h-4 w-40 rounded bg-ink-700" />
-            <div className="h-10 rounded bg-ink-800" />
-            <div className="mt-4 aspect-video rounded bg-ink-800" />
+            <div className="h-12 rounded-xl bg-ink-800" />
+            <div className="mt-4 aspect-video rounded-xl bg-ink-800" />
           </div>
         )}
 
         {phase === "not-implemented" && (
-          <div className="flex flex-col items-center gap-2 rounded-xl bg-ink-900 px-6 py-16 text-center ring-1 ring-white/10">
-            <svg width="40" height="40" viewBox="0 0 20 20" fill="none" className="text-neutral-600">
+          <div className="flex flex-col items-center gap-3 rounded-2xl bg-ink-900 px-6 py-16 text-center ring-1 ring-white/10">
+            <svg
+              width="40"
+              height="40"
+              viewBox="0 0 20 20"
+              fill="none"
+              className="text-neutral-600"
+              aria-hidden
+            >
               <path
                 d="M6 4.5v11l9-5.5-9-5.5z"
                 stroke="currentColor"
@@ -242,10 +271,10 @@ export default function PlaybackPage() {
                 strokeLinejoin="round"
               />
             </svg>
-            <p className="text-sm font-medium text-neutral-300">
+            <p className="text-sm font-medium text-neutral-200">
               Linimasa rekaman tersedia mulai Fase 3
             </p>
-            <p className="max-w-sm text-xs text-neutral-500">
+            <p className="max-w-sm text-xs leading-relaxed text-neutral-500">
               API <span className="font-mono">/api/recordings</span> belum
               diimplementasikan. Halaman ini sudah siap disambung tanpa
               perubahan besar — tidak ada data palsu yang ditampilkan.
@@ -254,7 +283,7 @@ export default function PlaybackPage() {
         )}
 
         {phase === "error" && !error && (
-          <div className="rounded-xl bg-ink-900 px-6 py-16 text-center ring-1 ring-white/10">
+          <div className="rounded-2xl bg-ink-900 px-6 py-16 text-center ring-1 ring-white/10">
             <p className="text-sm text-neutral-400">
               Terjadi kesalahan. Coba muat ulang.
             </p>
@@ -264,17 +293,17 @@ export default function PlaybackPage() {
         {/* Linimasa + player (aktif saat Fase 3) */}
         {phase === "ready" && timeline && (
           <div className="flex flex-col gap-4">
-            <div className="rounded-xl bg-ink-900 p-4 ring-1 ring-white/10">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-xs font-medium text-neutral-300">
+            <Card className="!p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-sm font-medium text-neutral-200">
                   {streamName} · {timeline.date}
                 </span>
-                <span className="text-[11px] text-neutral-500">
+                <span className="rounded-full bg-ink-800 px-2.5 py-1 text-[11px] font-medium text-neutral-400">
                   {timeline.entries.length} segmen
                 </span>
               </div>
               {/* Bilah 24 jam */}
-              <div className="relative h-10 overflow-hidden rounded-md bg-ink-800">
+              <div className="relative h-12 overflow-hidden rounded-xl bg-ink-950 ring-1 ring-white/5">
                 {Array.from({ length: 25 }).map((_, h) => (
                   <span
                     key={h}
@@ -284,14 +313,18 @@ export default function PlaybackPage() {
                 ))}
                 {timeline.entries.map((e, i) => {
                   const left = frac(e.start) * 100;
-                  const width = Math.max(0.4, (frac(e.end) - frac(e.start)) * 100);
+                  const width = Math.max(
+                    0.4,
+                    (frac(e.end) - frac(e.start)) * 100,
+                  );
                   const isActive = active?.start === e.start;
                   return (
                     <button
                       key={i}
                       onClick={() => playEntry(e)}
                       title={`${fmtTime(e.start)} – ${fmtTime(e.end)}${e.has_event ? " · ada event" : ""}`}
-                      className={`absolute top-1 h-8 rounded-sm transition ${
+                      aria-label={`Putar segmen ${fmtTime(e.start)}`}
+                      className={`absolute top-1.5 h-9 rounded-md transition ${
                         isActive
                           ? "bg-accent-400"
                           : e.has_event
@@ -303,21 +336,21 @@ export default function PlaybackPage() {
                   );
                 })}
                 {timeline.entries.length === 0 && (
-                  <div className="flex h-full items-center justify-center text-[11px] text-neutral-500">
+                  <div className="flex h-full items-center justify-center text-xs text-neutral-500">
                     Tidak ada rekaman pada tanggal ini
                   </div>
                 )}
               </div>
-              <div className="mt-1 flex justify-between text-[10px] text-neutral-600">
+              <div className="mt-1.5 flex justify-between text-[10px] text-neutral-600">
                 <span>00:00</span>
                 <span>06:00</span>
                 <span>12:00</span>
                 <span>18:00</span>
                 <span>24:00</span>
               </div>
-            </div>
+            </Card>
 
-            <div className="overflow-hidden rounded-xl bg-ink-900 ring-1 ring-white/10">
+            <div className="overflow-hidden rounded-2xl bg-ink-900 ring-1 ring-white/10">
               {videoSrc ? (
                 <video
                   ref={videoRef}
@@ -328,7 +361,23 @@ export default function PlaybackPage() {
                   className="aspect-video w-full bg-black"
                 />
               ) : (
-                <div className="flex aspect-video items-center justify-center px-6 text-center">
+                <div className="flex aspect-video flex-col items-center justify-center gap-2 px-6 text-center">
+                  <svg
+                    width="32"
+                    height="32"
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    className="text-neutral-700"
+                    aria-hidden
+                  >
+                    <path
+                      d="M6 4.5v11l9-5.5-9-5.5z"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
                   <p className="text-xs text-neutral-500">
                     {active
                       ? "Memuat video…"
@@ -337,11 +386,11 @@ export default function PlaybackPage() {
                 </div>
               )}
               {active && (
-                <div className="flex items-center justify-between gap-3 px-4 py-3">
-                  <span className="text-xs text-neutral-400">
+                <div className="flex items-center justify-between gap-3 border-t border-white/10 px-4 py-3">
+                  <span className="text-sm text-neutral-300">
                     {fmtTime(active.start)} – {fmtTime(active.end)}
                     {active.has_event && (
-                      <span className="ml-2 rounded-full bg-warn-400/15 px-2 py-0.5 text-[10px] text-warn-400">
+                      <span className="ml-2 rounded-full bg-warn-400/15 px-2 py-0.5 text-[10px] font-medium text-warn-400">
                         Event
                       </span>
                     )}
@@ -349,8 +398,23 @@ export default function PlaybackPage() {
                   <button
                     onClick={downloadActive}
                     disabled={downloading}
-                    className="rounded-lg bg-ink-800 px-3 py-2 text-xs font-medium text-neutral-200 ring-1 ring-white/10 transition hover:bg-ink-700 active:scale-95 disabled:opacity-50"
+                    className="flex h-11 items-center gap-2 rounded-xl bg-ink-800 px-4 text-sm font-medium text-neutral-200 ring-1 ring-white/10 transition hover:bg-ink-700 active:scale-95 disabled:opacity-50"
                   >
+                    <svg
+                      width="15"
+                      height="15"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      aria-hidden
+                    >
+                      <path
+                        d="M8 2v8M4.5 7L8 10.5 11.5 7M2.5 13.5h11"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
                     {downloading ? "Mengunduh…" : "Unduh potongan"}
                   </button>
                 </div>

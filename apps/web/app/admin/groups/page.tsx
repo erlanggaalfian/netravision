@@ -16,6 +16,37 @@ import {
   TextInput,
 } from "../../../components/ui";
 
+function GroupIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      width="40"
+      height="40"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  );
+}
+
+function ListEmptyState({ text }: { text: string }) {
+  return (
+    <div className="rounded-xl border border-dashed border-ink-700 bg-ink-900/50 px-4 py-12 text-center">
+      <GroupIcon className="mx-auto text-slate-600" />
+      <p className="mt-3 text-sm text-slate-500">{text}</p>
+    </div>
+  );
+}
+
 export default function AdminGroupsPage() {
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [streams, setStreams] = useState<Stream[]>([]);
@@ -53,7 +84,7 @@ export default function AdminGroupsPage() {
       {groups === null ? (
         <Spinner />
       ) : groups.length === 0 ? (
-        <EmptyState text="Belum ada grup. Tambahkan yang pertama." />
+        <ListEmptyState text="Belum ada grup. Tambahkan yang pertama." />
       ) : (
         <div className="space-y-2">
           {groups.map((g) => {
@@ -85,7 +116,7 @@ export default function AdminGroupsPage() {
                     <div>{actions}</div>
                   </Accordion>
                 </div>
-                <div className="hidden items-center justify-between gap-3 rounded-xl border border-ink-700/60 bg-ink-900 px-4 py-3 md:flex">
+                <div className="hidden items-center justify-between gap-3 rounded-xl border border-ink-700/60 bg-ink-900 px-4 py-3 transition-colors hover:border-ink-500 md:flex">
                   {summary}
                   {actions}
                 </div>
@@ -236,21 +267,44 @@ function GrantsModal({
       ) : streams.length === 0 ? (
         <EmptyState text="Belum ada kamera." />
       ) : (
-        <div className="space-y-1">
-          {streams.map((s) => (
-            <label
-              key={s.id}
-              className="flex min-h-[48px] cursor-pointer items-center gap-3 rounded-lg px-3 py-2 hover:bg-ink-800"
-            >
-              <input
-                type="checkbox"
-                checked={checked.has(s.id)}
-                onChange={() => toggle(s.id)}
-                className="h-5 w-5 shrink-0 accent-blue-500"
-              />
-              <span className="text-sm text-slate-200">{s.name}</span>
-            </label>
-          ))}
+        <div>
+          <div className="mb-2 flex items-center justify-between gap-2 px-1">
+            <p className="text-xs tabular-nums text-slate-500">
+              {checked.size} dari {streams.length} dipilih
+            </p>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => setChecked(new Set(streams.map((s) => s.id)))}
+                className="min-h-[36px] rounded-md px-2 text-xs font-medium text-accent-300 transition-colors hover:bg-ink-800"
+              >
+                Pilih semua
+              </button>
+              <button
+                type="button"
+                onClick={() => setChecked(new Set())}
+                className="min-h-[36px] rounded-md px-2 text-xs font-medium text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-200"
+              >
+                Bersihkan
+              </button>
+            </div>
+          </div>
+          <div className="max-h-64 space-y-1 overflow-y-auto">
+            {streams.map((s) => (
+              <label
+                key={s.id}
+                className="flex min-h-[48px] cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-ink-800"
+              >
+                <input
+                  type="checkbox"
+                  checked={checked.has(s.id)}
+                  onChange={() => toggle(s.id)}
+                  className="h-5 w-5 shrink-0 accent-blue-500"
+                />
+                <span className="text-sm text-slate-200">{s.name}</span>
+              </label>
+            ))}
+          </div>
         </div>
       )}
       <div className="mt-5 flex justify-end gap-2">

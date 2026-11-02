@@ -9,7 +9,8 @@ interface Props {
   onClose: () => void;
 }
 
-/* Modal fokus: memutar MAIN stream (tajam) + tombol snapshot. */
+/* Modal fokus: memutar MAIN stream (tajam) + tombol snapshot.
+   Visual: header rapi (status + nama + info stream), kontrol jelas ≥44px. */
 export function FocusModal({ stream, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -61,40 +62,115 @@ export function FocusModal({ stream, onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3 sm:p-6"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-5xl overflow-hidden rounded-xl bg-ink-900 ring-1 ring-white/15"
+        className="w-full max-w-5xl overflow-hidden rounded-2xl bg-ink-900 ring-1 ring-white/15"
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={stream.name}
       >
-        <div className="flex items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-2">
+        {/* Header */}
+        <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5">
+          <div className="flex min-w-0 items-center gap-3">
             <span
-              className={`h-2 w-2 rounded-full ${stream.is_online ? "bg-ok-400" : "bg-bad-400"}`}
+              className={`h-2.5 w-2.5 shrink-0 rounded-full ${stream.is_online ? "bg-ok-400" : "bg-bad-400"}`}
             />
-            <h2 className="text-sm font-semibold text-white">{stream.name}</h2>
+            <div className="min-w-0">
+              <h2 className="truncate text-base font-semibold text-white">
+                {stream.name}
+              </h2>
+              <p className="text-xs text-neutral-500">
+                Stream utama
+                {stream.brand ? ` · ${stream.brand}` : ""}
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <button
               onClick={snapshot}
-              className="rounded-md bg-white/10 px-3 py-2 text-xs text-white transition hover:bg-white/20 active:scale-95"
+              className="flex h-11 items-center gap-2 rounded-xl bg-white/10 px-4 text-sm font-medium text-white transition hover:bg-white/20 active:scale-95"
             >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 20 20"
+                fill="none"
+                aria-hidden
+              >
+                <path
+                  d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM2.5 10s3-5.5 7.5-5.5S17.5 10 17.5 10s-3 5.5-7.5 5.5S2.5 10 2.5 10z"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
               Snapshot
             </button>
             <button
               onClick={onClose}
-              className="flex h-9 w-9 items-center justify-center rounded-md bg-white/10 text-white transition hover:bg-white/20 active:scale-95"
+              className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/20 active:scale-95"
               aria-label="Tutup"
             >
-              ✕
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                aria-hidden
+              >
+                <path
+                  d="M3 3l10 10M13 3L3 13"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
             </button>
           </div>
         </div>
+
+        {/* Video */}
         <div className="aspect-video bg-black">
-          {failed ? (
-            <div className="flex h-full items-center justify-center text-sm text-neutral-400">
-              Gagal memutar stream utama
+          {failed || !stream.is_online ? (
+            <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+              <svg
+                width="32"
+                height="32"
+                viewBox="0 0 24 24"
+                fill="none"
+                className="text-neutral-600"
+                aria-hidden
+              >
+                <path
+                  d="M3 8.5A1.5 1.5 0 014.5 7h9A1.5 1.5 0 0115 8.5v6a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 013 14.5v-6z"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                />
+                <path
+                  d="M15 10.5l5-3v9l-5-3"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M4 4l16 16"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                />
+              </svg>
+              <p className="text-sm font-medium text-neutral-300">
+                {stream.is_online ? "Gagal memutar stream utama" : "Kamera offline"}
+              </p>
+              <p className="text-xs text-neutral-500">
+                {stream.is_online
+                  ? "Coba tutup dan buka kembali"
+                  : "Kamera tidak terjangkau saat ini"}
+              </p>
             </div>
           ) : (
             <video
@@ -104,6 +180,18 @@ export function FocusModal({ stream, onClose }: Props) {
               className="h-full w-full object-contain"
             />
           )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between px-4 py-2.5 sm:px-5">
+          <span
+            className={`text-xs font-medium ${stream.is_online ? "text-ok-400" : "text-bad-400"}`}
+          >
+            {stream.is_online ? "● Online" : "● Offline"}
+          </span>
+          <span className="hidden text-xs text-neutral-600 sm:block">
+            Tekan ESC untuk menutup
+          </span>
         </div>
       </div>
     </div>

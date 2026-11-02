@@ -8,7 +8,6 @@ import {
   Button,
   Card,
   ConfirmModal,
-  EmptyState,
   ErrorBox,
   Field,
   Modal,
@@ -33,6 +32,34 @@ interface AccessLog {
   stream_id: number | null;
   ip: string | null;
   accessed_at: string | null;
+}
+
+function KeyIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      width="40"
+      height="40"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+    </svg>
+  );
+}
+
+function ListEmptyState({ text }: { text: string }) {
+  return (
+    <div className="rounded-xl border border-dashed border-ink-700 bg-ink-900/50 px-4 py-12 text-center">
+      <KeyIcon className="mx-auto text-slate-600" />
+      <p className="mt-3 text-sm text-slate-500">{text}</p>
+    </div>
+  );
 }
 
 export default function AdminKeysPage() {
@@ -100,11 +127,11 @@ export default function AdminKeysPage() {
       {keys === null ? (
         <Spinner />
       ) : keys.length === 0 ? (
-        <EmptyState text="Belum ada API key." />
+        <ListEmptyState text="Belum ada API key." />
       ) : (
         <div className="space-y-2">
           {keys.map((k) => (
-            <Card key={k.id} className="p-4">
+            <Card key={k.id} className="p-4 transition-colors hover:border-ink-500">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate font-medium text-white">{k.name}</p>
@@ -149,21 +176,24 @@ export default function AdminKeysPage() {
       {logs === null ? (
         <Spinner />
       ) : logs.length === 0 ? (
-        <EmptyState text="Belum ada akses tercatat." />
+        <ListEmptyState text="Belum ada akses tercatat." />
       ) : (
         <Card className="overflow-x-auto p-0">
           <table className="w-full min-w-[560px] text-sm">
             <thead>
-              <tr className="border-b border-ink-700 text-left text-xs uppercase tracking-wider text-slate-500">
+              <tr className="border-b border-ink-700 text-left text-xs text-slate-500">
                 <th className="px-4 py-2.5 font-medium">Waktu</th>
                 <th className="px-4 py-2.5 font-medium">Key</th>
-                <th className="px-4 py-2.5 font-medium">Stream</th>
+                <th className="px-4 py-2.5 font-medium">Kamera</th>
                 <th className="px-4 py-2.5 font-medium">IP</th>
               </tr>
             </thead>
             <tbody>
               {logs.map((l) => (
-                <tr key={l.id} className="border-b border-ink-700/40 last:border-0">
+                <tr
+                  key={l.id}
+                  className="border-b border-ink-700/40 transition-colors last:border-0 hover:bg-ink-800/40"
+                >
                   <td className="px-4 py-2.5 text-slate-300">
                     {l.accessed_at ? new Date(l.accessed_at).toLocaleString("id-ID") : "—"}
                   </td>

@@ -5,9 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { api, ApiError } from "../../lib/api";
 
 /* Halaman embed PUBLIK (tanpa login) untuk pihak ketiga.
-   Kunci via ?key=. Kontrak /api/external/* BARU ADA di Fase 3 —
-   sampai saat itu tampilkan placeholder jujur, dengan struktur
-   yang siap disambung (EmbedPlayer). */
+   Kunci via ?key=. */
 
 type Phase = "loading" | "unavailable" | "error" | "ready";
 
@@ -18,15 +16,15 @@ interface EmbedCamera {
   click_to_play: boolean;
 }
 
-/* Siap disambung Fase 3: pemutar click-to-play untuk satu kamera embed. */
+/* Pemutar click-to-play untuk satu kamera embed. */
 function EmbedPlayer({ camera }: { camera: EmbedCamera }) {
   const [playing, setPlaying] = useState(false);
   return (
-    <div className="overflow-hidden rounded-xl bg-ink-900 ring-1 ring-white/10">
+    <div className="overflow-hidden rounded-2xl bg-ink-900 ring-1 ring-white/10">
       <div className="relative aspect-video bg-black">
         {playing && camera.whep_url ? (
           <div className="flex h-full w-full items-center justify-center text-xs text-neutral-400">
-            {/* TODO Fase 3: playWhep(camera.whep_url) */}
+            {/* TODO: playWhep(camera.whep_url) */}
             Memutar…
           </div>
         ) : (
@@ -35,22 +33,25 @@ function EmbedPlayer({ camera }: { camera: EmbedCamera }) {
             className="flex h-full w-full flex-col items-center justify-center gap-3 transition hover:bg-white/5 active:scale-[0.99]"
             aria-label={`Putar ${camera.name}`}
           >
-            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-accent-600 text-white shadow-lg transition hover:bg-accent-500">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-accent-600 text-white transition hover:bg-accent-500">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
                 <path d="M8 5v14l11-7-11-7z" />
               </svg>
             </span>
-            <span className="text-xs text-neutral-400">
-              Klik untuk memutar
-            </span>
+            <span className="text-xs text-neutral-400">Klik untuk memutar</span>
           </button>
         )}
       </div>
-      <div className="flex items-center justify-between px-4 py-3">
+      <div className="flex items-center justify-between gap-3 px-4 py-3.5">
         <span className="truncate text-sm font-medium text-white">
           {camera.name}
         </span>
-        <span className="text-[11px] text-neutral-500">NetraVision</span>
+        <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-neutral-500">
+          <span className="flex h-5 w-5 items-center justify-center rounded-md bg-accent-600 text-[9px] font-bold text-white">
+            N
+          </span>
+          NetraVision
+        </span>
       </div>
     </div>
   );
@@ -70,7 +71,6 @@ function EmbedInner() {
     let cancelled = false;
     (async () => {
       try {
-        // Endpoint ini baru ada di Fase 3.
         const data = await api.get<EmbedCamera[]>(
           `/external/cameras?key=${encodeURIComponent(key)}`,
         );
@@ -94,24 +94,44 @@ function EmbedInner() {
 
   return (
     <div className="flex min-h-dvh flex-col bg-ink-950">
-      <header className="flex items-center gap-2 px-4 py-3">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-600 text-xs font-bold text-white">
-          N
+      <header className="flex items-center justify-between px-4 py-3 sm:px-6">
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-600 text-xs font-bold text-white">
+            N
+          </span>
+          <span className="text-sm font-bold text-white">NetraVision</span>
+        </div>
+        <span className="rounded-full bg-ink-800 px-3 py-1 text-[11px] font-medium text-neutral-400">
+          Siaran publik
         </span>
-        <span className="text-sm font-bold text-white">NetraVision</span>
       </header>
 
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-8">
+      <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-10 sm:px-6">
         {phase === "loading" && (
-          <div className="aspect-video animate-pulse rounded-xl bg-ink-800" />
+          <div className="aspect-video animate-pulse rounded-2xl bg-ink-800 motion-reduce:animate-none" />
         )}
 
         {phase === "error" && (
-          <div className="rounded-xl bg-ink-900 p-8 text-center ring-1 ring-white/10">
-            <div className="mb-1 text-sm font-semibold text-white">
+          <div className="flex flex-col items-center gap-2 rounded-2xl bg-ink-900 px-6 py-14 text-center ring-1 ring-white/10">
+            <svg
+              width="36"
+              height="36"
+              viewBox="0 0 24 24"
+              fill="none"
+              className="text-neutral-600"
+              aria-hidden
+            >
+              <path
+                d="M12 8v5M12 16.5v.01M10.3 3.9A9 9 0 0121 12a9 9 0 01-1.5 5M3.1 6.5A9 9 0 003 12a9 9 0 0013.7 7.7M4.9 4.9l14.2 14.2"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+              />
+            </svg>
+            <div className="text-sm font-semibold text-white">
               Tautan embed tidak valid
             </div>
-            <p className="text-xs text-neutral-400">
+            <p className="max-w-xs text-xs leading-relaxed text-neutral-400">
               Parameter <code className="text-neutral-300">?key=</code> tidak
               ditemukan atau tidak dikenal.
             </p>
@@ -120,15 +140,10 @@ function EmbedInner() {
 
         {phase === "unavailable" && (
           <div>
-            <div className="relative mb-3 aspect-video overflow-hidden rounded-xl bg-ink-900 ring-1 ring-white/10">
+            <div className="relative mb-4 aspect-video overflow-hidden rounded-2xl bg-ink-900 ring-1 ring-white/10">
               <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6 text-center">
-                <span className="flex h-16 w-16 items-center justify-center rounded-full bg-white/5 text-neutral-400 ring-1 ring-white/10">
-                  <svg
-                    width="24"
-                    height="24"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                  >
+                <span className="flex h-16 w-16 items-center justify-center rounded-full bg-ink-800 text-neutral-400 ring-1 ring-white/10">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden>
                     <path
                       d="M8 5v14l11-7-11-7z"
                       stroke="currentColor"
@@ -158,18 +173,22 @@ function EmbedInner() {
         )}
 
         {phase === "ready" && (
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-4">
             {cameras.map((c) => (
               <EmbedPlayer key={c.id} camera={c} />
             ))}
             {cameras.length === 0 && (
-              <div className="rounded-xl bg-ink-900 p-8 text-center text-sm text-neutral-400 ring-1 ring-white/10">
+              <div className="rounded-2xl bg-ink-900 px-6 py-14 text-center text-sm text-neutral-400 ring-1 ring-white/10">
                 Tidak ada kamera untuk kunci ini.
               </div>
             )}
           </div>
         )}
       </main>
+
+      <footer className="px-4 pb-6 text-center text-[11px] text-neutral-600 sm:px-6">
+        NetraVision · Siaran publik pihak ketiga
+      </footer>
     </div>
   );
 }
