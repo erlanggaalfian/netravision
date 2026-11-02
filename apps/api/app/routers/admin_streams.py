@@ -54,7 +54,7 @@ async def _register_paths(
         await mediamtx.create_path(f"stream_{stream_id}", main_url)
         if sub_url:
             await mediamtx.create_path(f"stream_{stream_id}_sub", sub_url)
-    except RuntimeError as e:
+    except Exception as e:  # noqa: BLE001 - best-effort, jangan gagalkan tambah kamera
         log.warning("MediaMTX tidak terjangkau (stream %s): %s", stream_id, e)
 
 
