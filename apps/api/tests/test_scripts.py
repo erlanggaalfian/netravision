@@ -76,7 +76,7 @@ async def test_seed_admin_idempotent(tmp_path):
         await conn.run_sync(Base.metadata.create_all)
     await engine.dispose()
 
-    assert await seed_admin.ensure_admin("admin", "R4h4s1a!", db_url) == "created"
+    assert await seed_admin.ensure_admin("admin", "R4h4s1a!", db_url) == "created:super_admin"
     assert await seed_admin.ensure_admin("admin", "R4h4s1a!", db_url) == "exists"
 
 

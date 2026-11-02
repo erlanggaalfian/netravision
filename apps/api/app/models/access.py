@@ -33,6 +33,11 @@ class StreamPermission(Base, TimestampMixin):
     )
     can_view: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     can_download: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Paritas v2.0: izin membuka rekaman dipisah dari izin menonton live.
+    # Seseorang dapat diberi siaran langsung tanpa riwayat rekamannya.
+    can_playback: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
+    )
 
 
 class StreamAdminGrant(Base, TimestampMixin):
@@ -45,3 +50,8 @@ class StreamAdminGrant(Base, TimestampMixin):
     stream_id: Mapped[int] = mapped_column(ForeignKey("streams.id", ondelete="CASCADE"))
     admin_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     can_manage: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Admin yang memberikan grant ini (paritas v2.0: granted_by —
+    # admin hanya boleh menyentuh pemberian yang ia buat sendiri).
+    granted_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, default=None
+    )

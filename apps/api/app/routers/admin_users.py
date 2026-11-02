@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.rbac import require_roles
+from app.core.rbac import can_manage_user, is_super_admin, require_roles
 from app.core.security import hash_password
 from app.db.session import get_db
 from app.models.access import StreamAdminGrant, UserStreamAccess
@@ -15,6 +15,8 @@ from app.models.users import User
 router = APIRouter()
 admin_only = require_roles("admin")
 
+VALID_ROLES = ("super_admin", "admin", "user", "guest")
+
 
 class UserOut(BaseModel):
     id: int
@@ -22,6 +24,8 @@ class UserOut(BaseModel):
     role: str
     is_active: bool
     show_ads: bool
+    parent_admin_id: int | None = None
+    dibuat_oleh: str | None = None
 
 
 class UserCreate(BaseModel):
@@ -32,6 +36,7 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
+    username: str | None = None
     password: str | None = None
     role: str | None = None
     is_active: bool | None = None
@@ -42,13 +47,23 @@ class StreamIdsIn(BaseModel):
     stream_ids: list[int]
 
 
-def _out(u: User) -> UserOut:
+async def _out(u: User, db: AsyncSession) -> UserOut:
+    dibuat_oleh: str | None = None
+    if u.parent_admin_id:
+        pembuat = (
+            (await db.execute(select(User).where(User.id == u.parent_admin_id)))
+            .scalars()
+            .first()
+        )
+        dibuat_oleh = pembuat.username if pembuat else None
     return UserOut(
         id=u.id,
         username=u.username,
         role=u.role,
         is_active=u.is_active,
         show_ads=u.show_ads,
+        parent_admin_id=u.parent_admin_id,
+        dibuat_oleh=dibuat_oleh,
     )
 
 
@@ -62,20 +77,31 @@ async def _get_user_or_404(user_id: int, db: AsyncSession) -> User:
 
 @router.get("/admin/users", response_model=list[UserOut])
 async def list_users(
-    db: AsyncSession = Depends(get_db), _: User = Depends(admin_only)
+    db: AsyncSession = Depends(get_db), me: User = Depends(admin_only)
 ):
-    result = await db.execute(select(User).order_by(User.username))
-    return [_out(u) for u in result.scalars().all()]
+    """Daftar user. Admin biasa hanya melihat dirinya + akun buatannya;
+    super_admin melihat semua (paritas v2.0: bawahan_saya)."""
+    q = select(User).order_by(User.username)
+    if not is_super_admin(me):
+        q = q.where(
+            (User.id == me.id) | (User.parent_admin_id == me.id)
+        )
+    result = await db.execute(q)
+    users = result.scalars().all()
+    return [await _out(u, db) for u in users]
 
 
 @router.post("/admin/users", response_model=UserOut, status_code=201)
 async def create_user(
     data: UserCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(admin_only),
+    me: User = Depends(admin_only),
 ):
-    if data.role not in ("admin", "user", "guest"):
+    if data.role not in VALID_ROLES:
         raise HTTPException(400, "role tidak valid")
+    if data.role == "super_admin" and not is_super_admin(me):
+        # v2.0: admin tidak bisa membuat super_admin.
+        raise HTTPException(403, "hanya super_admin yang bisa membuat super_admin")
     exists = await db.execute(
         select(User.id).where(User.username == data.username)
     )
@@ -86,11 +112,12 @@ async def create_user(
         password_hash=hash_password(data.password),
         role=data.role,
         show_ads=data.show_ads,
+        parent_admin_id=me.id,
     )
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    return _out(user)
+    return await _out(user, db)
 
 
 @router.put("/admin/users/{user_id}", response_model=UserOut)
@@ -98,14 +125,27 @@ async def update_user(
     user_id: int,
     data: UserUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(admin_only),
+    me: User = Depends(admin_only),
 ):
     user = await _get_user_or_404(user_id, db)
+    if not can_manage_user(me, user):
+        raise HTTPException(403, "tidak boleh mengelola akun ini")
+    if data.username is not None and data.username != user.username:
+        dupe = await db.execute(
+            select(User.id).where(
+                User.username == data.username, User.id != user.id
+            )
+        )
+        if dupe.scalars().first() is not None:
+            raise HTTPException(409, "username sudah dipakai")
+        user.username = data.username
     if data.password:
         user.password_hash = hash_password(data.password)
     if data.role is not None:
-        if data.role not in ("admin", "user", "guest"):
+        if data.role not in VALID_ROLES:
             raise HTTPException(400, "role tidak valid")
+        if data.role == "super_admin" and not is_super_admin(me):
+            raise HTTPException(403, "hanya super_admin yang bisa memberi peran super_admin")
         user.role = data.role
     if data.is_active is not None:
         user.is_active = data.is_active
@@ -113,7 +153,7 @@ async def update_user(
         user.show_ads = data.show_ads
     await db.commit()
     await db.refresh(user)
-    return _out(user)
+    return await _out(user, db)
 
 
 @router.delete("/admin/users/{user_id}")
@@ -125,6 +165,8 @@ async def delete_user(
     if user_id == me.id:
         raise HTTPException(400, "tidak bisa menghapus akun sendiri")
     user = await _get_user_or_404(user_id, db)
+    if not can_manage_user(me, user):
+        raise HTTPException(403, "tidak boleh menghapus akun ini")
     await db.delete(user)
     await db.commit()
     return {"ok": True}
@@ -196,7 +238,7 @@ async def set_admin_grants(
     admin_id: int,
     data: StreamIdsIn,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(admin_only),
+    me: User = Depends(admin_only),
 ):
     await _get_user_or_404(admin_id, db)
     await db.execute(
@@ -205,7 +247,8 @@ async def set_admin_grants(
     for sid in data.stream_ids:
         db.add(
             StreamAdminGrant(
-                admin_id=admin_id, stream_id=sid, can_manage=True
+                admin_id=admin_id, stream_id=sid, can_manage=True,
+                granted_by=me.id,
             )
         )
     await db.commit()

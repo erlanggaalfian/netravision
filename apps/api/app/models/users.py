@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -31,6 +31,12 @@ class User(Base, TimestampMixin):
     # Apakah banner iklan tampil untuk akun ini (paritas v2.0).
     show_ads: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="1"
+    )
+
+    # Admin yang membuat akun ini (paritas v2.0: parent_admin_id).
+    # Dasar cakupan kelola: admin biasa hanya mengelola akun buatannya.
+    parent_admin_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, default=None
     )
 
     # SHA-256 dari refresh token aktif. Dibersihkan saat logout, dirotasi

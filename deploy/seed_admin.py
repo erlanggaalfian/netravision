@@ -29,7 +29,12 @@ from app.core.security import hash_password
 
 
 async def ensure_admin(username: str, password: str, db_url: str) -> str:
-    """Buat admin bila belum ada. Kembalikan 'created' | 'exists'."""
+    """Buat admin bila belum ada. Kembalikan 'created' | 'exists'.
+
+    Paritas v2.0: admin PERTAMA memegang peran super_admin (kuasa penuh).
+    Idempoten: bila sudah ada super_admin, admin baru dibuat sebagai
+    admin biasa; username yang sudah ada tidak diubah.
+    """
     engine = create_async_engine(db_url)
     try:
         async with AsyncSession(engine) as session:
@@ -40,16 +45,22 @@ async def ensure_admin(username: str, password: str, db_url: str) -> str:
             ).scalar_one_or_none()
             if existing is not None:
                 return "exists"
+            has_super = (
+                await session.execute(
+                    select(User.id).where(User.role == "super_admin")
+                )
+            ).first() is not None
+            role = "admin" if has_super else "super_admin"
             session.add(
                 User(
                     username=username,
                     password_hash=hash_password(password),
-                    role="admin",
+                    role=role,
                     is_active=True,
                 )
             )
             await session.commit()
-            return "created"
+            return f"created:{role}"
     finally:
         await engine.dispose()
 
@@ -69,8 +80,9 @@ def main() -> int:
         print("GAGAL: DATABASE_URL kosong.", file=sys.stderr)
         return 1
     hasil = asyncio.run(ensure_admin(username, password, db_url))
-    if hasil == "created":
-        print(f"Admin '{username}' dibuat.")
+    if hasil.startswith("created"):
+        peran = hasil.split(":", 1)[1] if ":" in hasil else "admin"
+        print(f"Admin '{username}' dibuat dengan peran '{peran}'.")
     else:
         print(f"Admin '{username}' sudah ada — dilewati (idempoten).")
     return 0

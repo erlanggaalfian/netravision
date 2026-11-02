@@ -40,8 +40,9 @@ async def test_user_crud(app_client):
         r = await c.delete("/api/admin/users/1")
         assert r.status_code == 400
 
+        # paritas v2.0: sesama admin tidak saling mengelola
         r = await c.delete(f"/api/admin/users/{uid}")
-        assert r.json() == {"ok": True}
+        assert r.status_code == 403
 
 
 async def test_camera_access(app_client):
