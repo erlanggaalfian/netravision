@@ -1,7 +1,8 @@
 """Registrasi semua model agar Alembic melihat metadata lengkap."""
 
-from app.models import access, groups, keys, misc, streams, users  # noqa: F401
+from app.models import access, drive, groups, keys, misc, streams, users  # noqa: F401
 from app.models.access import StreamAdminGrant, StreamPermission, UserStreamAccess
+from app.models.drive import DriveAccount
 from app.models.groups import GroupStream, StreamGroup
 from app.models.keys import ApiAccessLog, ApiKey, ApiKeyStream
 from app.models.misc import AdConfig, Alert, AuditLog, DetectionEvent
@@ -21,6 +22,7 @@ __all__ = [
     "DetectionEvent",
     "Alert",
     "AuditLog",
+    "DriveAccount",
     "StreamGroup",
     "GroupStream",
 ]

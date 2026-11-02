@@ -1,5 +1,6 @@
 """Skema Pydantic: stream, grup, scan (Fase 1)."""
 
+import uuid
 from datetime import datetime
 from typing import Literal
 
@@ -38,6 +39,7 @@ class StreamUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     is_active: bool | None = None
     storage_mode: StorageMode | None = None
+    drive_account_id: uuid.UUID | None = None  # null eksplisit = kembali ke default
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
 

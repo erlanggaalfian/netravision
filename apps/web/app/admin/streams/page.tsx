@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import { useCameraStatus } from "../../../hooks/useCameraStatus";
-import type { ScanCandidate, Stream } from "../../../lib/types";
+import type { DriveAccount, ScanCandidate, Stream } from "../../../lib/types";
 import {
   Accordion,
   Badge,
@@ -98,6 +98,7 @@ function StreamRow({
 export default function AdminStreamsPage() {
   const { status } = useCameraStatus();
   const [streams, setStreams] = useState<Stream[] | null>(null);
+  const [driveAccounts, setDriveAccounts] = useState<DriveAccount[]>([]);
   const [error, setError] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Stream | null>(null);
@@ -114,6 +115,8 @@ export default function AdminStreamsPage() {
 
   useEffect(() => {
     load();
+    /* Akun Drive opsional — sembunyikan field bila gagal dimuat. */
+    api.get<DriveAccount[]>("/admin/drive-accounts").then(setDriveAccounts).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -172,6 +175,7 @@ export default function AdminStreamsPage() {
       {editing && (
         <EditStreamModal
           stream={editing}
+          driveAccounts={driveAccounts}
           onClose={() => setEditing(null)}
           onDone={() => {
             setEditing(null);
@@ -404,18 +408,29 @@ function AddStreamModal({
 
 function EditStreamModal({
   stream,
+  driveAccounts,
   onClose,
   onDone,
 }: {
   stream: Stream;
+  driveAccounts: DriveAccount[];
   onClose: () => void;
   onDone: () => void;
 }) {
   const [name, setName] = useState(stream.name);
   const [isActive, setIsActive] = useState(true);
   const [storageMode, setStorageMode] = useState(stream.storage_mode);
+  const [driveAccountId, setDriveAccountId] = useState<string>(
+    stream.drive_account_id ?? "",
+  );
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const connectedAccounts = driveAccounts.filter((a) => a.connected);
+  const showDrive =
+    connectedAccounts.length > 0 &&
+    (storageMode === "drive" ||
+      storageMode === "both" ||
+      stream.drive_account_id != null);
 
   async function save() {
     setError("");
@@ -426,6 +441,12 @@ function EditStreamModal({
         is_active: isActive,
         storage_mode: storageMode,
       });
+      const next = driveAccountId || null;
+      if (next !== (stream.drive_account_id ?? null)) {
+        await api.patch(`/admin/streams/${stream.id}`, {
+          drive_account_id: next,
+        });
+      }
       onDone();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Gagal menyimpan");
@@ -455,6 +476,25 @@ function EditStreamModal({
             <option value="both">Keduanya</option>
           </Select>
         </Field>
+        {showDrive && (
+          <Field
+            label="Akun Google Drive"
+            hint="Kamera ini mengunggah rekaman ke akun ini"
+          >
+            <Select
+              value={driveAccountId}
+              onChange={(e) => setDriveAccountId(e.target.value)}
+            >
+              <option value="">Ikuti bawaan (default)</option>
+              {connectedAccounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                  {a.is_default ? " · default" : ""}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
         <label className="flex min-h-[44px] items-center gap-3 text-sm text-slate-300">
           <input
             type="checkbox"

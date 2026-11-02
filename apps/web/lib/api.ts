@@ -97,6 +97,10 @@ export const api = {
     apiFetch(path, { method: "PUT", body: JSON.stringify(body ?? {}) }).then(
       handle<T>,
     ),
+  patch: <T>(path: string, body?: unknown) =>
+    apiFetch(path, { method: "PATCH", body: JSON.stringify(body ?? {}) }).then(
+      handle<T>,
+    ),
   del: <T>(path: string) =>
     apiFetch(path, { method: "DELETE" }).then(handle<T>),
 };

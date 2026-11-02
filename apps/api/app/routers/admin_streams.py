@@ -105,6 +105,16 @@ async def admin_update_stream(
         stream.is_active = data.is_active
     if data.storage_mode is not None:
         stream.storage_mode = data.storage_mode
+    if "drive_account_id" in data.model_fields_set:
+        if data.drive_account_id is not None:
+            from app.models.drive import DriveAccount
+
+            acc = await db.get(DriveAccount, data.drive_account_id)
+            if acc is None:
+                raise HTTPException(
+                    status_code=404, detail="akun Drive tidak ditemukan"
+                )
+        stream.drive_account_id = data.drive_account_id
     if data.latitude is not None:
         stream.latitude = data.latitude
     if data.longitude is not None:

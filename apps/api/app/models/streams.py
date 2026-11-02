@@ -1,8 +1,9 @@
 """Model: streams (pengganti cctv_streams v2.0 + kolom baru v3.0)."""
 
+import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -41,4 +42,11 @@ class Stream(Base, TimestampMixin):
     # Pemilik kamera (dikelola via POST /api/admin/streams/{id}/owner).
     owner_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    # Akun Google Drive untuk kamera ini (NULL = akun default).
+    # Backward compat: instalasi satu-akun lama (token.json) tetap jalan
+    # tanpa baris drive_accounts — lihat app/services/drive.py.
+    drive_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("drive_accounts.id", ondelete="SET NULL"), nullable=True
     )

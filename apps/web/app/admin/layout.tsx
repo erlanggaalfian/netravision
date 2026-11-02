@@ -12,6 +12,7 @@ const NAV = [
   { href: "/admin/groups", label: "Grup" },
   { href: "/admin/keys", label: "API Key" },
   { href: "/admin/ads", label: "Iklan" },
+  { href: "/admin/drive", label: "Drive" },
 ];
 
 export default function AdminLayout({

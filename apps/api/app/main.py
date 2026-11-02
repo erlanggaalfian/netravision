@@ -16,6 +16,7 @@ from app.core.logging import setup_logging
 from app.db.session import dispose_engine, get_session_factory
 from app.routers import (
     admin_ads,
+    admin_drive,
     admin_keys,
     admin_streams,
     admin_users,
@@ -105,21 +106,42 @@ async def _retention_loop() -> None:
 
 
 async def _drive_loop() -> None:
-    from app.services.drive import DriveUploader
+    """Upload Drive multi-akun: tiap akun (atau legacy) punya loop sendiri.
+
+    Rescan tiap 5 menit agar segmen yang gagal ikut tercoba lagi dan
+    akun yang baru ditambah/dihapus otomatis ter-rekonsiliasi.
+    """
+    from app.services import drive_accounts as da
 
     log = logging.getLogger("netravision.drive")
+    tasks: dict[str, asyncio.Task] = {}
     try:
-        up = DriveUploader()
-        try:
-            async with get_session_factory()() as db:
-                n = await up.scan_and_enqueue(db)
-            if n:
-                log.info("drive: %d segmen diantrekan", n)
-        except Exception as e:  # noqa: BLE001
-            log.warning("drive scan awal gagal: %s", e)
-        await up.run_upload_loop()
+        while True:
+            try:
+                async with get_session_factory()() as db:
+                    ups = await da.active_uploaders(db)
+                for key in list(tasks):
+                    if key not in ups:
+                        tasks.pop(key).cancel()
+                for key, up in ups.items():
+                    if key not in tasks:
+                        tasks[key] = asyncio.create_task(up.run_upload_loop())
+                async with get_session_factory()() as db:
+                    for key, up in ups.items():
+                        try:
+                            n = await up.scan_and_enqueue(db)
+                            if n:
+                                log.info("drive[%s]: %d segmen diantrekan", key, n)
+                        except Exception as e:  # noqa: BLE001
+                            log.warning("drive[%s] scan gagal: %s", key, e)
+            except Exception as e:  # noqa: BLE001
+                log.warning("drive loop gagal: %s", e)
+            await asyncio.sleep(300)
     except asyncio.CancelledError:
         pass
+    finally:
+        for t in tasks.values():
+            t.cancel()
 
 
 def create_app() -> FastAPI:
@@ -154,6 +176,9 @@ def create_app() -> FastAPI:
     app.include_router(admin_keys.router, prefix="/api")
     app.include_router(admin_ads.router, prefix="/api")
     app.include_router(admin_ads.admin_router, prefix="/api")
+    # Akun Google Drive multi-akun (callback OAuth publik, sisanya admin).
+    app.include_router(admin_drive.router, prefix="/api")
+    app.include_router(admin_drive.admin_router, prefix="/api")
     # Embed pihak ketiga — kontrak FROZEN, tanpa login user (auth via API key).
     app.include_router(external.router, prefix="/api")
     # Rekaman: 8 endpoint persis kontrak v2.0.

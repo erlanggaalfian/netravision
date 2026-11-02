@@ -10,8 +10,20 @@ export interface Stream {
   whep_sub_url: string | null;
   poster_url: string | null;
   storage_mode: string;
+  drive_account_id: string | null;
   latitude: number | null;
   longitude: number | null;
+}
+
+export interface DriveAccount {
+  id: string;
+  name: string;
+  is_default: boolean;
+  connected: boolean;
+  status: "pending" | "connected" | "error";
+  last_error: string | null;
+  camera_count: number;
+  created_at: string;
 }
 
 export interface User {

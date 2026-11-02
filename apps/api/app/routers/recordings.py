@@ -26,7 +26,7 @@ from app.schemas.recording import (
     TimelineOut,
 )
 from app.schemas.stream import StreamOut
-from app.services.drive import CHUNK, DriveUploader
+from app.services.drive import CHUNK
 from app.services.recording import (
     Segment,
     _assign_ends,
@@ -52,15 +52,19 @@ async def _get_stream(stream_id: int, db: AsyncSession) -> Stream:
 
 
 async def _all_segments(
-    stream: Stream, day: date | None = None
+    stream: Stream, day: date | None, db: AsyncSession
 ) -> list[Segment]:
-    """Gabungan segmen lokal + Drive (lokal menang bila nama sama)."""
+    """Gabungan segmen lokal + Drive akun kamera ini (lokal menang bila nama sama)."""
     settings = get_settings()
     segs = list_segments(stream.id, day, settings.recordings_dir)
     if stream.storage_mode in ("drive", "both") and settings.drive_enabled:
         names = {s.name for s in segs}
         try:
-            up = DriveUploader(settings)
+            from app.services.drive_accounts import uploader_for_stream
+
+            up = await uploader_for_stream(db, stream)
+            if up is None:
+                return _finish(segs)
             folder_id = await up.ensure_folder(stream.name)
             for f in await up.list_files(folder_id):
                 name = f.get("name", "")
@@ -80,18 +84,22 @@ async def _all_segments(
                 )
         except Exception as e:  # noqa: BLE001 — Drive opsional, jangan gagalkan
             log.warning("drive list %s gagal: %s", stream.name, e)
+    return _finish(segs)
+
+
+def _finish(segs: list[Segment]) -> list[Segment]:
     segs.sort(key=lambda s: s.start)
     _assign_ends(segs)
     return segs
 
 
 async def _containing(
-    stream: Stream, at: datetime
+    stream: Stream, at: datetime, db: AsyncSession
 ) -> Segment | None:
     """Segmen (lokal/Drive) yang memuat waktu `at`."""
     if at.tzinfo is not None:
         at = at.replace(tzinfo=None)
-    for seg in await _all_segments(stream):
+    for seg in await _all_segments(stream, None, db):
         if seg.start > at + _ONE_DAY:
             break
         end = seg.end or seg.start
@@ -101,7 +109,7 @@ async def _containing(
 
 
 async def _serve_segment(
-    stream: Stream, seg: Segment, download: bool
+    stream: Stream, seg: Segment, download: bool, db: AsyncSession
 ) -> FileResponse | StreamingResponse:
     if seg.path and os.path.exists(seg.path):
         if download:
@@ -111,11 +119,12 @@ async def _serve_segment(
                 filename=seg.name,
             )
         return FileResponse(seg.path, media_type="video/mp4")
-    # Fallback Drive
-    settings = get_settings()
-    if not settings.drive_enabled or stream.storage_mode not in ("drive", "both"):
+    # Fallback Drive — via akun kamera ini.
+    from app.services.drive_accounts import uploader_for_stream
+
+    up = await uploader_for_stream(db, stream)
+    if up is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "segmen tidak ditemukan")
-    up = DriveUploader(settings)
     file_id = seg.drive_file_id
     if not file_id:
         folder_id = await up.ensure_folder(stream.name)
@@ -172,7 +181,7 @@ async def timeline(
 ):
     stream = await _get_stream(stream_id, db)
     day = day or date.today()
-    segs = await _all_segments(stream, day)
+    segs = await _all_segments(stream, day, db)
     return {
         "date": day.isoformat(),
         "entries": [
@@ -197,7 +206,7 @@ async def segments(
     db: AsyncSession = Depends(get_db),
 ):
     stream = await _get_stream(stream_id, db)
-    segs = await _all_segments(stream, day)
+    segs = await _all_segments(stream, day, db)
     if hour is not None:
         segs = [s for s in segs if s.start.hour == hour]
     return [
@@ -220,7 +229,7 @@ async def dates(
     db: AsyncSession = Depends(get_db),
 ):
     stream = await _get_stream(stream_id, db)
-    segs = await _all_segments(stream, None)
+    segs = await _all_segments(stream, None, db)
     return {"dates": sorted({s.start.date().isoformat() for s in segs})}
 
 
@@ -235,10 +244,10 @@ async def stream_range(
 ):
     """Stream video rentang waktu (inline, video/mp4)."""
     stream = await _get_stream(stream_id, db)
-    seg = await _containing(stream, start)
+    seg = await _containing(stream, start, db)
     if seg is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "tidak ada rekaman")
-    return await _serve_segment(stream, seg, download=False)
+    return await _serve_segment(stream, seg, download=False, db=db)
 
 
 @router.get("/recordings/{stream_id}/file")
@@ -254,10 +263,10 @@ async def download_file(
     if end < start:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "end < start")
     stream = await _get_stream(stream_id, db)
-    seg = await _containing(stream, start)
+    seg = await _containing(stream, start, db)
     if seg is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "tidak ada rekaman")
-    return await _serve_segment(stream, seg, download=True)
+    return await _serve_segment(stream, seg, download=True, db=db)
 
 
 @router.get("/recordings/{stream_id}/playback-url", response_model=PlaybackUrlOut)
@@ -271,7 +280,7 @@ async def playback_url(
     stream = await _get_stream(stream_id, db)
     if time.tzinfo is not None:
         time = time.replace(tzinfo=None)
-    seg = await _containing(stream, time)
+    seg = await _containing(stream, time, db)
     if seg is None:
         # cari berikutnya
         nxt = find_next_playable(stream.id, time, get_settings().recordings_dir)
@@ -296,7 +305,7 @@ async def next_playable(
     # lokal dulu (cepat), lalu gabungan bila drive aktif
     res = find_next_playable(stream.id, after, get_settings().recordings_dir)
     if res is None and stream.storage_mode in ("drive", "both"):
-        for seg in await _all_segments(stream, None):
+        for seg in await _all_segments(stream, None, db):
             end = seg.end or seg.start
             if seg.start <= after < end:
                 res = (seg, after)

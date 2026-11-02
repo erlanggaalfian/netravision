@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     drive_token_file: str = "data/drive/token.json"
     drive_folder_root: str = "NetraVision"
     drive_retention_days: int = 30
+    # Kunci Fernet untuk mengenkripsi token OAuth akun Drive di DB.
+    # Generate: lihat docs/GOOGLE-DRIVE.md §5.
+    drive_token_key: str = ""
 
     cors_origins: list[str] = ["http://localhost:3000"]
     log_level: str = "INFO"

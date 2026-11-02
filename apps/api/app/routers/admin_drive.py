@@ -1,0 +1,277 @@
+"""Router admin: akun Google Drive multi-akun.
+
+Kamera memilih akun via streams.drive_account_id (NULL = akun default).
+OAuth memakai SATU redirect_uri untuk semua akun:
+  {public_base}/api/admin/drive-accounts/oauth/callback
+Token OAuth tiap akun disimpan terenkripsi (Fernet) di DB.
+"""
+
+import hashlib
+import hmac
+import json
+import logging
+import time
+import uuid
+from urllib.parse import urlencode
+
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, Field
+from sqlalchemy import func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import get_settings
+from app.core.rbac import require_roles
+from app.db.session import get_db
+from app.models.drive import DriveAccount
+from app.models.streams import Stream
+from app.services.drive_accounts import clear_drive_client_cache
+
+log = logging.getLogger("netravision.admin_drive")
+
+router = APIRouter(tags=["admin-drive"])  # callback OAuth: publik (dipanggil Google)
+admin_router = APIRouter(
+    tags=["admin-drive"], dependencies=[Depends(require_roles("admin"))]
+)
+
+_GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+_GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+_GOOGLE_REVOKE_URL = "https://oauth2.googleapis.com/revoke"
+_SCOPE = "https://www.googleapis.com/auth/drive.file"
+_STATE_TTL = 600  # state OAuth berlaku 10 menit
+
+
+class AccountCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+
+
+class AccountUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    is_default: bool | None = None
+
+
+def _sign_state(account_id: str) -> str:
+    """State OAuth bertanda-tangan: {account_id}.{exp}.{hmac}."""
+    exp = int(time.time()) + _STATE_TTL
+    payload = f"{account_id}.{exp}"
+    sig = hmac.new(
+        get_settings().jwt_secret.encode(), payload.encode(), hashlib.sha256
+    ).hexdigest()
+    return f"{payload}.{sig}"
+
+
+def _verify_state(state: str) -> str:
+    """Return account_id bila state valid; raise ValueError bila tidak."""
+    try:
+        account_id, exp, sig = state.split(".")
+        int(exp)
+    except (ValueError, AttributeError):
+        raise ValueError("format state salah")
+    payload = f"{account_id}.{exp}"
+    want = hmac.new(
+        get_settings().jwt_secret.encode(), payload.encode(), hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(sig, want):
+        raise ValueError("tanda tangan state tidak cocok")
+    if int(exp) < time.time():
+        raise ValueError("state kedaluwarsa")
+    return account_id
+
+
+def _client_credentials(settings) -> tuple[str, str]:
+    """Baca client_id/secret dari credentials.json (bentuk installed/web)."""
+    try:
+        with open(settings.drive_credentials_file) as f:
+            data = json.load(f)
+    except (OSError, ValueError) as e:
+        raise RuntimeError(
+            f"credentials Drive tidak terbaca ({settings.drive_credentials_file}) — "
+            "lihat docs/GOOGLE-DRIVE.md §1"
+        ) from e
+    node = data.get("web") or data.get("installed") or {}
+    cid, csec = node.get("client_id"), node.get("client_secret")
+    if not cid or not csec:
+        raise RuntimeError("credentials.json tidak memuat client_id/client_secret")
+    return cid, csec
+
+
+def _redirect_uri(settings) -> str:
+    base = (settings.public_base_url or "").rstrip("/")
+    if not base:
+        raise RuntimeError(
+            "PUBLIC_BASE_URL / public_base_url wajib diset untuk OAuth Drive"
+        )
+    return f"{base}/api/admin/drive-accounts/oauth/callback"
+
+
+def _oauth_url(account_id: str, settings) -> str:
+    cid, _ = _client_credentials(settings)
+    q = urlencode({
+        "client_id": cid,
+        "redirect_uri": _redirect_uri(settings),
+        "response_type": "code",
+        "scope": _SCOPE,
+        "access_type": "offline",
+        "prompt": "consent",
+        "state": _sign_state(account_id),
+    })
+    return f"{_GOOGLE_AUTH_URL}?{q}"
+
+
+async def _exchange_code(code: str, settings) -> dict:
+    """Tukar authorization code -> token OAuth (dipakai callback)."""
+    cid, csec = _client_credentials(settings)
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(_GOOGLE_TOKEN_URL, data={
+            "code": code, "client_id": cid, "client_secret": csec,
+            "redirect_uri": _redirect_uri(settings), "grant_type": "authorization_code",
+        })
+        r.raise_for_status()
+        return r.json()
+
+
+def _account_out(acc: DriveAccount, camera_count: int) -> dict:
+    return {
+        "id": str(acc.id),
+        "name": acc.name,
+        "is_default": acc.is_default,
+        "connected": acc.connected,
+        "status": acc.status,
+        "last_error": acc.last_error,
+        "camera_count": camera_count,
+        "created_at": acc.created_at.isoformat() if acc.created_at else None,
+    }
+
+
+async def _camera_counts(db: AsyncSession) -> dict:
+    rows = (await db.execute(
+        select(Stream.drive_account_id, func.count())
+        .where(Stream.drive_account_id.is_not(None))
+        .group_by(Stream.drive_account_id)
+    )).all()
+    return {str(a): c for a, c in rows}
+
+
+async def _get_or_404(db: AsyncSession, account_id: uuid.UUID) -> DriveAccount:
+    acc = await db.get(DriveAccount, account_id)
+    if acc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "akun Drive tidak ditemukan")
+    return acc
+
+
+@admin_router.get("/admin/drive-accounts")
+async def list_accounts(db: AsyncSession = Depends(get_db)):
+    accs = (await db.execute(select(DriveAccount).order_by(DriveAccount.name))).scalars().all()
+    counts = await _camera_counts(db)
+    return [_account_out(a, counts.get(str(a.id), 0)) for a in accs]
+
+
+@admin_router.post("/admin/drive-accounts", status_code=status.HTTP_201_CREATED)
+async def create_account(data: AccountCreate, db: AsyncSession = Depends(get_db)):
+    settings = get_settings()
+    exists = (await db.execute(
+        select(DriveAccount).where(DriveAccount.name == data.name)
+    )).scalars().first()
+    if exists:
+        raise HTTPException(status.HTTP_409_CONFLICT, "nama akun sudah dipakai")
+    # Validasi dini: credentials + public_base harus benar sebelum user OAuth.
+    _client_credentials(settings)
+    _redirect_uri(settings)
+    acc = DriveAccount(name=data.name)
+    db.add(acc)
+    await db.commit()
+    await db.refresh(acc)
+    return {"id": str(acc.id), "name": acc.name, "oauth_url": _oauth_url(str(acc.id), settings)}
+
+
+@admin_router.put("/admin/drive-accounts/{account_id}")
+async def update_account(
+    account_id: uuid.UUID, data: AccountUpdate, db: AsyncSession = Depends(get_db)
+):
+    acc = await _get_or_404(db, account_id)
+    if data.name is not None:
+        dup = (await db.execute(select(DriveAccount).where(
+            DriveAccount.name == data.name, DriveAccount.id != acc.id
+        ))).scalars().first()
+        if dup:
+            raise HTTPException(status.HTTP_409_CONFLICT, "nama akun sudah dipakai")
+        acc.name = data.name
+    if data.is_default is True:
+        await db.execute(
+            update(DriveAccount).where(DriveAccount.id != acc.id).values(is_default=False)
+        )
+        acc.is_default = True
+    elif data.is_default is False:
+        acc.is_default = False
+    await db.commit()
+    await db.refresh(acc)
+    counts = await _camera_counts(db)
+    return _account_out(acc, counts.get(str(acc.id), 0))
+
+
+@admin_router.post("/admin/drive-accounts/{account_id}/reauth")
+async def reauth_account(account_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    acc = await _get_or_404(db, account_id)
+    return {"oauth_url": _oauth_url(str(acc.id), get_settings())}
+
+
+@admin_router.delete("/admin/drive-accounts/{account_id}")
+async def delete_account(account_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    acc = await _get_or_404(db, account_id)
+    n = (await db.execute(select(func.count()).where(
+        Stream.drive_account_id == acc.id
+    ))).scalar() or 0
+    if n:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"message": f"akun masih dipakai {n} kamera", "camera_count": n},
+        )
+    # Revoke token ke Google (best-effort; hapus DB apa pun hasilnya).
+    if acc.token_encrypted:
+        try:
+            from app.core.drive_tokens import decrypt_token
+
+            tok = decrypt_token(acc.token_encrypted)
+            async with httpx.AsyncClient(timeout=15) as client:
+                await client.post(_GOOGLE_REVOKE_URL, data={
+                    "token": tok.get("refresh_token") or tok.get("access_token", "")
+                })
+        except Exception as e:  # noqa: BLE001
+            log.warning("revoke token akun %s gagal: %s", acc.id, e)
+    clear_drive_client_cache(acc.id)
+    await db.delete(acc)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.get("/admin/drive-accounts/oauth/callback", include_in_schema=False)
+async def oauth_callback(
+    code: str, state: str, request: Request, db: AsyncSession = Depends(get_db)
+):
+    """Dipanggil browser user setelah consent Google (TANPA auth — state HMAC)."""
+    settings = get_settings()
+    base = (settings.public_base_url or "").rstrip("/") or str(request.base_url).rstrip("/")
+    try:
+        account_id = _verify_state(state)
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "state OAuth tidak valid")
+    acc = await _get_or_404(db, uuid.UUID(account_id))
+    try:
+        token = await _exchange_code(code, settings)
+        if "refresh_token" not in token:
+            log.warning("OAuth akun %s tanpa refresh_token — consent mungkin diulang", acc.id)
+        from app.core.drive_tokens import encrypt_token
+
+        acc.token_encrypted = encrypt_token(token)
+        acc.status = "connected"
+        acc.last_error = None
+        await db.commit()
+        clear_drive_client_cache(acc.id)
+        return RedirectResponse(f"{base}/admin/drive/?connected=1", status_code=302)
+    except Exception as e:  # noqa: BLE001
+        acc.status = "error"
+        acc.last_error = str(e)[:500]
+        await db.commit()
+        log.warning("OAuth callback akun %s gagal: %s", acc.id, e)
+        return RedirectResponse(f"{base}/admin/drive/?connected=0", status_code=302)
