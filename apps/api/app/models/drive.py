@@ -50,11 +50,8 @@ class DriveAccount(Base):
 class GoogleDriveSetting(Base):
     """Tujuan Google Drive mode folder-link + rclone (satu baris, id=1).
 
-    Cara ganti akun/folder: cukup tempel tautan folder Drive yang baru —
-    akun tujuan mengikuti pemilik folder itu. Folder penampung lokal
-    (staging, env GDRIVE_RECORD_PATH) di-mount via rclone; background
-    mirror copier (app/services/drive_mirror.py) menyalin segmen yang
-    sudah stabil ke sana.
+    DIGANTI oleh GoogleDriveFolder (multi-tautan, migrasi 0009).
+    Dipertahankan sementara agar migrasi bisa membaca baris lama.
     """
 
     __tablename__ = "google_drive_settings"
@@ -63,5 +60,29 @@ class GoogleDriveSetting(Base):
     folder_url: Mapped[str | None] = mapped_column(String(500), nullable=True, default="")
     folder_id: Mapped[str | None] = mapped_column(String(128), nullable=True, default="")
     folder_name: Mapped[str | None] = mapped_column(String(128), nullable=True, default="")
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(String(50), nullable=True, default="")
+
+
+class GoogleDriveFolder(Base):
+    """Satu tautan folder Google Drive (mode folder-link + rclone).
+
+    Bisa ada BANYAK baris — tiap baris = satu folder tujuan dengan
+    mount rclone-nya sendiri (local_path). Kamera memilih folder via
+    streams.drive_folder_id; NULL = folder pertama (default).
+    """
+
+    __tablename__ = "google_drive_folders"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    folder_url: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    folder_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    folder_name: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    # Mount point rclone untuk folder ini (mis. /mnt/gdrive-cctv).
+    # Kosong = pakai env GDRIVE_RECORD_PATH (kompatibel lama).
+    local_path: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_by: Mapped[str | None] = mapped_column(String(50), nullable=True, default="")

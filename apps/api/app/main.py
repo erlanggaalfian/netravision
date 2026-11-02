@@ -73,14 +73,12 @@ async def lifespan(app: FastAPI):
     else:
         log.info("Google Drive nonaktif (modul opsional)")
 
-    # Mirror folder-link + rclone (ala fieriindra): salin segmen stabil ke
-    # staging lokal yang di-mount rclone. Independen dari uploader OAuth.
-    if settings.gdrive_record_path:
-        from app.services.drive_mirror import mirror_loop
+    # Mirror folder-link + rclone (multi-tautan): salin segmen stabil ke
+    # staging lokal tiap folder yang di-mount rclone. Loop-nya sendiri
+    # yang memeriksa ada/tidaknya folder terkonfigurasi.
+    from app.services.drive_mirror import mirror_loop
 
-        tasks.append(asyncio.create_task(mirror_loop()))
-    else:
-        log.info("Mirror Drive (folder-link) nonaktif — GDRIVE_RECORD_PATH kosong")
+    tasks.append(asyncio.create_task(mirror_loop()))
 
     try:
         yield

@@ -52,6 +52,7 @@ def stream_to_out(stream: Stream, settings: Settings) -> StreamOut:
         longitude=stream.longitude,
         storage_mode=stream.storage_mode,
         drive_account_id=stream.drive_account_id,
+        drive_folder_id=stream.drive_folder_id,
         recording_enabled=stream.recording_enabled,
         retention_days=stream.retention_days,
     )

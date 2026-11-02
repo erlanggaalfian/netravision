@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import { useCameraStatus } from "../../../hooks/useCameraStatus";
-import type { DriveAccount, Group, ScanCandidate, Stream } from "../../../lib/types";
+import type { DriveFolder, Group, ScanCandidate, Stream } from "../../../lib/types";
 import { ShareModal } from "../../../components/ShareModal";
 import {
   Accordion,
@@ -154,7 +154,7 @@ export default function AdminStreamsPage() {
   const [streams, setStreams] = useState<Stream[] | null>(null);
   const [groups, setGroups] = useState<Group[]>([]);
   const [groupMap, setGroupMap] = useState<Record<number, string[]>>({});
-  const [driveAccounts, setDriveAccounts] = useState<DriveAccount[]>([]);
+  const [driveFolders, setDriveFolders] = useState<DriveFolder[]>([]);
   const [error, setError] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Stream | null>(null);
@@ -184,7 +184,7 @@ export default function AdminStreamsPage() {
   useEffect(() => {
     load();
     /* Akun Drive opsional — sembunyikan field bila gagal dimuat. */
-    api.get<DriveAccount[]>("/admin/drive-accounts").then(setDriveAccounts).catch(() => {});
+    api.get<{ folders: DriveFolder[] }>("/admin/storage/google-drive").then((d) => setDriveFolders(d.folders)).catch(() => {});
     /* Grup untuk filter. */
     api
       .get<Group[]>("/admin/groups")
@@ -470,7 +470,7 @@ export default function AdminStreamsPage() {
       {editing && (
         <EditStreamModal
           stream={editing}
-          driveAccounts={driveAccounts}
+          driveFolders={driveFolders}
           onClose={() => setEditing(null)}
           onDone={() => {
             setEditing(null);
@@ -872,20 +872,20 @@ function AddStreamModal({
 
 function EditStreamModal({
   stream,
-  driveAccounts,
+  driveFolders,
   onClose,
   onDone,
 }: {
   stream: Stream;
-  driveAccounts: DriveAccount[];
+  driveFolders: DriveFolder[];
   onClose: () => void;
   onDone: () => void;
 }) {
   const [name, setName] = useState(stream.name);
   const [isActive, setIsActive] = useState(stream.is_active);
   const [storageMode, setStorageMode] = useState(stream.storage_mode);
-  const [driveAccountId, setDriveAccountId] = useState<string>(
-    stream.drive_account_id ?? "",
+  const [driveFolderId, setDriveFolderId] = useState<string>(
+    stream.drive_folder_id != null ? String(stream.drive_folder_id) : "",
   );
   const [recordingEnabled, setRecordingEnabled] = useState(stream.recording_enabled);
   const [retentionDays, setRetentionDays] = useState(String(stream.retention_days));
@@ -897,12 +897,11 @@ function EditStreamModal({
   );
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const connectedAccounts = driveAccounts.filter((a) => a.connected);
-  const showDrive =
-    connectedAccounts.length > 0 &&
+  const showDriveFolder =
+    driveFolders.length > 0 &&
     (storageMode === "drive" ||
       storageMode === "both" ||
-      stream.drive_account_id != null);
+      stream.drive_folder_id != null);
 
   async function save() {
     setError("");
@@ -918,13 +917,8 @@ function EditStreamModal({
         retention_days: Math.min(365, Math.max(1, parseInt(retentionDays, 10) || 7)),
         latitude: lat !== null && !Number.isNaN(lat) ? lat : null,
         longitude: lon !== null && !Number.isNaN(lon) ? lon : null,
+        drive_folder_id: driveFolderId === "" ? null : parseInt(driveFolderId, 10),
       });
-      const next = driveAccountId || null;
-      if (next !== (stream.drive_account_id ?? null)) {
-        await api.patch(`/admin/streams/${stream.id}`, {
-          drive_account_id: next,
-        });
-      }
       onDone();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Gagal menyimpan");
@@ -1004,20 +998,19 @@ function EditStreamModal({
               <option value="both">Keduanya</option>
             </Select>
           </Field>
-          {showDrive && (
+          {showDriveFolder && (
             <Field
-              label="Akun Google Drive"
-              hint="Kamera ini mengunggah rekaman ke akun ini"
+              label="Folder Google Drive tujuan"
+              hint="Pilih folder tempat rekaman kamera ini disimpan"
             >
               <Select
-                value={driveAccountId}
-                onChange={(e) => setDriveAccountId(e.target.value)}
+                value={driveFolderId}
+                onChange={(e) => setDriveFolderId(e.target.value)}
               >
-                <option value="">Ikuti bawaan (default)</option>
-                {connectedAccounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                    {a.is_default ? " · default" : ""}
+                <option value="">Default (folder pertama)</option>
+                {driveFolders.map((f) => (
+                  <option key={f.id} value={String(f.id)}>
+                    {f.folder_name || f.folder_id}
                   </option>
                 ))}
               </Select>

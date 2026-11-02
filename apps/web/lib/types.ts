@@ -12,10 +12,22 @@ export interface Stream {
   poster_url: string | null;
   storage_mode: string;
   drive_account_id: string | null;
+  drive_folder_id: number | null;
   latitude: number | null;
   longitude: number | null;
   recording_enabled: boolean;
   retention_days: number;
+}
+
+export interface DriveFolder {
+  id: number;
+  folder_url: string;
+  folder_id: string;
+  folder_name: string;
+  local_path: string;
+  local_path_custom: boolean;
+  updated_at: string | null;
+  updated_by: string;
 }
 
 export interface DriveAccount {

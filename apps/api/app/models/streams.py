@@ -55,3 +55,11 @@ class Stream(Base, TimestampMixin):
     drive_account_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("drive_accounts.id", ondelete="SET NULL"), nullable=True
     )
+
+    # Folder Google Drive tujuan (mode folder-link, multi-tautan).
+    # NULL = folder pertama (default). Diatur per kamera di modal kamera
+    # bila storage_mode = "drive"/"both" dan ada >1 folder.
+    drive_folder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("google_drive_folders.id", ondelete="SET NULL"),
+        nullable=True, default=None,
+    )

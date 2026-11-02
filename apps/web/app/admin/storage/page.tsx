@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import {
+  Badge,
   Button,
   Card,
+  ConfirmModal,
   ErrorBox,
   Field,
   SectionTitle,
@@ -12,178 +14,208 @@ import {
   TextInput,
 } from "../../../components/ui";
 
-interface GDriveSetting {
-  configured: boolean;
+interface GDriveFolder {
+  id: number;
   folder_url: string;
   folder_id: string;
   folder_name: string;
-  staging_path: string;
-  quota_tb: number;
+  local_path: string;
+  local_path_custom: boolean;
   updated_at: string | null;
   updated_by: string;
 }
 
-/* Halaman admin: Penyimpanan Google Drive (mode folder-link + rclone).
-   Implementasi tambahan di samping OAuth multi-akun di tab Drive. */
+interface GDriveList {
+  folders: GDriveFolder[];
+  staging_default: string;
+  quota_tb: number;
+}
+
+/* Halaman admin: Tautan Folder Google Drive (mode folder-link + rclone).
+   Bisa menampung BANYAK tautan — tiap folder punya mount rclone sendiri.
+   Kamera memilih folder tujuan di modal kamera (mode Drive/Keduanya). */
 
 export default function AdminStoragePage() {
-  const [cfg, setCfg] = useState<GDriveSetting | null>(null);
+  const [data, setData] = useState<GDriveList | null>(null);
   const [folderUrl, setFolderUrl] = useState("");
   const [folderName, setFolderName] = useState("");
+  const [localPath, setLocalPath] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [deleting, setDeleting] = useState<GDriveFolder | null>(null);
+
+  async function load() {
+    try {
+      setData(await api.get<GDriveList>("/admin/storage/google-drive"));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Gagal memuat daftar folder");
+    }
+  }
 
   useEffect(() => {
-    api
-      .get<GDriveSetting>("/admin/storage/google-drive")
-      .then((c) => {
-        setCfg(c);
-        setFolderUrl(c.folder_url);
-        setFolderName(c.folder_name);
-      })
-      .catch((e) =>
-        setError(e instanceof ApiError ? e.message : "Gagal memuat pengaturan"),
-      );
+    load();
   }, []);
 
-  async function save() {
+  async function add() {
+    if (!folderUrl.trim()) {
+      setError("Tempel dulu tautan folder Google Drive.");
+      return;
+    }
     setError("");
     setBusy(true);
-    setSaved(false);
     try {
-      const res = await api.put<GDriveSetting>("/admin/storage/google-drive", {
+      await api.post("/admin/storage/google-drive", {
         folder_url: folderUrl.trim(),
         folder_name: folderName.trim(),
+        local_path: localPath.trim(),
       });
-      setCfg(res);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
+      setFolderUrl("");
+      setFolderName("");
+      setLocalPath("");
+      await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Gagal menyimpan");
+      setError(e instanceof ApiError ? e.message : "Gagal menambah tautan");
     } finally {
       setBusy(false);
     }
   }
 
-  if (cfg === null && !error) return <Spinner />;
+  async function remove() {
+    if (!deleting) return;
+    setError("");
+    try {
+      await api.del(`/admin/storage/google-drive/${deleting.id}`);
+      setDeleting(null);
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Gagal menghapus");
+    }
+  }
+
+  if (data === null && !error) return <Spinner />;
 
   return (
     <div>
       <SectionTitle
-        title="Penyimpanan Google Drive"
-        desc="Folder tujuan untuk rekaman mode Google Drive dan mode Keduanya. Untuk mengganti akun/folder, cukup tempel tautan folder Google Drive yang baru — akun tujuan mengikuti pemilik folder tersebut."
+        title="Tautan Folder Google Drive"
+        desc="Daftar folder tujuan untuk rekaman mode Google Drive dan mode Keduanya. Tambah beberapa tautan bila perlu — tiap kamera bisa memilih disimpan ke folder mana."
       />
       {error && (
         <div className="mb-4">
           <ErrorBox message={error} />
         </div>
       )}
-      {cfg && (
-        <div className="space-y-4">
-          <Card className="max-w-2xl">
-            <div className="space-y-4">
-              <div>
-                <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Folder Tujuan Saat Ini
+
+      {/* Daftar tautan */}
+      <div className="mb-6 space-y-3">
+        {data && data.folders.length === 0 && (
+          <Card>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Belum ada tautan. Tambahkan tautan folder Google Drive di bawah.
+            </p>
+          </Card>
+        )}
+        {data?.folders.map((f, i) => (
+          <Card key={f.id}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="flex flex-wrap items-center gap-2 font-medium">
+                  <span className="truncate">
+                    {f.folder_name || `Folder ${i + 1}`}
+                  </span>
+                  {i === 0 && <Badge tone="info">Default</Badge>}
                 </p>
-                <p className="text-sm">
-                  {cfg.configured
-                    ? `${cfg.folder_name || "Tanpa label"} (${cfg.folder_id})`
-                    : "—"}
+                <p className="mt-1 break-all font-mono text-xs text-slate-500 dark:text-slate-400">
+                  ID: {f.folder_id}
                 </p>
-                {cfg.updated_at && (
+                <p className="mt-0.5 break-all text-xs text-slate-500 dark:text-slate-400">
+                  Mount: {f.local_path || "—"}
+                  {!f.local_path_custom && data.staging_default && (
+                    <span> (default)</span>
+                  )}
+                </p>
+                {f.updated_at && (
                   <p className="mt-1 text-xs text-slate-500">
-                    Diperbarui{" "}
-                    {new Date(cfg.updated_at).toLocaleString("id-ID")}
-                    {cfg.updated_by ? ` oleh ${cfg.updated_by}` : ""}
+                    Diperbarui {new Date(f.updated_at).toLocaleString("id-ID")}
+                    {f.updated_by ? ` oleh ${f.updated_by}` : ""}
                   </p>
                 )}
               </div>
-              <Field
-                label="Tautan Folder Google Drive"
-                hint="Salin tautan folder dari Google Drive (tombol Bagikan → Salin link). ID folder dibaca otomatis dari tautan."
+              <Button
+                variant="danger"
+                onClick={() => setDeleting(f)}
+                className="min-h-[40px] px-3"
               >
-                <TextInput
-                  placeholder="https://drive.google.com/drive/folders/..."
-                  value={folderUrl}
-                  onChange={(e) => setFolderUrl(e.target.value)}
-                />
-              </Field>
-              <Field label="Nama Folder (label, opsional)">
-                <TextInput
-                  placeholder="mis. CCTV"
-                  value={folderName}
-                  onChange={(e) => setFolderName(e.target.value)}
-                />
-              </Field>
-              <div className="flex items-center gap-3">
-                <Button onClick={save} disabled={busy}>
-                  {busy ? "Menyimpan…" : "Simpan Pengaturan"}
-                </Button>
-                {saved && (
-                  <span className="inline-flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400">
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2.5}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden
-                    >
-                      <path d="M20 6L9 17l-5-5" />
-                    </svg>
-                    Tersimpan
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-slate-500">
-                Mengganti tautan hanya mengubah tujuan unggahan berikutnya;
-                rekaman yang sudah berada di folder lama tidak ikut berpindah.
-                Folder penampung lokal (staging):{" "}
-                <span className="font-mono">{cfg.staging_path || "-"}</span>
-              </p>
+                Hapus
+              </Button>
             </div>
           </Card>
+        ))}
+      </div>
 
-          <Card className="max-w-2xl">
-            <p className="mb-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Cara Kerja (rclone)
-            </p>
-            <ol className="list-decimal space-y-2 pl-5 text-sm text-slate-600 dark:text-slate-300">
-              <li>
-                Install rclone di server, lalu jalankan{" "}
-                <code className="font-mono text-xs">rclone config</code> untuk
-                membuat remote bernama <code className="font-mono text-xs">gdrive</code>.
-              </li>
-              <li>
-                Mount folder Drive ke folder staging:{" "}
-                <code className="font-mono text-xs">
-                  rclone mount gdrive: {"<staging_path>"} --daemon
-                </code>
-                .
-              </li>
-              <li>
-                Set <code className="font-mono text-xs">GDRIVE_RECORD_PATH</code>{" "}
-                di environment backend ke folder staging tersebut, lalu restart
-                API.
-              </li>
-              <li>
-                Atur <em>storage_mode</em> kamera ke “Keduanya” atau “Google
-                Drive” — segmen yang sudah stabil otomatis dicerminkan ke folder
-                Drive.
-              </li>
-            </ol>
-            <p className="mt-3 text-xs text-slate-500">
-              Mode ini melengkapi tab Drive (OAuth multi-akun) yang tetap
-              tersedia — mirror rclone dipakai bila{" "}
-              <code className="font-mono">GDRIVE_RECORD_PATH</code> diset.
-            </p>
-          </Card>
+      {/* Tambah tautan */}
+      <Card className="max-w-2xl">
+        <p className="mb-4 font-medium">Tambah Tautan</p>
+        <div className="space-y-4">
+          <Field
+            label="Tautan Folder Google Drive"
+            hint="Salin tautan folder dari Google Drive (tombol Bagikan → Salin link). ID folder dibaca otomatis dari tautan."
+          >
+            <TextInput
+              placeholder="https://drive.google.com/drive/folders/..."
+              value={folderUrl}
+              onChange={(e) => setFolderUrl(e.target.value)}
+            />
+          </Field>
+          <Field label="Nama Folder (label, opsional)">
+            <TextInput
+              placeholder="mis. CCTV-Gudang"
+              value={folderName}
+              onChange={(e) => setFolderName(e.target.value)}
+            />
+          </Field>
+          <Field
+            label="Path Lokal (mount rclone, opsional)"
+            hint={
+              data?.staging_default
+                ? `Kosongkan untuk memakai default: ${data.staging_default}`
+                : "Lokasi mount rclone untuk folder ini, mis. /mnt/gdrive-gudang"
+            }
+          >
+            <TextInput
+              placeholder="/mnt/gdrive-..."
+              value={localPath}
+              onChange={(e) => setLocalPath(e.target.value)}
+            />
+          </Field>
+          <div>
+            <Button onClick={add} disabled={busy}>
+              {busy ? "Menambah…" : "+ Tambah Tautan"}
+            </Button>
+          </div>
         </div>
+      </Card>
+
+      <Card className="mt-6 max-w-2xl">
+        <p className="mb-2 font-medium">Cara kerja</p>
+        <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-600 dark:text-slate-400">
+          <li>Mount tiap folder dengan rclone ke path lokal masing-masing.</li>
+          <li>Tempel tautan foldernya di atas (bisa banyak).</li>
+          <li>
+            Di modal kamera, pilih mode penyimpanan “Google Drive”/“Keduanya”
+            lalu pilih folder tujuannya.
+          </li>
+          <li>Segmen rekaman yang sudah stabil disalin otomatis tiap 30 detik.</li>
+        </ol>
+      </Card>
+
+      {deleting && (
+        <ConfirmModal
+          title="Hapus tautan"
+          message={`Hapus "${deleting.folder_name || deleting.folder_id}"? Kamera yang memakai folder ini kembali ke default.`}
+          onCancel={() => setDeleting(null)}
+          onConfirm={remove}
+        />
       )}
     </div>
   );

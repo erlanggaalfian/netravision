@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.rbac import get_current_user, require_roles
 from app.db.session import get_db
-from app.models.drive import DriveAccount, GoogleDriveSetting
+from app.models.drive import DriveAccount, GoogleDriveFolder
 from app.models.streams import Stream
 from app.models.users import User
 from app.services.drive_accounts import clear_drive_client_cache
@@ -287,9 +287,10 @@ async def oauth_callback(
 # ---------------------------------------------------------------------------
 
 
-class GoogleDriveSettingIn(BaseModel):
+class GoogleDriveFolderIn(BaseModel):
     folder_url: str
     folder_name: str = ""
+    local_path: str = ""
 
 
 def parse_gdrive_folder_id(url: str) -> str:
@@ -302,34 +303,40 @@ def parse_gdrive_folder_id(url: str) -> str:
     return m.group(1) if m else ""
 
 
-def _gdrive_setting_dict(row: GoogleDriveSetting | None) -> dict:
+def _gdrive_folder_dict(row) -> dict:
     settings = get_settings()
     return {
-        "configured": bool(row and row.folder_id),
-        "folder_url": row.folder_url if row else "",
-        "folder_id": row.folder_id if row else "",
-        "folder_name": row.folder_name if row else "",
-        "staging_path": settings.gdrive_record_path,
-        "quota_tb": settings.gdrive_quota_tb,
-        "updated_at": row.updated_at.isoformat() if row and row.updated_at else None,
-        "updated_by": row.updated_by if row else "",
+        "id": row.id,
+        "folder_url": row.folder_url,
+        "folder_id": row.folder_id,
+        "folder_name": row.folder_name,
+        "local_path": row.local_path or settings.gdrive_record_path,
+        "local_path_custom": bool(row.local_path),
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "updated_by": row.updated_by or "",
     }
 
 
 @admin_router.get("/admin/storage/google-drive")
-async def get_gdrive_setting(db: AsyncSession = Depends(get_db)):
-    """Pengaturan folder tujuan Google Drive untuk rekaman (mode folder-link)."""
-    res = await db.execute(select(GoogleDriveSetting).where(GoogleDriveSetting.id == 1))
-    return _gdrive_setting_dict(res.scalars().first())
+async def list_gdrive_folders(db: AsyncSession = Depends(get_db)):
+    """Daftar tautan folder Google Drive (bisa banyak)."""
+    res = await db.execute(select(GoogleDriveFolder).order_by(GoogleDriveFolder.id))
+    rows = res.scalars().all()
+    settings = get_settings()
+    return {
+        "folders": [_gdrive_folder_dict(r) for r in rows],
+        "staging_default": settings.gdrive_record_path,
+        "quota_tb": settings.gdrive_quota_tb,
+    }
 
 
-@admin_router.put("/admin/storage/google-drive")
-async def put_gdrive_setting(
-    payload: GoogleDriveSettingIn,
+@admin_router.post("/admin/storage/google-drive", status_code=201)
+async def add_gdrive_folder(
+    payload: GoogleDriveFolderIn,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_user),
 ):
-    """Ganti folder/akun Google Drive tujuan cukup dengan tautan folder baru."""
+    """Tambah satu tautan folder Google Drive."""
     folder_id = parse_gdrive_folder_id(payload.folder_url)
     if not folder_id:
         raise HTTPException(
@@ -337,15 +344,56 @@ async def put_gdrive_setting(
             detail="Tautan folder Google Drive tidak dikenali. Tempel tautan folder, "
             "mis. https://drive.google.com/drive/folders/<ID>",
         )
-    res = await db.execute(select(GoogleDriveSetting).where(GoogleDriveSetting.id == 1))
-    row = res.scalars().first()
+    row = GoogleDriveFolder(
+        folder_url=payload.folder_url.strip(),
+        folder_id=folder_id,
+        folder_name=(payload.folder_name or "").strip(),
+        local_path=(payload.local_path or "").strip(),
+        updated_at=datetime.now(timezone.utc),
+        updated_by=admin.username,
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return _gdrive_folder_dict(row)
+
+
+@admin_router.put("/admin/storage/google-drive/{folder_id}")
+async def update_gdrive_folder(
+    folder_id: int,
+    payload: GoogleDriveFolderIn,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_user),
+):
+    """Ubah satu tautan folder Google Drive."""
+    row = await db.get(GoogleDriveFolder, folder_id)
     if row is None:
-        row = GoogleDriveSetting(id=1)
-        db.add(row)
+        raise HTTPException(status_code=404, detail="folder tidak ditemukan")
+    fid = parse_gdrive_folder_id(payload.folder_url)
+    if not fid:
+        raise HTTPException(
+            status_code=400,
+            detail="Tautan folder Google Drive tidak dikenali.",
+        )
     row.folder_url = payload.folder_url.strip()
-    row.folder_id = folder_id
+    row.folder_id = fid
     row.folder_name = (payload.folder_name or "").strip()
+    row.local_path = (payload.local_path or "").strip()
     row.updated_at = datetime.now(timezone.utc)
     row.updated_by = admin.username
     await db.commit()
-    return _gdrive_setting_dict(row)
+    return _gdrive_folder_dict(row)
+
+
+@admin_router.delete("/admin/storage/google-drive/{folder_id}")
+async def delete_gdrive_folder(folder_id: int, db: AsyncSession = Depends(get_db)):
+    """Hapus satu tautan folder. Kamera yang menunjuk ke sini jadi default."""
+    row = await db.get(GoogleDriveFolder, folder_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="folder tidak ditemukan")
+    await db.execute(
+        update(Stream).where(Stream.drive_folder_id == folder_id).values(drive_folder_id=None)
+    )
+    await db.delete(row)
+    await db.commit()
+    return {"ok": True}

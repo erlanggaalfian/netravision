@@ -18,7 +18,6 @@ from app.core.rate_limit import rate_limited
 from app.core.rbac import get_current_user, mask_rtsp_url, require_roles
 from app.db.session import get_db
 from app.models.access import StreamPermission, UserStreamAccess
-from app.models.drive import GoogleDriveSetting
 from app.models.groups import GroupStream, StreamGroup
 from app.models.streams import Stream
 from app.models.users import User
@@ -132,6 +131,16 @@ async def admin_update_stream(
                     status_code=404, detail="akun Drive tidak ditemukan"
                 )
         stream.drive_account_id = data.drive_account_id
+    if "drive_folder_id" in data.model_fields_set:
+        if data.drive_folder_id is not None:
+            from app.models.drive import GoogleDriveFolder
+
+            fol = await db.get(GoogleDriveFolder, data.drive_folder_id)
+            if fol is None:
+                raise HTTPException(
+                    status_code=404, detail="folder Drive tidak ditemukan"
+                )
+        stream.drive_folder_id = data.drive_folder_id
     if data.latitude is not None:
         stream.latitude = data.latitude
     if data.longitude is not None:
@@ -326,10 +335,21 @@ async def disk_info(db: AsyncSession = Depends(get_db)):
         "free": usage.free,
     }
 
-    # Entri Google Drive mode folder-link + rclone (ala fieriindra):
-    # aktif hanya bila GDRIVE_RECORD_PATH diset.
-    gdrive_path = (settings.gdrive_record_path or "").rstrip("/")
-    if gdrive_path:
+    # Entri Google Drive mode folder-link + rclone (multi-tautan):
+    # satu entri per folder yang punya path lokal.
+    try:
+        from app.models.drive import GoogleDriveFolder
+
+        res = await db.execute(select(GoogleDriveFolder).order_by(GoogleDriveFolder.id))
+        folders = res.scalars().all()
+    except Exception:  # noqa: BLE001
+        folders = []
+    gdrive_entries = []
+    for fol in folders:
+        gdrive_path = ((fol.local_path or "").rstrip("/") or
+                       (settings.gdrive_record_path or "").rstrip("/"))
+        if not gdrive_path:
+            continue
         try:
             os.makedirs(gdrive_path, exist_ok=True)
             quota_tb = settings.gdrive_quota_tb
@@ -342,27 +362,14 @@ async def disk_info(db: AsyncSession = Depends(get_db)):
                     except OSError:
                         pass
             avail = max(total - used, 0)
-            drive_folder: dict = {}
-            try:
-                res = await db.execute(
-                    select(GoogleDriveSetting).where(GoogleDriveSetting.id == 1)
-                )
-                row = res.scalars().first()
-                if row and row.folder_id:
-                    drive_folder = {
-                        "drive_folder_id": row.folder_id,
-                        "drive_folder_name": row.folder_name or "",
-                        "drive_folder_url": row.folder_url or "",
-                    }
-            except Exception:  # noqa: BLE001
-                drive_folder = {}
-            label = "Google Drive"
-            if drive_folder.get("drive_folder_name"):
-                label = f"Google Drive — {drive_folder['drive_folder_name']}"
-            out["google_drive"] = {
+            label = f"Google Drive — {fol.folder_name or fol.folder_id}"
+            gdrive_entries.append({
+                "folder_id": fol.id,
                 "mount": gdrive_path,
                 "label": label,
-                **drive_folder,
+                "drive_folder_id": fol.folder_id,
+                "drive_folder_name": fol.folder_name or "",
+                "drive_folder_url": fol.folder_url or "",
                 "storage_type": "google_drive",
                 "size_bytes": total,
                 "avail_bytes": avail,
@@ -370,9 +377,12 @@ async def disk_info(db: AsyncSession = Depends(get_db)):
                 "avail_human": f"{avail / (1024**4):.1f}TB",
                 "fstype": "gdrive",
                 "usage_pct": round(used / total * 100, 1) if total else 0,
-            }
+            })
         except Exception as e:  # noqa: BLE001
             log.warning("disk Google Drive gagal: %s", e)
+    if gdrive_entries:
+        out["google_drive"] = gdrive_entries[0]  # kompatibel lama: satu entri
+        out["google_drive_folders"] = gdrive_entries
     return out
 
 

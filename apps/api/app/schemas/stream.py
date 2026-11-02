@@ -27,6 +27,7 @@ class StreamOut(BaseModel):
     retention_days: int = 7
     # Kredensial RTSP: hanya diisi endpoint admin (sudah di-masking per v2.0).
     rtsp_url: str | None = None
+    drive_folder_id: int | None = None
 
 
 class StreamCreate(BaseModel):
@@ -51,6 +52,7 @@ class StreamUpdate(BaseModel):
     is_active: bool | None = None
     storage_mode: StorageMode | None = None
     drive_account_id: uuid.UUID | None = None  # null eksplisit = kembali ke default
+    drive_folder_id: int | None = None  # folder Drive tujuan (multi-tautan); null = default
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
     recording_enabled: bool | None = None
