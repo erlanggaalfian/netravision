@@ -47,14 +47,6 @@ function TileMotif() {
             i === 1 ? "bg-ink-700" : "bg-ink-850"
           }`}
         >
-          {i === 1 && (
-            <span className="absolute left-2 top-2 flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-bad-400" />
-              <span className="text-[9px] font-bold tracking-widest text-slate-300">
-                LIVE
-              </span>
-            </span>
-          )}
           {i === 4 && (
             <span className="absolute bottom-2 left-2 right-2 h-1 rounded-full bg-white/10">
               <span className="block h-full w-2/3 rounded-full bg-accent-400" />
@@ -65,12 +57,6 @@ function TileMotif() {
     </div>
   );
 }
-
-const SPECS: Array<[string, string]> = [
-  ["Latensi siaran", "WebRTC sub-detik"],
-  ["Merek kamera", "12 — resolver cerdas"],
-  ["Instalasi", "PWA, di HP maupun desktop"],
-];
 
 export default function LoginPage() {
   const { user, loading, login, loginGuest } = useAuth();
@@ -124,28 +110,10 @@ export default function LoginPage() {
       {/* Panel kiri — desktop */}
       <aside className="hidden w-[44%] flex-col justify-between border-r border-white/8 bg-ink-900 p-10 lg:flex xl:p-14">
         <Logo />
-        <div>
-          <h1 className="max-w-md text-[34px] font-bold leading-[1.1] tracking-tight text-white">
-            Semua kamera, satu layar kendali.
-          </h1>
-          <p className="mt-3 max-w-md text-[15px] leading-relaxed text-slate-400">
-            Pantau siaran langsung, putar ulang rekaman, dan kelola ratusan
-            kamera dari berbagai merek — dari ponsel maupun desktop.
-          </p>
-          <div className="mt-8 max-w-md">
+        <div className="flex flex-1 items-center">
+          <div className="w-full max-w-md">
             <TileMotif />
           </div>
-          <dl className="mt-8 max-w-md">
-            {SPECS.map(([k, v]) => (
-              <div
-                key={k}
-                className="flex items-baseline justify-between gap-4 border-t border-white/8 py-2.5"
-              >
-                <dt className="text-sm text-slate-500">{k}</dt>
-                <dd className="text-sm font-semibold text-slate-100">{v}</dd>
-              </div>
-            ))}
-          </dl>
         </div>
         <p className="text-xs text-slate-600">© 2026 NetraVision</p>
       </aside>
