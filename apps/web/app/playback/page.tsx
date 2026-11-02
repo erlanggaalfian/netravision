@@ -162,9 +162,6 @@ export default function PlaybackPage() {
   return (
     <AppShell>
       <div className="mx-auto max-w-5xl px-4 py-5 md:px-6 md:py-7">
-        <p className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-neutral-500">
-          Arsip
-        </p>
         <h1 className="text-2xl font-bold tracking-tight text-white">
           Putar Ulang
         </h1>
@@ -200,13 +197,13 @@ export default function PlaybackPage() {
                 value={date}
                 max={todayStr()}
                 onChange={(e) => setDate(e.target.value)}
-                className="h-11 rounded-xl border border-ink-700 bg-ink-950 px-3 text-base text-white outline-none transition-colors focus:border-accent-500 [color-scheme:dark]"
+                className="h-11 rounded-xl border border-ink-700 bg-ink-950 px-3 text-base text-white outline-none transition-colors focus:border-accent-500"
               />
             </label>
             <button
               onClick={load}
               disabled={!streamId || phase === "loading"}
-              className="h-11 shrink-0 rounded-xl bg-accent-600 px-6 text-sm font-semibold text-white transition hover:bg-accent-500 active:scale-95 disabled:opacity-50"
+              className="h-11 shrink-0 rounded-xl bg-accent-600 px-6 text-sm font-semibold text-onaccent transition hover:bg-accent-500 active:scale-95 disabled:opacity-50"
             >
               {phase === "loading" ? "Memuat…" : "Muat linimasa"}
             </button>
@@ -350,7 +347,7 @@ export default function PlaybackPage() {
               </div>
             </Card>
 
-            <div className="overflow-hidden rounded-2xl bg-ink-900 ring-1 ring-white/10">
+            <div className="nv-stage overflow-hidden rounded-2xl bg-ink-900 ring-1 ring-white/10">
               {videoSrc ? (
                 <video
                   ref={videoRef}

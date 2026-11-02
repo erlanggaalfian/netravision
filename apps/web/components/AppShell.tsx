@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useAuth } from "../lib/auth";
 import { useCameraStatus } from "../hooks/useCameraStatus";
+import { ThemeToggle } from "./ThemeToggle";
 
 interface NavItem {
   href: string;
@@ -75,7 +76,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* Sidebar desktop */}
       <aside className="hidden w-64 shrink-0 flex-col border-r border-white/8 bg-ink-900 md:flex">
         <div className="flex items-center gap-3 px-5 pb-1 pt-6">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-600 text-base font-extrabold tracking-tight text-white shadow-[0_1px_2px_rgba(0,0,0,0.45)]">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-600 text-base font-extrabold tracking-tight text-onaccent shadow-[0_1px_2px_rgba(0,0,0,0.45)]">
             N
           </span>
           <div>
@@ -132,12 +133,15 @@ export function AppShell({ children }: { children: ReactNode }) {
               </div>
             </div>
           </div>
-          <button
-            onClick={handleLogout}
-            className="w-full cursor-pointer rounded-xl bg-white/[0.04] px-3 py-2.5 text-left text-sm font-medium text-slate-300 transition-all duration-150 ease-out hover:bg-white/[0.08] hover:text-white active:scale-[0.99]"
-          >
-            Keluar
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleLogout}
+              className="min-h-[44px] flex-1 cursor-pointer rounded-xl bg-white/[0.04] px-3 py-2.5 text-left text-sm font-medium text-slate-300 transition-all duration-150 ease-out hover:bg-white/[0.08] hover:text-white active:scale-[0.99]"
+            >
+              Keluar
+            </button>
+            <ThemeToggle />
+          </div>
         </div>
       </aside>
 
@@ -146,7 +150,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* Topbar mobile */}
         <header className="flex items-center justify-between border-b border-white/8 bg-ink-900 px-4 py-3 md:hidden">
           <div className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-600 text-xs font-extrabold text-white">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-600 text-xs font-extrabold text-onaccent">
               N
             </span>
             <div>
@@ -161,12 +165,15 @@ export function AppShell({ children }: { children: ReactNode }) {
               </div>
             </div>
           </div>
-          <button
-            onClick={handleLogout}
-            className="min-h-[44px] cursor-pointer rounded-xl bg-white/[0.04] px-4 text-xs font-semibold text-slate-300 transition-colors duration-150 active:scale-95"
-          >
-            Keluar
-          </button>
+          <div className="flex items-center gap-2">
+            <ThemeToggle className="h-11 w-11" />
+            <button
+              onClick={handleLogout}
+              className="min-h-[44px] cursor-pointer rounded-xl bg-white/[0.04] px-4 text-xs font-semibold text-slate-300 transition-colors duration-150 active:scale-95"
+            >
+              Keluar
+            </button>
+          </div>
         </header>
 
         <main className="min-w-0 flex-1 pb-24 md:pb-8">{children}</main>

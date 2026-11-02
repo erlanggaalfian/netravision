@@ -10,7 +10,6 @@ import {
   EmptyState,
   SectionTitle,
   Spinner,
-  Stat,
   fmtBytes,
 } from "../../components/ui";
 
@@ -61,7 +60,7 @@ export default function AdminDashboard() {
     <div>
       <SectionTitle
         title="Dasbor"
-        desc="Ringkasan kondisi sistem NetraVision"
+        desc="Status kamera, penyimpanan, dan akses"
       />
       {offlineCount !== null && offlineCount > 0 && (
         <p className="-mt-2 mb-4 text-sm text-warn-400">
@@ -72,26 +71,38 @@ export default function AdminDashboard() {
         </p>
       )}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat
-          label="Kamera"
-          value={streams === null ? "…" : streams.length}
-          sub={
-            online === null
-              ? undefined
-              : `${online} online${offlineCount ? ` · ${offlineCount} offline` : ""}`
-          }
-        />
-        <Stat
-          label="Pengguna"
-          value={users === null ? "…" : users.length}
-        />
-        <Stat label="API Key" value={keys === null ? "…" : keys.length} />
-        <Stat
-          label="Akses embed"
-          value={summary === null ? "…" : summary.total}
-          sub="total tercatat"
-        />
+      {/* Strip status: satu panel ruang kendali, bukan empat kartu identik. */}
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-white/10 ring-1 ring-white/10 lg:grid-cols-4">
+        <div className="bg-ink-900 p-5">
+          <p className="text-xs text-slate-500">Kamera</p>
+          <p className="tnum mt-1 text-[28px] font-bold leading-none tracking-tight text-white">
+            {streams === null ? "…" : streams.length}
+          </p>
+          {online !== null && (
+            <p className="mt-1.5 text-xs text-slate-500">
+              {online} online{offlineCount ? `, ${offlineCount} offline` : ""}
+            </p>
+          )}
+        </div>
+        <div className="bg-ink-900 p-5">
+          <p className="text-xs text-slate-500">Pengguna</p>
+          <p className="tnum mt-1 text-[28px] font-bold leading-none tracking-tight text-white">
+            {users === null ? "…" : users.length}
+          </p>
+        </div>
+        <div className="bg-ink-900 p-5">
+          <p className="text-xs text-slate-500">API key</p>
+          <p className="tnum mt-1 text-[28px] font-bold leading-none tracking-tight text-white">
+            {keys === null ? "…" : keys.length}
+          </p>
+        </div>
+        <div className="bg-ink-900 p-5">
+          <p className="text-xs text-slate-500">Akses embed</p>
+          <p className="tnum mt-1 text-[28px] font-bold leading-none tracking-tight text-white">
+            {summary === null ? "…" : summary.total}
+          </p>
+          <p className="mt-1.5 text-xs text-slate-500">total tercatat</p>
+        </div>
       </div>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-2">

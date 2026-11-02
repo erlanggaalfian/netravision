@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "../lib/auth";
+import { ThemeProvider } from "../hooks/useTheme";
 import { SWRegister } from "../components/SWRegister";
 
 const jakarta = Plus_Jakarta_Sans({
@@ -16,15 +17,24 @@ export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
 };
 
+/* Menetapkan data-theme sebelum paint pertama (tanpa kedip):
+   preferensi tersimpan > prefers-color-scheme > gelap. */
+const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem('nv-theme');if(t!=='dark'&&t!=='light'){t=window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'}document.documentElement.setAttribute('data-theme',t)}catch(e){document.documentElement.setAttribute('data-theme','dark')}})();`;
+
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <html lang="id" className={jakarta.variable}>
+    <html lang="id" data-theme="dark" className={jakarta.variable}>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <ThemeProvider>
+          <AuthProvider>{children}</AuthProvider>
+        </ThemeProvider>
         <SWRegister />
       </body>
     </html>

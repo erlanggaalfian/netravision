@@ -72,7 +72,7 @@ export function CameraTile({ stream, onExpand }: Props) {
     <div
       ref={boxRef}
       onClick={toggleControls}
-      className={`vk-touch-toggle ${showControls ? "cam-show-controls" : ""} group relative aspect-video select-none overflow-hidden rounded-2xl bg-ink-900 ring-2 ${ring}`}
+      className={`nv-stage vk-touch-toggle ${showControls ? "cam-show-controls" : ""} group relative aspect-video select-none overflow-hidden rounded-2xl bg-ink-900 ring-2 ${ring}`}
     >
       {stream.is_online && !failed ? (
         <>

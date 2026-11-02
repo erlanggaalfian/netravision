@@ -20,7 +20,7 @@ interface EmbedCamera {
 function EmbedPlayer({ camera }: { camera: EmbedCamera }) {
   const [playing, setPlaying] = useState(false);
   return (
-    <div className="overflow-hidden rounded-2xl bg-ink-900 ring-1 ring-white/10">
+    <div className="nv-stage overflow-hidden rounded-2xl bg-ink-900 ring-1 ring-white/10">
       <div className="relative aspect-video bg-black">
         {playing && camera.whep_url ? (
           <div className="flex h-full w-full items-center justify-center text-xs text-neutral-400">
@@ -33,7 +33,7 @@ function EmbedPlayer({ camera }: { camera: EmbedCamera }) {
             className="flex h-full w-full flex-col items-center justify-center gap-3 transition hover:bg-white/5 active:scale-[0.99]"
             aria-label={`Putar ${camera.name}`}
           >
-            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-accent-600 text-white transition hover:bg-accent-500">
+            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-accent-600 text-onaccent transition hover:bg-accent-500">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
                 <path d="M8 5v14l11-7-11-7z" />
               </svg>
@@ -47,7 +47,7 @@ function EmbedPlayer({ camera }: { camera: EmbedCamera }) {
           {camera.name}
         </span>
         <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-neutral-500">
-          <span className="flex h-5 w-5 items-center justify-center rounded-md bg-accent-600 text-[9px] font-bold text-white">
+          <span className="flex h-5 w-5 items-center justify-center rounded-md bg-accent-600 text-[9px] font-bold text-onaccent">
             N
           </span>
           NetraVision
@@ -96,7 +96,7 @@ function EmbedInner() {
     <div className="flex min-h-dvh flex-col bg-ink-950">
       <header className="flex items-center justify-between px-4 py-3 sm:px-6">
         <div className="flex items-center gap-2.5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-600 text-xs font-bold text-white">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-600 text-xs font-bold text-onaccent">
             N
           </span>
           <span className="text-sm font-bold text-white">NetraVision</span>
@@ -140,7 +140,7 @@ function EmbedInner() {
 
         {phase === "unavailable" && (
           <div>
-            <div className="relative mb-4 aspect-video overflow-hidden rounded-2xl bg-ink-900 ring-1 ring-white/10">
+            <div className="nv-stage relative mb-4 aspect-video overflow-hidden rounded-2xl bg-ink-900 ring-1 ring-white/10">
               <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6 text-center">
                 <span className="flex h-16 w-16 items-center justify-center rounded-full bg-ink-800 text-neutral-400 ring-1 ring-white/10">
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden>

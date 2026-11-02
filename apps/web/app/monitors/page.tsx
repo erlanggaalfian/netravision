@@ -72,7 +72,7 @@ function MiniPreview({
   const cells = layout.streamIds.slice(0, 3);
   const rest = layout.streamIds.length - cells.length;
   return (
-    <div className="mt-3 grid grid-cols-4 gap-1.5" aria-hidden>
+    <div className="nv-stage mt-3 grid grid-cols-4 gap-1.5" aria-hidden>
       {cells.map((id) => {
         const s = byId.get(id);
         return (
@@ -284,9 +284,6 @@ export default function MonitorsPage() {
         ) : editing ? (
           /* ===== Form buat/ubah ===== */
           <div className="mx-auto max-w-2xl">
-            <p className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-neutral-500">
-              Monitor
-            </p>
             <h1 className="mb-5 text-2xl font-bold tracking-tight text-white">
               {editing.id ? "Ubah monitor" : "Monitor baru"}
             </h1>
@@ -312,7 +309,7 @@ export default function MonitorsPage() {
                     aria-pressed={formCols === c}
                     className={`flex h-11 min-w-[52px] items-center justify-center rounded-xl text-sm font-semibold transition active:scale-95 ${
                       formCols === c
-                        ? "bg-accent-600 text-white"
+                        ? "bg-accent-600 text-onaccent"
                         : "bg-ink-800 text-neutral-300 ring-1 ring-white/10 hover:bg-ink-700"
                     }`}
                   >
@@ -370,7 +367,7 @@ export default function MonitorsPage() {
                 <button
                   onClick={saveForm}
                   disabled={!formName.trim() || formIds.size === 0}
-                  className="h-11 flex-1 rounded-xl bg-accent-600 px-4 text-sm font-semibold text-white transition hover:bg-accent-500 active:scale-[0.99] disabled:opacity-40"
+                  className="h-11 flex-1 rounded-xl bg-accent-600 px-4 text-sm font-semibold text-onaccent transition hover:bg-accent-500 active:scale-[0.99] disabled:opacity-40"
                 >
                   Simpan
                 </button>
@@ -382,16 +379,13 @@ export default function MonitorsPage() {
           <div>
             <div className="mb-5 flex items-center justify-between">
               <div>
-                <p className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-neutral-500">
-                  Tata letak
-                </p>
                 <h1 className="text-2xl font-bold tracking-tight text-white">
                   Monitor tersimpan
                 </h1>
               </div>
               <button
                 onClick={startCreate}
-                className="flex h-11 items-center gap-1.5 rounded-xl bg-accent-600 px-5 text-sm font-semibold text-white transition hover:bg-accent-500 active:scale-95"
+                className="flex h-11 items-center gap-1.5 rounded-xl bg-accent-600 px-5 text-sm font-semibold text-onaccent transition hover:bg-accent-500 active:scale-95"
               >
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
                   <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
@@ -435,7 +429,7 @@ export default function MonitorsPage() {
                 </p>
                 <button
                   onClick={startCreate}
-                  className="mt-1 h-11 rounded-xl bg-accent-600 px-5 text-sm font-semibold text-white transition hover:bg-accent-500 active:scale-95"
+                  className="mt-1 h-11 rounded-xl bg-accent-600 px-5 text-sm font-semibold text-onaccent transition hover:bg-accent-500 active:scale-95"
                 >
                   Buat monitor pertama
                 </button>
@@ -477,7 +471,7 @@ export default function MonitorsPage() {
                         <div className="flex gap-2 border-t border-white/10 px-4 py-3 sm:px-5">
                           <button
                             onClick={() => setOpenId(l.id)}
-                            className="h-11 flex-1 rounded-xl bg-accent-600 px-3 text-sm font-semibold text-white transition hover:bg-accent-500 active:scale-[0.99]"
+                            className="h-11 flex-1 rounded-xl bg-accent-600 px-3 text-sm font-semibold text-onaccent transition hover:bg-accent-500 active:scale-[0.99]"
                           >
                             Buka
                           </button>

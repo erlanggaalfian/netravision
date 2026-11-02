@@ -107,14 +107,11 @@ export default function LivePage() {
         {/* Header */}
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-neutral-500">
-              Pemantauan
-            </p>
             <h1 className="text-2xl font-bold tracking-tight text-white">
               Live
             </h1>
-            <p className="mt-1 text-sm text-neutral-400">
-              {merged.length} kamera ·{" "}
+            <p className="mt-1 flex items-center gap-2 text-sm text-neutral-400">
+              <span>{merged.length} kamera</span>
               <span className="font-medium text-ok-400">
                 {onlineCount} online
               </span>
@@ -196,7 +193,7 @@ export default function LivePage() {
                 onClick={() => setFilter(f.id)}
                 className={`flex h-10 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-5 text-sm font-medium transition active:scale-95 lg:flex-none ${
                   filter === f.id
-                    ? "bg-accent-600 text-white"
+                    ? "bg-accent-600 text-onaccent"
                     : "text-neutral-400 hover:text-white"
                 }`}
               >
@@ -239,7 +236,7 @@ export default function LivePage() {
             </div>
             <button
               onClick={load}
-              className="h-11 rounded-full bg-accent-600 px-6 text-sm font-medium text-white transition hover:bg-accent-500 active:scale-95"
+              className="h-11 rounded-full bg-accent-600 px-6 text-sm font-medium text-onaccent transition hover:bg-accent-500 active:scale-95"
             >
               Coba lagi
             </button>

@@ -66,7 +66,7 @@ export function FocusModal({ stream, onClose }: Props) {
       onClick={onClose}
     >
       <div
-        className="w-full max-w-5xl overflow-hidden rounded-2xl bg-ink-900 ring-1 ring-white/15"
+        className="nv-stage w-full max-w-5xl overflow-hidden rounded-2xl bg-ink-900 ring-1 ring-white/15"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -83,8 +83,7 @@ export function FocusModal({ stream, onClose }: Props) {
                 {stream.name}
               </h2>
               <p className="text-xs text-neutral-500">
-                Stream utama
-                {stream.brand ? ` · ${stream.brand}` : ""}
+                {stream.brand ? `Stream utama, ${stream.brand}` : "Stream utama"}
               </p>
             </div>
           </div>

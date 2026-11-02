@@ -1,27 +1,152 @@
 @import "tailwindcss";
 
-/* NetraVision — "ruang kendali siaran": konsol NVR dark-first yang tenang-tegas.
-   Satu ground (#0a0e13), permukaan bertingkat, satu aksen biru. Tanpa gradien,
-   tanpa kaca, tanpa blob. */
-@theme {
-  --color-ink-950: #0a0e13; /* base */
-  --color-ink-900: #0d141c; /* kartu */
-  --color-ink-850: #111a24; /* raised */
-  --color-ink-800: #16202c;
-  --color-ink-700: #212c3a;
-  --color-accent-300: #8db9ff;
-  --color-accent-400: #5b9bff; /* brand — jangan diganti */
-  --color-accent-500: #3b82f6;
-  --color-accent-600: #2563eb;
-  --color-ok-400: #34d399;
-  --color-warn-400: #fbbf24;
-  --color-bad-400: #f87171;
+/* NetraVision design tokens — dark-first.
+   Tema via atribut data-theme pada <html>: "dark" (default) atau "light".
+   Seluruh token warna dirutekan lewat var(--nv-*) (@theme inline) sehingga
+   utilitas Tailwind (bg-ink-900, text-neutral-400, …) bertukar nilai saat
+   tema diganti — tanpa mengubah satu pun class di markup. */
+
+@theme inline {
+  --color-ink-950: var(--nv-ink-950);
+  --color-ink-900: var(--nv-ink-900);
+  --color-ink-850: var(--nv-ink-850);
+  --color-ink-800: var(--nv-ink-800);
+  --color-ink-700: var(--nv-ink-700);
+  --color-ink-600: var(--nv-ink-600);
+  --color-ink-500: var(--nv-ink-500);
+  --color-accent-300: var(--nv-accent-300);
+  --color-accent-400: var(--nv-accent-400);
+  --color-accent-500: var(--nv-accent-500);
+  --color-accent-600: var(--nv-accent-600);
+  --color-ok-400: var(--nv-ok-400);
+  --color-warn-300: var(--nv-warn-300);
+  --color-warn-400: var(--nv-warn-400);
+  --color-bad-400: var(--nv-bad-400);
+  --color-neutral-200: var(--nv-neutral-200);
+  --color-neutral-300: var(--nv-neutral-300);
+  --color-neutral-400: var(--nv-neutral-400);
+  --color-neutral-500: var(--nv-neutral-500);
+  --color-neutral-600: var(--nv-neutral-600);
+  --color-neutral-700: var(--nv-neutral-700);
+  --color-slate-100: var(--nv-slate-100);
+  --color-slate-200: var(--nv-slate-200);
+  --color-slate-300: var(--nv-slate-300);
+  --color-slate-400: var(--nv-slate-400);
+  --color-slate-500: var(--nv-slate-500);
+  --color-slate-600: var(--nv-slate-600);
+  --color-white: var(--nv-white);
+
+  /* Statis di kedua tema: teks di atas aksen (tombol biru, chip). */
+  --color-onaccent: #ffffff;
+
   --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
+/* ---- Tema gelap (default) ---- */
 :root {
   color-scheme: dark;
+  --nv-ink-950: #0a0e13;
+  --nv-ink-900: #0d141c;
+  --nv-ink-850: #111a24;
+  --nv-ink-800: #16202c;
+  --nv-ink-700: #212c3a;
+  --nv-ink-600: #2c3a4d;
+  --nv-ink-500: #3b4c61;
+  --nv-accent-300: #8db9ff;
+  --nv-accent-400: #5b9bff;
+  --nv-accent-500: #3b82f6;
+  --nv-accent-600: #2563eb;
+  --nv-ok-400: #34d399;
+  --nv-warn-300: #fcd34d;
+  --nv-warn-400: #fbbf24;
+  --nv-bad-400: #f87171;
+  --nv-neutral-200: #e5e5e5;
+  --nv-neutral-300: #d4d4d4;
+  --nv-neutral-400: #a3a3a3;
+  --nv-neutral-500: #737373;
+  --nv-neutral-600: #525252;
+  --nv-neutral-700: #404040;
+  --nv-slate-100: #f1f5f9;
+  --nv-slate-200: #e2e8f0;
+  --nv-slate-300: #cbd5e1;
+  --nv-slate-400: #94a3b8;
+  --nv-slate-500: #64748b;
+  --nv-slate-600: #475569;
+  --nv-white: #ffffff;
+}
+
+/* ---- Tema terang: konsol siang hari.
+   Terang tapi tidak menyilaukan — background aplikasi abu kebiruan lembut
+   (bukan putih murni), kartu putih, teks navy-ink. Semua warna teks
+   memenuhi kontras WCAG AA di atas permukaan terang. Aksen biru digelapkan
+   agar tetap terbaca; status ok/warn/bad digeser ke tone-700. */
+[data-theme="light"] {
+  color-scheme: light;
+  --nv-ink-950: #e9edf2;
+  --nv-ink-900: #ffffff;
+  --nv-ink-850: #f1f4f8;
+  --nv-ink-800: #e2e8f0;
+  --nv-ink-700: #d3dbe4;
+  --nv-ink-600: #b6c2d1;
+  --nv-ink-500: #93a3b8;
+  --nv-accent-300: #1e40af;
+  --nv-accent-400: #1d4ed8;
+  --nv-accent-500: #1d4ed8;
+  --nv-accent-600: #1e40af;
+  --nv-ok-400: #047857;
+  --nv-warn-300: #b45309;
+  --nv-warn-400: #b45309;
+  --nv-bad-400: #dc2626;
+  --nv-neutral-200: #3f4753;
+  --nv-neutral-300: #4b5563;
+  --nv-neutral-400: #5b6472;
+  --nv-neutral-500: #6b7280;
+  --nv-neutral-600: #9aa3b2;
+  --nv-neutral-700: #4b5563;
+  --nv-slate-100: #334155;
+  --nv-slate-200: #3f4753;
+  --nv-slate-300: #4b5563;
+  --nv-slate-400: #5b6472;
+  --nv-slate-500: #6b7684;
+  --nv-slate-600: #8a94a6;
+  --nv-white: #101a2c;
+}
+
+/* ---- Panggung video: SELALU gelap di kedua tema.
+   Konten video memang gelap — tile kamera, player fokus, dan pratinjau
+   monitor mempertahankan penampilan ruang kendali malam. Bungkus elemen
+   dengan class ini; seluruh token --nv-* di dalamnya kembali ke gelap. */
+.nv-stage {
+  color-scheme: dark;
+  --nv-ink-950: #070b10;
+  --nv-ink-900: #0d141c;
+  --nv-ink-850: #111a24;
+  --nv-ink-800: #16202c;
+  --nv-ink-700: #212c3a;
+  --nv-ink-600: #2c3a4d;
+  --nv-ink-500: #3b4c61;
+  --nv-accent-300: #8db9ff;
+  --nv-accent-400: #5b9bff;
+  --nv-accent-500: #3b82f6;
+  --nv-accent-600: #2563eb;
+  --nv-ok-400: #34d399;
+  --nv-warn-300: #fcd34d;
+  --nv-warn-400: #fbbf24;
+  --nv-bad-400: #f87171;
+  --nv-neutral-200: #e5e5e5;
+  --nv-neutral-300: #d4d4d4;
+  --nv-neutral-400: #a3a3a3;
+  --nv-neutral-500: #737373;
+  --nv-neutral-600: #525252;
+  --nv-neutral-700: #404040;
+  --nv-slate-100: #f1f5f9;
+  --nv-slate-200: #e2e8f0;
+  --nv-slate-300: #cbd5e1;
+  --nv-slate-400: #94a3b8;
+  --nv-slate-500: #64748b;
+  --nv-slate-600: #475569;
+  --nv-white: #ffffff;
 }
 
 html,
@@ -32,25 +157,38 @@ body {
 body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
   background: var(--color-ink-950);
-  color: #e9eef5;
+  color: var(--color-white);
 }
 
 ::selection {
-  background: rgb(91 155 255 / 0.3);
+  background: var(--color-accent-600);
   color: #fff;
 }
 
-/* Default focus yang terlihat di semua kontrol. */
 :focus-visible {
   outline: 2px solid var(--color-accent-400);
   outline-offset: 2px;
 }
 
-/* Angka tabular untuk metrik/statistik. */
+/* Angka tabular untuk KPI/statistik. */
 .tnum {
   font-variant-numeric: tabular-nums;
+}
+
+/* Pop-in halus untuk dialog. */
+@keyframes nv-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.nv-pop {
+  animation: nv-pop 0.18s ease-out;
 }
 
 /* Cegah auto-zoom iOS pada input (pola mobile yang dikunci). */
@@ -69,6 +207,9 @@ textarea {
   background: #2a3542;
   border-radius: 8px;
 }
+[data-theme="light"] *::-webkit-scrollbar-thumb {
+  background: #b6c2d1;
+}
 *::-webkit-scrollbar-track {
   background: transparent;
 }
@@ -83,23 +224,10 @@ textarea {
   opacity: 1;
 }
 
-/* Kemunculan dialog: halus, sekali jalan. */
-@keyframes nv-pop {
-  from {
-    opacity: 0;
-    transform: translateY(10px) scale(0.99);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-.nv-pop {
-  animation: nv-pop 0.18s ease-out;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  * {
+  *,
+  *::before,
+  *::after {
     transition: none !important;
     animation: none !important;
   }

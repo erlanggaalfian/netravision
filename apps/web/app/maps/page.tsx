@@ -306,7 +306,7 @@ export default function MapsPage() {
                       <button
                         onClick={() => placeAtCenter(s)}
                         disabled={savingId === s.id}
-                        className="h-9 shrink-0 rounded-lg bg-accent-600 px-3 text-xs font-semibold text-white transition hover:bg-accent-500 active:scale-95 disabled:opacity-50"
+                        className="h-9 shrink-0 rounded-lg bg-accent-600 px-3 text-xs font-semibold text-onaccent transition hover:bg-accent-500 active:scale-95 disabled:opacity-50"
                       >
                         {savingId === s.id ? "…" : "Tengah peta"}
                       </button>
