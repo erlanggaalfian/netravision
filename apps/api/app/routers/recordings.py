@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
-from app.core.rbac import require_camera_access, require_roles
+from app.core.rbac import require_camera_playback_access, require_roles
 from app.db.session import get_db
 from app.models.streams import Stream
 from app.models.users import User
@@ -176,7 +176,7 @@ async def timeline(
     stream_id: int,
     day: date | None = Query(None, alias="date"),
     _user: User = Depends(user_or_above),
-    _access: User = Depends(require_camera_access),
+    _access: User = Depends(require_camera_playback_access()),
     db: AsyncSession = Depends(get_db),
 ):
     stream = await _get_stream(stream_id, db)
@@ -202,7 +202,7 @@ async def segments(
     day: date | None = Query(None, alias="date"),
     hour: int | None = Query(None, ge=0, le=23),
     _user: User = Depends(user_or_above),
-    _access: User = Depends(require_camera_access),
+    _access: User = Depends(require_camera_playback_access()),
     db: AsyncSession = Depends(get_db),
 ):
     stream = await _get_stream(stream_id, db)
@@ -225,7 +225,7 @@ async def segments(
 async def dates(
     stream_id: int,
     _user: User = Depends(user_or_above),
-    _access: User = Depends(require_camera_access),
+    _access: User = Depends(require_camera_playback_access()),
     db: AsyncSession = Depends(get_db),
 ):
     stream = await _get_stream(stream_id, db)
@@ -239,7 +239,7 @@ async def stream_range(
     start: datetime,
     end: datetime | None = None,
     _user: User = Depends(user_or_above),
-    _access: User = Depends(require_camera_access),
+    _access: User = Depends(require_camera_playback_access()),
     db: AsyncSession = Depends(get_db),
 ):
     """Stream video rentang waktu (inline, video/mp4)."""
@@ -256,7 +256,7 @@ async def download_file(
     start: datetime,
     end: datetime,
     _user: User = Depends(user_or_above),
-    _access: User = Depends(require_camera_access),
+    _access: User = Depends(require_camera_playback_access()),
     db: AsyncSession = Depends(get_db),
 ):
     """Unduh potongan rekaman (attachment). Rentang harus milik stream ini."""
@@ -274,7 +274,7 @@ async def playback_url(
     stream_id: int,
     time: datetime,
     _user: User = Depends(user_or_above),
-    _access: User = Depends(require_camera_access),
+    _access: User = Depends(require_camera_playback_access()),
     db: AsyncSession = Depends(get_db),
 ):
     stream = await _get_stream(stream_id, db)
@@ -295,7 +295,7 @@ async def next_playable(
     stream_id: int,
     after: datetime | None = None,
     _user: User = Depends(user_or_above),
-    _access: User = Depends(require_camera_access),
+    _access: User = Depends(require_camera_playback_access()),
     db: AsyncSession = Depends(get_db),
 ):
     stream = await _get_stream(stream_id, db)

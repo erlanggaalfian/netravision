@@ -18,6 +18,7 @@ from app.routers import (
     admin_ads,
     admin_drive,
     admin_keys,
+    admin_scan,
     admin_streams,
     admin_users,
     auth,
@@ -181,6 +182,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router, prefix="/api")
     app.include_router(streams.router, prefix="/api")
     app.include_router(admin_streams.router, prefix="/api")
+    app.include_router(admin_scan.router, prefix="/api")
     app.include_router(admin_users.router, prefix="/api")
     app.include_router(admin_keys.router, prefix="/api")
     app.include_router(admin_ads.router, prefix="/api")

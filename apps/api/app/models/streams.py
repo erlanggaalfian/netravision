@@ -44,6 +44,11 @@ class Stream(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
+    # Siapa yang memasang kamera (paritas v2.0: dasar masking RTSP).
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, default=None
+    )
+
     # Akun Google Drive untuk kamera ini (NULL = akun default).
     # Backward compat: instalasi satu-akun lama (token.json) tetap jalan
     # tanpa baris drive_accounts — lihat app/services/drive.py.

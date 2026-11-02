@@ -14,6 +14,8 @@ const NAV = [
   { href: "/admin/ads", label: "Iklan" },
   { href: "/admin/drive", label: "Drive" },
   { href: "/admin/storage", label: "Penyimpanan" },
+  { href: "/admin/scanner", label: "Scanner" },
+  { href: "/admin/access", label: "Akses" },
 ];
 
 export default function AdminLayout({

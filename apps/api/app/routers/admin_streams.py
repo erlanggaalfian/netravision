@@ -9,14 +9,15 @@ import shutil
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.rate_limit import rate_limited
-from app.core.rbac import require_roles
+from app.core.rbac import get_current_user, mask_rtsp_url, require_roles
 from app.db.session import get_db
-from app.models.access import UserStreamAccess
+from app.models.access import StreamPermission, UserStreamAccess
 from app.models.drive import GoogleDriveSetting
 from app.models.groups import GroupStream, StreamGroup
 from app.models.streams import Stream
@@ -59,10 +60,18 @@ async def _register_paths(
 
 
 @router.get("/admin/streams", response_model=list[StreamOut])
-async def admin_list_streams(db: AsyncSession = Depends(get_db)):
+async def admin_list_streams(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_user),
+):
     settings = get_settings()
     result = await db.execute(select(Stream).order_by(Stream.id))
-    return [stream_to_out(s, settings) for s in result.scalars().all()]
+    out = []
+    for s in result.scalars().all():
+        o = stream_to_out(s, settings)
+        o.rtsp_url = await mask_rtsp_url(s, admin, db)
+        out.append(o)
+    return out
 
 
 @router.post("/admin/streams", response_model=StreamOut, status_code=201)
@@ -70,6 +79,7 @@ async def admin_create_stream(
     data: StreamCreate,
     db: AsyncSession = Depends(get_db),
     mediamtx: MediaMTXClient = Depends(get_mediamtx),
+    admin: User = Depends(get_current_user),
 ):
     try:
         res = await resolve_stream(
@@ -92,6 +102,7 @@ async def admin_create_stream(
         retention_days=data.retention_days,
         latitude=data.latitude,
         longitude=data.longitude,
+        created_by=admin.id,
     )
     db.add(stream)
     await db.commit()
@@ -188,6 +199,60 @@ async def set_owner(stream_id: int, data: OwnerIn, db: AsyncSession = Depends(ge
     stream.owner_id = data.user_id
     await db.commit()
     return {"ok": True, "owner_id": data.user_id}
+
+
+class RoleAccessIn(BaseModel):
+    role: str
+    can_view: bool = True
+    can_playback: bool = True
+
+
+@router.put("/admin/streams/{stream_id}/role-access")
+async def set_role_access(stream_id: int, data: RoleAccessIn, db: AsyncSession = Depends(get_db)):
+    """Kelola akses per peran (mis. role 'guest') untuk satu kamera.
+
+    Paritas v2.0: tamu dapat diberi kamera tertentu satu per satu.
+    """
+    await _get_stream_or_404(db, stream_id)
+    if data.role not in ("admin", "user", "guest"):
+        raise HTTPException(status_code=400, detail="role tidak dikenal")
+    result = await db.execute(
+        select(StreamPermission).where(
+            StreamPermission.stream_id == stream_id,
+            StreamPermission.role == data.role,
+            StreamPermission.user_id.is_(None),
+        )
+    )
+    perm = result.scalars().first()
+    if perm is None:
+        perm = StreamPermission(
+            stream_id=stream_id, role=data.role,
+            can_view=data.can_view, can_playback=data.can_playback,
+        )
+        db.add(perm)
+    else:
+        perm.can_view = data.can_view
+        perm.can_playback = data.can_playback
+    await db.commit()
+    return {"ok": True, "stream_id": stream_id, "role": data.role,
+            "can_view": perm.can_view, "can_playback": perm.can_playback}
+
+
+@router.get("/admin/streams/{stream_id}/role-access")
+async def get_role_access(stream_id: int, db: AsyncSession = Depends(get_db)):
+    await _get_stream_or_404(db, stream_id)
+    result = await db.execute(
+        select(StreamPermission).where(
+            StreamPermission.stream_id == stream_id,
+            StreamPermission.user_id.is_(None),
+        )
+    )
+    return {
+        "roles": [
+            {"role": p.role, "can_view": p.can_view, "can_playback": p.can_playback}
+            for p in result.scalars().all()
+        ]
+    }
 
 
 async def _get_group_or_404(db: AsyncSession, nama_grup: str) -> StreamGroup:

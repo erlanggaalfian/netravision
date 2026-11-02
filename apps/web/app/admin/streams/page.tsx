@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import { useCameraStatus } from "../../../hooks/useCameraStatus";
 import type { DriveAccount, Group, ScanCandidate, Stream } from "../../../lib/types";
+import { ShareModal } from "../../../components/ShareModal";
 import {
   Accordion,
   Badge,
@@ -79,6 +80,7 @@ function StreamRow({
   onToggleSelect,
   onEdit,
   onDelete,
+  onShare,
 }: {
   s: Stream;
   online: boolean;
@@ -86,6 +88,7 @@ function StreamRow({
   onToggleSelect: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onShare: () => void;
 }) {
   const checkbox = (
     <input
@@ -115,6 +118,9 @@ function StreamRow({
   );
   const actions = (
     <div className="flex gap-2">
+      <Button variant="subtle" onClick={onShare} className="min-h-[40px] px-3">
+        Bagikan
+      </Button>
       <Button variant="subtle" onClick={onEdit} className="min-h-[40px] px-3">
         Ubah
       </Button>
@@ -153,6 +159,7 @@ export default function AdminStreamsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Stream | null>(null);
   const [deleting, setDeleting] = useState<Stream | null>(null);
+  const [shareFor, setShareFor] = useState<Stream | null>(null);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [showCoords, setShowCoords] = useState(false);
 
@@ -404,6 +411,7 @@ export default function AdminStreamsPage() {
                 onToggleSelect={() => toggleSelect(s.id)}
                 onEdit={() => setEditing(s)}
                 onDelete={() => setDeleting(s)}
+                onShare={() => setShareFor(s)}
               />
             ))}
           </div>
@@ -468,6 +476,13 @@ export default function AdminStreamsPage() {
             setEditing(null);
             load();
           }}
+        />
+      )}
+      {shareFor && (
+        <ShareModal
+          streamId={shareFor.id}
+          streamName={shareFor.name}
+          onClose={() => setShareFor(null)}
         />
       )}
       {deleting && (

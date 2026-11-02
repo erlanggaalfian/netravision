@@ -33,6 +33,7 @@ async def _seed(app, db, monkeypatch, tmp_path):
         main_url="rtsp://x/1",
         is_active=True,
         recording_enabled=True,
+        created_by=admin.id,  # paritas v2.0: admin membuka rekaman kamera pasangannya
     )
     db.add(s)
     await db.commit()

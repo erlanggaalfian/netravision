@@ -5,16 +5,17 @@ import { useEffect, type ReactNode } from "react";
 import { useAuth } from "../lib/auth";
 import { Spinner } from "./ui";
 
-/* Penjaga halaman admin: hanya peran admin yang boleh masuk. */
+/* Penjaga halaman admin: peran admin & super_admin yang boleh masuk. */
 export function AdminGuard({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const allowed = user?.role === "admin" || user?.role === "super_admin";
 
   useEffect(() => {
-    if (!loading && user?.role !== "admin") router.replace("/live");
-  }, [loading, user, router]);
+    if (!loading && !allowed) router.replace("/live");
+  }, [loading, allowed, router]);
 
-  if (loading || user?.role !== "admin") {
+  if (loading || !allowed) {
     return (
       <div className="min-h-screen bg-ink-950">
         <Spinner />

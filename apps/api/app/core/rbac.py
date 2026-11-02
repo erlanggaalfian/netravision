@@ -198,6 +198,16 @@ async def _check_camera_access(
     if is_super_admin(user):
         return user
 
+    stream_ada = (
+        (await db.execute(select(Stream).where(Stream.id == stream_id)))
+        .scalars()
+        .first()
+    )
+    if stream_ada is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="kamera tidak ditemukan"
+        )
+
     if user.role == "admin":
         if not need_playback:
             return user  # perilaku lama dipertahankan
