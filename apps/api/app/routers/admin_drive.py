@@ -478,7 +478,7 @@ async def gdrive_connect_start():
 
     Return {session_id, auth_url} — user buka URL di browser, salin kode.
     """
-    from app.services import gdrive_connect as gc
+    from app.services import gdrive_pkce as gc
 
     try:
         return await gc.start_session()
@@ -489,7 +489,7 @@ async def gdrive_connect_start():
 @admin_router.post("/admin/storage/google-drive/connect/finish")
 async def gdrive_connect_finish(payload: GdriveCodeIn):
     """Selesaikan sesi hubung dengan kode verifikasi dari user."""
-    from app.services import gdrive_connect as gc
+    from app.services import gdrive_pkce as gc
 
     try:
         return await gc.finish_session(payload.session_id, payload.code)
