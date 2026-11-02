@@ -25,6 +25,8 @@ class StreamOut(BaseModel):
     drive_account_id: uuid.UUID | None = None
     recording_enabled: bool = False
     retention_days: int = 7
+    # Kredensial RTSP: hanya diisi endpoint admin (sudah di-masking per v2.0).
+    rtsp_url: str | None = None
 
 
 class StreamCreate(BaseModel):
