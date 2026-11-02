@@ -171,8 +171,11 @@ async def test_stream_ok_dan_kamera_salah(app_client):
     assert any(log.action == "external.stream.ok" for log in logs)
 
 
-async def test_playback_belum_tersedia(app_client):
-    """Service rekaman Fase 3a belum ada -> 503 jujur, bukan data palsu."""
+async def test_playback_tidak_lagi_503(app_client):
+    """BUG diperbaiki: /external/playback tidak lagi 503 (ImportError).
+
+    Tanpa rekaman -> 200 dengan daftar tanggal (kosong), bukan 503.
+    """
     app, _, db = app_client
     await _seed(db)
     async with _client(app) as c:
@@ -180,4 +183,7 @@ async def test_playback_belum_tersedia(app_client):
             "/api/external/playback",
             params={"key": "KUNCI-RAHASIA-123", "camera": 1},
         )
-        assert r.status_code == 503
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert "dates" in data
+        assert data["camera"] == 1

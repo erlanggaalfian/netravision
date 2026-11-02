@@ -7,6 +7,7 @@ saat pembuatan (ApiKeyCreated.key).
 
 import hashlib
 import secrets
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -27,6 +28,8 @@ class ApiKeyCreate(BaseModel):
     domain_lock: str | None = None
     password: str | None = None
     session_limit_min: int | None = None
+    custom_camera_name: str | None = None
+    include_playback: bool | None = None
 
 
 class ApiKeyUpdate(BaseModel):
@@ -36,6 +39,8 @@ class ApiKeyUpdate(BaseModel):
     session_limit_min: int | None = None
     stream_ids: list[int] | None = None
     is_active: bool | None = None
+    custom_camera_name: str | None = None
+    include_playback: bool | None = None
 
 
 def _key_to_out(key: ApiKey, stream_ids: list[int]) -> dict:
@@ -46,12 +51,25 @@ def _key_to_out(key: ApiKey, stream_ids: list[int]) -> dict:
         "is_active": key.is_active,
         "last_used_at": key.last_used_at.isoformat() if key.last_used_at else None,
         "stream_ids": stream_ids,
+        "custom_camera_name": key.custom_camera_name or "",
+        "include_playback": key.include_playback,
     }
 
 
 async def _stream_ids_of(db: AsyncSession, key_id: int) -> list[int]:
-    res = await db.execute(select(ApiKeyStream.stream_id).where(ApiKeyStream.api_key_id == key_id))
+    res = await db.execute(
+        select(ApiKeyStream.stream_id)
+        .where(ApiKeyStream.api_key_id == key_id)
+        .order_by(ApiKeyStream.position, ApiKeyStream.stream_id)
+    )
     return list(res.scalars().all())
+
+
+async def _set_key_streams(db: AsyncSession, key_id: int, stream_ids: list[int]) -> None:
+    """Simpan cakupan kamera dengan urutan (position = indeks)."""
+    await db.execute(delete(ApiKeyStream).where(ApiKeyStream.api_key_id == key_id))
+    for pos, sid in enumerate(stream_ids):
+        db.add(ApiKeyStream(api_key_id=key_id, stream_id=sid, position=pos))
 
 
 async def _get_key_or_404(db: AsyncSession, key_id: int) -> ApiKey:
@@ -79,11 +97,12 @@ async def create_key(data: ApiKeyCreate, db: AsyncSession = Depends(get_db)):
         key_hash=hashlib.sha256(raw.encode()).hexdigest(),
         domain_lock=data.domain_lock,
         password_hash=hash_password(data.password) if data.password else None,
+        custom_camera_name=(data.custom_camera_name or "").strip(),
+        include_playback=data.include_playback if data.include_playback is not None else True,
     )
     db.add(key)
     await db.flush()
-    for sid in data.stream_ids:
-        db.add(ApiKeyStream(api_key_id=key.id, stream_id=sid))
+    await _set_key_streams(db, key.id, data.stream_ids)
     await db.commit()
     await db.refresh(key)
     out = _key_to_out(key, data.stream_ids)
@@ -102,10 +121,12 @@ async def update_key(key_id: int, data: ApiKeyUpdate, db: AsyncSession = Depends
         key.password_hash = hash_password(data.password)
     if data.is_active is not None:
         key.is_active = data.is_active
+    if data.custom_camera_name is not None:
+        key.custom_camera_name = data.custom_camera_name.strip()
+    if data.include_playback is not None:
+        key.include_playback = data.include_playback
     if data.stream_ids is not None:
-        await db.execute(delete(ApiKeyStream).where(ApiKeyStream.api_key_id == key_id))
-        for sid in data.stream_ids:
-            db.add(ApiKeyStream(api_key_id=key_id, stream_id=sid))
+        await _set_key_streams(db, key_id, data.stream_ids)
     await db.commit()
     await db.refresh(key)
     return _key_to_out(key, await _stream_ids_of(db, key_id))
@@ -126,6 +147,7 @@ def _log_to_out(log: ApiAccessLog) -> dict:
         "key_id": log.api_key_id,
         "stream_id": log.stream_id,
         "ip": log.ip,
+        "action": log.action,
         "accessed_at": log.created_at.isoformat() if log.created_at else None,
     }
 
@@ -133,19 +155,39 @@ def _log_to_out(log: ApiAccessLog) -> dict:
 @router.get("/admin/api-access-logs")
 async def list_logs(
     key_id: int | None = Query(default=None),
+    action: str | None = Query(default=None),
+    status: str | None = Query(default=None, description="hit|denied (v2.0)"),
     limit: int = Query(default=50, le=500),
+    offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
-    q = select(ApiAccessLog).order_by(ApiAccessLog.id.desc()).limit(limit)
+    q = select(ApiAccessLog).order_by(ApiAccessLog.id.desc())
     if key_id is not None:
         q = q.where(ApiAccessLog.api_key_id == key_id)
+    if action:
+        q = q.where(ApiAccessLog.action == action)
+    if status == "denied":
+        q = q.where(ApiAccessLog.action.like("%.denied%"))
+    elif status in ("ok", "hit"):
+        q = q.where(~ApiAccessLog.action.like("%.denied%"))
+    q = q.limit(limit).offset(offset)
     res = await db.execute(q)
     return [_log_to_out(log) for log in res.scalars().all()]
 
 
 @router.delete("/admin/api-access-logs")
-async def clear_logs(db: AsyncSession = Depends(get_db)):
-    await db.execute(delete(ApiAccessLog))
+async def clear_logs(
+    days: int | None = Query(
+        default=None, ge=1,
+        description="v2.0: hapus log lebih lama dari N hari; kosong = hapus semua",
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    q = delete(ApiAccessLog)
+    if days is not None:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        q = q.where(ApiAccessLog.created_at < cutoff)
+    await db.execute(q)
     await db.commit()
     return {"ok": True}
 

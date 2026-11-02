@@ -6,7 +6,7 @@ Path /api/* dipertahankan persis seperti v2.0.
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,12 +43,17 @@ def stream_to_out(stream: Stream, settings: Settings) -> StreamOut:
         name=stream.name,
         brand=stream.brand,
         is_online=stream.is_online,
+        is_active=stream.is_active,
         last_seen_at=stream.last_seen_at,
         whep_main_url=main_url,
         whep_sub_url=sub_url,
         poster_url=f"/api/posters/stream_{stream.id}.jpg",
         latitude=stream.latitude,
         longitude=stream.longitude,
+        storage_mode=stream.storage_mode,
+        drive_account_id=stream.drive_account_id,
+        recording_enabled=stream.recording_enabled,
+        retention_days=stream.retention_days,
     )
 
 
@@ -97,9 +102,27 @@ async def _get_stream_or_404(db: AsyncSession, stream_id: int) -> Stream:
 async def list_streams(
     user: User = Depends(require_roles("admin", "user", "guest")),
     db: AsyncSession = Depends(get_db),
+    page: int | None = Query(None, ge=1, description="v2.0: halaman"),
+    limit: int | None = Query(None, ge=1, le=500, description="v2.0: batas"),
+    group: str | None = Query(None, description="v2.0: filter nama grup (persis)"),
+    no_check: bool = Query(False, description="v2.0: lewati cek status"),
 ):
+    """Daftar stream yang terlihat user.
+
+    Tanpa ?page=/?limit= -> list penuh (perilaku v3.0 sekarang).
+    Dengan salah satunya -> paginasi (limit default 20 bila hanya page dipakai).
+    ?group= menyaring nama grup persis (v2.0). ?no_check= diterima untuk
+    kompatibilitas v2.0; status online di v3.0 berasal dari poller latar.
+    """
     settings = get_settings()
-    return [stream_to_out(s, settings) for s in await _visible_streams(user, db)]
+    streams = await _visible_streams(user, db)
+    if group:
+        streams = [s for s in streams if (s.group_name or "") == group]
+    if page is not None or limit is not None:
+        lim = limit or 20
+        pg = page or 1
+        streams = streams[(pg - 1) * lim : pg * lim]
+    return [stream_to_out(s, settings) for s in streams]
 
 
 @router.post("/streams/{stream_id}/reconnect")
