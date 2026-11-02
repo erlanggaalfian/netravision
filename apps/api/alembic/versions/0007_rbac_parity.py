@@ -18,15 +18,14 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     # Admin pembuat akun (cakupan kelola admin, paritas v2.0).
-    op.add_column(
-        "users",
-        sa.Column(
-            "parent_admin_id",
-            sa.Integer(),
-            sa.ForeignKey("users.id"),
-            nullable=True,
-        ),
-    )
+    # batch_alter_table agar ForeignKey bisa dibuat di SQLite (demo)
+    # maupun PostgreSQL (produksi).
+    with op.batch_alter_table("users") as batch_op:
+        batch_op.add_column(sa.Column("parent_admin_id", sa.Integer(), nullable=True))
+        batch_op.create_foreign_key(
+            "fk_users_parent_admin_id", "users",
+            ["parent_admin_id"], ["id"],
+        )
     # Izin playback terpisah dari izin tonton (paritas v2.0).
     # Default True agar grant lama tidak berubah perilaku.
     op.add_column(
@@ -39,30 +38,29 @@ def upgrade() -> None:
         ),
     )
     # Pencatat pemberi grant admin (paritas v2.0).
-    op.add_column(
-        "stream_admin_grants",
-        sa.Column(
-            "granted_by",
-            sa.Integer(),
-            sa.ForeignKey("users.id", ondelete="SET NULL"),
-            nullable=True,
-        ),
-    )
+    with op.batch_alter_table("stream_admin_grants") as batch_op:
+        batch_op.add_column(sa.Column("granted_by", sa.Integer(), nullable=True))
+        batch_op.create_foreign_key(
+            "fk_stream_admin_grants_granted_by", "users",
+            ["granted_by"], ["id"], ondelete="SET NULL",
+        )
     # Siapa memasang kamera (dasar masking RTSP, paritas v2.0).
-    # Model menyusul via _rbac_patch_notes.md; kode toleran bila belum ada.
-    op.add_column(
-        "streams",
-        sa.Column(
-            "created_by",
-            sa.Integer(),
-            sa.ForeignKey("users.id", ondelete="SET NULL"),
-            nullable=True,
-        ),
-    )
+    with op.batch_alter_table("streams") as batch_op:
+        batch_op.add_column(sa.Column("created_by", sa.Integer(), nullable=True))
+        batch_op.create_foreign_key(
+            "fk_streams_created_by", "users",
+            ["created_by"], ["id"], ondelete="SET NULL",
+        )
 
 
 def downgrade() -> None:
-    op.drop_column("streams", "created_by")
-    op.drop_column("stream_admin_grants", "granted_by")
+    with op.batch_alter_table("streams") as batch_op:
+        batch_op.drop_constraint("fk_streams_created_by", type_="foreignkey")
+        batch_op.drop_column("created_by")
+    with op.batch_alter_table("stream_admin_grants") as batch_op:
+        batch_op.drop_constraint("fk_stream_admin_grants_granted_by", type_="foreignkey")
+        batch_op.drop_column("granted_by")
     op.drop_column("stream_permissions", "can_playback")
-    op.drop_column("users", "parent_admin_id")
+    with op.batch_alter_table("users") as batch_op:
+        batch_op.drop_constraint("fk_users_parent_admin_id", type_="foreignkey")
+        batch_op.drop_column("parent_admin_id")
