@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "../../components/AppShell";
 import { CameraTile } from "../../components/CameraTile";
@@ -100,6 +100,90 @@ function MiniPreview({
   );
 }
 
+/* Mode grup: kamera dikelompokkan per grup kamera (admin).
+   Hanya grup yang punya kamera di layout ini yang ditampilkan;
+   kamera tanpa grup masuk "Tanpa grup". */
+function GroupSections({
+  groups,
+  loading,
+  error,
+  byId,
+  layoutIds,
+  colsClass,
+  onExpand,
+}: {
+  groups: { id: number; name: string; stream_ids: number[] }[] | null;
+  loading: boolean;
+  error: string | null;
+  byId: Map<number, Stream>;
+  layoutIds: number[];
+  colsClass: string;
+  onExpand: (s: Stream) => void;
+}) {
+  if (loading || groups === null) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-16 text-sm text-neutral-400">
+        <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/15 border-t-accent-400 motion-reduce:animate-none" />
+        Memuat grup…
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="rounded-2xl bg-ink-900 px-6 py-10 text-center text-sm text-neutral-400 ring-1 ring-white/10">
+        {error}
+        <p className="mt-1 text-xs text-neutral-500">
+          Mode grup membutuhkan akses admin.
+        </p>
+      </div>
+    );
+  }
+  const inLayout = new Set(layoutIds);
+  const sections = groups
+    .map((g) => ({
+      name: g.name,
+      streams: g.stream_ids
+        .filter((id) => inLayout.has(id))
+        .map((id) => byId.get(id))
+        .filter((s): s is Stream => !!s),
+    }))
+    .filter((sec) => sec.streams.length > 0);
+  const grouped = new Set(sections.flatMap((sec) => sec.streams.map((s) => s.id)));
+  const rest = layoutIds
+    .filter((id) => !grouped.has(id))
+    .map((id) => byId.get(id))
+    .filter((s): s is Stream => !!s);
+  if (rest.length > 0) sections.push({ name: "Tanpa grup", streams: rest });
+
+  if (sections.length === 0) {
+    return (
+      <div className="rounded-2xl bg-ink-900 px-6 py-10 text-center text-sm text-neutral-400 ring-1 ring-white/10">
+        Tidak ada grup kamera untuk layout ini.
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-6">
+      {sections.map((sec) => (
+        <section key={sec.name}>
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
+            <span className="h-2 w-2 rounded-full bg-accent-400" />
+            {sec.name}
+            <span className="text-xs font-normal text-neutral-500">
+              {sec.streams.length} kamera
+            </span>
+          </h2>
+          <div className={`grid gap-4 ${colsClass}`}>
+            {sec.streams.map((s) => (
+              <CameraTile key={s.id} stream={s} onExpand={onExpand} />
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
 export default function MonitorsPage() {
   const router = useRouter();
   const { user, loading } = useAuth();
@@ -113,11 +197,16 @@ export default function MonitorsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editing, setEditing] = useState<MonitorLayout | null>(null);
   const [focus, setFocus] = useState<Stream | null>(null);
+  const [groupMode, setGroupMode] = useState(false);
+  const [groups, setGroups] = useState<{ id: number; name: string; stream_ids: number[] }[] | null>(null);
+  const [groupsError, setGroupsError] = useState<string | null>(null);
+  const [groupsLoading, setGroupsLoading] = useState(false);
+  const gridWrapRef = useRef<HTMLDivElement>(null);
 
   // form state
   const [formName, setFormName] = useState("");
   const [formCols, setFormCols] = useState(2);
-  const [formIds, setFormIds] = useState<Set<number>>(new Set());
+  const [formIds, setFormIds] = useState<number[]>([]);
 
   const load = useCallback(async () => {
     setFetching(true);
@@ -165,37 +254,46 @@ export default function MonitorsPage() {
   const startCreate = () => {
     setFormName("");
     setFormCols(2);
-    setFormIds(new Set());
+    setFormIds([]);
     setEditing({ id: "", name: "", streamIds: [], cols: 2 });
   };
 
   const startEdit = (l: MonitorLayout) => {
     setFormName(l.name);
     setFormCols(l.cols);
-    setFormIds(new Set(l.streamIds));
+    setFormIds([...l.streamIds]);
     setEditing(l);
   };
 
   const cancelEdit = () => setEditing(null);
 
   const toggleId = (id: number) => {
+    setFormIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  };
+
+  /* Geser urutan kamera terpilih (atas/bawah). */
+  const moveId = (id: number, dir: -1 | 1) => {
     setFormIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      const i = prev.indexOf(id);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
       return next;
     });
   };
 
   const saveForm = () => {
     const name = formName.trim();
-    if (!name || formIds.size === 0) return;
+    if (!name || formIds.length === 0) return;
     const cols = Math.min(4, Math.max(1, formCols));
     if (editing && editing.id) {
       persist(
         layouts.map((l) =>
           l.id === editing.id
-            ? { ...l, name, cols, streamIds: [...formIds] }
+            ? { ...l, name, cols, streamIds: formIds }
             : l,
         ),
       );
@@ -204,7 +302,7 @@ export default function MonitorsPage() {
         typeof crypto !== "undefined" && "randomUUID" in crypto
           ? crypto.randomUUID()
           : `m-${Date.now()}`;
-      persist([...layouts, { id, name, cols, streamIds: [...formIds] }]);
+      persist([...layouts, { id, name, cols, streamIds: formIds }]);
     }
     setEditing(null);
   };
@@ -212,6 +310,47 @@ export default function MonitorsPage() {
   const removeLayout = (id: string) => {
     persist(layouts.filter((l) => l.id !== id));
     if (openId === id) setOpenId(null);
+  };
+
+  const loadGroups = useCallback(async () => {
+    setGroupsLoading(true);
+    setGroupsError(null);
+    try {
+      const gs = await api.get<{ id: number; name: string }[]>("/admin/groups");
+      const full = await Promise.all(
+        gs.map(async (g) => {
+          const r = await api.get<{ stream_ids: number[] }>(
+            `/admin/groups/${encodeURIComponent(g.name)}/camera-grants`,
+          );
+          return { id: g.id, name: g.name, stream_ids: r.stream_ids };
+        }),
+      );
+      setGroups(full);
+    } catch (e) {
+      setGroupsError(
+        e instanceof ApiError ? e.message : "Gagal memuat grup kamera",
+      );
+      setGroups([]);
+    } finally {
+      setGroupsLoading(false);
+    }
+  }, []);
+
+  const toggleGroupMode = () => {
+    setGroupMode((v) => {
+      if (!v && groups === null) loadGroups();
+      return !v;
+    });
+  };
+
+  const toggleFullscreen = () => {
+    const el = gridWrapRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else {
+      el.requestFullscreen?.().catch(() => {});
+    }
   };
 
   const openLayout = layouts.find((l) => l.id === openId) ?? null;
@@ -241,7 +380,7 @@ export default function MonitorsPage() {
         {openLayout ? (
           /* ===== Tampilan layout terbuka ===== */
           <div>
-            <div className="mb-4 flex items-center gap-3">
+            <div className="mb-4 flex flex-wrap items-center gap-3">
               <button
                 onClick={() => setOpenId(null)}
                 className="flex h-11 min-w-[44px] items-center justify-center rounded-xl bg-ink-900 px-3 text-base text-neutral-200 ring-1 ring-white/10 transition hover:bg-ink-800 active:scale-95"
@@ -249,37 +388,78 @@ export default function MonitorsPage() {
               >
                 ←
               </button>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <h1 className="truncate text-xl font-bold tracking-tight text-white">
                   {openLayout.name}
                 </h1>
                 <p className="text-sm text-neutral-400">
                   {openStreams.length} kamera · {openLayout.cols} kolom
+                  {groupMode ? " · mode grup" : ""}
                 </p>
               </div>
-            </div>
-            {fetching ? (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="aspect-video animate-pulse rounded-2xl bg-ink-800 motion-reduce:animate-none"
-                  />
-                ))}
-              </div>
-            ) : openStreams.length === 0 ? (
-              <div className="rounded-2xl bg-ink-900 p-8 text-center text-sm text-neutral-400 ring-1 ring-white/10">
-                Tidak ada kamera yang cocok — mungkin kamera sudah dihapus.
-              </div>
-            ) : (
-              <div
-                className={`grid gap-4 ${COLS_CLASS[openLayout.cols] ?? COLS_CLASS[2]}`}
+              <button
+                onClick={toggleGroupMode}
+                aria-pressed={groupMode}
+                className={`flex h-11 items-center gap-2 rounded-xl px-4 text-sm font-medium transition active:scale-95 ${
+                  groupMode
+                    ? "bg-accent-600 text-onaccent hover:bg-accent-500"
+                    : "bg-ink-900 text-neutral-200 ring-1 ring-white/10 hover:bg-ink-800"
+                }`}
               >
-                {openStreams.map((s) => (
-                  <CameraTile key={s.id} stream={s} onExpand={setFocus} />
-                ))}
-              </div>
-            )}
+                Grup
+              </button>
+              <button
+                onClick={toggleFullscreen}
+                className="flex h-11 items-center gap-2 rounded-xl bg-ink-900 px-4 text-sm font-medium text-neutral-200 ring-1 ring-white/10 transition hover:bg-ink-800 active:scale-95"
+                aria-label="Layar penuh"
+                title="Layar penuh"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+                  <path
+                    d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                <span className="hidden sm:inline">Penuh</span>
+              </button>
+            </div>
+            <div ref={gridWrapRef} className="bg-ink-950">
+              {fetching ? (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="aspect-video animate-pulse rounded-2xl bg-ink-800 motion-reduce:animate-none"
+                    />
+                  ))}
+                </div>
+              ) : openStreams.length === 0 ? (
+                <div className="rounded-2xl bg-ink-900 p-8 text-center text-sm text-neutral-400 ring-1 ring-white/10">
+                  Tidak ada kamera yang cocok — mungkin kamera sudah dihapus.
+                </div>
+              ) : groupMode ? (
+                <GroupSections
+                  groups={groups}
+                  loading={groupsLoading}
+                  error={groupsError}
+                  byId={byId}
+                  layoutIds={openLayout.streamIds}
+                  colsClass={COLS_CLASS[openLayout.cols] ?? COLS_CLASS[2]}
+                  onExpand={setFocus}
+                />
+              ) : (
+                <div
+                  className={`grid gap-4 ${COLS_CLASS[openLayout.cols] ?? COLS_CLASS[2]}`}
+                >
+                  {openStreams.map((s) => (
+                    <CameraTile key={s.id} stream={s} onExpand={setFocus} />
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         ) : editing ? (
           /* ===== Form buat/ubah ===== */
@@ -320,12 +500,24 @@ export default function MonitorsPage() {
 
               <div className="mb-1.5 flex items-center justify-between">
                 <span className="text-sm font-medium text-neutral-300">
-                  Pilih kamera ({formIds.size})
+                  Pilih kamera ({formIds.length})
+                </span>
+                <span className="text-[11px] text-neutral-500">
+                  Urutan bisa digeser
                 </span>
               </div>
               <div className="mb-5 flex max-h-72 flex-col gap-1.5 overflow-y-auto rounded-xl bg-ink-950/60 p-2 ring-1 ring-white/5">
-                {streams.map((s) => {
-                  const checked = formIds.has(s.id);
+                {[...streams]
+                  .sort((a, b) => {
+                    const ia = formIds.indexOf(a.id);
+                    const ib = formIds.indexOf(b.id);
+                    if (ia >= 0 && ib >= 0) return ia - ib;
+                    if (ia >= 0) return -1;
+                    if (ib >= 0) return 1;
+                    return a.name.localeCompare(b.name);
+                  })
+                  .map((s) => {
+                  const checked = formIds.includes(s.id);
                   return (
                     <label
                       key={s.id}
@@ -344,9 +536,37 @@ export default function MonitorsPage() {
                       <span
                         className={`h-2 w-2 shrink-0 rounded-full ${s.is_online ? "bg-ok-400" : "bg-bad-400"}`}
                       />
-                      <span className="truncate text-sm text-neutral-200">
+                      <span className="min-w-0 flex-1 truncate text-sm text-neutral-200">
                         {s.name}
                       </span>
+                      {checked && (
+                        <span className="flex shrink-0 items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              moveId(s.id, -1);
+                            }}
+                            disabled={formIds.indexOf(s.id) === 0}
+                            className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/5 text-neutral-300 transition hover:bg-white/10 active:scale-95 disabled:opacity-30"
+                            aria-label={`Geser ${s.name} ke atas`}
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              moveId(s.id, 1);
+                            }}
+                            disabled={formIds.indexOf(s.id) === formIds.length - 1}
+                            className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/5 text-neutral-300 transition hover:bg-white/10 active:scale-95 disabled:opacity-30"
+                            aria-label={`Geser ${s.name} ke bawah`}
+                          >
+                            ↓
+                          </button>
+                        </span>
+                      )}
                     </label>
                   );
                 })}
@@ -366,7 +586,7 @@ export default function MonitorsPage() {
                 </button>
                 <button
                   onClick={saveForm}
-                  disabled={!formName.trim() || formIds.size === 0}
+                  disabled={!formName.trim() || formIds.length === 0}
                   className="h-11 flex-1 rounded-xl bg-accent-600 px-4 text-sm font-semibold text-onaccent transition hover:bg-accent-500 active:scale-[0.99] disabled:opacity-40"
                 >
                   Simpan

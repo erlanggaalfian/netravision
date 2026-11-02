@@ -60,6 +60,7 @@ export default function MapsPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<number | null>(null);
   const [focus, setFocus] = useState<Stream | null>(null);
+  const [mapQuery, setMapQuery] = useState("");
 
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LType.Map | null>(null);
@@ -135,6 +136,18 @@ export default function MapsPage() {
   const unmapped = useMemo(
     () => merged.filter((s) => s.latitude == null || s.longitude == null),
     [merged],
+  );
+
+  /* Pencarian daftar CCTV (filter nama). */
+  const q = mapQuery.trim().toLowerCase();
+  const mappedShown = useMemo(
+    () => (q ? mapped.filter((s) => s.name.toLowerCase().includes(q)) : mapped),
+    [mapped, q],
+  );
+  const unmappedShown = useMemo(
+    () =>
+      q ? unmapped.filter((s) => s.name.toLowerCase().includes(q)) : unmapped,
+    [unmapped, q],
   );
 
   /* Gambar ulang marker setiap data/status berubah. */
@@ -263,6 +276,33 @@ export default function MapsPage() {
 
         {/* Panel samping */}
         <div className="flex w-full flex-col gap-4 md:w-80 md:shrink-0">
+          {/* Pencarian CCTV */}
+          <div className="relative">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-500"
+              aria-hidden
+            >
+              <path
+                d="M7.5 12.5a5 5 0 100-10 5 5 0 000 10zM11.5 11.5L14 14"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+              />
+            </svg>
+            <input
+              type="search"
+              value={mapQuery}
+              onChange={(e) => setMapQuery(e.target.value)}
+              placeholder="Cari CCTV…"
+              aria-label="Cari CCTV"
+              className="h-11 w-full rounded-xl bg-ink-900 pl-10 pr-4 text-base text-white ring-1 ring-white/10 placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-accent-500"
+            />
+          </div>
+
           {error && (
             <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-bad-400">
               {error}
@@ -280,16 +320,16 @@ export default function MapsPage() {
                 Belum dipetakan
               </h2>
               <span className="rounded-full bg-ink-800 px-2.5 py-0.5 text-[11px] font-medium text-neutral-400">
-                {unmapped.length}
+                {unmappedShown.length}
               </span>
             </div>
-            {unmapped.length === 0 ? (
+            {unmappedShown.length === 0 ? (
               <p className="text-xs leading-relaxed text-neutral-500">
-                Semua kamera sudah punya posisi.
+                {q ? "Tidak ada yang cocok." : "Semua kamera sudah punya posisi."}
               </p>
             ) : (
               <ul className="flex max-h-48 flex-col gap-1.5 overflow-y-auto md:max-h-64">
-                {unmapped.map((s) => (
+                {unmappedShown.map((s) => (
                   <li
                     key={s.id}
                     className="flex items-center justify-between gap-2 rounded-xl bg-ink-800/70 px-3 py-2"
@@ -315,7 +355,7 @@ export default function MapsPage() {
                 ))}
               </ul>
             )}
-            {isAdmin && unmapped.length > 0 && (
+            {isAdmin && unmappedShown.length > 0 && (
               <p className="mt-3 text-[11px] leading-relaxed text-neutral-500">
                 Geser peta ke lokasi kamera, lalu tekan “Tengah peta”.
               </p>
@@ -326,16 +366,16 @@ export default function MapsPage() {
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-white">Di peta</h2>
               <span className="rounded-full bg-ink-800 px-2.5 py-0.5 text-[11px] font-medium text-neutral-400">
-                {mapped.length}
+                {mappedShown.length}
               </span>
             </div>
-            {mapped.length === 0 ? (
+            {mappedShown.length === 0 ? (
               <p className="text-xs leading-relaxed text-neutral-500">
-                Belum ada kamera yang dipetakan.
+                {q ? "Tidak ada yang cocok." : "Belum ada kamera yang dipetakan."}
               </p>
             ) : (
               <ul className="flex max-h-40 flex-col gap-1 overflow-y-auto md:max-h-56">
-                {mapped.map((s) => (
+                {mappedShown.map((s) => (
                   <li key={s.id}>
                     <button
                       onClick={() => {

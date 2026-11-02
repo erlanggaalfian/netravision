@@ -18,6 +18,20 @@ const FILTERS: { id: StatusFilter; label: string }[] = [
   { id: "offline", label: "Offline" },
 ];
 
+const GRID_OPTS = [
+  { cols: 1, label: "1×1" },
+  { cols: 2, label: "2×2" },
+  { cols: 3, label: "3×3" },
+  { cols: 4, label: "4×4" },
+];
+
+const GRID_CLASS: Record<number, string> = {
+  1: "grid-cols-1",
+  2: "grid-cols-1 sm:grid-cols-2",
+  3: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3",
+  4: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4",
+};
+
 function SkeletonGrid() {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -42,6 +56,7 @@ export default function LivePage() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<StatusFilter>("all");
+  const [gridCols, setGridCols] = useState(4);
   const [focus, setFocus] = useState<Stream | null>(null);
 
   const load = useCallback(async () => {
@@ -127,6 +142,28 @@ export default function LivePage() {
               />
               {connected ? "Real-time" : "Menghubungkan…"}
             </span>
+            <div
+              className="flex items-center gap-1 rounded-full bg-ink-900 p-1 ring-1 ring-white/10"
+              role="tablist"
+              aria-label="Tata letak grid"
+            >
+              {GRID_OPTS.map((g) => (
+                <button
+                  key={g.cols}
+                  role="tab"
+                  aria-selected={gridCols === g.cols}
+                  title={`Grid ${g.label}`}
+                  onClick={() => setGridCols(g.cols)}
+                  className={`flex h-10 min-w-[52px] items-center justify-center rounded-full px-3 text-xs font-semibold transition active:scale-95 ${
+                    gridCols === g.cols
+                      ? "bg-accent-600 text-onaccent"
+                      : "text-neutral-400 hover:text-white"
+                  }`}
+                >
+                  {g.label}
+                </button>
+              ))}
+            </div>
             <button
               onClick={load}
               disabled={fetching}
@@ -271,7 +308,7 @@ export default function LivePage() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className={`grid gap-4 ${GRID_CLASS[gridCols] ?? GRID_CLASS[4]}`}>
             {filtered.map((s) => (
               <CameraTile key={s.id} stream={s} onExpand={setFocus} />
             ))}

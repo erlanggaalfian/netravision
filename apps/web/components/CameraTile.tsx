@@ -163,11 +163,37 @@ export function CameraTile({ stream, onExpand }: Props) {
             {stream.name}
           </span>
         </div>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onExpand(stream);
-          }}
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              const el = boxRef.current;
+              if (!el) return;
+              if (document.fullscreenElement) {
+                document.exitFullscreen().catch(() => {});
+              } else {
+                el.requestFullscreen?.().catch(() => {});
+              }
+            }}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/20 active:scale-95"
+            aria-label={`Layar penuh ${stream.name}`}
+            title="Layar penuh"
+          >
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+              <path
+                d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onExpand(stream);
+            }}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/20 active:scale-95"
           aria-label={`Perbesar ${stream.name}`}
         >
@@ -180,6 +206,7 @@ export function CameraTile({ stream, onExpand }: Props) {
             />
           </svg>
         </button>
+        </div>
       </div>
     </div>
   );

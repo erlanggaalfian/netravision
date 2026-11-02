@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { playWhep, stopWhep } from "../lib/whep";
-import type { Stream } from "../lib/types";
+import { api } from "../lib/api";
+import { AdBanner } from "./AdBanner";
+import type { Stream, AdConfig } from "../lib/types";
 
 interface Props {
   stream: Stream | null;
@@ -10,11 +12,31 @@ interface Props {
 }
 
 /* Modal fokus: memutar MAIN stream (tajam) + tombol snapshot.
+   Banner iklan (bila aktif & diizinkan untuk akun ini) tampil lower-third,
+   seperti popup guest v2.0.
    Visual: header rapi (status + nama + info stream), kontrol jelas ≥44px. */
 export function FocusModal({ stream, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const [failed, setFailed] = useState(false);
+  const [ad, setAd] = useState<AdConfig | null>(null);
+
+  /* Config iklan: backend menonaktifkan otomatis bila show_ads=False. */
+  useEffect(() => {
+    if (!stream) return;
+    let cancelled = false;
+    api
+      .get<AdConfig>("/ad-config")
+      .then((c) => {
+        if (!cancelled) setAd(c);
+      })
+      .catch(() => {
+        /* iklan opsional; abaikan bila gagal */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [stream]);
 
   useEffect(() => {
     setFailed(false);
@@ -133,7 +155,8 @@ export function FocusModal({ stream, onClose }: Props) {
         </div>
 
         {/* Video */}
-        <div className="aspect-video bg-black">
+        <div className="relative aspect-video bg-black">
+          {ad?.is_active && <AdBanner config={ad} />}
           {failed || !stream.is_online ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
               <svg
