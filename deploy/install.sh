@@ -4,10 +4,12 @@
 # Instalasi / setup awal di server. IDEMPOTEN: aman dijalankan ulang.
 #
 # Yang dilakukan:
+#   0. Preflight check (scripts/preflight.py) — gagal -> berhenti
 #   1. Cek prasyarat (root, docker + compose plugin, apache2)
 #   2. Siapkan deploy/.env (dari .env.example; generate secret acak bila placeholder)
 #   3. docker compose up -d, tunggu postgres sehat
 #   4. Jalankan migrasi Alembic via container api
+#   4b. Seed admin awal (opsional; hanya bila NV_ADMIN_USER/PASS diset)
 #   5. Pasang vhost Apache netra.mamura.net.id (80/443 tetap milik Apache)
 #   6. Health check GET /api/health
 #
@@ -27,6 +29,12 @@ step()  { echo -e "\n\033[1;34m[install]\033[0m $*"; }
 ok()    { echo -e "\033[1;32m[  OK  ]\033[0m $*"; }
 warn()  { echo -e "\033[1;33m[ WARN ]\033[0m $*" >&2; }
 fail()  { echo -e "\033[1;31m[ FAIL ]\033[0m $*" >&2; exit 1; }
+
+# ---------------------------------------------------------------- 0. preflight
+step "0/6 — Preflight check"
+python3 "$REPO_ROOT/scripts/preflight.py" \
+    || fail "Preflight GAGAL — perbaiki item di atas, lalu jalankan ulang."
+ok "Preflight lolos."
 
 # ---------------------------------------------------------------- 1. prasyarat
 step "1/6 — Cek prasyarat"
@@ -84,6 +92,19 @@ step "4/6 — Migrasi database (alembic upgrade head)"
 docker compose -f "$COMPOSE_FILE" exec -T api alembic upgrade head \
     || fail "Migrasi gagal. Cek: docker compose -f $COMPOSE_FILE logs api"
 ok "Migrasi selesai."
+
+# ------------------------------------------------- 4b. seed admin (opsional)
+step "4b/6 — Seed admin awal (opsional)"
+if [ -n "${NV_ADMIN_USER:-}" ] && [ -n "${NV_ADMIN_PASS:-}" ]; then
+    docker compose -f "$COMPOSE_FILE" run --rm \
+        -v "$DEPLOY_DIR/seed_admin.py:/seed_admin.py:ro" \
+        -e PYTHONPATH=/srv/api \
+        -e NV_ADMIN_USER -e NV_ADMIN_PASS \
+        api python /seed_admin.py \
+        || warn "seed_admin gagal — buat admin manual via API nanti."
+else
+    warn "NV_ADMIN_USER/NV_ADMIN_PASS tidak diset — lewati seed admin."
+fi
 
 # ------------------------------------------------- 5. vhost Apache
 step "5/6 — Pasang vhost Apache netra.mamura.net.id"
