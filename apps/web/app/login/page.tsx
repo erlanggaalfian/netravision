@@ -67,14 +67,13 @@ export default function LoginPage() {
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center bg-ink-950 px-5 py-10">
       <div className="w-full max-w-sm">
-        <div className="mb-8 flex flex-col items-center gap-3">
-          <LensMark className="h-12 w-12" />
-          <p className="text-lg font-bold tracking-tight text-white">
-            NetraVision
-          </p>
-        </div>
-
         <div className="rounded-2xl border border-white/8 bg-ink-900 p-6 shadow-[0_2px_8px_rgba(0,0,0,0.4)] sm:p-7">
+          <div className="mb-6 flex flex-col items-center gap-3">
+            <LensMark className="h-12 w-12" />
+            <p className="text-lg font-bold tracking-tight text-white">
+              NetraVision
+            </p>
+          </div>
           <div className="mb-6 grid grid-cols-2 rounded-xl bg-ink-950 p-1">
             {(["masuk", "tamu"] as const).map((t) => (
               <button
