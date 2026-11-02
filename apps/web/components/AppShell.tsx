@@ -11,6 +11,7 @@ interface NavItem {
   href: string;
   label: string;
   adminOnly?: boolean;
+  hideOnMobile?: boolean;
   icon: ReactNode;
 }
 
@@ -47,6 +48,7 @@ const NAV: NavItem[] = [
   {
     href: "/monitors",
     label: "Monitor",
+    hideOnMobile: true,
     icon: icon("M3 4.5h14v9H3zM7 17.5h6M10 13.5v4"),
   },
   {
@@ -183,7 +185,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           className="fixed inset-x-0 bottom-0 z-40 flex border-t border-white/8 bg-ink-900 pb-[env(safe-area-inset-bottom)] md:hidden"
           aria-label="Navigasi utama"
         >
-          {items.map((n) => {
+          {items
+            .filter((n) => !n.hideOnMobile)
+            .map((n) => {
             const active = pathname?.startsWith(n.href);
             return (
               <Link
