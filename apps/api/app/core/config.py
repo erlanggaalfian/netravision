@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     mediamtx_api_url: str = "http://127.0.0.1:9997"
     mediamtx_whep_base: str = "http://127.0.0.1:8889"
 
+    # Basis URL publik untuk WHEP (relatif; Apache mem-proxy /whep/ -> MediaMTX).
+    public_whep_base: str = "/whep"
+
+    posters_dir: str = "data/posters"
+    recordings_dir: str = "data/recordings"
+
     cors_origins: list[str] = ["http://localhost:3000"]
     log_level: str = "INFO"
 

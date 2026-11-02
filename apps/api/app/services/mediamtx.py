@@ -1,0 +1,91 @@
+"""Klien control API MediaMTX (v3).
+
+Dipakai untuk mendaftarkan path stream_{id} / stream_{id}_sub,
+mengecek status path, dan menghapus path yang tidak dipakai lagi.
+"""
+
+from __future__ import annotations
+
+import httpx
+
+from app.core.config import get_settings
+
+
+class MediaMTXClient:
+    """Wrapper async di atas MediaMTX control API.
+
+    Args:
+        base_url: mis. "http://127.0.0.1:9997"
+        username/password: opsional, bila control API diproteksi.
+        transport: opsional, untuk testing (httpx.MockTransport).
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        username: str | None = None,
+        password: str | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        auth = (username, password) if username and password else None
+        self._client = httpx.AsyncClient(
+            base_url=base_url.rstrip("/"),
+            auth=auth,
+            transport=transport,
+            timeout=httpx.Timeout(5.0),
+            # Jangan ikut proxy ambient (HTTP_PROXY dsb.): ini client
+            # server-ke-server di jaringan lokal.
+            trust_env=False,
+        )
+
+    async def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
+        try:
+            resp = await self._client.request(method, path, **kwargs)
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            raise RuntimeError(
+                f"MediaMTX tidak terjangkau di {self._client.base_url}: {exc}"
+            ) from exc
+        if resp.status_code == 404:
+            return resp
+        resp.raise_for_status()
+        return resp
+
+    async def get_paths(self) -> list[dict]:
+        """Daftar semua path yang terdaftar di MediaMTX."""
+        resp = await self._request("GET", "/v3/config/paths/list")
+        data = resp.json()
+        return data.get("items", data) if isinstance(data, dict) else data
+
+    async def get_path(self, name: str) -> dict | None:
+        """Detail satu path, atau None bila tidak terdaftar."""
+        resp = await self._request("GET", f"/v3/config/paths/get/{name}")
+        if resp.status_code == 404:
+            return None
+        return resp.json()
+
+    async def create_path(self, name: str, source: str) -> None:
+        """Daftarkan path dengan source RTSP (idempoten bila sudah ada)."""
+        if await self.get_path(name):
+            return
+        await self._request(
+            "POST", "/v3/config/paths/add", json={"name": name, "source": source}
+        )
+
+    async def delete_path(self, name: str) -> None:
+        """Hapus path bila terdaftar."""
+        resp = await self._request("DELETE", f"/v3/config/paths/delete/{name}")
+        if resp.status_code not in (200, 404):
+            resp.raise_for_status()
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
+
+def get_mediamtx() -> MediaMTXClient:
+    """Factory dari settings (field: mediamtx_api_url).
+
+    TODO Fase 1+: tambah mediamtx_api_user/mediamtx_api_password di config
+    bila control API diproteksi di produksi.
+    """
+    settings = get_settings()
+    return MediaMTXClient(base_url=settings.mediamtx_api_url)

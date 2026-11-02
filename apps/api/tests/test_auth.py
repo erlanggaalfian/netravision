@@ -3,9 +3,9 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.core.config import get_settings
 from app.core.rbac import get_current_user
 from app.core.security import create_refresh_token, hash_password, hash_token
-from app.core.config import get_settings
 from app.db.session import get_db
 from app.main import create_app
 from app.models.users import User

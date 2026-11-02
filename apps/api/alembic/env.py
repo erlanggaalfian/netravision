@@ -2,14 +2,13 @@
 
 import asyncio
 
-from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
-
-from app.core.config import get_settings
-from app.db.base import Base
 
 # Registrasi semua model agar metadata lengkap.
 import app.models  # noqa: F401
+from alembic import context
+from app.core.config import get_settings
+from app.db.base import Base
 
 config = context.config
 target_metadata = Base.metadata
