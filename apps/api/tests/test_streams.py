@@ -84,3 +84,19 @@ async def test_poster_404(app_client):
     async with _client(app) as c:
         r = await c.get("/api/posters/stream_1.jpg")
     assert r.status_code == 404
+
+
+async def test_poster_token_query_param(app_client):
+    """Poster bisa diakses via ?token= (untuk <img> tanpa header)."""
+    from app.core.config import get_settings
+    from app.core.security import create_access_token
+
+    app, _, db = app_client
+    admin, _ = await _seed(db)
+    # Tanpa override auth — pakai JWT asli.
+    tok = create_access_token(admin.id, admin.username, admin.role, get_settings())
+    async with _client(app) as c:
+        r = await c.get(f"/api/posters/stream_1.jpg?token={tok}")
+        assert r.status_code == 404  # auth lolos, file belum ada
+        r2 = await c.get("/api/posters/stream_1.jpg?token=palsu")
+        assert r2.status_code == 401

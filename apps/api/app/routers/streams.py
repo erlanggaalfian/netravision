@@ -12,7 +12,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
-from app.core.rbac import require_camera_access, require_roles
+from app.core.rbac import (
+    require_camera_access,
+    require_camera_access_token_qp,
+    require_roles,
+)
 from app.db.session import get_db
 from app.models.access import StreamPermission, UserStreamAccess
 from app.models.streams import Stream
@@ -124,8 +128,9 @@ async def reconnect_stream(
 @router.get("/posters/stream_{stream_id}.jpg")
 async def get_poster(
     stream_id: int,
-    _access: User = Depends(require_camera_access),
+    _access: User = Depends(require_camera_access_token_qp),
 ):
+    # Token boleh via header Authorization atau ?token= (img tidak bisa kirim header).
     # TODO Fase 3: worker capture poster otomatis mengisi direktori ini.
     path = Path(get_settings().posters_dir) / f"stream_{stream_id}.jpg"
     if not path.is_file():

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 import app.models  # noqa: F401 (registrasi metadata Alembic)
-from app.core.rbac import get_current_user
+from app.core.rbac import get_current_user, get_current_user_flexible
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import create_app
@@ -78,6 +78,7 @@ async def app_client(db_session):
 
 def auth_as(app, user: User):
     app.dependency_overrides[get_current_user] = lambda: user
+    app.dependency_overrides[get_current_user_flexible] = lambda: user
 
 
 @pytest.fixture(autouse=True)

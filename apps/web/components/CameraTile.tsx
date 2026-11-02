@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { playWhep, stopWhep } from "../lib/whep";
+import { withToken } from "../lib/api";
 import type { Stream } from "../lib/types";
 
 interface Props {
@@ -79,7 +80,7 @@ export function CameraTile({ stream, onExpand }: Props) {
           />
           {!playing && stream.poster_url && (
             <img
-              src={stream.poster_url}
+              src={withToken(stream.poster_url)}
               alt={stream.name}
               loading="lazy"
               className="absolute inset-0 h-full w-full object-cover"
@@ -96,7 +97,7 @@ export function CameraTile({ stream, onExpand }: Props) {
           </span>
           {stream.poster_url && (
             <img
-              src={stream.poster_url}
+              src={withToken(stream.poster_url)}
               alt={stream.name}
               loading="lazy"
               className="absolute inset-0 h-full w-full object-cover opacity-40"

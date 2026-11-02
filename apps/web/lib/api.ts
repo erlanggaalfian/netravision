@@ -104,3 +104,11 @@ export const api = {
   del: <T>(path: string) =>
     apiFetch(path, { method: "DELETE" }).then(handle<T>),
 };
+
+/* URL ber-token untuk <img> (poster) yang tidak bisa mengirim header Authorization. */
+export function withToken(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  const t = getAccessToken();
+  if (!t) return url;
+  return url + (url.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(t);
+}
