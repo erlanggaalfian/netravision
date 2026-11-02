@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { useAuth } from "../lib/auth";
+import { isAdminRole, useAuth } from "../lib/auth";
 import { useCameraStatus } from "../hooks/useCameraStatus";
 import { ThemeToggle } from "./ThemeToggle";
 
@@ -64,7 +64,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const { connected } = useCameraStatus();
 
-  const items = NAV.filter((n) => !n.adminOnly || user?.role === "admin");
+  const items = NAV.filter((n) => !n.adminOnly || isAdminRole(user?.role));
 
   const handleLogout = async () => {
     await logout();

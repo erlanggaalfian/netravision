@@ -8,7 +8,7 @@ import { AppShell } from "../../components/AppShell";
 import { FocusModal } from "../../components/FocusModal";
 import { Card } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
-import { useAuth } from "../../lib/auth";
+import { isAdminRole, useAuth } from "../../lib/auth";
 import { useCameraStatus } from "../../hooks/useCameraStatus";
 import type { Stream } from "../../lib/types";
 
@@ -70,7 +70,7 @@ export default function MapsPage() {
   const focusRef = useRef(setFocus);
   focusRef.current = setFocus;
 
-  const isAdmin = user?.role === "admin";
+  const isAdmin = isAdminRole(user?.role);
 
   const load = useCallback(async () => {
     setFetching(true);

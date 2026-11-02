@@ -11,6 +11,11 @@ import {
 import { api, clearTokens, getAccessToken, setTokens } from "./api";
 import type { User } from "./types";
 
+/* Peran dengan hak admin penuh di UI (paritas v2.0: super_admin = kuasa penuh). */
+export function isAdminRole(role?: string | null): boolean {
+  return role === "admin" || role === "super_admin";
+}
+
 interface AuthCtx {
   user: User | null;
   loading: boolean;

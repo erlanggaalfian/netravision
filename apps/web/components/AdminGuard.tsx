@@ -2,14 +2,14 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
-import { useAuth } from "../lib/auth";
+import { isAdminRole, useAuth } from "../lib/auth";
 import { Spinner } from "./ui";
 
 /* Penjaga halaman admin: peran admin & super_admin yang boleh masuk. */
 export function AdminGuard({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
-  const allowed = user?.role === "admin" || user?.role === "super_admin";
+  const allowed = isAdminRole(user?.role);
 
   useEffect(() => {
     if (!loading && !allowed) router.replace("/live");

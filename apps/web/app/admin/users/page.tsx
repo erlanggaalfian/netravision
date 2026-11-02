@@ -117,7 +117,7 @@ export default function AdminUsersPage() {
                   <span className="mt-0.5 flex flex-wrap gap-1">
                     <Badge
                       tone={
-                        u.role === "admin"
+                        u.role === "admin" || u.role === "super_admin"
                           ? "info"
                           : u.role === "guest"
                             ? "muted"
