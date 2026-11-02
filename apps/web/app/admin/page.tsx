@@ -74,8 +74,14 @@ export default function AdminDashboard() {
       {/* Strip status: satu panel ruang kendali, bukan empat kartu identik. */}
       <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-white/10 ring-1 ring-white/10 lg:grid-cols-4">
         <div className="bg-ink-900 p-5">
-          <p className="text-xs text-slate-500">Kamera</p>
-          <p className="tnum mt-1 text-[28px] font-bold leading-none tracking-tight text-white">
+          <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+              <circle cx="12" cy="13" r="4" />
+            </svg>
+            Kamera
+          </p>
+          <p className="tnum mt-1.5 text-[28px] font-bold leading-none tracking-tight text-white">
             {streams === null ? "…" : streams.length}
           </p>
           {online !== null && (
@@ -85,20 +91,39 @@ export default function AdminDashboard() {
           )}
         </div>
         <div className="bg-ink-900 p-5">
-          <p className="text-xs text-slate-500">Pengguna</p>
-          <p className="tnum mt-1 text-[28px] font-bold leading-none tracking-tight text-white">
+          <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+            Pengguna
+          </p>
+          <p className="tnum mt-1.5 text-[28px] font-bold leading-none tracking-tight text-white">
             {users === null ? "…" : users.length}
           </p>
         </div>
         <div className="bg-ink-900 p-5">
-          <p className="text-xs text-slate-500">API key</p>
-          <p className="tnum mt-1 text-[28px] font-bold leading-none tracking-tight text-white">
+          <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+            </svg>
+            API key
+          </p>
+          <p className="tnum mt-1.5 text-[28px] font-bold leading-none tracking-tight text-white">
             {keys === null ? "…" : keys.length}
           </p>
         </div>
         <div className="bg-ink-900 p-5">
-          <p className="text-xs text-slate-500">Akses embed</p>
-          <p className="tnum mt-1 text-[28px] font-bold leading-none tracking-tight text-white">
+          <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <rect x="2" y="3" width="20" height="14" rx="2" />
+              <path d="M8 21h8M12 17v4" />
+            </svg>
+            Akses embed
+          </p>
+          <p className="tnum mt-1.5 text-[28px] font-bold leading-none tracking-tight text-white">
             {summary === null ? "…" : summary.total}
           </p>
           <p className="mt-1.5 text-xs text-slate-500">total tercatat</p>

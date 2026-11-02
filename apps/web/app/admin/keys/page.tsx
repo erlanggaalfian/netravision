@@ -56,7 +56,9 @@ function KeyIcon({ className = "" }: { className?: string }) {
 function ListEmptyState({ text }: { text: string }) {
   return (
     <div className="rounded-xl border border-dashed border-ink-700 bg-ink-900/50 px-4 py-12 text-center">
-      <KeyIcon className="mx-auto text-slate-600" />
+      <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-ink-800/70 ring-1 ring-white/5">
+        <KeyIcon className="text-slate-500" />
+      </span>
       <p className="mt-3 text-sm text-slate-500">{text}</p>
     </div>
   );
@@ -223,7 +225,7 @@ export default function AdminKeysPage() {
                     Terakhir dipakai: {k.last_used_at ?? "belum pernah"}
                   </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button
                     variant="subtle"
                     onClick={() => toggleActive(k)}
@@ -702,7 +704,7 @@ function KeyFormModal({
           />
         </label>
         <Field label={`Kamera yang boleh diakses${ordered.length ? ` (${ordered.length})` : ""}`}>
-          <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-ink-700 p-2">
+          <div className="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-ink-700 p-2">
             {streams.map((s) => (
               <label
                 key={s.id}

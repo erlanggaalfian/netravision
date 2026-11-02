@@ -171,7 +171,7 @@ export default function AdminStoragePage() {
       <Card className="mb-6 max-w-2xl">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="font-medium">Koneksi Google Drive</p>
+            <p className="text-sm font-semibold text-white">Koneksi Google Drive</p>
             <p className="mt-1 text-sm text-slate-500">
               {conn?.connected ? (
                 <>
@@ -208,7 +208,7 @@ export default function AdminStoragePage() {
           <EmptyState text="Belum ada tautan. Tambahkan tautan folder Google Drive di bawah." />
         )}
         {data?.folders.map((f, i) => (
-          <Card key={f.id}>
+          <Card key={f.id} className="transition-colors hover:border-ink-500">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="flex flex-wrap items-center gap-2 font-medium">
@@ -247,7 +247,7 @@ export default function AdminStoragePage() {
 
       {/* Tambah tautan */}
       <Card className="max-w-2xl">
-        <p className="mb-4 font-medium">Tambah Tautan</p>
+        <p className="mb-4 text-sm font-semibold text-white">Tambah Tautan</p>
         <div className="space-y-4">
           <Field
             label="Tautan Folder Google Drive"
@@ -289,7 +289,7 @@ export default function AdminStoragePage() {
       </Card>
 
       <Card className="mt-6 max-w-2xl">
-        <p className="mb-2 font-medium">Cara kerja</p>
+        <p className="mb-2 text-sm font-semibold text-white">Cara kerja</p>
         <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-600">
           <li>Klik “Hubungkan Google Drive” di atas dan ikuti 3 langkahnya (sekali saja).</li>
           <li>Tempel tautan foldernya di atas (bisa banyak).</li>
@@ -313,51 +313,51 @@ export default function AdminStoragePage() {
       {/* Modal Hubungkan Google Drive */}
       {showConnect && (
         <Modal title="Hubungkan Google Drive" onClose={() => setShowConnect(false)}>
-            <p className="text-sm text-slate-500">
-              Sekali saja — tanpa SSH, tanpa Cloud Console.
-            </p>
-            <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-600">
-              <li>
-                Di <b>komputer/laptop Anda</b>, pasang rclone sekali dari{" "}
-                <a href="https://rclone.org/downloads/" target="_blank" rel="noreferrer" className="text-blue-600 underline">
-                  rclone.org/downloads
-                </a>
-                .
-              </li>
-              <li>
-                Jalankan perintah ini, lalu izinkan di browser:
-                <code className="mt-1 block rounded bg-slate-100 px-2 py-1 font-mono text-xs">
-                  rclone authorize &quot;drive&quot;
-                </code>
-              </li>
-              <li>
-                Salin <b>seluruh token JSON</b> yang muncul, tempel di bawah, lalu Simpan.
-              </li>
-            </ol>
-            <div className="mt-4">
+          <p className="text-sm text-slate-500">
+            Sekali saja — tanpa SSH, tanpa Cloud Console.
+          </p>
+          <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-600">
+            <li>
+              Di <b>komputer/laptop Anda</b>, pasang rclone sekali dari{" "}
+              <a href="https://rclone.org/downloads/" target="_blank" rel="noreferrer" className="text-blue-600 underline">
+                rclone.org/downloads
+              </a>
+              .
+            </li>
+            <li>
+              Jalankan perintah ini, lalu izinkan di browser:
+              <code className="mt-1 block rounded bg-slate-100 px-2 py-1 font-mono text-xs">
+                rclone authorize &quot;drive&quot;
+              </code>
+            </li>
+            <li>
+              Salin <b>seluruh token JSON</b> yang muncul, tempel di bawah, lalu Simpan.
+            </li>
+          </ol>
+          <div className="mt-4">
             <Field label="Token rclone" hint='Mulai dengan {"access_token": ...'>
               <textarea
                 rows={4}
-                className="w-full rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 font-mono text-xs"
+                className="w-full rounded-xl border border-white/10 bg-ink-950 px-3.5 py-2.5 font-mono text-xs text-slate-100 placeholder:text-slate-600 outline-none transition-colors focus:border-accent-400"
                 placeholder='{"access_token":"ya29...","token_type":"Bearer","refresh_token":"1//...","expiry":"..."}'
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
               />
             </Field>
+          </div>
+          {connectError && (
+            <div className="mt-3">
+              <ErrorBox message={connectError} />
             </div>
-            {connectError && (
-              <div className="mt-3">
-                <ErrorBox message={connectError} />
-              </div>
-            )}
-            <div className="mt-4 flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setShowConnect(false)}>
-                Batal
-              </Button>
-              <Button onClick={connect} disabled={connectBusy} className="min-h-[44px]">
-                {connectBusy ? "Menghubungkan…" : "Simpan & Hubungkan"}
-              </Button>
-            </div>
+          )}
+          <div className="mt-5 flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setShowConnect(false)}>
+              Batal
+            </Button>
+            <Button onClick={connect} disabled={connectBusy} className="min-h-[44px]">
+              {connectBusy ? "Menghubungkan…" : "Simpan & Hubungkan"}
+            </Button>
+          </div>
         </Modal>
       )}
     </div>

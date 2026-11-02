@@ -107,7 +107,7 @@ export function CameraTile({ stream, onExpand }: Props) {
               </div>
             ))}
           {playing && (
-            <span className="pointer-events-none absolute left-3 top-3 flex items-center gap-1.5 rounded-md bg-black/60 px-2 py-1 text-[10px] font-semibold tracking-wide text-white">
+            <span className="pointer-events-none absolute left-3 top-3 flex items-center gap-1.5 rounded-md bg-black/60 px-2 py-1 text-[11px] font-semibold tracking-wide text-white">
               <span className="h-1.5 w-1.5 rounded-full bg-bad-400" />
               LIVE
             </span>

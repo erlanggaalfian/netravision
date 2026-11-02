@@ -91,7 +91,7 @@ export default function AdminAccessPage() {
               <button
                 key={a}
                 onClick={() => setArah(a)}
-                className={`rounded-lg px-4 text-sm font-medium transition-colors ${
+                className={`min-h-[44px] rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
                   arah === a
                     ? "bg-accent-600 text-white"
                     : "text-slate-400 hover:text-white"
@@ -299,7 +299,7 @@ function AccessByUserModal({
         </div>
       ) : (
         <>
-          <div className="max-h-[50vh] space-y-1 overflow-y-auto">
+          <div className="max-h-64 space-y-1 overflow-y-auto">
             {streams.map((s) => (
               <label
                 key={s.id}
@@ -401,7 +401,7 @@ function AccessByCameraModal({
         </div>
       ) : (
         <>
-          <div className="max-h-[50vh] space-y-1 overflow-y-auto">
+          <div className="max-h-64 space-y-1 overflow-y-auto">
             {/* Principal Tamu: semua sesi guest */}
             <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl border border-ink-700 bg-ink-950/60 px-3 py-2 hover:bg-white/[0.03]">
               <input

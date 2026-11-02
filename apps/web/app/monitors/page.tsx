@@ -685,7 +685,7 @@ export default function MonitorsPage() {
                           <Button variant="ghost" onClick={() => startEdit(l)} className="flex-1">
                             Ubah
                           </Button>
-                          <Button variant="danger" onClick={() => setDeleting(l)}>
+                          <Button variant="danger" onClick={() => setDeleting(l)} className="flex-1">
                             Hapus
                           </Button>
                         </div>

@@ -256,7 +256,7 @@ export default function MapsPage() {
         .leaflet-popup-tip { background: var(--nv-ink-900); }
         .leaflet-bar a { width: 44px !important; height: 44px !important; line-height: 44px !important; }
       `}</style>
-      <div className="px-4 pt-5 md:px-6 md:pt-7">
+      <div className="px-4 pt-5 md:px-5 md:pt-7">
         <SectionTitle
           title="Peta Kamera"
           desc="Lokasi semua kamera. Seret marker untuk memindahkan posisi (admin)."
@@ -275,7 +275,7 @@ export default function MapsPage() {
             </div>
           )}
           {isAdmin && (
-            <div className="absolute right-3 top-3 z-10 rounded-xl bg-ink-900/95 px-3.5 py-2.5 text-xs text-neutral-300 ring-1 ring-white/10">
+            <div className="absolute bottom-8 right-3 z-10 max-w-[calc(100%-24px)] rounded-xl bg-ink-900/95 px-3.5 py-2.5 text-xs text-neutral-300 ring-1 ring-white/10">
               Seret marker untuk memindahkan posisi kamera
             </div>
           )}

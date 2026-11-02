@@ -125,7 +125,7 @@ export function FocusModal({ stream, onClose }: Props) {
     >
       <div
         ref={dialogRef}
-        className="nv-stage w-full max-w-5xl overflow-hidden rounded-2xl bg-ink-900 ring-1 ring-white/15"
+        className="nv-stage nv-pop max-h-[calc(100dvh-1.5rem)] w-full max-w-5xl overflow-x-hidden overflow-y-auto rounded-2xl bg-ink-900 ring-1 ring-white/15 sm:max-h-[calc(100dvh-3rem)]"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -149,6 +149,8 @@ export function FocusModal({ stream, onClose }: Props) {
           <div className="flex shrink-0 items-center gap-2">
             <button
               onClick={snapshot}
+              aria-label="Ambil snapshot"
+              title="Ambil snapshot"
               className="flex h-11 items-center gap-2 rounded-xl bg-white/10 px-4 text-sm font-medium text-white transition hover:bg-white/20 active:scale-95"
             >
               <svg
@@ -166,7 +168,7 @@ export function FocusModal({ stream, onClose }: Props) {
                   strokeLinejoin="round"
                 />
               </svg>
-              Snapshot
+              <span className="hidden min-[420px]:inline">Snapshot</span>
             </button>
             <button
               onClick={onClose}

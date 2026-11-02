@@ -149,9 +149,21 @@
   --nv-white: #ffffff;
 }
 
+html {
+  /* Cegah browser mobile menggelembungkan ukuran teks sendiri
+     (terlihat seperti ter-zoom pada blok teks lebar). */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 html,
 body {
   height: 100%;
+  /* Shell tidak boleh scroll horizontal dalam kondisi apa pun:
+     konten yang overflow di satu halaman tidak boleh menggeser
+     atau mengubah skala seluruh halaman di HP. `clip` (bukan hidden)
+     agar position: sticky tetap berfungsi. */
+  overflow-x: clip;
 }
 
 body {

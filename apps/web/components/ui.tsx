@@ -193,7 +193,8 @@ export function Switch({
       aria-checked={checked}
       aria-label={label}
       onClick={() => onChange(!checked)}
-      className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-150 ${
+      /* Perluas area sentuh ke ~48px tanpa mengubah visual track 24px. */
+      className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-150 after:absolute after:-inset-3 after:rounded-full after:content-[''] ${
         checked ? "bg-ok-400" : "bg-ink-600"
       }`}
     >
@@ -296,7 +297,7 @@ export function Modal({
       aria-modal="true"
     >
       <div
-        className={`nv-pop max-h-[92vh] w-full overflow-y-auto rounded-t-2xl border border-white/10 bg-ink-900 p-5 shadow-2xl sm:rounded-2xl sm:p-6 ${
+        className={`nv-pop max-h-[92dvh] w-full overflow-y-auto rounded-t-2xl border border-white/10 bg-ink-900 p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl sm:rounded-2xl sm:p-6 ${
           wide ? "sm:max-w-2xl" : "sm:max-w-lg"
         }`}
         onClick={(e) => e.stopPropagation()}

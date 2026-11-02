@@ -486,7 +486,7 @@ export default function AdminAdsPage() {
                   placeholder="Ketik kalimat informasi iklan..."
                 />
               </Field>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <ColorRow
                   label="Warna Teks"
                   value={cfg.text_color}
@@ -506,7 +506,7 @@ export default function AdminAdsPage() {
                   </Select>
                 </Field>
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <RangeRow
                   label="Ukuran Font"
                   min={8}

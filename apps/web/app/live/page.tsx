@@ -125,7 +125,7 @@ export default function LivePage() {
           title="Live"
           desc={`${merged.length} kamera · ${onlineCount} online`}
           action={
-            <div className="flex items-center gap-2">
+            <div className="flex max-w-full flex-wrap items-center gap-2">
               <span
                 className="flex h-11 items-center gap-2 rounded-full bg-ink-900 px-4 text-xs font-medium text-neutral-300 ring-1 ring-white/10"
                 title={connected ? "WebSocket terhubung" : "Menghubungkan…"}
@@ -160,6 +160,7 @@ export default function LivePage() {
               <button
                 onClick={load}
                 disabled={fetching}
+                aria-label="Muat ulang"
                 className="flex h-11 items-center gap-2 rounded-full bg-ink-900 px-4 text-sm font-medium text-neutral-200 ring-1 ring-white/10 transition hover:bg-ink-800 active:scale-95 disabled:opacity-50"
               >
                 <svg
@@ -178,7 +179,7 @@ export default function LivePage() {
                     strokeLinejoin="round"
                   />
                 </svg>
-                Muat ulang
+                <span className="hidden min-[420px]:inline">Muat ulang</span>
               </button>
             </div>
           }
@@ -245,8 +246,8 @@ export default function LivePage() {
         ) : error ? (
           <div className="flex flex-col items-center gap-4 rounded-2xl bg-ink-900 px-6 py-16 text-center ring-1 ring-white/10">
             <svg
-              width="36"
-              height="36"
+              width="40"
+              height="40"
               viewBox="0 0 24 24"
               fill="none"
               className="text-neutral-400"
@@ -270,7 +271,7 @@ export default function LivePage() {
             </Button>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-2xl bg-ink-900 px-6 py-16 text-center ring-1 ring-white/10">
+          <div className="flex flex-col items-center gap-4 rounded-2xl bg-ink-900 px-6 py-16 text-center ring-1 ring-white/10">
             <svg
               width="40"
               height="40"

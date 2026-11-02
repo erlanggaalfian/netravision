@@ -181,7 +181,7 @@ function EmbedPlayer({
 
         {/* Toast keep-alive */}
         {showKeepAlive && (
-          <div className="absolute left-3 top-3 z-30 flex items-center gap-2.5 rounded-xl bg-ink-900/95 px-3.5 py-2.5 ring-1 ring-white/15">
+          <div className="absolute left-3 top-3 z-30 flex max-w-[calc(100%-24px)] items-center gap-2.5 rounded-xl bg-ink-900/95 px-3.5 py-2.5 ring-1 ring-white/15">
             <span className="text-xs font-medium text-neutral-200">
               Sesi berakhir dalam{" "}
               <span className="font-bold text-warn-400">

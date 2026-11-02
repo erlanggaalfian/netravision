@@ -67,7 +67,9 @@ function CameraIcon({ className = "" }: { className?: string }) {
 function ListEmptyState({ text }: { text: string }) {
   return (
     <div className="rounded-xl border border-dashed border-ink-700 bg-ink-900/50 px-4 py-12 text-center">
-      <CameraIcon className="mx-auto text-slate-600" />
+      <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-ink-800/70 ring-1 ring-white/5">
+        <CameraIcon className="text-slate-500" />
+      </span>
       <p className="mt-3 text-sm text-slate-500">{text}</p>
     </div>
   );
@@ -117,7 +119,7 @@ function StreamRow({
     </span>
   );
   const actions = (
-    <div className="flex gap-2">
+    <div className="flex flex-wrap gap-2">
       <Button variant="subtle" onClick={onShare} className="px-3">
         Bagikan
       </Button>
@@ -368,7 +370,7 @@ export default function AdminStreamsPage() {
           <button
             type="button"
             onClick={() => setSelected(new Set())}
-            className="rounded-lg px-3 text-sm text-slate-400 hover:text-slate-200"
+            className="inline-flex min-h-[44px] items-center rounded-lg px-3 text-sm text-slate-400 hover:text-slate-200"
           >
             Batalkan pilihan
           </button>
@@ -569,7 +571,7 @@ function BulkCoordsModal({
           <ErrorBox message={error} />
         </div>
       )}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Latitude" hint="-90 s/d 90">
           <TextInput
             inputMode="decimal"
@@ -737,7 +739,7 @@ function AddStreamModal({
           </Field>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Brand">
                 <Select value={brand} onChange={(e) => setBrand(e.target.value)}>
                   {BRANDS.map((b) => (
@@ -802,7 +804,7 @@ function AddStreamModal({
             />
             Simpan rekaman ke disk
           </label>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Field label="Retensi (hari)" hint="1–365">
               <TextInput
                 inputMode="numeric"
@@ -963,7 +965,7 @@ function EditStreamModal({
             />
             Simpan rekaman ke disk
           </label>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Field label="Retensi (hari)" hint="1–365">
               <TextInput
                 inputMode="numeric"

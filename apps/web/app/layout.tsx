@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "../lib/auth";
@@ -15,6 +15,14 @@ export const metadata: Metadata = {
   title: "NetraVision",
   description: "Sistem pemantauan CCTV",
   manifest: "/manifest.webmanifest",
+};
+
+/* WAJIB untuk mobile: tanpa ini browser memakai layout viewport ~980px,
+   breakpoint md: ikut aktif di HP, dan halaman terlihat ter-zoom. */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 /* Menetapkan data-theme sebelum paint pertama (tanpa kedip):

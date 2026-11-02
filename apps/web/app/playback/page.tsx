@@ -367,7 +367,7 @@ export default function PlaybackPage() {
         />
 
         {/* Kontrol */}
-        <Card className="mb-4">
+        <Card className="mb-5">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
               {!multi ? (
@@ -471,7 +471,7 @@ export default function PlaybackPage() {
           </div>
         ) : (
           <div
-            className={`grid grid-cols-1 gap-5 ${multi ? (GRID_CLASS[gridCols] ?? GRID_CLASS[2]) : "mx-auto max-w-5xl"}`}
+            className={`grid grid-cols-1 gap-4 ${multi ? (GRID_CLASS[gridCols] ?? GRID_CLASS[2]) : "mx-auto max-w-5xl"}`}
           >
             {selectedStreams.map((s) => (
               <PlaybackPanel
