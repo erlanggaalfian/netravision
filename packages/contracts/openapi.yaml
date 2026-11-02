@@ -200,10 +200,10 @@ components:
     ScanCandidate:
       type: object
       properties:
-        label: { type: string, example: "Hikvision — main stream" }
-        url: { type: string }
-        kind: { type: string, enum: [main, sub], example: "main" }
-        reachable: { type: boolean, example: true }
+        main_url: { type: string }
+        sub_url: { type: [string, "null"] }
+        brand: { type: string, example: "hikvision" }
+        method: { type: string, enum: [explicit, onvif, brand, generic] }
     ScanResult:
       type: object
       properties:
@@ -212,10 +212,10 @@ components:
       type: object
       properties:
         path: { type: string, example: "/recordings" }
-        total_gb: { type: number, example: 500.0 }
-        used_gb: { type: number, example: 123.4 }
-        free_gb: { type: number, example: 376.6 }
-        percent: { type: number, example: 24.7 }
+        measured_on: { type: string, example: "/recordings" }
+        total: { type: integer, example: 536870912000 }
+        used: { type: integer, example: 132499741440 }
+        free: { type: integer, example: 404371170560 }
     ApiKey:
       type: object
       required: [id, name, stream_ids, is_active]
@@ -956,7 +956,7 @@ paths:
           description: Info disk
           content:
             application/json:
-              schema: { type: array, items: { $ref: "#/components/schemas/DiskInfo" } }
+              schema: { $ref: "#/components/schemas/DiskInfo" }
   /api/admin/api-keys:
     get:
       tags: [admin-keys]

@@ -17,6 +17,8 @@ class StreamOut(BaseModel):
     whep_main_url: str
     whep_sub_url: str | None
     poster_url: str
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 class StreamCreate(BaseModel):
@@ -36,6 +38,8 @@ class StreamUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     is_active: bool | None = None
     storage_mode: StorageMode | None = None
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
 
 
 class GroupCreate(BaseModel):

@@ -104,6 +104,10 @@ async def admin_update_stream(
         stream.is_active = data.is_active
     if data.storage_mode is not None:
         stream.storage_mode = data.storage_mode
+    if data.latitude is not None:
+        stream.latitude = data.latitude
+    if data.longitude is not None:
+        stream.longitude = data.longitude
     await db.commit()
     await db.refresh(stream)
     return stream_to_out(stream, get_settings())
@@ -171,6 +175,16 @@ async def _get_group_or_404(db: AsyncSession, nama_grup: str) -> StreamGroup:
     if group is None:
         raise HTTPException(status_code=404, detail="grup tidak ditemukan")
     return group
+
+
+@router.get("/admin/groups", response_model=list[GroupOut])
+async def list_groups(db: AsyncSession = Depends(get_db)):
+    """Daftar semua grup wilayah (tambahan v3.0 untuk halaman admin)."""
+    result = await db.execute(select(StreamGroup).order_by(StreamGroup.name))
+    return [
+        GroupOut(id=g.id, name=g.name, description=g.description)
+        for g in result.scalars().all()
+    ]
 
 
 @router.put("/admin/groups/{nama_grup}", response_model=GroupOut)

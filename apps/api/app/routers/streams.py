@@ -43,6 +43,8 @@ def stream_to_out(stream: Stream, settings: Settings) -> StreamOut:
         whep_main_url=main_url,
         whep_sub_url=sub_url,
         poster_url=f"/api/posters/stream_{stream.id}.jpg",
+        latitude=stream.latitude,
+        longitude=stream.longitude,
     )
 
 

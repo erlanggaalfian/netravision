@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,7 +12,16 @@ from app import __version__
 from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.db.session import dispose_engine, get_session_factory
-from app.routers import admin_streams, auth, streams, system, ws
+from app.routers import (
+    admin_ads,
+    admin_keys,
+    admin_streams,
+    admin_users,
+    auth,
+    streams,
+    system,
+    ws,
+)
 
 
 async def _status_broadcaster() -> None:
@@ -68,8 +78,17 @@ def create_app() -> FastAPI:
     app.include_router(auth.router, prefix="/api")
     app.include_router(streams.router, prefix="/api")
     app.include_router(admin_streams.router, prefix="/api")
+    app.include_router(admin_users.router, prefix="/api")
+    app.include_router(admin_keys.router, prefix="/api")
+    app.include_router(admin_ads.router, prefix="/api")
+    app.include_router(admin_ads.admin_router, prefix="/api")
     # /ws TANPA prefix /api (kontrak).
     app.include_router(ws.router)
+    # File statis untuk gambar iklan yang diunggah.
+    from fastapi.staticfiles import StaticFiles
+
+    Path("data/uploads").mkdir(parents=True, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory="data/uploads"), name="uploads")
     return app
 
 

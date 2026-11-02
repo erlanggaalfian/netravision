@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { AuthProvider } from "../lib/auth";
 
 export const metadata: Metadata = {
   title: "NetraVision",
@@ -13,8 +14,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="id">
-      <body className="bg-neutral-100 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-        {children}
+      <body>
+        <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
   );

@@ -111,6 +111,12 @@ async def guest(data: GuestIn) -> TokenOut:
     return TokenOut(access_token=access, refresh_token=None, expires_in=3600)
 
 
+@router.get("/auth/me")
+async def me(user: User = Depends(get_current_user)) -> dict:
+    """Profil user dari token saat ini (dipakai web saat boot)."""
+    return {"id": user.id, "username": user.username, "role": user.role}
+
+
 # Helper internal (dipakai skrip seed Fase 1, bukan endpoint publik).
 def _make_password_hash(password: str) -> str:  # pragma: no cover
     return hash_password(password)
