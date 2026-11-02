@@ -26,22 +26,36 @@ export function clearTokens() {
   localStorage.removeItem(REFRESH_KEY);
 }
 
+/* Single-flight: refresh yang sedang berjalan dipakai bersama agar
+   dua request 401 bersamaan tidak saling menginvalidasi token. */
+let refreshPromise: Promise<boolean> | null = null;
+
 async function tryRefresh(): Promise<boolean> {
-  const rt = getRefreshToken();
-  if (!rt) return false;
-  try {
-    const res = await fetch(`${BASE}/auth/refresh`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: rt }),
-    });
-    if (!res.ok) return false;
-    const data = await res.json();
-    setTokens(data.access_token, data.refresh_token);
-    return true;
-  } catch {
-    return false;
-  }
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = (async () => {
+    const rt = getRefreshToken();
+    if (!rt) return false;
+    try {
+      const res = await fetch(`${BASE}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: rt }),
+      });
+      if (!res.ok) {
+        // Refresh token mati/kedaluwarsa: bersihkan sesi agar user login ulang.
+        if (res.status === 401) clearTokens();
+        return false;
+      }
+      const data = await res.json();
+      setTokens(data.access_token, data.refresh_token);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+  return refreshPromise;
 }
 
 export class ApiError extends Error {
@@ -68,6 +82,16 @@ export async function apiFetch(
   const res = await fetch(`${BASE}${path}`, { ...init, headers });
   if (res.status === 401 && !retried && (await tryRefresh())) {
     return apiFetch(path, init, true);
+  }
+  if (
+    res.status === 401 &&
+    typeof window !== "undefined" &&
+    !getRefreshToken() &&
+    !window.location.pathname.startsWith("/login") &&
+    !window.location.pathname.startsWith("/embed")
+  ) {
+    // Sesi benar-benar mati: kembali ke halaman login.
+    window.location.href = "/login";
   }
   return res;
 }
