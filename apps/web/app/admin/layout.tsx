@@ -13,6 +13,7 @@ const NAV = [
   { href: "/admin/keys", label: "API Key" },
   { href: "/admin/ads", label: "Iklan" },
   { href: "/admin/drive", label: "Drive" },
+  { href: "/admin/storage", label: "Penyimpanan" },
 ];
 
 export default function AdminLayout({

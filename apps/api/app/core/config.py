@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     # Generate: lihat docs/GOOGLE-DRIVE.md §5.
     drive_token_key: str = ""
 
+    # Mode folder-link + rclone (ala fieriindra): folder penampung lokal
+    # yang di-mount ke Google Drive via `rclone mount`. Background mirror
+    # copier menyalin segmen stabil ke sini untuk kamera dengan
+    # storage_mode "both". Kosong = mode ini nonaktif.
+    gdrive_record_path: str = ""
+    # Kuota tampilan untuk entri Google Drive di /api/admin/disks (TB).
+    gdrive_quota_tb: float = 5.0
+
     cors_origins: list[str] = ["http://localhost:3000"]
     log_level: str = "INFO"
 

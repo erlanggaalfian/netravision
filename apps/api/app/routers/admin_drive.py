@@ -10,8 +10,10 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import time
 import uuid
+from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 import httpx
@@ -22,10 +24,11 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.rbac import require_roles
+from app.core.rbac import get_current_user, require_roles
 from app.db.session import get_db
-from app.models.drive import DriveAccount
+from app.models.drive import DriveAccount, GoogleDriveSetting
 from app.models.streams import Stream
+from app.models.users import User
 from app.services.drive_accounts import clear_drive_client_cache
 
 log = logging.getLogger("netravision.admin_drive")
@@ -275,3 +278,74 @@ async def oauth_callback(
         await db.commit()
         log.warning("OAuth callback akun %s gagal: %s", acc.id, e)
         return RedirectResponse(f"{base}/admin/drive/?connected=0", status_code=302)
+
+
+# ---------------------------------------------------------------------------
+# Mode folder-link + rclone (ala fieriindra/CCTV-Monitoring).
+# Implementasi TAMBAHAN yang lebih sederhana di samping OAuth multi-akun:
+# tujuan Drive cukup diganti dengan menempel tautan folder baru.
+# ---------------------------------------------------------------------------
+
+
+class GoogleDriveSettingIn(BaseModel):
+    folder_url: str
+    folder_name: str = ""
+
+
+def parse_gdrive_folder_id(url: str) -> str:
+    """Ambil ID folder dari tautan Google Drive (berbagai bentuk URL)."""
+    text = (url or "").strip()
+    m = re.search(r"/folders/([A-Za-z0-9_-]+)", text)
+    if m:
+        return m.group(1)
+    m = re.search(r"[?&]id=([A-Za-z0-9_-]+)", text)
+    return m.group(1) if m else ""
+
+
+def _gdrive_setting_dict(row: GoogleDriveSetting | None) -> dict:
+    settings = get_settings()
+    return {
+        "configured": bool(row and row.folder_id),
+        "folder_url": row.folder_url if row else "",
+        "folder_id": row.folder_id if row else "",
+        "folder_name": row.folder_name if row else "",
+        "staging_path": settings.gdrive_record_path,
+        "quota_tb": settings.gdrive_quota_tb,
+        "updated_at": row.updated_at.isoformat() if row and row.updated_at else None,
+        "updated_by": row.updated_by if row else "",
+    }
+
+
+@admin_router.get("/admin/storage/google-drive")
+async def get_gdrive_setting(db: AsyncSession = Depends(get_db)):
+    """Pengaturan folder tujuan Google Drive untuk rekaman (mode folder-link)."""
+    res = await db.execute(select(GoogleDriveSetting).where(GoogleDriveSetting.id == 1))
+    return _gdrive_setting_dict(res.scalars().first())
+
+
+@admin_router.put("/admin/storage/google-drive")
+async def put_gdrive_setting(
+    payload: GoogleDriveSettingIn,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_user),
+):
+    """Ganti folder/akun Google Drive tujuan cukup dengan tautan folder baru."""
+    folder_id = parse_gdrive_folder_id(payload.folder_url)
+    if not folder_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Tautan folder Google Drive tidak dikenali. Tempel tautan folder, "
+            "mis. https://drive.google.com/drive/folders/<ID>",
+        )
+    res = await db.execute(select(GoogleDriveSetting).where(GoogleDriveSetting.id == 1))
+    row = res.scalars().first()
+    if row is None:
+        row = GoogleDriveSetting(id=1)
+        db.add(row)
+    row.folder_url = payload.folder_url.strip()
+    row.folder_id = folder_id
+    row.folder_name = (payload.folder_name or "").strip()
+    row.updated_at = datetime.now(timezone.utc)
+    row.updated_by = admin.username
+    await db.commit()
+    return _gdrive_setting_dict(row)

@@ -45,3 +45,23 @@ class DriveAccount(Base):
     @property
     def connected(self) -> bool:
         return self.status == "connected" and bool(self.token_encrypted)
+
+
+class GoogleDriveSetting(Base):
+    """Tujuan Google Drive mode folder-link + rclone (satu baris, id=1).
+
+    Cara ganti akun/folder: cukup tempel tautan folder Drive yang baru —
+    akun tujuan mengikuti pemilik folder itu. Folder penampung lokal
+    (staging, env GDRIVE_RECORD_PATH) di-mount via rclone; background
+    mirror copier (app/services/drive_mirror.py) menyalin segmen yang
+    sudah stabil ke sana.
+    """
+
+    __tablename__ = "google_drive_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    folder_url: Mapped[str | None] = mapped_column(String(500), nullable=True, default="")
+    folder_id: Mapped[str | None] = mapped_column(String(128), nullable=True, default="")
+    folder_name: Mapped[str | None] = mapped_column(String(128), nullable=True, default="")
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(String(50), nullable=True, default="")

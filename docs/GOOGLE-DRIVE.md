@@ -108,3 +108,49 @@ Admin UI (login ulang dengan akun Google yang sama), lalu hapus/abaikan
 - Scope `drive.file` hanya melihat file buatan aplikasi ini — file lain
   di Drive-mu tidak tersentuh.
 - Rate limit uploader bersifat per-proses (seperti modul auth).
+
+## 7. Mode folder-link + rclone (disarankan bila OAuth merepotkan)
+
+Alternatif yang lebih sederhana, diadopsi dari
+[fieriindra/CCTV-Monitoring](https://github.com/fieriindra/CCTV-Monitoring):
+tujuan Drive diganti cukup dengan **menempel tautan folder baru** di tab
+**Admin → Penyimpanan** — akun tujuan mengikuti pemilik folder itu. Tidak
+perlu OAuth client, tidak perlu `token.json`.
+
+Cara kerja: MediaMTX tetap merekam ke disk lokal; background *mirror
+copier* menyalin segmen yang sudah stabil (tidak berubah 20 detik terakhir)
+ke folder staging lokal yang di-mount ke Google Drive via rclone.
+
+### Langkah setup
+
+1. Install rclone di server: https://rclone.org/install/
+2. `rclone config` → buat remote baru bernama `gdrive`
+   (pilih "Google Drive", ikuti alur OAuth di browser).
+3. Buat folder staging lokal, mis. `/srv/netravision/gdrive-staging`,
+   lalu mount:
+   ```bash
+   rclone mount gdrive: /srv/netravision/gdrive-staging --daemon --vfs-cache-mode writes
+   ```
+   Agar permanen, pasang sebagai systemd service (lihat `rclone mount --help`).
+4. Di environment backend set:
+   ```bash
+   GDRIVE_RECORD_PATH=/srv/netravision/gdrive-staging
+   GDRIVE_QUOTA_TB=5        # opsional, default 5 (untuk tampilan kapasitas)
+   ```
+   lalu restart API. Log akan menampilkan mirror loop aktif.
+5. Buka **Admin → Penyimpanan**: tempel tautan folder Google Drive tujuan
+   (tombol Bagikan → Salin link), beri label bila perlu, **Simpan Pengaturan**.
+6. Di **Admin → Kamera**, set *storage_mode* kamera ke **"Keduanya"**
+   (atau "Google Drive") dan pastikan rekaman aktif.
+
+### Hubungan dengan mode OAuth lama
+
+- Tab **Drive** (OAuth multi-akun) **tetap ada dan tidak diubah** —
+  uploader resumable per akun tetap jalan bila `DRIVE_ENABLED=true`.
+- Mirror rclone hanya aktif bila `GDRIVE_RECORD_PATH` diset; keduanya bisa
+  hidup berdampingan (kamera `storage_mode="both"` memakai keduanya:
+  uploader OAuth + mirror file).
+- Mengganti tautan folder hanya mengubah tujuan unggahan berikutnya;
+  rekaman yang sudah ada di folder lama tidak ikut berpindah.
+- Entri kapasitas Google Drive tampil di `GET /api/admin/disks`
+  (kunci `google_drive`) bila `GDRIVE_RECORD_PATH` diset.

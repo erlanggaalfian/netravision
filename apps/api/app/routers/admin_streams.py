@@ -4,6 +4,7 @@ Semua endpoint butuh peran admin. Path /api/* persis v2.0.
 """
 
 import logging
+import os
 import shutil
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from app.core.rate_limit import rate_limited
 from app.core.rbac import require_roles
 from app.db.session import get_db
 from app.models.access import UserStreamAccess
+from app.models.drive import GoogleDriveSetting
 from app.models.groups import GroupStream, StreamGroup
 from app.models.streams import Stream
 from app.models.users import User
@@ -86,6 +88,10 @@ async def admin_create_stream(
         main_url=res.main_url,
         sub_url=res.sub_url,
         storage_mode=data.storage_mode,
+        recording_enabled=data.recording_enabled,
+        retention_days=data.retention_days,
+        latitude=data.latitude,
+        longitude=data.longitude,
     )
     db.add(stream)
     await db.commit()
@@ -119,6 +125,10 @@ async def admin_update_stream(
         stream.latitude = data.latitude
     if data.longitude is not None:
         stream.longitude = data.longitude
+    if data.recording_enabled is not None:
+        stream.recording_enabled = data.recording_enabled
+    if data.retention_days is not None:
+        stream.retention_days = data.retention_days
     await db.commit()
     await db.refresh(stream)
     return stream_to_out(stream, get_settings())
@@ -239,17 +249,66 @@ async def set_group_grants(nama_grup: str, data: StreamIdsIn, db: AsyncSession =
 
 
 @router.get("/admin/disks")
-async def disk_info():
+async def disk_info(db: AsyncSession = Depends(get_db)):
     settings = get_settings()
     target = settings.recordings_dir if Path(settings.recordings_dir).exists() else "/"
     usage = shutil.disk_usage(target)
-    return {
+    out: dict = {
         "path": settings.recordings_dir,
         "measured_on": target,
         "total": usage.total,
         "used": usage.used,
         "free": usage.free,
     }
+
+    # Entri Google Drive mode folder-link + rclone (ala fieriindra):
+    # aktif hanya bila GDRIVE_RECORD_PATH diset.
+    gdrive_path = (settings.gdrive_record_path or "").rstrip("/")
+    if gdrive_path:
+        try:
+            os.makedirs(gdrive_path, exist_ok=True)
+            quota_tb = settings.gdrive_quota_tb
+            total = int(quota_tb * (1024**4))
+            used = 0
+            for root, _dirs, files in os.walk(gdrive_path):
+                for fn in files:
+                    try:
+                        used += os.path.getsize(os.path.join(root, fn))
+                    except OSError:
+                        pass
+            avail = max(total - used, 0)
+            drive_folder: dict = {}
+            try:
+                res = await db.execute(
+                    select(GoogleDriveSetting).where(GoogleDriveSetting.id == 1)
+                )
+                row = res.scalars().first()
+                if row and row.folder_id:
+                    drive_folder = {
+                        "drive_folder_id": row.folder_id,
+                        "drive_folder_name": row.folder_name or "",
+                        "drive_folder_url": row.folder_url or "",
+                    }
+            except Exception:  # noqa: BLE001
+                drive_folder = {}
+            label = "Google Drive"
+            if drive_folder.get("drive_folder_name"):
+                label = f"Google Drive — {drive_folder['drive_folder_name']}"
+            out["google_drive"] = {
+                "mount": gdrive_path,
+                "label": label,
+                **drive_folder,
+                "storage_type": "google_drive",
+                "size_bytes": total,
+                "avail_bytes": avail,
+                "size_human": f"{quota_tb:g}TB",
+                "avail_human": f"{avail / (1024**4):.1f}TB",
+                "fstype": "gdrive",
+                "usage_pct": round(used / total * 100, 1) if total else 0,
+            }
+        except Exception as e:  # noqa: BLE001
+            log.warning("disk Google Drive gagal: %s", e)
+    return out
 
 
 @router.post(
