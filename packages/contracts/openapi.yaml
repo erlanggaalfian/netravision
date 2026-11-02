@@ -1,0 +1,1219 @@
+openapi: 3.1.0
+info:
+  title: NetraVision API
+  version: 3.0.0
+  description: >-
+    Kontrak API NetraVision v3.0 — sumber kebenaran tunggal untuk backend
+    (FastAPI) dan frontend (Next.js). Dipetakan 1:1 dari 52 endpoint v2.0
+    ("Mamura Stream", backend/main.py) sesuai MIGRATION-MAP.md.
+    Aturan: path /api/* dipertahankan kompatibel; path /api/external/*
+    berstatus FROZEN (tidak boleh berubah) karena dipakai mitra embed.
+  contact:
+    name: NetraVision
+servers:
+  - url: /
+    description: Diproxy Apache (vhost netra.mamura.net.id) ke container API
+tags:
+  - name: system
+    description: Kesehatan layanan
+  - name: auth
+    description: Autentikasi (JWT access pendek + refresh rotation)
+  - name: streams
+    description: Daftar & kontrol stream untuk pengguna
+  - name: recordings
+    description: Rekaman, timeline, dan unduh segmen
+  - name: admin-users
+    description: Administrasi pengguna & hak akses kamera
+  - name: admin-streams
+    description: Administrasi stream, grup, scan kamera, disk
+  - name: admin-keys
+    description: API key embed & log akses
+  - name: admin-ads
+    description: Konfigurasi iklan/banner
+  - name: external
+    description: "FROZEN — kontrak embed pihak ketiga, tidak boleh berubah"
+  - name: realtime
+    description: "BARU di v3.0 — WebSocket status & alert"
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token (umur pendek). Untuk endpoint admin perlu peran admin.
+    apiKeyQuery:
+      type: apiKey
+      in: query
+      name: key
+      description: API key embed pihak ketiga (khusus /api/external/*)
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string, example: "not_found" }
+        message: { type: string, example: "Stream tidak ditemukan" }
+    HealthStatus:
+      type: object
+      required: [status, version]
+      properties:
+        status: { type: string, enum: [ok, degraded], example: "ok" }
+        version: { type: string, example: "3.0.0" }
+        db: { type: string, enum: [up, down], example: "up" }
+        mediamtx: { type: string, enum: [up, down], example: "up" }
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, example: "admin" }
+        password: { type: string, example: "rahasia123" }
+    GuestRequest:
+      type: object
+      properties:
+        nickname: { type: string, example: "Tamu-1" }
+    TokenPair:
+      type: object
+      required: [access_token, refresh_token, token_type, expires_in]
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        token_type: { type: string, example: "bearer" }
+        expires_in: { type: integer, description: "Umur access token (detik)", example: 900 }
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token: { type: string }
+    User:
+      type: object
+      required: [id, username, role, is_active]
+      properties:
+        id: { type: integer, example: 1 }
+        username: { type: string, example: "operator1" }
+        role: { type: string, enum: [admin, user, guest], example: "user" }
+        is_active: { type: boolean, example: true }
+        created_at: { type: string, format: date-time }
+    UserCreate:
+      type: object
+      required: [username, password, role]
+      properties:
+        username: { type: string, minLength: 3, example: "operator1" }
+        password: { type: string, minLength: 8 }
+        role: { type: string, enum: [admin, user, guest], example: "user" }
+    UserUpdate:
+      type: object
+      properties:
+        password: { type: string, minLength: 8 }
+        role: { type: string, enum: [admin, user, guest] }
+        is_active: { type: boolean }
+    CameraAccess:
+      type: object
+      required: [stream_ids]
+      properties:
+        stream_ids: { type: array, items: { type: integer }, example: [1, 3] }
+    CameraGrants:
+      type: object
+      required: [stream_ids]
+      properties:
+        stream_ids: { type: array, items: { type: integer }, example: [1, 2, 3] }
+    Stream:
+      type: object
+      required: [id, name, rtsp_url, is_active]
+      properties:
+        id: { type: integer, example: 1 }
+        name: { type: string, example: "Gerbang Depan" }
+        rtsp_url: { type: string, example: "rtsp://admin:pass@192.168.1.100:554/Streaming/Channels/101" }
+        brand: { type: string, nullable: true, example: "hikvision", description: "BARU v3.0 — hasil brand resolver" }
+        main_url: { type: string, nullable: true, description: "BARU v3.0 — URL main stream eksplisit" }
+        sub_url: { type: string, nullable: true, description: "BARU v3.0 — URL sub stream eksplisit" }
+        onvif_profile: { type: string, nullable: true }
+        group: { type: string, nullable: true, example: "Area Parkir" }
+        is_active: { type: boolean, example: true }
+        is_online: { type: boolean, description: "BARU v3.0 — status real-time", example: true }
+        has_recording: { type: boolean, example: true }
+        retention_days: { type: integer, nullable: true, example: 14 }
+        storage_mode: { type: string, enum: [local, drive, both], description: "BARU v3.0 — tujuan penyimpanan rekaman", example: "local" }
+    StreamCreate:
+      type: object
+      required: [name, rtsp_url]
+      properties:
+        name: { type: string, example: "Gerbang Depan" }
+        rtsp_url: { type: string }
+        brand: { type: string, description: "Otomatis bila mode scan 'auto'", example: "auto" }
+        group: { type: string }
+        retention_days: { type: integer, example: 14 }
+        storage_mode: { type: string, enum: [local, drive, both], default: local }
+        is_active: { type: boolean, default: true }
+    StreamUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        rtsp_url: { type: string }
+        brand: { type: string }
+        main_url: { type: string }
+        sub_url: { type: string }
+        group: { type: string, nullable: true }
+        retention_days: { type: integer, nullable: true }
+        storage_mode: { type: string, enum: [local, drive, both] }
+        is_active: { type: boolean }
+    SharingInfo:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: { type: boolean, example: true }
+        share_token: { type: string, nullable: true }
+    SharingUpdate:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
+    OwnerAssign:
+      type: object
+      required: [user_id]
+      properties:
+        user_id: { type: integer, example: 2 }
+    GroupRename:
+      type: object
+      required: [new_name]
+      properties:
+        new_name: { type: string, example: "Gedung A" }
+    GroupAds:
+      type: object
+      properties:
+        ads_enabled: { type: boolean, example: true }
+    ScanRequest:
+      type: object
+      properties:
+        brand: { type: string, description: "'auto' atau nama brand (hikvision, dahua, uniview, hanwha, axis, ...)", example: "auto" }
+        host: { type: string, example: "192.168.1.100" }
+        port: { type: integer, example: 554 }
+        username: { type: string }
+        password: { type: string }
+    ScanPreviewRequest:
+      type: object
+      required: [rtsp_url]
+      properties:
+        brand: { type: string, example: "auto" }
+        rtsp_url: { type: string }
+    ScanCandidate:
+      type: object
+      properties:
+        label: { type: string, example: "Hikvision — main stream" }
+        url: { type: string }
+        kind: { type: string, enum: [main, sub], example: "main" }
+        reachable: { type: boolean, example: true }
+    ScanResult:
+      type: object
+      properties:
+        candidates: { type: array, items: { $ref: "#/components/schemas/ScanCandidate" } }
+    DiskInfo:
+      type: object
+      properties:
+        path: { type: string, example: "/recordings" }
+        total_gb: { type: number, example: 500.0 }
+        used_gb: { type: number, example: 123.4 }
+        free_gb: { type: number, example: 376.6 }
+        percent: { type: number, example: 24.7 }
+    ApiKey:
+      type: object
+      required: [id, name, stream_ids, is_active]
+      properties:
+        id: { type: integer, example: 1 }
+        name: { type: string, example: "Embed Website Mitra" }
+        key_prefix: { type: string, description: "Awalan key untuk identifikasi (bukan key penuh)", example: "nv_9f2a" }
+        stream_ids: { type: array, items: { type: integer }, example: [1] }
+        domain_lock: { type: string, nullable: true, example: "mitra.example.com" }
+        password_protected: { type: boolean, example: false }
+        session_limit_min: { type: integer, nullable: true, example: 60 }
+        is_active: { type: boolean, example: true }
+        created_at: { type: string, format: date-time }
+        last_used_at: { type: string, format: date-time, nullable: true }
+    ApiKeyCreate:
+      type: object
+      required: [name, stream_ids]
+      properties:
+        name: { type: string }
+        stream_ids: { type: array, items: { type: integer } }
+        domain_lock: { type: string }
+        password: { type: string, description: "Kata sandi opsional untuk embed" }
+        session_limit_min: { type: integer }
+    ApiKeyCreated:
+      allOf:
+        - $ref: "#/components/schemas/ApiKey"
+        - type: object
+          required: [key]
+          properties:
+            key: { type: string, description: "Key penuh — hanya ditampilkan sekali saat pembuatan" }
+    ApiKeyUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        stream_ids: { type: array, items: { type: integer } }
+        domain_lock: { type: string, nullable: true }
+        password: { type: string, nullable: true }
+        session_limit_min: { type: integer, nullable: true }
+        is_active: { type: boolean }
+    AccessLog:
+      type: object
+      properties:
+        id: { type: integer }
+        key_id: { type: integer }
+        stream_id: { type: integer }
+        ip: { type: string, example: "203.0.113.10" }
+        accessed_at: { type: string, format: date-time }
+    AccessLogSummary:
+      type: object
+      properties:
+        total: { type: integer, example: 1520 }
+        by_key: { type: array, items: { type: object, properties: { key_id: { type: integer }, count: { type: integer } } } }
+    AdConfig:
+      type: object
+      properties:
+        enabled: { type: boolean, example: true }
+        title: { type: string, nullable: true }
+        image_url: { type: string, nullable: true }
+        link_url: { type: string, nullable: true }
+        position: { type: string, enum: [top, bottom, sidebar], nullable: true }
+    TimelineEntry:
+      type: object
+      properties:
+        start: { type: string, format: date-time }
+        end: { type: string, format: date-time }
+        has_event: { type: boolean, description: "BARU v3.0 — true bila ada event AI di rentang ini (aktif bila modul AI on)" }
+    Timeline:
+      type: object
+      properties:
+        date: { type: string, format: date, example: "2026-11-02" }
+        entries: { type: array, items: { $ref: "#/components/schemas/TimelineEntry" } }
+    RecordingSegment:
+      type: object
+      properties:
+        start: { type: string, format: date-time }
+        end: { type: string, format: date-time }
+        duration_sec: { type: integer }
+        size_bytes: { type: integer }
+        url: { type: string }
+    PlaybackUrl:
+      type: object
+      properties:
+        url: { type: string }
+        expires_at: { type: string, format: date-time, nullable: true }
+    NextPlayable:
+      type: object
+      properties:
+        available: { type: boolean }
+        time: { type: string, format: date-time, nullable: true }
+    ExternalCamera:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+paths:
+  /:
+    get:
+      tags: [system]
+      summary: "v2.0 root — DIHILANGKAN di v3.0"
+      description: >-
+        Di v2.0 melayani halaman web. Di v3.0 path / dilayani Apache DocumentRoot
+        (frontend statis); endpoint ini tidak ada di API v3.0.
+      deprecated: true
+      x-v3-status: removed
+      x-v3-module: none
+      responses:
+        "200":
+          description: v2.0 saja
+  /api/health:
+    get:
+      tags: [system]
+      summary: Status kesehatan layanan
+      x-v3-status: kept
+      x-v3-module: system.py
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthStatus" }
+  /api/auth/login:
+    post:
+      tags: [auth]
+      summary: Login pengguna
+      description: "v3.0: mengembalikan access token (umur pendek) + refresh token (rotation)."
+      x-v3-status: changed
+      x-v3-module: auth.py
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Login berhasil
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenPair" }
+        "401":
+          description: Kredensial salah
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/auth/guest:
+    post:
+      tags: [auth]
+      summary: Login tamu
+      x-v3-status: kept
+      x-v3-module: auth.py
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GuestRequest" }
+      responses:
+        "200":
+          description: Token tamu
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenPair" }
+  /api/auth/refresh:
+    post:
+      tags: [auth]
+      summary: "BARU v3.0 — tukar refresh token"
+      description: Refresh-token rotation; refresh token lama di-revoke.
+      x-v3-status: new
+      x-v3-module: auth.py
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefreshRequest" }
+      responses:
+        "200":
+          description: Token baru
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenPair" }
+        "401":
+          description: Refresh token tidak valid / sudah di-revoke
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/auth/logout:
+    post:
+      tags: [auth]
+      summary: "BARU v3.0 — logout (revoke refresh token)"
+      x-v3-status: new
+      x-v3-module: auth.py
+      responses:
+        "200":
+          description: Berhasil logout
+          content:
+            application/json:
+              schema: { type: object, properties: { ok: { type: boolean, example: true } } }
+  /api/streams:
+    get:
+      tags: [streams]
+      summary: Daftar stream yang boleh diakses pengguna
+      description: "v3.0: + status online/offline real-time per stream."
+      x-v3-status: changed
+      x-v3-module: streams.py
+      responses:
+        "200":
+          description: Daftar stream
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Stream" } }
+  /api/streams/{stream_id}/reconnect:
+    post:
+      tags: [streams]
+      summary: Sambung ulang stream tanpa reload halaman
+      x-v3-status: kept
+      x-v3-module: streams.py
+      parameters:
+        - { name: stream_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Perintah reconnect dikirim
+          content:
+            application/json:
+              schema: { type: object, properties: { ok: { type: boolean, example: true } } }
+        "404":
+          description: Stream tidak ditemukan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/posters/stream_{stream_id}.jpg:
+    get:
+      tags: [streams]
+      summary: Gambar pratinjau (poster) kamera
+      description: "v3.0: dihasilkan job worker terjadwal, bukan inline."
+      x-v3-status: changed
+      x-v3-module: streams.py
+      parameters:
+        - { name: stream_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: File JPEG poster
+          content:
+            image/jpeg:
+              schema: { type: string, format: binary }
+        "404":
+          description: Poster/stream tidak ditemukan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/recordings/cameras:
+    get:
+      tags: [recordings]
+      summary: Daftar kamera yang punya rekaman
+      x-v3-status: kept
+      x-v3-module: recordings.py
+      responses:
+        "200":
+          description: Daftar kamera
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Stream" } }
+  /api/recordings/{stream_id}/timeline:
+    get:
+      tags: [recordings]
+      summary: Linimasa rekaman per tanggal
+      description: "v3.0: + penanda has_event bila modul AI aktif."
+      x-v3-status: changed
+      x-v3-module: recordings.py
+      parameters:
+        - { name: stream_id, in: path, required: true, schema: { type: integer } }
+        - { name: date, in: query, required: false, schema: { type: string, format: date }, description: "Default: hari ini" }
+      responses:
+        "200":
+          description: Linimasa
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Timeline" }
+  /api/recordings/{stream_id}/segments:
+    get:
+      tags: [recordings]
+      summary: Daftar segmen rekaman
+      x-v3-status: kept
+      x-v3-module: recordings.py
+      parameters:
+        - { name: stream_id, in: path, required: true, schema: { type: integer } }
+        - { name: date, in: query, required: false, schema: { type: string, format: date } }
+        - { name: hour, in: query, required: false, schema: { type: integer, minimum: 0, maximum: 23 } }
+      responses:
+        "200":
+          description: Daftar segmen
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/RecordingSegment" } }
+  /api/recordings/{stream_id}/dates:
+    get:
+      tags: [recordings]
+      summary: Tanggal-tanggal yang punya rekaman
+      x-v3-status: kept
+      x-v3-module: recordings.py
+      parameters:
+        - { name: stream_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Daftar tanggal
+          content:
+            application/json:
+              schema: { type: object, properties: { dates: { type: array, items: { type: string, format: date } } } }
+  /api/recordings/{stream_id}/stream:
+    get:
+      tags: [recordings]
+      summary: Stream rekaman (rentang waktu)
+      x-v3-status: kept
+      x-v3-module: recordings.py
+      parameters:
+        - { name: stream_id, in: path, required: true, schema: { type: integer } }
+        - { name: start, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: end, in: query, required: false, schema: { type: string, format: date-time } }
+      responses:
+        "200":
+          description: Video rekaman
+          content:
+            video/mp4:
+              schema: { type: string, format: binary }
+  /api/recordings/{stream_id}/file:
+    get:
+      tags: [recordings]
+      summary: Unduh potongan rekaman
+      x-v3-status: kept
+      x-v3-module: recordings.py
+      parameters:
+        - { name: stream_id, in: path, required: true, schema: { type: integer } }
+        - { name: start, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: end, in: query, required: true, schema: { type: string, format: date-time } }
+      responses:
+        "200":
+          description: File potongan rekaman
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+  /api/recordings/{stream_id}/playback-url:
+    get:
+      tags: [recordings]
+      summary: URL playback untuk waktu tertentu
+      x-v3-status: kept
+      x-v3-module: recordings.py
+      parameters:
+        - { name: stream_id, in: path, required: true, schema: { type: integer } }
+        - { name: time, in: query, required: true, schema: { type: string, format: date-time } }
+      responses:
+        "200":
+          description: URL playback
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlaybackUrl" }
+  /api/recordings/{stream_id}/next-playable:
+    get:
+      tags: [recordings]
+      summary: Waktu berikutnya yang bisa diputar
+      x-v3-status: kept
+      x-v3-module: recordings.py
+      parameters:
+        - { name: stream_id, in: path, required: true, schema: { type: integer } }
+        - { name: after, in: query, required: false, schema: { type: string, format: date-time } }
+      responses:
+        "200":
+          description: Waktu playable berikutnya
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NextPlayable" }
+  /api/admin/users:
+    get:
+      tags: [admin-users]
+      summary: Daftar pengguna
+      x-v3-status: kept
+      x-v3-module: admin_users.py
+      responses:
+        "200":
+          description: Daftar pengguna
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/User" } }
+    post:
+      tags: [admin-users]
+      summary: Buat pengguna
+      x-v3-status: kept
+      x-v3-module: admin_users.py
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserCreate" }
+      responses:
+        "201":
+          description: Pengguna dibuat
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400":
+          description: Validasi gagal
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/admin/users/{user_id}:
+    put:
+      tags: [admin-users]
+      summary: Ubah pengguna
+      x-v3-status: kept
+      x-v3-module: admin_users.py
+      parameters:
+        - { name: user_id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserUpdate" }
+      responses:
+        "200":
+          description: Pengguna diperbarui
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+    delete:
+      tags: [admin-users]
+      summary: Hapus pengguna
+      x-v3-status: kept
+      x-v3-module: admin_users.py
+      parameters:
+        - { name: user_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Pengguna dihapus
+          content:
+            application/json:
+              schema: { type: object, properties: { ok: { type: boolean, example: true } } }
+  /api/admin/users/{user_id}/camera-access:
+    get:
+      tags: [admin-users]
+      summary: Lihat hak akses kamera pengguna
+      x-v3-status: kept
+      x-v3-module: admin_users.py
+      parameters:
+        - { name: user_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Hak akses
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CameraAccess" }
+    post:
+      tags: [admin-users]
+      summary: Atur hak akses kamera pengguna
+      x-v3-status: kept
+      x-v3-module: admin_users.py
+      parameters:
+        - { name: user_id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CameraAccess" }
+      responses:
+        "200":
+          description: Hak akses disimpan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CameraAccess" }
+  /api/admin/users/{user_id}/access:
+    post:
+      tags: [admin-users]
+      summary: Atur akses pengguna (v2.0)
+      x-v3-status: kept
+      x-v3-module: admin_users.py
+      parameters:
+        - { name: user_id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CameraAccess" }
+      responses:
+        "200":
+          description: Akses disimpan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CameraAccess" }
+  /api/admin/admins/{admin_id}/camera-grants:
+    get:
+      tags: [admin-users]
+      summary: Lihat grant kamera milik admin
+      x-v3-status: kept
+      x-v3-module: admin_users.py
+      parameters:
+        - { name: admin_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Daftar grant
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CameraGrants" }
+    post:
+      tags: [admin-users]
+      summary: Atur grant kamera milik admin
+      x-v3-status: kept
+      x-v3-module: admin_users.py
+      parameters:
+        - { name: admin_id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CameraGrants" }
+      responses:
+        "200":
+          description: Grant disimpan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CameraGrants" }
+  /api/admin/access-overview:
+    get:
+      tags: [admin-users]
+      summary: Ikhtisar akses seluruh pengguna
+      x-v3-status: kept
+      x-v3-module: admin_users.py
+      responses:
+        "200":
+          description: Ikhtisar akses
+          content:
+            application/json:
+              schema: { type: array, items: { type: object, properties: { user: { $ref: "#/components/schemas/User" }, stream_ids: { type: array, items: { type: integer } } } } }
+  /api/admin/streams:
+    get:
+      tags: [admin-streams]
+      summary: Daftar semua stream (admin)
+      x-v3-status: kept
+      x-v3-module: admin_streams.py
+      responses:
+        "200":
+          description: Daftar stream
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Stream" } }
+    post:
+      tags: [admin-streams]
+      summary: Tambah stream
+      description: "v3.0: + brand resolver (ONVIF → template brand → generik)."
+      x-v3-status: changed
+      x-v3-module: admin_streams.py
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StreamCreate" }
+      responses:
+        "201":
+          description: Stream dibuat
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Stream" }
+  /api/admin/streams/{stream_id}:
+    put:
+      tags: [admin-streams]
+      summary: Ubah stream
+      description: "v3.0: simpan brand, main_url, sub_url eksplisit."
+      x-v3-status: changed
+      x-v3-module: admin_streams.py
+      parameters:
+        - { name: stream_id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StreamUpdate" }
+      responses:
+        "200":
+          description: Stream diperbarui
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Stream" }
+    delete:
+      tags: [admin-streams]
+      summary: Hapus stream
+      x-v3-status: kept
+      x-v3-module: admin_streams.py
+      parameters:
+        - { name: stream_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Stream dihapus
+          content:
+            application/json:
+              schema: { type: object, properties: { ok: { type: boolean, example: true } } }
+  /api/admin/streams/{stream_id}/sharing:
+    get:
+      tags: [admin-streams]
+      summary: Lihat status berbagi stream
+      x-v3-status: kept
+      x-v3-module: admin_streams.py
+      parameters:
+        - { name: stream_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Status berbagi
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SharingInfo" }
+    post:
+      tags: [admin-streams]
+      summary: Atur berbagi stream
+      x-v3-status: kept
+      x-v3-module: admin_streams.py
+      parameters:
+        - { name: stream_id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SharingUpdate" }
+      responses:
+        "200":
+          description: Berbagi diperbarui
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SharingInfo" }
+  /api/admin/streams/{stream_id}/owner:
+    post:
+      tags: [admin-streams]
+      summary: Tetapkan pemilik stream
+      x-v3-status: kept
+      x-v3-module: admin_streams.py
+      parameters:
+        - { name: stream_id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OwnerAssign" }
+      responses:
+        "200":
+          description: Pemilik ditetapkan
+          content:
+            application/json:
+              schema: { type: object, properties: { ok: { type: boolean, example: true } } }
+  /api/admin/groups/{nama_grup}:
+    put:
+      tags: [admin-streams]
+      summary: Ubah nama grup wilayah
+      x-v3-status: kept
+      x-v3-module: admin_streams.py
+      parameters:
+        - { name: nama_grup, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GroupRename" }
+      responses:
+        "200":
+          description: Grup diubah
+          content:
+            application/json:
+              schema: { type: object, properties: { ok: { type: boolean, example: true } } }
+  /api/admin/groups/{nama_grup}/camera-grants:
+    get:
+      tags: [admin-streams]
+      summary: Lihat grant kamera grup wilayah
+      x-v3-status: kept
+      x-v3-module: admin_streams.py
+      parameters:
+        - { name: nama_grup, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Daftar grant grup
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CameraGrants" }
+    post:
+      tags: [admin-streams]
+      summary: Atur grant kamera grup wilayah
+      x-v3-status: kept
+      x-v3-module: admin_streams.py
+      parameters:
+        - { name: nama_grup, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CameraGrants" }
+      responses:
+        "200":
+          description: Grant grup disimpan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CameraGrants" }
+  /api/admin/scan:
+    post:
+      tags: [admin-streams]
+      summary: Pindai kamera (cari kandidat stream)
+      description: "v3.0: + pilih brand / otomatis + preview kandidat."
+      x-v3-status: changed
+      x-v3-module: admin_streams.py
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScanRequest" }
+      responses:
+        "200":
+          description: Kandidat stream
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScanResult" }
+  /api/admin/scan/preview:
+    post:
+      tags: [admin-streams]
+      summary: Pratinjau kandidat stream sebelum disimpan
+      x-v3-status: kept
+      x-v3-module: admin_streams.py
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScanPreviewRequest" }
+      responses:
+        "200":
+          description: Hasil pratinjau
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScanCandidate" }
+  /api/admin/disks:
+    get:
+      tags: [admin-streams]
+      summary: Kapasitas disk rekaman
+      x-v3-status: kept
+      x-v3-module: admin_streams.py
+      responses:
+        "200":
+          description: Info disk
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/DiskInfo" } }
+  /api/admin/api-keys:
+    get:
+      tags: [admin-keys]
+      summary: Daftar API key
+      x-v3-status: kept
+      x-v3-module: admin_keys.py
+      responses:
+        "200":
+          description: Daftar API key
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/ApiKey" } }
+    post:
+      tags: [admin-keys]
+      summary: Buat API key
+      x-v3-status: kept
+      x-v3-module: admin_keys.py
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ApiKeyCreate" }
+      responses:
+        "201":
+          description: API key dibuat (key penuh hanya tampil sekali)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiKeyCreated" }
+  /api/admin/api-keys/{key_id}:
+    put:
+      tags: [admin-keys]
+      summary: Ubah API key
+      x-v3-status: kept
+      x-v3-module: admin_keys.py
+      parameters:
+        - { name: key_id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ApiKeyUpdate" }
+      responses:
+        "200":
+          description: API key diperbarui
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiKey" }
+    delete:
+      tags: [admin-keys]
+      summary: Hapus API key
+      x-v3-status: kept
+      x-v3-module: admin_keys.py
+      parameters:
+        - { name: key_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: API key dihapus
+          content:
+            application/json:
+              schema: { type: object, properties: { ok: { type: boolean, example: true } } }
+  /api/admin/api-access-logs:
+    get:
+      tags: [admin-keys]
+      summary: Log akses API key
+      x-v3-status: kept
+      x-v3-module: admin_keys.py
+      parameters:
+        - { name: key_id, in: query, required: false, schema: { type: integer } }
+        - { name: limit, in: query, required: false, schema: { type: integer, default: 50 } }
+      responses:
+        "200":
+          description: Daftar log
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/AccessLog" } }
+    delete:
+      tags: [admin-keys]
+      summary: Hapus log akses
+      x-v3-status: kept
+      x-v3-module: admin_keys.py
+      responses:
+        "200":
+          description: Log dihapus
+          content:
+            application/json:
+              schema: { type: object, properties: { ok: { type: boolean, example: true } } }
+  /api/admin/api-access-logs/summary:
+    get:
+      tags: [admin-keys]
+      summary: Ringkasan log akses
+      x-v3-status: kept
+      x-v3-module: admin_keys.py
+      responses:
+        "200":
+          description: Ringkasan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AccessLogSummary" }
+  /api/ad-config:
+    get:
+      tags: [admin-ads]
+      summary: Konfigurasi iklan aktif
+      x-v3-status: kept
+      x-v3-module: admin_ads.py
+      responses:
+        "200":
+          description: Konfigurasi iklan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdConfig" }
+  /api/admin/ad-config:
+    post:
+      tags: [admin-ads]
+      summary: Simpan konfigurasi iklan
+      x-v3-status: kept
+      x-v3-module: admin_ads.py
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdConfig" }
+      responses:
+        "200":
+          description: Konfigurasi disimpan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdConfig" }
+  /api/admin/ad-config/upload-image:
+    post:
+      tags: [admin-ads]
+      summary: Unggah gambar iklan
+      x-v3-status: kept
+      x-v3-module: admin_ads.py
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image: { type: string, format: binary }
+      responses:
+        "200":
+          description: Gambar terunggah
+          content:
+            application/json:
+              schema: { type: object, properties: { image_url: { type: string } } }
+  /api/admin/groups/{group_name}/ads:
+    put:
+      tags: [admin-ads]
+      summary: Atur iklan per grup
+      x-v3-status: kept
+      x-v3-module: admin_ads.py
+      parameters:
+        - { name: group_name, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GroupAds" }
+      responses:
+        "200":
+          description: Iklan grup disimpan
+          content:
+            application/json:
+              schema: { type: object, properties: { ok: { type: boolean, example: true } } }
+  /api/external/cameras:
+    get:
+      tags: [external]
+      summary: "FROZEN — daftar kamera untuk embed"
+      description: KONTRAK FROZEN — tidak boleh berubah di v3.0.
+      x-frozen: true
+      x-v3-status: frozen
+      x-v3-module: external.py
+      security:
+        - apiKeyQuery: []
+      responses:
+        "200":
+          description: Daftar kamera
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/ExternalCamera" } }
+        "401":
+          description: API key tidak valid / domain tidak diizinkan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/external/stream:
+    get:
+      tags: [external]
+      summary: "FROZEN — URL stream untuk embed"
+      description: KONTRAK FROZEN — tidak boleh berubah di v3.0.
+      x-frozen: true
+      x-v3-status: frozen
+      x-v3-module: external.py
+      security:
+        - apiKeyQuery: []
+      parameters:
+        - { name: key, in: query, required: true, schema: { type: string }, description: "API key embed" }
+        - { name: camera, in: query, required: true, schema: { type: integer }, description: "ID kamera" }
+      responses:
+        "200":
+          description: URL stream embed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlaybackUrl" }
+        "401":
+          description: API key tidak valid
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/external/playback:
+    get:
+      tags: [external]
+      summary: "FROZEN — URL playback untuk embed"
+      description: KONTRAK FROZEN — tidak boleh berubah di v3.0.
+      x-frozen: true
+      x-v3-status: frozen
+      x-v3-module: external.py
+      security:
+        - apiKeyQuery: []
+      parameters:
+        - { name: key, in: query, required: true, schema: { type: string }, description: "API key embed" }
+        - { name: camera, in: query, required: true, schema: { type: integer }, description: "ID kamera" }
+        - { name: time, in: query, required: false, schema: { type: string, format: date-time } }
+      responses:
+        "200":
+          description: URL playback embed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlaybackUrl" }
+        "401":
+          description: API key tidak valid
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /ws:
+    get:
+      tags: [realtime]
+      summary: "BARU v3.0 — WebSocket status kamera & alert"
+      description: >-
+        Endpoint WebSocket (bukan HTTP biasa). Klien menyambung dengan query
+        ?token=<JWT access token>. Server mengirim event JSON:
+        {"type":"camera.status","stream_id":1,"online":true},
+        {"type":"recording.progress","stream_id":1,...},
+        {"type":"alert","kind":"person","stream_id":2,...} (alert hanya bila modul AI on).
+        Menggantikan polling HTTP v2.0.
+      x-v3-status: new
+      x-v3-module: ws.py
+      parameters:
+        - { name: token, in: query, required: true, schema: { type: string }, description: "JWT access token" }
+      responses:
+        "101":
+          description: Upgrade ke WebSocket
+        "401":
+          description: Token tidak valid
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }

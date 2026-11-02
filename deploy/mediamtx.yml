@@ -1,0 +1,68 @@
+# NetraVision v3.0 — konfigurasi MediaMTX
+# Dipakai oleh deploy/docker-compose.yml (mount read-only ke /mediamtx.yml).
+# Referensi key: template resmi bluenviron/mediamtx.
+#
+# Arsitektur:
+# - Kamera --RTSP--> MediaMTX --WebRTC/WHEP--> browser (sinyal via Apache :443)
+# - Media WebRTC (UDP 8189) langsung ke browser — lihat ports di docker-compose.yml
+# - Path stream_{id} (main) & stream_{id}_sub (sub) didaftarkan DINAMIS oleh
+#   service api via control API (Fase 1+); file ini hanya default-nya.
+
+logLevel: info
+logDestinations: [stdout]
+
+# RTSP server (kamera me-release / MediaMTX me-pull RTSP dari kamera)
+rtsp: yes
+rtspAddress: :8554
+# Paksa TCP agar stabil menembus firewall/NAT.
+rtspTransports: [tcp]
+
+# RTMP tidak dipakai — matikan untuk mengurangi permukaan serangan.
+rtmpDisable: yes
+
+# HLS fallback (untuk jaringan yang memblokir UDP). Diakses via Apache /hls/*.
+hls: yes
+hlsAddress: :8888
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsPartDuration: 500ms
+hlsSegmentDuration: 1s
+
+# WebRTC: sinyal WHEP via HTTP :8889 (Apache proxy /whep/* ke sini),
+# media via UDP port 8189 (default) — di-publish ke host di docker-compose.yml.
+webrtc: yes
+webrtcAddress: :8889
+
+# Control API: dipakai service api untuk register/unregister path kamera.
+# Di dalam container listen di semua interface agar reachable via network
+# docker (mediamtx:9997); ke host hanya 127.0.0.1 (lihat compose).
+# TODO Fase 4: aktifkan authInternalUsers untuk control API.
+api: yes
+apiAddress: :9997
+
+# Metrics tidak diekspos ke host pada Fase 0.
+metrics: no
+
+#######################################################
+# Path defaults — berlaku untuk semua path stream_{id} / stream_{id}_sub
+# yang didaftarkan API (brand-aware resolver, Fase 1+).
+pathDefaults:
+  # API mem-publish path via control API; source publisher = API mendorong
+  # konfigurasi path (termasuk RTSP URL kamera) saat kamera ditambahkan.
+  source: publisher
+
+  # Perekaman: segmen fMP4 per kamera, siap untuk opsi lokal / Drive / keduanya
+  # (Fase 3). Format & pola path dipertahankan kompatibel dengan arsip v2.0.
+  record: true
+  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f.mp4
+  recordFormat: fmp4
+  recordPartDuration: 1s
+  recordSegmentDuration: 3600s
+  # Retensi default lokal 7 hari; per-kamera bisa dioverride via API (Fase 3).
+  recordDeleteAfter: 168h
+
+# Path statis: kosong — semua path dikelola dinamis oleh API.
+# Contoh pola yang akan didaftarkan API:
+#   stream_1      -> main stream kamera id 1
+#   stream_1_sub  -> sub stream kamera id 1
+paths: {}

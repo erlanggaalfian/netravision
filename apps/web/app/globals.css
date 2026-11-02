@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+/* Fondasi sementara — design language final (vibekoding) menyusul di Fase 2. */
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Cegah auto-zoom iOS pada input (pola mobile yang dikunci). */
+input,
+select,
+textarea {
+  font-size: 16px;
+}

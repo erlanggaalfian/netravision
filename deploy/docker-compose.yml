@@ -1,0 +1,118 @@
+# NetraVision v3.0 — docker-compose
+#
+# ATURAN KERAS (keputusan 2026-11-02):
+# - Port 80 dan 443 tetap milik Apache (banyak virtualhost). TIDAK ADA service
+#   yang bind 80/443 di sini.
+# - Semua port TCP di-publish HANYA ke 127.0.0.1; Apache me-reverse-proxy
+#   /api/*, /ws, /whep/*, /hls/* ke service yang relevan.
+# - PENGECUALIAN: UDP 8189 (media WebRTC) di-publish ke host karena browser
+#   pengguna harus bisa menjangkaunya langsung. Ini tidak bentrok dengan 80/443.
+#
+# Cara pakai:
+#   cd <repo> && ./deploy/install.sh   (instalasi / setup awal, idempoten)
+#   ./deploy/update.sh                  (update: git pull + build + migrasi)
+
+name: netravision
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-netravision}
+      POSTGRES_USER: ${POSTGRES_USER:-netravision}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD belum di-set di deploy/.env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-netravision} -d ${POSTGRES_DB:-netravision}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - netravision
+    # TIDAK ada ports: hanya diakses dari dalam network oleh service api.
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - netravision
+    # TIDAK ada ports: hanya diakses dari dalam network oleh service api.
+    # TODO Fase 4: pertimbangkan requirepass bila network dipakai bersama service lain.
+
+  api:
+    build:
+      context: ../apps/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-netravision}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD belum di-set}@postgres:5432/${POSTGRES_DB:-netravision}
+      REDIS_URL: redis://redis:6379/0
+      MEDIAMTX_API_URL: http://mediamtx:9997
+    ports:
+      # Hanya localhost — Apache mem-proxy /api/* dan /ws ke sini.
+      - "127.0.0.1:8100:8000"
+    volumes:
+      - recordings:/recordings:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)\""]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - netravision
+
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    restart: unless-stopped
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+      - recordings:/recordings
+    ports:
+      # Sinyal/kontrol — hanya localhost, Apache mem-proxy yang perlu diekspos.
+      - "127.0.0.1:8554:8554"   # RTSP (debug / kamera lokal)
+      - "127.0.0.1:8888:8888"   # HLS  (Apache proxy /hls/* ke sini)
+      - "127.0.0.1:8889:8889"   # WebRTC/WHEP signaling HTTP (Apache proxy /whep/* ke sini)
+      - "127.0.0.1:9997:9997"   # control API (dipakai service api via network; publish lokal utk debug)
+      # PENGECUALIAN: media WebRTC (UDP) harus terjangkau browser pengguna.
+      - "8189:8189/udp"         # WebRTC UDP (default MediaMTX) — bukan 80/443, aman.
+    healthcheck:
+      # Image resmi tidak punya shell; smoke check biner sebagai liveness minimal.
+      # TODO Fase 1: ganti dengan cek sungguhan via control API dari service api.
+      test: ["CMD", "/mediamtx", "--help"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - netravision
+
+networks:
+  netravision:
+    driver: bridge
+
+volumes:
+  pgdata:
+    name: netravision_pgdata
+  redisdata:
+    name: netravision_redisdata
+  recordings:
+    name: netravision_recordings

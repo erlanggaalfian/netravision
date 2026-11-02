@@ -1,0 +1,51 @@
+[project]
+name = "netravision-api"
+version = "3.0.0a0"
+description = "NetraVision v3.0 — backend API (FastAPI modular, async SQLAlchemy 2)"
+readme = "README.md"
+# Produksi menargetkan Python 3.13; sintaks ditulis kompatibel 3.12+ agar bisa
+# diverifikasi di environment dev saat ini.
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy[asyncio]>=2.0",
+    "alembic>=1.13",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "pyjwt>=2.8",
+    "pwdlib[bcrypt]>=0.2",
+    "psycopg[binary]>=3.1",
+    "asyncpg>=0.29",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*", "alembic*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
