@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -18,6 +19,8 @@ from app.routers import (
     admin_streams,
     admin_users,
     auth,
+    external,
+    recordings,
     streams,
     system,
     ws,
@@ -49,12 +52,73 @@ async def _status_broadcaster() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    broadcaster = asyncio.create_task(_status_broadcaster())
+    settings = get_settings()
+    log = logging.getLogger("netravision")
+    tasks: list[asyncio.Task] = [asyncio.create_task(_status_broadcaster())]
+
+    if settings.posters_enabled:
+        if shutil.which("ffmpeg"):
+            tasks.append(asyncio.create_task(_poster_loop()))
+        else:
+            log.warning("posters_enabled tapi ffmpeg tak ditemukan — poster mati")
+
+    if settings.retention_enabled:
+        tasks.append(asyncio.create_task(_retention_loop()))
+
+    if settings.drive_enabled:
+        tasks.append(asyncio.create_task(_drive_loop()))
+    else:
+        log.info("Google Drive nonaktif (modul opsional)")
+
     try:
         yield
     finally:
-        broadcaster.cancel()
+        for t in tasks:
+            t.cancel()
         await dispose_engine()
+
+
+async def _poster_loop() -> None:
+    from app.services.posters import run_poster_loop
+
+    await run_poster_loop(get_settings().poster_interval_sec)
+
+
+async def _retention_loop() -> None:
+    """Jalankan retensi saat start lalu tiap 24 jam."""
+    from app.services.recording import apply_retention
+
+    log = logging.getLogger("netravision.retention")
+    try:
+        while True:
+            try:
+                async with get_session_factory()() as db:
+                    n = await apply_retention(db)
+                if n:
+                    log.info("retensi: %d segmen dihapus", n)
+            except Exception as e:  # noqa: BLE001
+                log.warning("retensi gagal: %s", e)
+            await asyncio.sleep(86400)
+    except asyncio.CancelledError:
+        pass
+
+
+async def _drive_loop() -> None:
+    from app.services.drive import DriveUploader
+
+    log = logging.getLogger("netravision.drive")
+    try:
+        up = DriveUploader()
+        try:
+            async with get_session_factory()() as db:
+                n = await up.scan_and_enqueue(db)
+            if n:
+                log.info("drive: %d segmen diantrekan", n)
+        except Exception as e:  # noqa: BLE001
+            log.warning("drive scan awal gagal: %s", e)
+        await up.run_upload_loop()
+    except asyncio.CancelledError:
+        pass
 
 
 def create_app() -> FastAPI:
@@ -82,6 +146,10 @@ def create_app() -> FastAPI:
     app.include_router(admin_keys.router, prefix="/api")
     app.include_router(admin_ads.router, prefix="/api")
     app.include_router(admin_ads.admin_router, prefix="/api")
+    # Embed pihak ketiga — kontrak FROZEN, tanpa login user (auth via API key).
+    app.include_router(external.router, prefix="/api")
+    # Rekaman: 8 endpoint persis kontrak v2.0.
+    app.include_router(recordings.router, prefix="/api")
     # /ws TANPA prefix /api (kontrak).
     app.include_router(ws.router)
     # File statis untuk gambar iklan yang diunggah.
