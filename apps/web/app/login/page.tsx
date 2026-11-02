@@ -23,7 +23,6 @@ export default function LoginPage() {
   const [tab, setTab] = useState<"masuk" | "tamu">("masuk");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -53,7 +52,7 @@ export default function LoginPage() {
     setError("");
     setBusy(true);
     try {
-      await loginGuest(code.trim());
+      await loginGuest("");
       router.push("/live");
     } catch (err) {
       setError(
@@ -143,25 +142,6 @@ export default function LoginPage() {
             </form>
           ) : (
             <form onSubmit={onGuest} className="space-y-4">
-              <div>
-                <label
-                  htmlFor="guest-code"
-                  className="mb-1.5 block text-sm font-medium text-slate-300"
-                >
-                  Kode tamu
-                </label>
-                <TextInput
-                  id="guest-code"
-                  autoComplete="off"
-                  placeholder="kode akses tamu"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  required
-                />
-                <p className="mt-1.5 text-xs text-slate-500">
-                  Minta kode akses tamu kepada administrator.
-                </p>
-              </div>
               <div className="pt-1">
                 <Button type="submit" disabled={busy} className="w-full">
                   {busy ? "Memeriksa…" : "Masuk sebagai Tamu"}
