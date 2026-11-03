@@ -223,7 +223,7 @@ export default function LivePage() {
                 role="tab"
                 aria-selected={filter === f.id}
                 onClick={() => setFilter(f.id)}
-                className={`flex h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-5 text-sm font-medium transition active:scale-95 lg:flex-none ${
+                className={`flex h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm font-medium transition active:scale-95 sm:px-5 lg:flex-none ${
                   filter === f.id
                     ? "bg-accent-600 text-onaccent"
                     : "text-neutral-400 hover:text-white"
@@ -231,7 +231,11 @@ export default function LivePage() {
               >
                 {f.label}
                 <span
-                  className={`text-xs ${filter === f.id ? "text-onaccent/80" : "text-neutral-400"}`}
+                  className={`rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none ${
+                    filter === f.id
+                      ? "bg-black/20 text-onaccent"
+                      : "bg-ink-500/25 text-neutral-300"
+                  }`}
                 >
                   {counts[f.id]}
                 </span>
