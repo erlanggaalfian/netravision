@@ -89,7 +89,7 @@ function ListEmptyState({ text }: { text: string }) {
       <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-ink-800/70 ring-1 ring-white/5">
         <CameraIcon className="text-slate-500" />
       </span>
-      <p className="mt-3 text-sm text-slate-500">{text}</p>
+      <p className="mt-3 text-sm text-slate-400">{text}</p>
     </div>
   );
 }
@@ -155,7 +155,7 @@ function StreamRow({
       <div className="md:hidden">
         <Accordion summary={summary}>
           <div className="space-y-3">
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-400">
               Terakhir terlihat: {s.last_seen_at ?? "—"}
             </p>
             {actions}
@@ -816,7 +816,7 @@ function AddStreamModal({
               </Field>
             </div>
             {brand === "ezviz" && (
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-400">
                 Ezviz: password biasanya berupa device verification code (6
                 karakter di stiker perangkat).
               </p>
@@ -904,7 +904,7 @@ function AddStreamModal({
                         {p.role === "sub" && <Badge tone="muted">Sub</Badge>}
                       </span>
                       {pathInfo(p) && (
-                        <span className="mt-0.5 block text-xs text-slate-500">
+                        <span className="mt-0.5 block text-xs text-slate-400">
                           {pathInfo(p)}
                         </span>
                       )}
@@ -915,7 +915,7 @@ function AddStreamModal({
               })}
             </div>
             {results.paths.length === 0 && (
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-400">
                 Tidak ada path yang bisa dicoba (host tidak terjangkau).
               </p>
             )}

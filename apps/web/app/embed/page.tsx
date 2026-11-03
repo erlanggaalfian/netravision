@@ -222,7 +222,7 @@ function EmbedPlayer({
               Stop
             </Button>
           )}
-          <span className="flex items-center gap-1.5 text-[11px] text-neutral-500">
+          <span className="flex items-center gap-1.5 text-[11px] text-neutral-400">
             <span className="flex h-5 w-5 items-center justify-center rounded-md bg-accent-600 text-[9px] font-bold text-onaccent">
               N
             </span>
@@ -315,7 +315,7 @@ function EmbedInner() {
               height="36"
               viewBox="0 0 24 24"
               fill="none"
-              className="text-neutral-500"
+              className="text-neutral-400"
               aria-hidden
             >
               <path
@@ -361,7 +361,7 @@ function EmbedInner() {
         )}
       </main>
 
-      <footer className="px-4 pb-6 text-center text-[11px] text-neutral-500 sm:px-6">
+      <footer className="px-4 pb-6 text-center text-[11px] text-neutral-400 sm:px-6">
         NetraVision · Siaran publik pihak ketiga
       </footer>
     </div>

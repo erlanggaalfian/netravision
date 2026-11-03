@@ -161,7 +161,7 @@ function PlaybackPanel({
       {error && <ErrorBox message={error} />}
 
       {phase === "idle" && (
-        <div className="rounded-2xl bg-ink-900 px-6 py-10 text-center text-xs text-neutral-500 ring-1 ring-white/10">
+        <div className="rounded-2xl bg-ink-900 px-6 py-10 text-center text-xs text-neutral-400 ring-1 ring-white/10">
           Menyiapkan linimasa…
         </div>
       )}
@@ -174,13 +174,13 @@ function PlaybackPanel({
       )}
 
       {phase === "not-implemented" && (
-        <div className="rounded-2xl bg-ink-900 px-6 py-10 text-center text-xs text-neutral-500 ring-1 ring-white/10">
+        <div className="rounded-2xl bg-ink-900 px-6 py-10 text-center text-xs text-neutral-400 ring-1 ring-white/10">
           Linimasa rekaman tersedia mulai Fase 3.
         </div>
       )}
 
       {phase === "error" && !error && (
-        <div className="rounded-2xl bg-ink-900 px-6 py-10 text-center text-xs text-neutral-500 ring-1 ring-white/10">
+        <div className="rounded-2xl bg-ink-900 px-6 py-10 text-center text-xs text-neutral-400 ring-1 ring-white/10">
           Terjadi kesalahan. Coba muat ulang.
         </div>
       )}
@@ -226,7 +226,7 @@ function PlaybackPanel({
                 );
               })}
               {timeline.entries.length === 0 && (
-                <div className="flex h-full items-center justify-center text-[11px] text-neutral-500">
+                <div className="flex h-full items-center justify-center text-[11px] text-neutral-400">
                   Tidak ada rekaman pada tanggal ini
                 </div>
               )}
@@ -250,7 +250,7 @@ function PlaybackPanel({
                   height="28"
                   viewBox="0 0 20 20"
                   fill="none"
-                  className="text-neutral-700"
+                  className="text-neutral-500"
                   aria-hidden
                 >
                   <path
@@ -261,7 +261,7 @@ function PlaybackPanel({
                     strokeLinejoin="round"
                   />
                 </svg>
-                <p className="text-xs text-neutral-500">
+                <p className="text-xs text-neutral-400">
                   {active
                     ? "Memuat video…"
                     : "Klik salah satu segmen pada linimasa untuk memutar."}

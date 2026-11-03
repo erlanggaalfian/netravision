@@ -59,7 +59,7 @@ function ListEmptyState({ text }: { text: string }) {
       <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-ink-800/70 ring-1 ring-white/5">
         <KeyIcon className="text-slate-500" />
       </span>
-      <p className="mt-3 text-sm text-slate-500">{text}</p>
+      <p className="mt-3 text-sm text-slate-400">{text}</p>
     </div>
   );
 }
@@ -223,11 +223,11 @@ export default function AdminKeysPage() {
                     )}
                   </p>
                   {k.custom_camera_name && (
-                    <p className="mt-1 text-xs text-slate-500">
+                    <p className="mt-1 text-xs text-slate-400">
                       Nama kustom: {k.custom_camera_name}
                     </p>
                   )}
-                  <p className="mt-1 text-xs text-slate-500">
+                  <p className="mt-1 text-xs text-slate-400">
                     Terakhir dipakai: {k.last_used_at ?? "belum pernah"}
                   </p>
                 </div>
@@ -317,7 +317,7 @@ export default function AdminKeysPage() {
           <Card className="overflow-x-auto p-0">
             <table className="w-full min-w-[640px] text-sm">
               <thead>
-                <tr className="border-b border-ink-700 text-left text-xs uppercase tracking-wider text-slate-500">
+                <tr className="border-b border-ink-700 text-left text-xs uppercase tracking-wider text-slate-400">
                   <th scope="col" className="px-4 py-2.5 font-semibold">Waktu</th>
                   <th scope="col" className="px-4 py-2.5 font-semibold">Key</th>
                   <th scope="col" className="px-4 py-2.5 font-semibold">Kamera</th>
@@ -468,7 +468,7 @@ function EmbedPlayerSettings() {
   return (
     <Card className="mt-8 p-4 sm:p-5">
       <h2 className="text-lg font-semibold text-white">Pengaturan Embed Player</h2>
-      <p className="mt-1 text-sm text-slate-500">
+      <p className="mt-1 text-sm text-slate-400">
         Berlaku untuk semua pemutar embed pihak ketiga
       </p>
       {error && (
@@ -580,7 +580,7 @@ function IntegrationGuideModal({
             className="rounded-xl border border-ink-700/60 bg-ink-950/60 p-4"
           >
             <p className="text-sm font-semibold text-white">{m.title}</p>
-            <p className="mt-0.5 text-xs text-slate-500">{m.desc}</p>
+            <p className="mt-0.5 text-xs text-slate-400">{m.desc}</p>
             <p className="mt-2 break-all rounded-lg bg-ink-950 p-3 font-mono text-xs text-accent-300">
               {key ? m.code : "— isi API key dulu —"}
             </p>
@@ -740,7 +740,7 @@ function KeyFormModal({
                   key={id}
                   className="flex min-h-[44px] items-center gap-2 rounded-lg px-2 hover:bg-ink-800"
                 >
-                  <span className="w-6 shrink-0 text-center text-xs tabular-nums text-slate-500">
+                  <span className="w-6 shrink-0 text-center text-xs tabular-nums text-slate-400">
                     {i + 1}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-sm text-slate-200">

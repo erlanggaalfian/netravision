@@ -51,7 +51,7 @@ function ListEmptyState({ text }: { text: string }) {
       <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-ink-800/70 ring-1 ring-white/5">
         <UserIcon className="text-slate-500" />
       </span>
-      <p className="mt-3 text-sm text-slate-500">{text}</p>
+      <p className="mt-3 text-sm text-slate-400">{text}</p>
     </div>
   );
 }
@@ -132,7 +132,7 @@ export default function AdminUsersPage() {
                       Iklan: {u.show_ads ? "Ya" : "Tidak"}
                     </Badge>
                   </span>
-                  <span className="mt-1 block text-xs text-slate-500">
+                  <span className="mt-1 block text-xs text-slate-400">
                     Dibuat oleh: {u.dibuat_oleh ?? "—"}
                   </span>
                 </span>
@@ -387,7 +387,7 @@ function AccessModal({
       ) : (
         <div>
           <div className="mb-2 flex items-center justify-between gap-2 px-1">
-            <p className="text-xs tabular-nums text-slate-500">
+            <p className="text-xs tabular-nums text-slate-400">
               {checked.size} dari {streams.length} dipilih
             </p>
             <div className="flex gap-1">

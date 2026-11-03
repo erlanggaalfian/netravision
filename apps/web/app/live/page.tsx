@@ -193,7 +193,7 @@ export default function LivePage() {
               height="17"
               viewBox="0 0 16 16"
               fill="none"
-              className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-500"
+              className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400"
               aria-hidden
             >
               <path
@@ -209,7 +209,7 @@ export default function LivePage() {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Cari kamera…"
               aria-label="Cari kamera"
-              className="h-11 w-full rounded-full bg-ink-900 pl-10 pr-4 text-base text-white ring-1 ring-white/10 placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-accent-500"
+              className="h-11 w-full rounded-full bg-ink-900 pl-10 pr-4 text-base text-white ring-1 ring-white/10 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-500"
             />
           </div>
           <div
@@ -231,7 +231,7 @@ export default function LivePage() {
               >
                 {f.label}
                 <span
-                  className={`text-xs ${filter === f.id ? "text-white/80" : "text-neutral-400"}`}
+                  className={`text-xs ${filter === f.id ? "text-onaccent/80" : "text-neutral-400"}`}
                 >
                   {counts[f.id]}
                 </span>
@@ -264,7 +264,7 @@ export default function LivePage() {
               <p className="text-sm font-medium text-neutral-200">
                 Gagal memuat kamera
               </p>
-              <p className="mt-1 text-xs text-neutral-500">{error}</p>
+              <p className="mt-1 text-xs text-neutral-400">{error}</p>
             </div>
             <Button onClick={load}>
               Coba lagi
@@ -293,7 +293,7 @@ export default function LivePage() {
                 ? "Belum ada kamera"
                 : "Tidak ada kamera yang cocok"}
             </p>
-            <p className="max-w-xs text-xs leading-relaxed text-neutral-500">
+            <p className="max-w-xs text-xs leading-relaxed text-neutral-400">
               {merged.length === 0
                 ? "Tambahkan kamera lewat halaman Admin untuk mulai memantau."
                 : "Coba ubah kata kunci atau filter status."}

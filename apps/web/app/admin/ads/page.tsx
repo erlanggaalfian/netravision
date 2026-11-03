@@ -202,7 +202,7 @@ function RangeRow({
 }) {
   return (
     <div>
-      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-400">
         {label}
       </span>
       <div className="flex items-center gap-3">
@@ -233,7 +233,7 @@ function ColorRow({
 }) {
   return (
     <div>
-      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-400">
         {label}
       </span>
       <div className="flex gap-2">
@@ -405,7 +405,7 @@ export default function AdminAdsPage() {
                 </span>
               </div>
               <div>
-                <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                   Gambar Sponsor (Kiri Iklan)
                 </span>
                 <div className="flex h-16 w-full items-center justify-center overflow-hidden rounded-xl border border-ink-700/60 bg-black/40">
@@ -417,7 +417,7 @@ export default function AdminAdsPage() {
                       className="max-h-14 object-contain"
                     />
                   ) : (
-                    <span className="font-mono text-[10px] text-slate-500">
+                    <span className="font-mono text-[10px] text-slate-400">
                       Tidak ada gambar
                     </span>
                   )}

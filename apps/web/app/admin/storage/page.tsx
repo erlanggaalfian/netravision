@@ -319,7 +319,7 @@ export default function AdminStoragePage() {
           <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-400">
             <li>
               Di <b>komputer/laptop Anda</b>, pasang rclone sekali dari{" "}
-              <a href="https://rclone.org/downloads/" target="_blank" rel="noreferrer" className="text-blue-600 underline">
+              <a href="https://rclone.org/downloads/" target="_blank" rel="noreferrer" className="text-accent-400 underline">
                 rclone.org/downloads
               </a>
               .
@@ -338,7 +338,7 @@ export default function AdminStoragePage() {
             <Field label="Token rclone" hint='Mulai dengan {"access_token": ...'>
               <textarea
                 rows={4}
-                className="w-full rounded-xl border border-white/10 bg-ink-950 px-3.5 py-2.5 font-mono text-xs text-slate-100 placeholder:text-slate-600 outline-none transition-colors focus:border-accent-400"
+                className="w-full rounded-xl border border-white/10 bg-ink-950 px-3.5 py-2.5 font-mono text-xs text-slate-100 placeholder:text-slate-500 outline-none transition-colors focus:border-accent-400"
                 placeholder='{"access_token":"ya29...","token_type":"Bearer","refresh_token":"1//...","expiry":"..."}'
                 value={token}
                 onChange={(e) => setToken(e.target.value)}

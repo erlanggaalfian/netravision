@@ -90,7 +90,7 @@ function MiniPreview({
             <span
               className={`absolute left-1.5 top-1.5 h-1.5 w-1.5 rounded-full ${s?.is_online ? "bg-ok-400" : "bg-bad-400"}`}
             />
-            <span className="absolute inset-x-1.5 bottom-1 truncate text-[9px] text-neutral-500">
+            <span className="absolute inset-x-1.5 bottom-1 truncate text-[9px] text-neutral-400">
               {s?.name ?? "—"}
             </span>
           </div>
@@ -139,7 +139,7 @@ function GroupSections({
     return (
       <div className="rounded-2xl bg-ink-900 px-6 py-10 text-center text-sm text-neutral-400 ring-1 ring-white/10">
         {error}
-        <p className="mt-1 text-xs text-neutral-500">
+        <p className="mt-1 text-xs text-neutral-400">
           Mode grup membutuhkan akses admin.
         </p>
       </div>
@@ -176,7 +176,7 @@ function GroupSections({
           <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
             <span className="h-2 w-2 rounded-full bg-accent-400" />
             {sec.name}
-            <span className="text-xs font-normal text-neutral-500">
+            <span className="text-xs font-normal text-neutral-400">
               {sec.streams.length} kamera
             </span>
           </h2>
@@ -476,7 +476,7 @@ export default function MonitorsPage() {
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
                 placeholder="cth. Lantai 1"
-                className="mb-5 h-11 w-full rounded-xl bg-ink-800 px-3.5 text-base text-white ring-1 ring-white/10 outline-none placeholder:text-neutral-500 focus:ring-2 focus:ring-accent-500"
+                className="mb-5 h-11 w-full rounded-xl bg-ink-800 px-3.5 text-base text-white ring-1 ring-white/10 outline-none placeholder:text-neutral-400 focus:ring-2 focus:ring-accent-500"
               />
 
               <div className="mb-1.5 text-sm font-medium text-neutral-300">
@@ -503,7 +503,7 @@ export default function MonitorsPage() {
                 <span className="text-sm font-medium text-neutral-300">
                   Pilih kamera ({formIds.length})
                 </span>
-                <span className="text-[11px] text-neutral-500">
+                <span className="text-[11px] text-neutral-400">
                   Urutan bisa digeser
                 </span>
               </div>
@@ -572,7 +572,7 @@ export default function MonitorsPage() {
                   );
                 })}
                 {streams.length === 0 && !fetching && (
-                  <div className="p-3 text-center text-xs text-neutral-500">
+                  <div className="p-3 text-center text-xs text-neutral-400">
                     Belum ada kamera.
                   </div>
                 )}
@@ -623,7 +623,7 @@ export default function MonitorsPage() {
                   height="40"
                   viewBox="0 0 24 24"
                   fill="none"
-                  className="text-neutral-500"
+                  className="text-neutral-400"
                   aria-hidden
                 >
                   <path

@@ -159,7 +159,7 @@ export function Field({
 }
 
 const inputCls =
-  "w-full rounded-xl border border-white/10 bg-ink-950 px-3.5 py-2.5 text-slate-100 placeholder:text-slate-600 outline-none transition-all duration-150 ease-out focus:border-accent-400 focus:ring-4 focus:ring-accent-500/15";
+  "w-full rounded-xl border border-white/10 bg-ink-950 px-3.5 py-2.5 text-slate-100 placeholder:text-slate-500 outline-none transition-all duration-150 ease-out focus:border-accent-400 focus:ring-4 focus:ring-accent-500/15";
 
 export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`${inputCls} ${props.className ?? ""}`} />;

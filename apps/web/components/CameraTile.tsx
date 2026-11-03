@@ -138,7 +138,7 @@ export function CameraTile({ stream, onExpand }: Props) {
             height="30"
             viewBox="0 0 24 24"
             fill="none"
-            className="relative text-slate-500"
+            className="relative text-slate-400"
             aria-hidden
           >
             <path

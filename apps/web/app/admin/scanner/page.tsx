@@ -136,7 +136,7 @@ export default function AdminScannerPage() {
             <p className="truncate font-mono text-sm text-white">
               {h.host}:{h.port}
             </p>
-            <p className="mt-0.5 truncate text-xs text-slate-500">
+            <p className="mt-0.5 truncate text-xs text-slate-400">
               {h.best_main ? mainInfo(h) : "tanpa video"}
             </p>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -215,7 +215,7 @@ export default function AdminScannerPage() {
 
         {scanning && (
           <div className="mt-5 space-y-2 border-t border-ink-700 pt-4">
-            <div className="flex justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            <div className="flex justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400">
               <span>Memindai {ipRange}…</span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-ink-700">
@@ -251,7 +251,7 @@ export default function AdminScannerPage() {
             </p>
           )}
           {hosts.length === 0 ? (
-            <p className="py-8 text-center text-sm text-slate-500">
+            <p className="py-8 text-center text-sm text-slate-400">
               Tidak ada kamera yang merespons di subnet ini.
             </p>
           ) : (
@@ -266,7 +266,7 @@ export default function AdminScannerPage() {
               <div className="hidden overflow-x-auto md:block">
                 <table className="w-full text-left text-sm">
                   <thead>
-                    <tr className="border-b border-ink-700 text-xs uppercase tracking-wider text-slate-500">
+                    <tr className="border-b border-ink-700 text-xs uppercase tracking-wider text-slate-400">
                       <th scope="col" className="w-10 px-3 py-3">
                         <input
                           type="checkbox"
@@ -298,7 +298,7 @@ export default function AdminScannerPage() {
         </Card>
       )}
       {hosts === null && !scanning && !error && (
-        <p className="py-10 text-center text-sm text-slate-500">
+        <p className="py-10 text-center text-sm text-slate-400">
           Isi subnet lalu tekan “Scan Network” untuk mulai memindai.
         </p>
       )}

@@ -317,7 +317,7 @@ export function FocusModal({ stream, onClose }: Props) {
                 height="32"
                 viewBox="0 0 24 24"
                 fill="none"
-                className="text-slate-500"
+                className="text-slate-400"
                 aria-hidden
               >
                 <path
@@ -418,7 +418,7 @@ export function FocusModal({ stream, onClose }: Props) {
           >
             {stream.is_online ? "● Online" : "● Offline"}
           </span>
-          <span className="hidden text-xs text-slate-500 sm:block">
+          <span className="hidden text-xs text-slate-400 sm:block">
             Tekan ESC untuk menutup
           </span>
         </div>

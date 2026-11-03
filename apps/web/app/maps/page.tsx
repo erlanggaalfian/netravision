@@ -298,7 +298,7 @@ export default function MapsPage() {
               height="16"
               viewBox="0 0 16 16"
               fill="none"
-              className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-500"
+              className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400"
               aria-hidden
             >
               <path
@@ -314,7 +314,7 @@ export default function MapsPage() {
               onChange={(e) => setMapQuery(e.target.value)}
               placeholder="Cari CCTV…"
               aria-label="Cari CCTV"
-              className="h-11 w-full rounded-xl bg-ink-900 pl-10 pr-4 text-base text-white ring-1 ring-white/10 placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-accent-500"
+              className="h-11 w-full rounded-xl bg-ink-900 pl-10 pr-4 text-base text-white ring-1 ring-white/10 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-500"
             />
           </div>
 
@@ -331,7 +331,7 @@ export default function MapsPage() {
               </span>
             </div>
             {unmappedShown.length === 0 ? (
-              <p className="text-xs leading-relaxed text-neutral-500">
+              <p className="text-xs leading-relaxed text-neutral-400">
                 {q ? "Tidak ada yang cocok." : "Semua kamera sudah punya posisi."}
               </p>
             ) : (
@@ -364,7 +364,7 @@ export default function MapsPage() {
               </ul>
             )}
             {isAdmin && unmappedShown.length > 0 && (
-              <p className="mt-3 text-[11px] leading-relaxed text-neutral-500">
+              <p className="mt-3 text-[11px] leading-relaxed text-neutral-400">
                 Geser peta ke lokasi kamera, lalu tekan “Tengah peta”.
               </p>
             )}
@@ -378,7 +378,7 @@ export default function MapsPage() {
               </span>
             </div>
             {mappedShown.length === 0 ? (
-              <p className="text-xs leading-relaxed text-neutral-500">
+              <p className="text-xs leading-relaxed text-neutral-400">
                 {q ? "Tidak ada yang cocok." : "Belum ada kamera yang dipetakan."}
               </p>
             ) : (
@@ -407,7 +407,7 @@ export default function MapsPage() {
                         height="14"
                         viewBox="0 0 16 16"
                         fill="none"
-                        className="shrink-0 text-neutral-500"
+                        className="shrink-0 text-neutral-400"
                         aria-hidden
                       >
                         <path
