@@ -104,3 +104,29 @@ def _reset_rate_limiters():
     reset_rate_limits()
     yield
     reset_rate_limits()
+
+
+@pytest.fixture(autouse=True)
+def _stub_rtsp_network(monkeypatch):
+    """Tanpa jaringan: semua URL RTSP dianggap mengirim video.
+
+    Skenario lain (auth gagal, no_video, host mati) override fixture ini
+    per test dengan monkeypatch.setattr pada rtsp_discovery.
+    """
+    from app.services import rtsp_discovery
+
+    async def fake_probe(url, timeout=3.0):
+        return "open"
+
+    async def fake_ffprobe(url, timeout=10.0):
+        return rtsp_discovery.VideoProbe(
+            status="video", codec="h264", width=640, height=480,
+            fps=25.0, gop_seconds=2.0,
+        )
+
+    async def fake_alive(host, port):
+        return True
+
+    monkeypatch.setattr(rtsp_discovery, "probe_path", fake_probe)
+    monkeypatch.setattr(rtsp_discovery, "_run_ffprobe", fake_ffprobe)
+    monkeypatch.setattr(rtsp_discovery, "_tcp_alive", fake_alive)
