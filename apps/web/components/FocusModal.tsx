@@ -219,7 +219,7 @@ export function FocusModal({ stream, onClose }: Props) {
     >
       <div
         ref={dialogRef}
-        className="nv-stage nv-pop max-h-[calc(100dvh-1.5rem)] w-full max-w-5xl overflow-x-hidden overflow-y-auto rounded-2xl bg-ink-900 ring-1 ring-white/15 sm:max-h-[calc(100dvh-3rem)]"
+        className="nv-pop max-h-[calc(100dvh-1.5rem)] w-full max-w-5xl overflow-x-hidden overflow-y-auto rounded-2xl bg-ink-900 ring-1 ring-ink-600/30 sm:max-h-[calc(100dvh-3rem)]"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -252,7 +252,7 @@ export function FocusModal({ stream, onClose }: Props) {
               }}
               aria-label={quality === "HQ" ? "Ganti ke sub stream (LQ)" : "Ganti ke main stream (HD)"}
               title={quality === "HQ" ? "Ganti ke sub stream (LQ)" : "Ganti ke main stream (HD)"}
-              className={`flex h-11 min-w-11 items-center justify-center rounded-xl px-3 text-xs font-bold tracking-wide transition active:scale-95 ${quality === "HQ" ? "bg-ok-400/20 text-ok-400 hover:bg-ok-400/30" : "bg-white/10 text-white hover:bg-white/20"}`}
+              className={`flex h-11 min-w-11 items-center justify-center rounded-xl px-3 text-xs font-bold tracking-wide transition active:scale-95 ${quality === "HQ" ? "bg-ok-400/20 text-ok-400 hover:bg-ok-400/30" : "bg-ink-500/15 text-white hover:bg-ink-500/25"}`}
             >
               {quality}
             </button>
@@ -260,7 +260,7 @@ export function FocusModal({ stream, onClose }: Props) {
               onClick={snapshot}
               aria-label="Ambil snapshot"
               title="Ambil snapshot"
-              className="flex h-11 items-center gap-2 rounded-xl bg-white/10 px-4 text-sm font-medium text-white transition hover:bg-white/20 active:scale-95"
+              className="flex h-11 items-center gap-2 rounded-xl bg-ink-500/15 px-4 text-sm font-medium text-white transition hover:bg-ink-500/25 active:scale-95"
             >
               <svg
                 width="16"
@@ -282,7 +282,7 @@ export function FocusModal({ stream, onClose }: Props) {
             <button
               onClick={onClose}
               data-focus-close
-              className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/20 active:scale-95"
+              className="flex h-11 w-11 items-center justify-center rounded-xl bg-ink-500/15 text-white transition hover:bg-ink-500/25 active:scale-95"
               aria-label="Tutup"
             >
               <svg
