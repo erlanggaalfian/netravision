@@ -100,7 +100,8 @@ services:
       - netravision
 
   mediamtx:
-    image: bluenviron/mediamtx:latest
+    # Varian -ffmpeg: sub stream ditranskode ffmpeg di dalam container (v2).
+    image: bluenviron/mediamtx:latest-ffmpeg
     restart: unless-stopped
     volumes:
       - ./mediamtx.yml:/mediamtx.yml:ro

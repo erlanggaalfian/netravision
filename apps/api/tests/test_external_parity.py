@@ -112,7 +112,8 @@ async def test_stream_tanpa_sub(app_client):
         )
         assert r.status_code == 200, r.text
         data = r.json()
-        assert data["stream"]["webrtc_url_sub"] is None
+        # Sub transkode selalu tersedia (pola v2), walau kamera tanpa sub_url.
+        assert "/stream_12_sub/whep" in data["stream"]["webrtc_url_sub"]
         assert data["stream"]["coordinates"] is None
 
 

@@ -86,11 +86,10 @@ async def run_poster_loop(interval_sec: int = 60) -> None:
                     )
                     streams = list(result.scalars().all())
                 for s in streams:
-                    # Lewat MediaMTX (berbagi sesi dengan penonton), bukan ke
-                    # kamera langsung: banyak kamera hanya mengizinkan 1 sesi
-                    # RTSP, poster langsung akan menolak/menendang live view.
-                    path = f"stream_{s.id}_sub" if s.sub_url else f"stream_{s.id}"
-                    url = f"rtsp://{rtsp_host}:8554/{path}"
+                    # Lewat MediaMTX dari path MAIN: selalu tersambung (pola
+                    # v2), tanpa membuka sesi RTSP baru ke kamera dan tanpa
+                    # menyalakan transkode sub hanya untuk poster.
+                    url = f"rtsp://{rtsp_host}:8554/stream_{s.id}"
                     out = os.path.join(
                         settings.posters_dir, f"stream_{s.id}.jpg"
                     )

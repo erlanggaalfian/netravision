@@ -41,7 +41,7 @@ async def test_list_streams_admin_sees_all(app_client):
     assert len(body) == 2
     assert body[0]["whep_main_url"] == "/whep/stream_1/whep"
     assert body[0]["whep_sub_url"] == "/whep/stream_1_sub/whep"
-    assert body[1]["whep_sub_url"] is None
+    assert body[1]["whep_sub_url"] == "/whep/stream_2_sub/whep"  # sub transkode selalu ada (v2)
     assert body[0]["poster_url"] == "/api/posters/stream_1.jpg"
 
 
@@ -65,7 +65,11 @@ async def test_reconnect_ok(app_client):
     assert r.status_code == 200, r.text
     assert r.json() == {"ok": True}
     assert fake.paths["stream_1"] == "rtsp://cam/1"
-    assert fake.paths["stream_1_sub"] == "rtsp://cam/1_sub"
+    # Pola v2: sub = transkode ffmpeg dari main, bukan URL sub kamera.
+    sub = fake.confs["stream_1_sub"]
+    assert sub["source"] == "publisher"
+    assert "rtsp://127.0.0.1:$RTSP_PORT/stream_1 " in sub["runOnDemand"]
+    assert fake.confs["stream_1"]["sourceOnDemand"] is False
 
 
 async def test_reconnect_pertahankan_record(app_client):
@@ -81,7 +85,7 @@ async def test_reconnect_pertahankan_record(app_client):
         r = await c.post("/api/streams/1/reconnect")
     assert r.status_code == 200, r.text
     assert fake.records["stream_1"] is True
-    assert fake.records["stream_1_sub"] is True
+    assert fake.records["stream_1_sub"] is False  # sub tidak direkam (v2)
 
 
 async def test_reconnect_404(app_client):

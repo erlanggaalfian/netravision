@@ -12,7 +12,9 @@ interface Props {
   onClose: () => void;
 }
 
-/* Modal fokus: memutar MAIN stream (tajam) + tombol snapshot.
+/* Modal fokus — pola v2 (openCameraPopup): SUB dulu agar langsung tampil,
+   lalu MAIN (HD) disambung di latar dan ditukar mulus begitu frame pertama
+   main siap. Main gagal -> tetap di SUB. Tombol LQ/HQ untuk ganti manual.
    Banner iklan (bila aktif & diizinkan untuk akun ini) tampil lower-third,
    seperti popup guest v2.0.
    Visual: header rapi (status + nama + info stream), kontrol jelas ≥44px. */
@@ -21,6 +23,11 @@ export function FocusModal({ stream, onClose }: Props) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const [failed, setFailed] = useState(false);
+  const [quality, setQuality] = useState<"LQ" | "HQ">("LQ");
+  const isDesktop = () =>
+    typeof window !== "undefined" &&
+    window.matchMedia("(min-width: 768px)").matches;
+  const [want, setWant] = useState<"LQ" | "HQ">(() => (isDesktop() ? "HQ" : "LQ"));
   const [ad, setAd] = useState<AdConfig | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const { fs, rotated, cssRotate, toggle: toggleFs, rotate } = useFullscreen(
@@ -45,42 +52,82 @@ export function FocusModal({ stream, onClose }: Props) {
     };
   }, [stream]);
 
+  /* Default seperti v2: desktop (>=768px) HQ, HP LQ. Tombol LQ/HQ bisa
+     mengganti di keduanya. Kamera berganti -> kembali ke default. */
+  useEffect(() => {
+    setWant(isDesktop() ? "HQ" : "LQ");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stream]);
+
   useEffect(() => {
     setFailed(false);
+    setQuality("LQ");
     const video = videoRef.current;
     const main = stream?.whep_main_url;
     const sub = stream?.whep_sub_url;
     if (!video || !(main || sub) || !stream?.is_online) return;
     let cancelled = false;
+    let upgrade: RTCPeerConnection | null = null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const fail = () => {
       if (!cancelled) setFailed(true);
     };
-    const keep = (pc: RTCPeerConnection) => {
-      if (cancelled) stopWhep(pc);
-      else pcRef.current = pc;
+
+    /* Sambung MAIN di elemen tersembunyi; tukar srcObject saat sudah
+       bergambar (tanpa layar hitam), lalu tutup koneksi SUB. */
+    const goHQ = () => {
+      if (!main || cancelled) return;
+      const hidden = document.createElement("video");
+      hidden.muted = true;
+      hidden.playsInline = true;
+      playWhep(hidden, main)
+        .then((pc) => {
+          upgrade = pc;
+          const swap = () => {
+            if (cancelled || hidden.videoWidth === 0) return;
+            video.srcObject = hidden.srcObject;
+            video.play().catch(() => {});
+            stopWhep(pcRef.current);
+            pcRef.current = pc;
+            upgrade = null;
+            setQuality("HQ");
+          };
+          if (hidden.videoWidth > 0) swap();
+          else hidden.addEventListener("resize", swap, { once: true });
+        })
+        .catch(() => {
+          /* main gagal: tetap SUB (sama v2) */
+        });
     };
-    /* Main dulu (tajam). Banyak kamera hanya mengizinkan 1 sesi RTSP —
-       bila main ditolak, pakai sub (path sama yang sudah dipakai grid).
-       MediaMTX baru menolak main setelah ±10 detik, jadi batasi tunggu main
-       4 detik agar fallback ke sub terasa cepat. */
-    const mainCtl = new AbortController();
-    const mainTimer = setTimeout(() => mainCtl.abort(), 4000);
-    playWhep(video, main || sub!, fail, main && sub ? mainCtl.signal : undefined)
-      .then(keep)
-      .catch(() => {
-        if (cancelled) return;
-        if (main && sub) playWhep(video, sub, fail).then(keep).catch(fail);
-        else fail();
-      })
-      .finally(() => clearTimeout(mainTimer));
+
+    if (want === "LQ" || !main || !sub) {
+      playWhep(video, (want === "HQ" ? main : sub) || main || sub!, fail)
+        .then((pc) => {
+          if (cancelled) return stopWhep(pc);
+          pcRef.current = pc;
+          setQuality(want === "HQ" && main ? "HQ" : "LQ");
+        })
+        .catch(fail);
+    } else {
+      playWhep(video, sub, fail)
+        .then((pc) => {
+          if (cancelled) return stopWhep(pc);
+          pcRef.current = pc;
+          // v2: upgrade HD 1 detik setelah sub tampil.
+          timer = setTimeout(goHQ, 1000);
+        })
+        .catch(() => {
+          if (!cancelled) goHQ();
+        });
+    }
     return () => {
       cancelled = true;
-      clearTimeout(mainTimer);
-      mainCtl.abort();
+      clearTimeout(timer);
+      stopWhep(upgrade);
       stopWhep(pcRef.current);
       pcRef.current = null;
     };
-  }, [stream]);
+  }, [stream, want]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -164,11 +211,20 @@ export function FocusModal({ stream, onClose }: Props) {
                 {stream.name}
               </h2>
               <p className="text-xs text-slate-400">
-                {stream.brand ? `Stream utama, ${stream.brand}` : "Stream utama"}
+                {quality === "HQ" ? "Main stream (HD)" : "Sub stream (LQ)"}
+                {stream.brand ? `, ${stream.brand}` : ""}
               </p>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={() => setWant(quality === "HQ" ? "LQ" : "HQ")}
+              aria-label={quality === "HQ" ? "Ganti ke sub stream (LQ)" : "Ganti ke main stream (HD)"}
+              title={quality === "HQ" ? "Ganti ke sub stream (LQ)" : "Ganti ke main stream (HD)"}
+              className={`flex h-11 min-w-11 items-center justify-center rounded-xl px-3 text-xs font-bold tracking-wide transition active:scale-95 ${quality === "HQ" ? "bg-ok-400/20 text-ok-400 hover:bg-ok-400/30" : "bg-white/10 text-white hover:bg-white/20"}`}
+            >
+              {quality}
+            </button>
             <button
               onClick={snapshot}
               aria-label="Ambil snapshot"
@@ -252,7 +308,7 @@ export function FocusModal({ stream, onClose }: Props) {
                 />
               </svg>
               <p className="text-sm font-medium text-slate-300">
-                {stream.is_online ? "Gagal memutar stream utama" : "Kamera offline"}
+                {stream.is_online ? "Gagal memutar stream" : "Kamera offline"}
               </p>
               <p className="text-xs text-slate-400">
                 {stream.is_online

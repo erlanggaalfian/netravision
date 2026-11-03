@@ -83,6 +83,24 @@ class MediaMTXClient:
             "PATCH", f"/v3/config/paths/patch/{name}", json=patch
         )
 
+    async def ensure_path(self, name: str, conf: dict) -> None:
+        """Pastikan path ada dengan konfigurasi `conf`.
+
+        Belum ada -> add. Sudah ada tapi beda -> patch (hanya bila beda, agar
+        sync berkala tidak me-reload path yang sedang ditonton)."""
+        cur = await self.get_path(name)
+        if cur is None:
+            await self._request("POST", f"/v3/config/paths/add/{name}", json=conf)
+        elif any(cur.get(k) != v for k, v in conf.items()):
+            await self.patch_path(name, conf)
+
+    async def path_ready(self, name: str) -> bool:
+        """Status runtime: sumber path sedang tersambung & mengirim media."""
+        resp = await self._request("GET", f"/v3/paths/get/{name}")
+        if resp.status_code == 404:
+            return False
+        return bool(resp.json().get("ready"))
+
     async def delete_path(self, name: str) -> None:
         """Hapus path bila terdaftar."""
         resp = await self._request("DELETE", f"/v3/config/paths/delete/{name}")

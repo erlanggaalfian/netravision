@@ -34,6 +34,15 @@ class FakeMediaMTX:
         self.deleted.append(name)
         self.paths.pop(name, None)
 
+    async def ensure_path(self, name: str, conf: dict) -> None:
+        self.paths[name] = conf.get("source", "")
+        self.records[name] = bool(conf.get("record"))
+        self.confs = getattr(self, "confs", {})
+        self.confs[name] = conf
+
+    async def path_ready(self, name: str) -> bool:
+        return name in self.paths
+
     async def get_path(self, name: str):
         return {"name": name, "ready": True} if name in self.paths else None
 

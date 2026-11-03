@@ -338,7 +338,6 @@ async def external_stream(
             "webrtc_url": url,
             "webrtc_url_sub": (
                 _whep_url_sub(request, target, token)
-                if stream.sub_url else None
             ),
             "coordinates": coords,
             "embed_timeout_seconds": (

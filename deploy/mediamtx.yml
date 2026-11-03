@@ -77,9 +77,11 @@ pathDefaults:
   # API mem-publish path via control API; source publisher = API mendorong
   # konfigurasi path (termasuk RTSP URL kamera) saat kamera ditambahkan.
   source: publisher
-  # Stream hanya ditarik dari kamera saat ada penonton (hemat sesi RTSP —
-  # sebagian kamera membatasi jumlah sesi sekaligus).
-  sourceOnDemand: yes
+  # Pola v2 (cctv-monitoring, mode "preloaded"): main stream_{id} selalu
+  # tersambung ke kamera -> video tampil tanpa menunggu kamera disambung.
+  # Sub stream_{id}_sub = transkode ffmpeg dari main (runOnDemand, didaftarkan
+  # API, app/services/stream_paths.py) -> kamera cukup melayani 1 sesi RTSP.
+  sourceOnDemand: no
 
   # Perekaman: default MATI. API menyalakan per kamera via create_path
   # bila recording_enabled=true. Format & pola path kompatibel v2.0.
@@ -93,6 +95,6 @@ pathDefaults:
 
 # Path statis: kosong — semua path dikelola dinamis oleh API.
 # Contoh pola yang akan didaftarkan API:
-#   stream_1      -> main stream kamera id 1
-#   stream_1_sub  -> sub stream kamera id 1
+#   stream_1      -> main stream kamera id 1 (RTSP kamera, selalu tersambung)
+#   stream_1_sub  -> sub 480x270 8fps, transkode ffmpeg dari stream_1
 paths: {}

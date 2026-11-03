@@ -55,10 +55,11 @@ async def _register_paths(
     Kamera tetap disimpan ke DB walau gagal — dengan sync berkala (poin 3
     laporan staging), path akan terdaftar sendiri begitu MediaMTX pulih.
     """
+    from app.services.stream_paths import register_stream
+
     try:
-        await mediamtx.create_path(f"stream_{stream_id}", main_url, record=record)
-        if sub_url:
-            await mediamtx.create_path(f"stream_{stream_id}_sub", sub_url, record=record)
+        # Pola v2: sub = transkode dari main (sub_url kamera tidak ditarik).
+        await register_stream(mediamtx, stream_id, main_url, record)
         return True, None
     except Exception as e:  # noqa: BLE001 - best-effort, jangan gagalkan tambah kamera
         msg = f"MediaMTX tidak terjangkau (stream {stream_id}): {e}"
@@ -165,11 +166,9 @@ async def admin_update_stream(
         stream.recording_enabled = data.recording_enabled
         # Sinkronkan flag record di MediaMTX (best-effort).
         try:
+            # Hanya main yang direkam (sub = transkode 480p, sama seperti v2).
             await mediamtx.patch_path(
                 f"stream_{stream_id}", {"record": data.recording_enabled})
-            if stream.sub_url:
-                await mediamtx.patch_path(
-                    f"stream_{stream_id}_sub", {"record": data.recording_enabled})
         except Exception as e:  # noqa: BLE001
             log.warning("patch record MediaMTX stream %s gagal: %s", stream_id, e)
     if data.retention_days is not None:

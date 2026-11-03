@@ -22,7 +22,7 @@ def _path_name(stream_id: int, sub: bool = False) -> str:
 async def poll_once(db: AsyncSession, mediamtx: MediaMTXClient) -> list[dict]:
     """Satu putaran cek status semua stream aktif.
 
-    Online = path stream_{id} terdaftar di MediaMTX dan ready.
+    Online = sumber path stream_{id} sedang tersambung (runtime ready).
     Update DB hanya bila status berubah; return daftar perubahan.
     """
     result = await db.execute(select(Stream).where(Stream.is_active.is_(True)))
@@ -32,8 +32,10 @@ async def poll_once(db: AsyncSession, mediamtx: MediaMTXClient) -> list[dict]:
     now = datetime.now(timezone.utc)
 
     for stream in streams:
-        path = await mediamtx.get_path(_path_name(stream.id))
-        online = bool(path) and bool(path.get("ready", True))
+        # Main selalu tersambung (sourceOnDemand false), jadi `ready` runtime
+        # = kamera benar-benar mengirim video — sama dengan v2
+        # check_mediamtx_path_ready.
+        online = await mediamtx.path_ready(_path_name(stream.id))
 
         if online != stream.is_online:
             stream.is_online = online

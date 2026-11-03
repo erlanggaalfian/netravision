@@ -84,24 +84,17 @@ async def _mediamtx_sync_loop() -> None:
                 existing = {p.get("name") for p in paths if isinstance(p, dict)}
             except Exception:  # noqa: BLE001 - MediaMTX down, coba lagi nanti
                 continue
+            from app.services.stream_paths import register_stream
+
             wanted: set[str] = set()
             for s in streams:
-                wanted.add(f"stream_{s.id}")
+                wanted.update({f"stream_{s.id}", f"stream_{s.id}_sub"})
                 try:
-                    await mediamtx.create_path(
-                        f"stream_{s.id}", s.main_url or s.rtsp_url or "",
-                        record=bool(s.recording_enabled))
+                    await register_stream(
+                        mediamtx, s.id, s.main_url or s.rtsp_url or "",
+                        bool(s.recording_enabled))
                 except Exception as e:  # noqa: BLE001
                     log.warning("sync path stream_%s gagal: %s", s.id, e)
-                    continue
-                if s.sub_url:
-                    wanted.add(f"stream_{s.id}_sub")
-                    try:
-                        await mediamtx.create_path(
-                            f"stream_{s.id}_sub", s.sub_url,
-                            record=bool(s.recording_enabled))
-                    except Exception as e:  # noqa: BLE001
-                        log.warning("sync path stream_%s_sub gagal: %s", s.id, e)
             # Hapus path yatim (kamera dihapus/dinonaktifkan).
             for name in existing - wanted:
                 if name.startswith("stream_"):
