@@ -333,6 +333,7 @@ function AccessModal({
 }) {
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -340,9 +341,10 @@ function AccessModal({
     api
       .get<{ stream_ids: number[] }>(`/admin/users/${user.id}/camera-access`)
       .then((r) => setChecked(new Set(r.stream_ids)))
-      .catch((e) =>
-        setError(e instanceof ApiError ? e.message : "Gagal memuat hak akses"),
-      )
+      .catch((e) => {
+        setLoadFailed(true);
+        setError(e instanceof ApiError ? e.message : "Gagal memuat hak akses");
+      })
       .finally(() => setLoaded(true));
   }, [user.id]);
 
@@ -426,7 +428,7 @@ function AccessModal({
         <Button variant="ghost" onClick={onClose}>
           Batal
         </Button>
-        <Button onClick={save} disabled={busy || !loaded}>
+        <Button onClick={save} disabled={busy || !loaded || loadFailed}>
           {busy ? "Menyimpan…" : "Simpan"}
         </Button>
       </div>
