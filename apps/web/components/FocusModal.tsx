@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { playWhep, stopWhep } from "../lib/whep";
-import { api } from "../lib/api";
+import { api, withToken } from "../lib/api";
 import { AdBanner } from "./AdBanner";
 import { useFullscreen } from "../hooks/useFullscreen";
 import type { Stream, AdConfig } from "../lib/types";
@@ -24,6 +24,7 @@ export function FocusModal({ stream, onClose }: Props) {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const switchRef = useRef<((url: string, target: "LQ" | "HQ") => void) | null>(null);
   const [failed, setFailed] = useState(false);
+  const [playing, setPlaying] = useState(false);
   const [quality, setQuality] = useState<"LQ" | "HQ">("LQ");
   const isDesktop = () =>
     typeof window !== "undefined" &&
@@ -62,6 +63,7 @@ export function FocusModal({ stream, onClose }: Props) {
 
   useEffect(() => {
     setFailed(false);
+    setPlaying(false);
     setQuality("LQ");
     const video = videoRef.current;
     const main = stream?.whep_main_url;
@@ -358,8 +360,26 @@ export function FocusModal({ stream, onClose }: Props) {
                 controlsList="nofullscreen"
                 disablePictureInPicture
                 playsInline
+                onPlaying={() => setPlaying(true)}
                 className="h-full w-full object-contain"
               />
+              {/* Poster langsung tampil saat popup dibuka agar tidak hitam/
+                  loading dulu; hilang begitu video mulai bergambar. */}
+              {!playing &&
+                (stream.poster_url ? (
+                  <img
+                    src={withToken(stream.poster_url)}
+                    alt={stream.name}
+                    className="pointer-events-none absolute inset-0 h-full w-full object-contain"
+                  />
+                ) : (
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <span className="flex items-center gap-2 text-xs text-slate-400">
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/15 border-t-accent-400 motion-reduce:animate-none" />
+                      Menghubungkan…
+                    </span>
+                  </div>
+                ))}
               <div className="absolute right-2 top-2 flex gap-2">
                 {fs && (
                   <button
