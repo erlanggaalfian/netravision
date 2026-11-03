@@ -46,9 +46,9 @@ def test_parse_ffprobe_output_video():
     out = (
         '{"streams":[{"codec_name":"h264","width":800,"height":448,'
         '"avg_frame_rate":"25/1"}],'
-        '"frames":[{"key_frame":1,"pts_time":"0.0"},'
-        '{"key_frame":0,"pts_time":"0.04"},'
-        '{"key_frame":1,"pts_time":"2.0"}]}'
+        '"packets":[{"pts_time":"0.0","flags":"K_"},'
+        '{"pts_time":"0.04","flags":"___"},'
+        '{"pts_time":"2.0","flags":"K_"}]}'
     )
     vp = parse_ffprobe_output(out)
     assert vp.status == "video"
@@ -56,10 +56,10 @@ def test_parse_ffprobe_output_video():
     assert vp.gop_seconds == 2.0
 
 
-def test_parse_ffprobe_output_tanpa_frame_no_video():
-    out = '{"streams":[{"codec_name":"h264","width":800,"height":448}],"frames":[]}'
+def test_parse_ffprobe_output_tanpa_packet_no_video():
+    out = '{"streams":[{"codec_name":"h264","width":800,"height":448}],"packets":[]}'
     assert parse_ffprobe_output(out).status == "no_video"
-    assert parse_ffprobe_output('{"streams":[],"frames":[]}').status == "no_video"
+    assert parse_ffprobe_output('{"streams":[],"packets":[]}').status == "no_video"
 
 
 def test_select_main_sub():

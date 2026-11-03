@@ -19,7 +19,7 @@ from app.services.stream_resolver import probe_rtsp
 
 FFPROBE = "ffprobe"
 _PROBE_TIMEOUT = 3.0
-_FFPROBE_TIMEOUT = 10.0
+_FFPROBE_TIMEOUT = 15.0  # read window 6 dtk + sambung; 10 dtk sempit di kamera lambat
 _SEM_PROBES = 8
 _HOST_BUDGET = 45.0  # detik maksimum seluruh discovery per host
 
@@ -145,16 +145,21 @@ def _parse_rate(value: str | None) -> float | None:
 
 
 def parse_ffprobe_output(text: str) -> VideoProbe:
-    """Hasil ffprobe JSON -> VideoProbe. Frame video terbaca = 'video'."""
+    """Hasil ffprobe JSON (stream + packet) -> VideoProbe.
+
+    Pakai packet (bukan frame): tak perlu decode, dan tidak false-negative
+    saat ffprobe bergabung di tengah GOP panjang.
+    """
     data = json.loads(text)
     streams = data.get("streams") or []
-    frames = data.get("frames") or []
-    if not streams or not frames:
+    packets = data.get("packets") or []
+    if not streams or not packets:
         return VideoProbe(status="no_video")
     s = streams[0]
     key_pts = sorted(
-        float(f["pts_time"]) for f in frames
-        if f.get("key_frame") and f.get("pts_time") is not None
+        float(p["pts_time"]) for p in packets
+        if "K" in (p.get("flags") or "")
+        and p.get("pts_time") not in (None, "N/A")
     )
     gop = (
         round((key_pts[-1] - key_pts[0]) / (len(key_pts) - 1), 2)
@@ -176,8 +181,8 @@ async def _run_ffprobe(url: str, timeout: float = _FFPROBE_TIMEOUT) -> VideoProb
         FFPROBE, "-rtsp_transport", "tcp", "-v", "error",
         "-select_streams", "v:0",
         "-show_entries",
-        "stream=codec_name,width,height,avg_frame_rate:frame=key_frame,pts_time",
-        "-read_intervals", "%+3", "-of", "json", url,
+        "stream=codec_name,width,height,avg_frame_rate:packet=pts_time,flags",
+        "-read_intervals", "%+6", "-of", "json", url,
     ]
     proc: asyncio.subprocess.Process | None = None
     try:
