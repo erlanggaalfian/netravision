@@ -1,16 +1,15 @@
-"""Test subnet scan (CIDR) — tanpa network asli (mock)."""
+"""Test subnet scan (CIDR) — tanpa network asli (mock rtsp_discovery)."""
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from app.routers import admin_scan
-from app.services.stream_resolver import StreamResolution
+from app.services import rtsp_discovery
+from app.services.rtsp_discovery import VideoProbe
 from tests.conftest import auth_as, make_user
-
 
 def _client(app):
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
-
 
 @pytest_asyncio.fixture
 async def scan_client(app_client):
@@ -19,7 +18,6 @@ async def scan_client(app_client):
     app.include_router(admin_scan.router, prefix="/api")
     return app, mtmx, db
 
-
 async def _login_admin(scan_client):
     app, _, db = scan_client
     admin = make_user()
@@ -27,7 +25,6 @@ async def _login_admin(scan_client):
     await db.commit()
     auth_as(app, admin)
     return app
-
 
 async def test_scan_subnet_cidr_invalid(scan_client):
     app = await _login_admin(scan_client)
@@ -46,21 +43,22 @@ async def test_scan_subnet_lebih_dari_256_ditolak(scan_client):
 
 
 async def test_scan_subnet_mock_tanpa_network(scan_client, monkeypatch):
+    """Hanya .10 hidup dengan video di /H.264; host lain tak terjangkau."""
     app = await _login_admin(scan_client)
 
-    async def fake_tcp_alive(host: str, port: int) -> bool:
+    async def fake_alive(host: str, port: int) -> bool:
         return host == "192.168.1.10"
 
-    async def fake_resolve_stream(**kw):
-        return StreamResolution(
-            main_url=f"rtsp://{kw['user']}:x@{kw['host']}:{kw['port']}/h264",
-            sub_url=None,
-            brand=kw["brand"],
-            method="brand",
-        )
+    async def fake_probe(url: str, timeout: float = 3.0) -> str:
+        return "open" if url.endswith("/H.264") else "not_found"
 
-    monkeypatch.setattr(admin_scan, "_tcp_alive", fake_tcp_alive)
-    monkeypatch.setattr(admin_scan, "resolve_stream", fake_resolve_stream)
+    async def fake_ffprobe(url: str, timeout: float = 10.0) -> VideoProbe:
+        return VideoProbe(status="video", codec="h264",
+                          width=800, height=448, fps=25.0, gop_seconds=2.0)
+
+    monkeypatch.setattr(rtsp_discovery, "_tcp_alive", fake_alive)
+    monkeypatch.setattr(rtsp_discovery, "probe_path", fake_probe)
+    monkeypatch.setattr(rtsp_discovery, "_run_ffprobe", fake_ffprobe)
 
     async with _client(app) as c:
         r = await c.post(
@@ -70,45 +68,51 @@ async def test_scan_subnet_mock_tanpa_network(scan_client, monkeypatch):
                 "port": 554,
                 "username": "admin",
                 "password": "pw",
-                "brand": "hikvision",
             },
         )
         assert r.status_code == 200, r.text
-        cands = r.json()["candidates"]
-        assert len(cands) == 1
-        assert cands[0]["host"] == "192.168.1.10"
-        assert cands[0]["port"] == 554
-        assert cands[0]["brand"] == "hikvision"
-        assert "192.168.1.10" in cands[0]["main_url"]
+        body = r.json()
+        hosts = body["hosts"]
+        assert len(hosts) == 1
+        h = hosts[0]
+        assert h["host"] == "192.168.1.10"
+        assert h["port"] == 554
+        assert h["status"] == "video"
+        assert h["best_main"].endswith("/H.264")
+        assert h["best_sub"] is None
+        # Kompatibilitas lama: candidates berisi best_main per host.
+        assert len(body["candidates"]) == 1
+        assert body["candidates"][0]["main_url"] == h["best_main"]
 
 
-async def test_scan_subnet_auto_coba_multi_brand(scan_client, monkeypatch):
+async def test_scan_subnet_host_gagal_tetap_dikembalikan(scan_client, monkeypatch):
+    """Host hidup tapi semua path gagal -> tetap dilaporkan beserta alasannya."""
     app = await _login_admin(scan_client)
 
-    async def fake_tcp_alive(host: str, port: int) -> bool:
+    async def fake_alive(host: str, port: int) -> bool:
         return True
 
-    async def fake_resolve_stream(**kw):
-        return StreamResolution(
-            main_url=f"rtsp://{kw['host']}/ch",
-            sub_url=None,
-            brand=kw["brand"],
-            method="brand",
-        )
+    async def fake_probe(url: str, timeout: float = 3.0) -> str:
+        return "auth_failed"
 
-    monkeypatch.setattr(admin_scan, "_tcp_alive", fake_tcp_alive)
-    monkeypatch.setattr(admin_scan, "resolve_stream", fake_resolve_stream)
+    async def fake_ffprobe(url: str, timeout: float = 10.0) -> VideoProbe:
+        raise AssertionError("tidak boleh ffprobe saat auth gagal")
+
+    monkeypatch.setattr(rtsp_discovery, "_tcp_alive", fake_alive)
+    monkeypatch.setattr(rtsp_discovery, "probe_path", fake_probe)
+    monkeypatch.setattr(rtsp_discovery, "_run_ffprobe", fake_ffprobe)
 
     async with _client(app) as c:
         r = await c.post(
             "/api/admin/scan-subnet",
-            json={"ip_range": "192.168.7.0/30", "brand": "auto"},  # 2 host
+            json={"ip_range": "192.168.7.0/30"},  # 2 host
         )
         assert r.status_code == 200, r.text
-        cands = r.json()["candidates"]
-        # 2 host x 5 brand auto = 10 kandidat
-        assert len(cands) == 10
-        assert {c["brand"] for c in cands} == set(admin_scan._AUTO_BRANDS)
+        body = r.json()
+        assert len(body["hosts"]) == 2
+        assert all(h["status"] == "auth_failed" for h in body["hosts"])
+        assert all(h["best_main"] is None for h in body["hosts"])
+        assert body["candidates"] == []
 
 
 async def test_scan_subnet_butuh_admin(scan_client):

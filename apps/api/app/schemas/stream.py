@@ -45,6 +45,7 @@ class StreamCreate(BaseModel):
     retention_days: int = Field(default=7, ge=1, le=365)
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
+    force: bool = False  # simpan walau verifikasi video gagal (kamera sedang mati)
 
 
 class StreamUpdate(BaseModel):
@@ -91,8 +92,24 @@ class ScanCandidate(BaseModel):
     probe_status: str | None = None
 
 
+class ScanPath(BaseModel):
+    """Satu path RTSP yang dicoba + hasil verifikasi videonya."""
+    path: str
+    url: str
+    status: str  # video | no_video | auth_failed | not_found | timeout | error
+    codec: str | None = None
+    width: int | None = None
+    height: int | None = None
+    fps: float | None = None
+    gop_seconds: float | None = None
+    role: str | None = None  # main | sub | None
+
+
 class ScanResult(BaseModel):
     candidates: list[ScanCandidate]
+    paths: list[ScanPath] = []
+    best_main: str | None = None
+    best_sub: str | None = None
 
 
 class UserIdsIn(BaseModel):

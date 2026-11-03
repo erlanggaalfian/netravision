@@ -7,6 +7,7 @@ import logging
 import os
 import shutil
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -28,6 +29,7 @@ from app.schemas.stream import (
     OwnerIn,
     PreviewIn,
     ScanCandidate,
+    ScanPath,
     ScanRequest,
     ScanResult,
     StreamCreate,
@@ -36,8 +38,9 @@ from app.schemas.stream import (
     StreamUpdate,
     UserIdsIn,
 )
+from app.services import rtsp_discovery
 from app.services.mediamtx import MediaMTXClient, get_mediamtx
-from app.services.stream_resolver import resolve_stream
+from app.services.stream_resolver import StreamResolution, resolve_stream
 
 router = APIRouter(tags=["admin-streams"], dependencies=[Depends(require_roles("admin"))])
 log = logging.getLogger("netravision.admin_streams")
@@ -89,14 +92,55 @@ async def admin_create_stream(
     mediamtx: MediaMTXClient = Depends(get_mediamtx),
     admin: User = Depends(get_current_user),
 ):
-    try:
-        res = await resolve_stream(
-            brand=data.brand, rtsp_url=data.rtsp_url, user=data.user,
-            password=data.password, host=data.host, port=data.port,
-            channel=data.channel,
+    if data.rtsp_url:
+        # URL langsung: verifikasi video dulu (kecuali force).
+        try:
+            res = await resolve_stream(
+                brand=data.brand, rtsp_url=data.rtsp_url, user=data.user,
+                password=data.password, host=data.host, port=data.port,
+                channel=data.channel,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        if not data.force:
+            vp = await rtsp_discovery.verify_url(data.rtsp_url)
+            if vp.status != "video":
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"URL tidak mengirim video ({vp.status}). Perbaiki URL, "
+                        "atau kirim force=true untuk tetap mendaftar."
+                    ),
+                )
+    elif data.host and not data.force:
+        # Tanpa URL: discovery otomatis, pakai path video terbaik.
+        disc = await rtsp_discovery.discover_host(
+            data.host, data.port, data.user, data.password, data.channel
         )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        if not disc.best_main:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Tidak ada path yang mengirim video ("
+                    f"{disc.ringkasan()}). Periksa kredensial/path, atau kirim "
+                    "force=true beserta brand untuk tetap mendaftar."
+                ),
+            )
+        res = StreamResolution(
+            main_url=disc.best_main,
+            sub_url=disc.best_sub,
+            brand=data.brand if data.brand and data.brand != "auto" else "generic",
+            method="discovery",
+        )
+    else:
+        try:
+            res = await resolve_stream(
+                brand=data.brand, rtsp_url=data.rtsp_url, user=data.user,
+                password=data.password, host=data.host, port=data.port,
+                channel=data.channel,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
     # TODO Fase 2: simpan data.onvif (profile token) ke streams.onvif_profile
     # bila resolver sudah mengembalikannya.
     stream = Stream(
@@ -410,61 +454,115 @@ async def disk_info(db: AsyncSession = Depends(get_db)):
     return out
 
 
+def _to_scan_path(p: rtsp_discovery.PathResult, role: str | None) -> ScanPath:
+    return ScanPath(
+        path=p.path, url=p.url, status=p.status, codec=p.codec,
+        width=p.width, height=p.height, fps=p.fps,
+        gop_seconds=p.gop_seconds, role=role,
+    )
+
+
 @router.post(
     "/admin/scan",
     response_model=ScanResult,
     dependencies=[Depends(rate_limited(10, 60))],
 )
 async def scan_camera(data: ScanRequest):
-    """Coba brand yang diminta; bila 'auto', coba 5 brand umum berurutan.
-    Bila rtsp_url diisi, langsung resolve URL tersebut (tanpa host).
-    Bila probe=True, tiap kandidat dites koneksi RTSP-nya via DESCRIBE."""
-    from app.services.stream_resolver import probe_rtsp
+    """Scan kamera dengan verifikasi video (ffprobe), bukan sekadar port/401.
 
+    - rtsp_url diisi: verifikasi URL itu langsung.
+    - host diisi: discovery path RTSP umum + template brand, tiap path yang
+      DESCRIBE-nya OK diverifikasi benar-benar mengirim video, lalu main/sub
+      dipilih otomatis (resolusi terbesar / terkecil).
+    Field lama (candidates/main_ok/sub_ok/probe_status) tetap dikembalikan.
+    """
     candidates: list[ScanCandidate] = []
+    paths: list[ScanPath] = []
+    best_main: str | None = None
+    best_sub: str | None = None
+
     if data.rtsp_url and data.rtsp_url.strip():
+        url = data.rtsp_url.strip()
+        res = await resolve_stream(brand=None, rtsp_url=url)
+        cand = ScanCandidate(
+            main_url=res.main_url, sub_url=res.sub_url,
+            brand=res.brand, method=res.method,
+        )
+        candidates.append(cand)
+        if data.probe:
+            vp = await rtsp_discovery.verify_url(url)
+            path = urlparse(url).path or "/"
+            if urlparse(url).query:
+                path += "?" + urlparse(url).query
+            pr = rtsp_discovery.PathResult(
+                path=path, url=url, status=vp.status, codec=vp.codec,
+                width=vp.width, height=vp.height, fps=vp.fps,
+                gop_seconds=vp.gop_seconds,
+            )
+            role = "main" if vp.status == "video" else None
+            paths.append(_to_scan_path(pr, role))
+            cand.main_ok = vp.status == "video"
+            cand.probe_status = vp.status
+            best_main = url if vp.status == "video" else None
+        return ScanResult(
+            candidates=candidates, paths=paths,
+            best_main=best_main, best_sub=None,
+        )
+
+    if not data.host:
+        raise HTTPException(
+            status_code=400, detail="host wajib diisi bila tanpa URL RTSP langsung"
+        )
+    brands = [data.brand] if data.brand and data.brand != "auto" else _AUTO_BRANDS
+    for brand in brands:
         try:
-            res = await resolve_stream(brand=None, rtsp_url=data.rtsp_url.strip())
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            res = await resolve_stream(
+                brand=brand, rtsp_url=None, user=data.user,
+                password=data.password, host=data.host, port=data.port,
+                channel=data.channel,
+            )
+        except ValueError:
+            continue
         candidates.append(
             ScanCandidate(
                 main_url=res.main_url, sub_url=res.sub_url,
                 brand=res.brand, method=res.method,
             )
         )
-    else:
-        if not data.host:
-            raise HTTPException(
-                status_code=400, detail="host wajib diisi bila tanpa URL RTSP langsung"
-            )
-        brands = [data.brand] if data.brand and data.brand != "auto" else _AUTO_BRANDS
-        for brand in brands:
-            try:
-                res = await resolve_stream(
-                    brand=brand, rtsp_url=None, user=data.user,
-                    password=data.password, host=data.host, port=data.port,
-                    channel=data.channel,
-                )
-            except ValueError:
-                continue
-            candidates.append(
-                ScanCandidate(
-                    main_url=res.main_url, sub_url=res.sub_url,
-                    brand=res.brand, method=res.method,
-                )
-            )
     if not candidates:
         raise HTTPException(status_code=400, detail="tidak ada kandidat stream dari input ini")
     if data.probe:
+        disc = await rtsp_discovery.discover_host(
+            data.host, data.port, data.user, data.password, data.channel
+        )
+        best_main, best_sub = disc.best_main, disc.best_sub
+        by_path = {p.path: p for p in disc.paths}
+        paths = [
+            _to_scan_path(
+                p,
+                "main" if p.url == best_main
+                else ("sub" if p.url == best_sub else None),
+            )
+            for p in disc.paths
+        ]
         for c in candidates:
-            main_probe = await probe_rtsp(c.main_url)
-            c.main_ok = main_probe.reachable and main_probe.status in ("ok", "auth_required")
-            c.probe_status = main_probe.status
-            if c.sub_url:
-                sub_probe = await probe_rtsp(c.sub_url)
-                c.sub_ok = sub_probe.reachable and sub_probe.status in ("ok", "auth_required")
-    return ScanResult(candidates=candidates)
+            for url, is_main in ((c.main_url, True), (c.sub_url, False)):
+                if not url:
+                    continue
+                u = urlparse(url)
+                key = u.path + (f"?{u.query}" if u.query else "")
+                pr = by_path.get(key)
+                if pr is None:
+                    continue
+                if is_main:
+                    c.main_ok = pr.status == "video"
+                    c.probe_status = pr.status
+                else:
+                    c.sub_ok = pr.status == "video"
+    return ScanResult(
+        candidates=candidates, paths=paths,
+        best_main=best_main, best_sub=best_sub,
+    )
 
 
 @router.post(
