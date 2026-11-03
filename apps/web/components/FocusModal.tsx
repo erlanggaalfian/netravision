@@ -216,7 +216,7 @@ export function FocusModal({ stream, onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3 sm:p-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/85 p-3 sm:p-6"
       onClick={onClose}
     >
       <div
