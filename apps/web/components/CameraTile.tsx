@@ -35,7 +35,9 @@ export function CameraTile({ stream, onExpand }: Props) {
       (entries) => {
         const entry = entries[0];
         if (entry.isIntersecting && !pcRef.current && !cancelled) {
-          playWhep(video, url)
+          playWhep(video, url, () => {
+            if (!cancelled) setFailed(true);
+          })
             .then((pc) => {
               if (cancelled) {
                 stopWhep(pc);

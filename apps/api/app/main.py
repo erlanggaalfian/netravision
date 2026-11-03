@@ -71,7 +71,7 @@ async def _mediamtx_sync_loop() -> None:
             from sqlalchemy import select
 
             from app.db import get_session_factory
-            from app.models.stream import Stream
+            from app.models.streams import Stream
 
             factory = get_session_factory()
             async with factory() as db:

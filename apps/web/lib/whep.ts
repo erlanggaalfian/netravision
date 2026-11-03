@@ -1,8 +1,13 @@
 /* Pemutar WHEP (WebRTC) — dipakai untuk live stream dari MediaMTX. */
 
+/* Batas tunggu koneksi media (ICE) setelah sinyal WHEP sukses. Tanpa ini
+   tile tampak "terhubung" tapi hitam selamanya bila UDP media tak sampai. */
+const CONNECT_TIMEOUT_MS = 10000;
+
 export async function playWhep(
   video: HTMLVideoElement,
   url: string,
+  onFail?: () => void,
 ): Promise<RTCPeerConnection> {
   const pc = new RTCPeerConnection();
   pc.addTransceiver("video", { direction: "recvonly" });
@@ -29,10 +34,36 @@ export async function playWhep(
   const answerSdp = await res.text();
   await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
 
+  await new Promise<void>((resolve, reject) => {
+    if (pc.connectionState === "connected") return resolve();
+    const timer = setTimeout(() => {
+      pc.close();
+      reject(new Error("WebRTC tidak tersambung (media UDP tidak sampai)"));
+    }, CONNECT_TIMEOUT_MS);
+    pc.addEventListener("connectionstatechange", () => {
+      if (pc.connectionState === "connected") {
+        clearTimeout(timer);
+        resolve();
+      } else if (pc.connectionState === "failed") {
+        clearTimeout(timer);
+        pc.close();
+        reject(new Error("WebRTC gagal tersambung"));
+      }
+    });
+  });
+
+  // Putus di tengah jalan (jaringan/kamera) — beri tahu pemanggil.
+  pc.addEventListener("connectionstatechange", () => {
+    if (pc.connectionState === "failed") onFail?.();
+  });
+
   try {
     await video.play();
   } catch {
-    /* autoplay muted ditangani pemanggil */
+    /* Autoplay bersuara ditolak browser — putar tanpa suara; pengguna
+       bisa menyalakan suara lewat kontrol video. */
+    video.muted = true;
+    await video.play().catch(() => {});
   }
   return pc;
 }

@@ -42,16 +42,25 @@ export function FocusModal({ stream, onClose }: Props) {
   useEffect(() => {
     setFailed(false);
     const video = videoRef.current;
-    const url = stream?.whep_main_url || stream?.whep_sub_url;
-    if (!video || !url || !stream?.is_online) return;
+    const main = stream?.whep_main_url;
+    const sub = stream?.whep_sub_url;
+    if (!video || !(main || sub) || !stream?.is_online) return;
     let cancelled = false;
-    playWhep(video, url)
-      .then((pc) => {
-        if (cancelled) stopWhep(pc);
-        else pcRef.current = pc;
-      })
+    const fail = () => {
+      if (!cancelled) setFailed(true);
+    };
+    const keep = (pc: RTCPeerConnection) => {
+      if (cancelled) stopWhep(pc);
+      else pcRef.current = pc;
+    };
+    /* Main dulu (tajam). Banyak kamera hanya mengizinkan 1 sesi RTSP —
+       bila main ditolak, pakai sub (path sama yang sudah dipakai grid). */
+    playWhep(video, main || sub!, fail)
+      .then(keep)
       .catch(() => {
-        if (!cancelled) setFailed(true);
+        if (cancelled) return;
+        if (main && sub) playWhep(video, sub, fail).then(keep).catch(fail);
+        else fail();
       });
     return () => {
       cancelled = true;

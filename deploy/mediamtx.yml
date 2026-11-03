@@ -18,7 +18,7 @@ rtspAddress: :8554
 rtspTransports: [tcp]
 
 # RTMP tidak dipakai — matikan untuk mengurangi permukaan serangan.
-rtmpDisable: yes
+rtmp: no
 
 # HLS fallback (untuk jaringan yang memblokir UDP). Diakses via Apache /hls/*.
 hls: yes
@@ -34,9 +34,9 @@ webrtc: yes
 webrtcAddress: :8889
 # PENTING: isi dengan IP publik server agar browser menerima kandidat ICE
 # yang benar. Tanpa ini browser hanya dapat IP internal Docker (video hitam).
-# Ganti 0.0.0.0 dengan IP publik server sebelum deploy.
+# IP publik server (NAT router 103.210.52.66 -> 172.16.17.6).
 # Contoh: webrtcAdditionalHosts: [103.210.52.66]
-webrtcAdditionalHosts: [0.0.0.0]
+webrtcAdditionalHosts: [103.210.52.66]
 # Jangan iklankan IP internal Docker ke browser.
 webrtcIPsFromInterfaces: no
 
