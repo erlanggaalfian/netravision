@@ -28,9 +28,9 @@ const GRID_OPTS = [
 
 const GRID_CLASS: Record<number, string> = {
   1: "grid-cols-1",
-  2: "grid-cols-1 sm:grid-cols-2",
-  3: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3",
-  4: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4",
+  2: "grid-cols-2",
+  3: "grid-cols-2 lg:grid-cols-3",
+  4: "grid-cols-2 lg:grid-cols-3 xl:grid-cols-4",
 };
 
 function SkeletonGrid() {
@@ -147,12 +147,7 @@ export default function LivePage() {
                     aria-selected={gridCols === g.cols}
                     title={`Grid ${g.label}`}
                     onClick={() => setGridCols(g.cols)}
-                    className={`h-11 min-w-[52px] items-center justify-center rounded-full px-3 text-xs font-semibold transition active:scale-95 ${
-                      /* Di HP (<sm) hanya tampil 1x1 dan 2x2; 3x3/4x4 tidak
-                         berguna di layar kecil dan GRID_CLASS pun memaksa
-                         1 kolom di bawah sm. */
-                      g.cols > 2 ? "hidden sm:flex" : "flex"
-                    } ${
+                    className={`flex h-11 min-w-[52px] items-center justify-center rounded-full px-3 text-xs font-semibold transition active:scale-95 ${
                       gridCols === g.cols
                         ? "bg-accent-600 text-onaccent"
                         : "text-neutral-400 hover:text-white"
