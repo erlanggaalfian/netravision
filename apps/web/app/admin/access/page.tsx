@@ -25,6 +25,7 @@ const ROLE_LABEL: Record<string, string> = {
   admin: "Admin",
   user: "Pengguna",
   guest: "Tamu",
+  super_admin: "Super Admin",
 };
 
 export default function AdminAccessPage() {
@@ -355,6 +356,18 @@ function AccessByCameraModal({
       .catch((e) =>
         setError(e instanceof ApiError ? e.message : "Gagal memuat akses"),
       );
+    /* Status akses Tamu harus ikut dimuat — tanpa ini Simpan selalu
+       menulis can_view=false dan menghapus akses tamu yang sudah ada. */
+    api
+      .get<{ roles: { role: string; can_view: boolean }[] }>(
+        `/admin/streams/${stream.id}/role-access`,
+      )
+      .then((r) =>
+        setGuestAccess(
+          r.roles.find((x) => x.role === "guest")?.can_view ?? false,
+        ),
+      )
+      .catch(() => {});
   }, [stream.id]);
 
   function toggle(uid: number) {

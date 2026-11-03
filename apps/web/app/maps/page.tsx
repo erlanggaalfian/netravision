@@ -407,7 +407,7 @@ export default function MapsPage() {
                         height="14"
                         viewBox="0 0 16 16"
                         fill="none"
-                        className="shrink-0 text-neutral-600"
+                        className="shrink-0 text-neutral-500"
                         aria-hidden
                       >
                         <path

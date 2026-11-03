@@ -133,15 +133,16 @@ function EmbedPlayer({
     <div className="nv-stage overflow-hidden rounded-2xl bg-ink-900 ring-1 ring-white/10">
       <div className="relative aspect-video bg-black">
         {ad?.is_active && <AdBanner config={ad} />}
-        {playing ? (
-          <video
-            ref={videoRef}
-            playsInline
-            muted
-            className="h-full w-full object-contain"
-          />
-        ) : (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6 text-center">
+        {/* Video SELALU terpasang — start() membaca videoRef saat tombol
+            ditekan, saat itu playing masih false. */}
+        <video
+          ref={videoRef}
+          playsInline
+          muted
+          className={`h-full w-full object-contain ${playing ? "" : "invisible"}`}
+        />
+        {!playing && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
             {failed ? (
               <>
                 <p className="max-w-xs text-xs leading-relaxed text-bad-400">
@@ -155,7 +156,7 @@ function EmbedPlayer({
               <>
                 <button
                   onClick={() => start()}
-                  disabled={loadingSession || !camera.is_online}
+                  disabled={loadingSession}
                   className="flex h-16 w-16 items-center justify-center rounded-full bg-accent-600 text-onaccent transition hover:bg-accent-500 active:scale-95 disabled:opacity-40"
                   aria-label={`Putar ${camera.name}`}
                 >
@@ -172,7 +173,7 @@ function EmbedPlayer({
                     ? "Menyiapkan sesi…"
                     : camera.is_online
                       ? "Klik untuk memutar"
-                      : "Kamera offline"}
+                      : "Kamera terdeteksi offline — klik untuk mencoba"}
                 </span>
               </>
             )}
@@ -314,7 +315,7 @@ function EmbedInner() {
               height="36"
               viewBox="0 0 24 24"
               fill="none"
-              className="text-neutral-600"
+              className="text-neutral-500"
               aria-hidden
             >
               <path
@@ -360,7 +361,7 @@ function EmbedInner() {
         )}
       </main>
 
-      <footer className="px-4 pb-6 text-center text-[11px] text-neutral-600 sm:px-6">
+      <footer className="px-4 pb-6 text-center text-[11px] text-neutral-500 sm:px-6">
         NetraVision · Siaran publik pihak ketiga
       </footer>
     </div>

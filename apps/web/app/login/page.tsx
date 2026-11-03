@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { Button, ErrorBox, TextInput } from "../../components/ui";
@@ -25,10 +25,11 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  if (!loading && user) {
-    router.replace("/live");
-    return null;
-  }
+  /* Jangan memanggil router saat render (side effect di body render). */
+  useEffect(() => {
+    if (!loading && user) router.replace("/live");
+  }, [loading, user, router]);
+  if (!loading && user) return null;
 
   async function onLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -128,7 +129,7 @@ export default function LoginPage() {
           </form>
         </div>
 
-        <p className="mt-8 text-center text-xs text-slate-600">
+        <p className="mt-8 text-center text-xs text-slate-500">
           © 2026 NetraVision
         </p>
       </div>

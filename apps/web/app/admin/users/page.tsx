@@ -291,6 +291,7 @@ function UserFormModal({
             <option value="user">Pengguna</option>
             <option value="admin">Admin</option>
             <option value="guest">Tamu</option>
+            <option value="super_admin">Super Admin</option>
           </Select>
         </Field>
         <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 rounded-xl border border-ink-700/60 bg-ink-900/60 px-4 py-3">
@@ -333,6 +334,7 @@ function AccessModal({
 }) {
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -340,9 +342,10 @@ function AccessModal({
     api
       .get<{ stream_ids: number[] }>(`/admin/users/${user.id}/camera-access`)
       .then((r) => setChecked(new Set(r.stream_ids)))
-      .catch((e) =>
-        setError(e instanceof ApiError ? e.message : "Gagal memuat hak akses"),
-      )
+      .catch((e) => {
+        setLoadFailed(true);
+        setError(e instanceof ApiError ? e.message : "Gagal memuat hak akses");
+      })
       .finally(() => setLoaded(true));
   }, [user.id]);
 
@@ -426,7 +429,7 @@ function AccessModal({
         <Button variant="ghost" onClick={onClose}>
           Batal
         </Button>
-        <Button onClick={save} disabled={busy || !loaded}>
+        <Button onClick={save} disabled={busy || !loaded || loadFailed}>
           {busy ? "Menyimpan…" : "Simpan"}
         </Button>
       </div>

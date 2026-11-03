@@ -128,7 +128,9 @@ function PlaybackPanel({
       a.href = url;
       a.download = `rekaman-${streamId}-${active.start.replace(/[:.]/g, "-")}.mp4`;
       a.click();
-      URL.revokeObjectURL(url);
+      /* Revoke setelah unduhan sempat mulai — revoke langsung bisa
+         membatalkan unduhan di sebagian browser. */
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Gagal mengunduh");
     } finally {
