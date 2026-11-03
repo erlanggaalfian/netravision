@@ -28,7 +28,8 @@ export function FocusModal({ stream, onClose }: Props) {
   const [quality, setQuality] = useState<"LQ" | "HQ">("LQ");
   const isDesktop = () =>
     typeof window !== "undefined" &&
-    window.matchMedia("(min-width: 768px)").matches;
+    window.matchMedia("(min-width: 768px)").matches &&
+    window.matchMedia("(pointer: fine)").matches;
   const [want, setWant] = useState<"LQ" | "HQ">(() => (isDesktop() ? "HQ" : "LQ"));
   const [ad, setAd] = useState<AdConfig | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
