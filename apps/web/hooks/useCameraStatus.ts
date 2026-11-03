@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { getAccessToken } from "../lib/api";
+import { getAccessToken, tryRefresh } from "../lib/api";
 import type { StatusChange, Stream } from "../lib/types";
 
 /* Hook status kamera real-time via WebSocket /ws. */
@@ -24,8 +24,10 @@ export function useCameraStatus() {
         `${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`,
       );
       wsRef.current = ws;
+      let opened = false;
 
       ws.onopen = () => {
+        opened = true;
         setConnected(true);
         retryRef.current = 0;
       };
@@ -50,13 +52,17 @@ export function useCameraStatus() {
           /* abaikan */
         }
       };
-      ws.onclose = () => {
+      ws.onclose = async () => {
         setConnected(false);
-        if (!cancelled) {
-          const delay = Math.min(1000 * 2 ** retryRef.current, 15000);
-          retryRef.current += 1;
-          timer = setTimeout(connect, delay);
-        }
+        if (cancelled) return;
+        // Ditolak sebelum terbuka = biasanya access token kedaluwarsa
+        // (umur 15 menit). Refresh dulu; tanpa ini reconnect memakai token
+        // basi yang sama dan ditolak (403) selamanya.
+        if (!opened) await tryRefresh();
+        if (cancelled) return;
+        const delay = Math.min(1000 * 2 ** retryRef.current, 15000);
+        retryRef.current += 1;
+        timer = setTimeout(connect, delay);
       };
       ws.onerror = () => ws.close();
     };

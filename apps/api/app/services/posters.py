@@ -9,6 +9,7 @@ import logging
 import os
 import shutil
 import subprocess
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 
@@ -29,21 +30,27 @@ def capture_poster(
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     tmp = out_path + ".tmp"
     try:
-        subprocess.run(
+        r = subprocess.run(
             [
-                "ffmpeg", "-y",
+                "ffmpeg", "-y", "-v", "error",
                 "-rtsp_transport", "tcp",
                 "-i", rtsp_url,
                 "-frames:v", "1",
                 "-q:v", "4",
+                # Nama berkas *.tmp tak bisa ditebak formatnya — paksa JPEG.
+                "-f", "image2", "-c:v", "mjpeg",
                 tmp,
             ],
             timeout=timeout,
             capture_output=True,
         )
-        if os.path.getsize(tmp) > 0:
+        if r.returncode == 0 and os.path.getsize(tmp) > 0:
             os.replace(tmp, out_path)
             return True
+        log.info(
+            "poster stream %s gagal (ffmpeg %s): %s",
+            stream_id, r.returncode, r.stderr.decode(errors="replace")[-200:],
+        )
         os.remove(tmp)
         return False
     except (subprocess.TimeoutExpired, OSError, subprocess.SubprocessError) as e:
@@ -69,6 +76,7 @@ async def run_poster_loop(interval_sec: int = 60) -> None:
         return
 
     settings = get_settings()
+    rtsp_host = urlparse(settings.mediamtx_api_url).hostname or "127.0.0.1"
     try:
         while True:
             try:
@@ -78,9 +86,11 @@ async def run_poster_loop(interval_sec: int = 60) -> None:
                     )
                     streams = list(result.scalars().all())
                 for s in streams:
-                    url = s.rtsp_url or s.main_url
-                    if not url:
-                        continue
+                    # Lewat MediaMTX (berbagi sesi dengan penonton), bukan ke
+                    # kamera langsung: banyak kamera hanya mengizinkan 1 sesi
+                    # RTSP, poster langsung akan menolak/menendang live view.
+                    path = f"stream_{s.id}_sub" if s.sub_url else f"stream_{s.id}"
+                    url = f"rtsp://{rtsp_host}:8554/{path}"
                     out = os.path.join(
                         settings.posters_dir, f"stream_{s.id}.jpg"
                     )
