@@ -20,17 +20,16 @@ const FILTERS: { id: StatusFilter; label: string }[] = [
 ];
 
 const GRID_OPTS = [
-  { cols: 1, label: "1×1" },
-  { cols: 2, label: "2×2" },
-  { cols: 3, label: "3×3" },
-  { cols: 4, label: "4×4" },
+  { key: "1", cols: 1, label: "1" },
+  { key: "2", cols: 2, label: "2" },
+  { key: "4", cols: 2, label: "4" },
+  { key: "9", cols: 3, label: "9" },
 ];
 
 const GRID_CLASS: Record<number, string> = {
   1: "grid-cols-1",
-  2: "grid-cols-2",
-  3: "grid-cols-2 lg:grid-cols-3",
-  4: "grid-cols-2 lg:grid-cols-3 xl:grid-cols-4",
+  2: "grid-cols-1 sm:grid-cols-2",
+  3: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3",
 };
 
 function SkeletonGrid() {
@@ -57,7 +56,8 @@ export default function LivePage() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<StatusFilter>("all");
-  const [gridCols, setGridCols] = useState(4);
+  const [gridKey, setGridKey] = useState("4");
+  const gridCols = GRID_OPTS.find((g) => g.key === gridKey)?.cols ?? 2;
   const [focus, setFocus] = useState<Stream | null>(null);
 
   const load = useCallback(async () => {
@@ -142,13 +142,13 @@ export default function LivePage() {
               >
                 {GRID_OPTS.map((g) => (
                   <button
-                    key={g.cols}
+                    key={g.key}
                     role="tab"
-                    aria-selected={gridCols === g.cols}
-                    title={`Grid ${g.label}`}
-                    onClick={() => setGridCols(g.cols)}
+                    aria-selected={gridKey === g.key}
+                    title={`Tampilkan ${g.label} kamera`}
+                    onClick={() => setGridKey(g.key)}
                     className={`flex h-11 min-w-[52px] items-center justify-center rounded-full px-3 text-xs font-semibold transition active:scale-95 ${
-                      gridCols === g.cols
+                      gridKey === g.key
                         ? "bg-accent-600 text-onaccent"
                         : "text-neutral-400 hover:text-white"
                     }`}
@@ -304,7 +304,7 @@ export default function LivePage() {
             </p>
           </div>
         ) : (
-          <div className={`grid gap-4 ${GRID_CLASS[gridCols] ?? GRID_CLASS[4]}`}>
+          <div className={`grid gap-4 ${GRID_CLASS[gridCols] ?? GRID_CLASS[2]}`}>
             {filtered.map((s) => (
               <CameraTile key={s.id} stream={s} onExpand={setFocus} />
             ))}
