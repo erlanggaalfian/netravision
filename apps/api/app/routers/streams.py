@@ -63,7 +63,7 @@ async def _visible_streams(user: User, db: AsyncSession) -> list[Stream]:
         select(Stream).where(Stream.is_active.is_(True)).order_by(Stream.id)
     )
     streams = list(result.scalars().all())
-    if user.role == "admin":
+    if user.role in ("admin", "super_admin"):
         return streams
     allowed: set[int] = set(
         (

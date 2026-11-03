@@ -117,8 +117,7 @@
    Konten video memang gelap — tile kamera, player fokus, dan pratinjau
    monitor mempertahankan penampilan ruang kendali malam. Bungkus elemen
    dengan class ini; seluruh token --nv-* di dalamnya kembali ke gelap. */
-.nv-stage {
-  color-scheme: dark;
+.nv-stage {  color-scheme: dark;
   --nv-ink-950: #070b10;
   --nv-ink-900: #0d141c;
   --nv-ink-850: #111a24;
@@ -147,6 +146,13 @@
   --nv-slate-500: #64748b;
   --nv-slate-600: #475569;
   --nv-white: #ffffff;
+}
+
+/* Background letterbox area video mengikuti tema terang/gelap.
+   .nv-stage memaksa variabel ke gelap, jadi override khusus di sini:
+   mode terang pakai abu terang, mode gelap tetap near-black. */
+[data-theme="light"] .nv-stage.nv-video-bg {
+  background-color: #e9edf2;
 }
 
 html {

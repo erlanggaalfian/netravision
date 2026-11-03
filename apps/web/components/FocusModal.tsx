@@ -309,7 +309,7 @@ export function FocusModal({ stream, onClose }: Props) {
         {/* Video */}
         <div
           ref={stageRef}
-          className={`nv-stage relative aspect-video bg-black ${cssRotate ? "nv-rot" : ""}`}
+          className={`nv-stage nv-video-bg relative aspect-video bg-black ${cssRotate ? "nv-rot" : ""}`}
         >
           <div className="nv-rot-inner relative h-full w-full">
           {ad?.is_active && <AdBanner config={ad} />}
