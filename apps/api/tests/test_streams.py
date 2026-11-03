@@ -68,6 +68,22 @@ async def test_reconnect_ok(app_client):
     assert fake.paths["stream_1_sub"] == "rtsp://cam/1_sub"
 
 
+async def test_reconnect_pertahankan_record(app_client):
+    app, fake, db = app_client
+    admin, _ = await _seed(db)
+    from app.models.streams import Stream
+
+    st = await db.get(Stream, 1)
+    st.recording_enabled = True
+    await db.commit()
+    auth_as(app, admin)
+    async with _client(app) as c:
+        r = await c.post("/api/streams/1/reconnect")
+    assert r.status_code == 200, r.text
+    assert fake.records["stream_1"] is True
+    assert fake.records["stream_1_sub"] is True
+
+
 async def test_reconnect_404(app_client):
     app, _, db = app_client
     admin, _ = await _seed(db)

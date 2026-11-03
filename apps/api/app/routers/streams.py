@@ -136,13 +136,17 @@ async def reconnect_stream(
 ):
     """Hapus + daftarkan ulang path MediaMTX dari main_url/sub_url tersimpan."""
     stream = await _get_stream_or_404(db, stream_id)
+    # Pertahankan flag record: tanpa ini rekaman per kamera mati senyap.
+    record = bool(stream.recording_enabled)
     try:
         await mediamtx.delete_path(f"stream_{stream_id}")
         if stream.main_url:
-            await mediamtx.create_path(f"stream_{stream_id}", stream.main_url)
+            await mediamtx.create_path(
+                f"stream_{stream_id}", stream.main_url, record=record)
         await mediamtx.delete_path(f"stream_{stream_id}_sub")
         if stream.sub_url:
-            await mediamtx.create_path(f"stream_{stream_id}_sub", stream.sub_url)
+            await mediamtx.create_path(
+                f"stream_{stream_id}_sub", stream.sub_url, record=record)
     except Exception as e:  # noqa: BLE001 - semua kegagalan MediaMTX -> 502, bukan 500
         log.warning("reconnect stream %s gagal: %s", stream_id, e)
         raise HTTPException(status_code=502, detail=f"MediaMTX tidak terjangkau: {e}")
