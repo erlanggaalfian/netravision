@@ -170,7 +170,8 @@ def parse_ffprobe_output(text: str) -> VideoProbe:
         codec=s.get("codec_name"),
         width=s.get("width"),
         height=s.get("height"),
-        fps=_parse_rate(s.get("avg_frame_rate")),
+        # HEVC sering avg_frame_rate "0/0" -> pakai r_frame_rate.
+        fps=_parse_rate(s.get("avg_frame_rate")) or _parse_rate(s.get("r_frame_rate")),
         gop_seconds=gop,
     )
 
@@ -181,7 +182,7 @@ async def _run_ffprobe(url: str, timeout: float = _FFPROBE_TIMEOUT) -> VideoProb
         FFPROBE, "-rtsp_transport", "tcp", "-v", "error",
         "-select_streams", "v:0",
         "-show_entries",
-        "stream=codec_name,width,height,avg_frame_rate:packet=pts_time,flags",
+        "stream=codec_name,width,height,avg_frame_rate,r_frame_rate:packet=pts_time,flags",
         "-read_intervals", "%+6", "-of", "json", url,
     ]
     proc: asyncio.subprocess.Process | None = None
@@ -259,8 +260,11 @@ def select_main_sub(paths: list[PathResult]) -> tuple[str | None, str | None]:
     def area(p: PathResult) -> int:
         return (p.width or 0) * (p.height or 0)
 
+    # max/min mengambil yang PERTAMA bila seri -> urutan kandidat (template
+    # brand dulu) menang. Banyak kamera menjawab path apa pun dengan stream
+    # yang sama: sub hanya sah bila resolusinya benar-benar lebih kecil.
     main = max(vids, key=lambda p: (area(p), p.fps or 0.0))
-    subs = [p for p in vids if p.url != main.url]
+    subs = [p for p in vids if area(p) < area(main)]
     sub = min(subs, key=lambda p: (area(p), -(p.fps or 0.0))) if subs else None
     return main.url, (sub.url if sub else None)
 

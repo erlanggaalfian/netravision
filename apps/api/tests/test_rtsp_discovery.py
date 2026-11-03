@@ -72,6 +72,11 @@ def test_select_main_sub():
     assert select_main_sub([big]) == ("rtsp://h/a", None)
     assert select_main_sub([dead]) == (None, None)
     assert select_main_sub([]) == (None, None)
+    # Kamera yang menjawab banyak path dengan stream sama: main = kandidat
+    # pertama, tanpa sub palsu beresolusi sama.
+    alias1 = PathResult(path="/x", url="rtsp://h/x", status="video", width=800, height=448)
+    alias2 = PathResult(path="/y", url="rtsp://h/y", status="video", width=800, height=448)
+    assert select_main_sub([alias1, alias2]) == ("rtsp://h/x", None)
 
 
 # ---------- verifikasi URL tunggal ----------
