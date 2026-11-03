@@ -246,7 +246,7 @@ export default function AdminScannerPage() {
             )}
           </div>
           {added > 0 && (
-            <p className="mb-3 text-sm text-emerald-400">
+            <p className="mb-3 text-sm text-ok-400">
               {added} kamera berhasil ditambahkan. Lihat di tab Kamera.
             </p>
           )}

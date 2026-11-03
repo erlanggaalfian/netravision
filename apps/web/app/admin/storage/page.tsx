@@ -182,7 +182,7 @@ export default function AdminStoragePage() {
               )}
             </p>
             {conn && !conn.rclone_found && (
-              <p className="mt-1 text-sm text-amber-600">
+              <p className="mt-1 text-sm text-warn-400">
                 rclone belum terinstal di server — hubungi admin server.
               </p>
             )}

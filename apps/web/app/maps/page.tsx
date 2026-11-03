@@ -28,12 +28,12 @@ function escapeHtml(s: string): string {
 }
 
 function markerIcon(L: typeof LType, online: boolean): LType.DivIcon {
-  const color = online ? "#34d399" : "#f87171"; // ok-400 / bad-400
+  const color = online ? "var(--nv-ok-400)" : "var(--nv-bad-400)";
   const size = L.Browser.touch ? 28 : 20; // lebih besar di layar sentuh
   const half = size / 2;
   return L.divIcon({
     className: "nv-marker",
-    html: `<span style="display:block;width:${size}px;height:${size}px;border-radius:9999px;background:${color};border:3px solid #0c0e12;box-shadow:0 0 0 2px ${color}66, 0 2px 8px rgba(0,0,0,.55)"></span>`,
+    html: `<span style="display:block;width:${size}px;height:${size}px;border-radius:9999px;background:${color};border:3px solid var(--nv-ink-950);box-shadow:0 0 0 2px ${color}, 0 2px 8px rgba(0,0,0,.55)"></span>`,
     iconSize: [size, size],
     iconAnchor: [half, half],
     popupAnchor: [0, -half - 1],
@@ -175,7 +175,7 @@ export default function MapsPage() {
       const btn = document.createElement("button");
       btn.textContent = "Lihat live";
       btn.style.cssText =
-        "width:100%;padding:10px 12px;border-radius:10px;background:#2563eb;color:#fff;font-size:13px;font-weight:600;border:none;cursor:pointer;min-height:44px";
+        "width:100%;padding:10px 12px;border-radius:10px;background:var(--nv-accent-600);color:#fff;font-size:13px;font-weight:600;border:none;cursor:pointer;min-height:44px";
       btn.onclick = () => {
         map.closePopup();
         focusRef.current(s);
