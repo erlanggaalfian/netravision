@@ -96,13 +96,15 @@ async def test_apply_retention_hapus_yang_lama(db_session, tmp_path):
     await db_session.commit()
 
     old = _mk(tmp_path, s.id, "2026-10-30_10-00-00-000000.mp4")
-    new = _mk(tmp_path, s.id, "2026-11-02_10-00-00-000000.mp4")
-    # buat file "baru" 2 hari lalu agar tak terhapus karena mtime
-    now = datetime.now().timestamp()
+    now_dt = datetime.now()
+    new_name = now_dt.strftime("%Y-%m-%d_%H-%M-%S-000000.mp4")
+    new = _mk(tmp_path, s.id, new_name)
+    # buat file "baru" segar agar tak terhapus karena mtime
+    now = now_dt.timestamp()
     os.utime(new, (now, now))
 
     # ubah nama file lama jadi 5 hari lalu agar pasti kedaluwarsa
-    five_ago = datetime.now() - timedelta(days=5)
+    five_ago = now_dt - timedelta(days=5)
     old_name = five_ago.strftime("%Y-%m-%d_%H-%M-%S-000000.mp4")
     os.rename(old, os.path.join(str(tmp_path), f"stream_{s.id}", old_name))
 
@@ -110,4 +112,4 @@ async def test_apply_retention_hapus_yang_lama(db_session, tmp_path):
     assert n == 1
     remaining = list_segments(s.id, None, r)
     assert len(remaining) == 1
-    assert remaining[0].name == "2026-11-02_10-00-00-000000.mp4"
+    assert remaining[0].name == new_name

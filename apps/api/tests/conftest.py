@@ -19,13 +19,16 @@ class FakeMediaMTX:
 
     def __init__(self):
         self.paths: dict[str, str] = {}
+        self.records: dict[str, bool] = {}
+        self.patches: dict[str, dict] = {}
         self.deleted: list[str] = []
 
     async def create_path(self, name: str, source: str, record: bool = False) -> None:
         self.paths[name] = source
+        self.records[name] = record
 
     async def patch_path(self, name: str, patch: dict) -> None:
-        pass
+        self.patches.setdefault(name, {}).update(patch)
 
     async def delete_path(self, name: str) -> None:
         self.deleted.append(name)
