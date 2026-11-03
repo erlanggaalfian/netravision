@@ -875,7 +875,7 @@ function AddStreamModal({
                   {c.main_url}
                 </span>
                 {c.sub_url && (
-                  <span className="flex items-center gap-1.5 truncate text-xs text-slate-600">
+                  <span className="flex items-center gap-1.5 truncate text-xs text-slate-500">
                     <span>sub: {c.sub_url}</span>
                     {c.sub_ok === true && (
                       <span className="shrink-0 rounded bg-ok-400/15 px-1.5 py-0.5 text-[10px] font-medium text-ok-400">OK</span>

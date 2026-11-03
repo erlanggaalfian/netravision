@@ -129,7 +129,7 @@ export default function LoginPage() {
           </form>
         </div>
 
-        <p className="mt-8 text-center text-xs text-slate-600">
+        <p className="mt-8 text-center text-xs text-slate-500">
           © 2026 NetraVision
         </p>
       </div>

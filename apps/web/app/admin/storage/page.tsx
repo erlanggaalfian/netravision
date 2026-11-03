@@ -290,7 +290,7 @@ export default function AdminStoragePage() {
 
       <Card className="mt-6 max-w-2xl">
         <p className="mb-2 text-sm font-semibold text-white">Cara kerja</p>
-        <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-600">
+        <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-400">
           <li>Klik “Hubungkan Google Drive” di atas dan ikuti 3 langkahnya (sekali saja).</li>
           <li>Tempel tautan foldernya di atas (bisa banyak).</li>
           <li>
@@ -316,7 +316,7 @@ export default function AdminStoragePage() {
           <p className="text-sm text-slate-500">
             Sekali saja — tanpa SSH, tanpa Cloud Console.
           </p>
-          <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-600">
+          <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-400">
             <li>
               Di <b>komputer/laptop Anda</b>, pasang rclone sekali dari{" "}
               <a href="https://rclone.org/downloads/" target="_blank" rel="noreferrer" className="text-blue-600 underline">

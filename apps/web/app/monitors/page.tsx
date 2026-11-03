@@ -623,7 +623,7 @@ export default function MonitorsPage() {
                   height="40"
                   viewBox="0 0 24 24"
                   fill="none"
-                  className="text-neutral-600"
+                  className="text-neutral-500"
                   aria-hidden
                 >
                   <path

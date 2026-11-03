@@ -315,7 +315,7 @@ function EmbedInner() {
               height="36"
               viewBox="0 0 24 24"
               fill="none"
-              className="text-neutral-600"
+              className="text-neutral-500"
               aria-hidden
             >
               <path
@@ -361,7 +361,7 @@ function EmbedInner() {
         )}
       </main>
 
-      <footer className="px-4 pb-6 text-center text-[11px] text-neutral-600 sm:px-6">
+      <footer className="px-4 pb-6 text-center text-[11px] text-neutral-500 sm:px-6">
         NetraVision · Siaran publik pihak ketiga
       </footer>
     </div>

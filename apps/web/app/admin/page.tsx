@@ -166,7 +166,7 @@ export default function AdminDashboard() {
                 <span className="tabular-nums">{fmtBytes(disk.used)} terpakai</span>
                 <span className="tabular-nums">{fmtBytes(disk.free)} bebas</span>
               </div>
-              <p className="mt-1 truncate text-xs text-slate-600">{disk.path}</p>
+              <p className="mt-1 truncate text-xs text-slate-500">{disk.path}</p>
             </div>
           )}
         </Card>
