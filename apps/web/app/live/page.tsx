@@ -147,7 +147,12 @@ export default function LivePage() {
                     aria-selected={gridCols === g.cols}
                     title={`Grid ${g.label}`}
                     onClick={() => setGridCols(g.cols)}
-                    className={`flex h-11 min-w-[52px] items-center justify-center rounded-full px-3 text-xs font-semibold transition active:scale-95 ${
+                    className={`h-11 min-w-[52px] items-center justify-center rounded-full px-3 text-xs font-semibold transition active:scale-95 ${
+                      /* Di HP (<sm) hanya tampil 1x1 dan 2x2; 3x3/4x4 tidak
+                         berguna di layar kecil dan GRID_CLASS pun memaksa
+                         1 kolom di bawah sm. */
+                      g.cols > 2 ? "hidden sm:flex" : "flex"
+                    } ${
                       gridCols === g.cols
                         ? "bg-accent-600 text-onaccent"
                         : "text-neutral-400 hover:text-white"
