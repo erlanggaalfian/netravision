@@ -28,3 +28,4 @@ out/
 # Rekaman & data lokal (jangan commit)
 recordings/
 data/
+.repo-watch-sha
