@@ -133,15 +133,16 @@ function EmbedPlayer({
     <div className="nv-stage overflow-hidden rounded-2xl bg-ink-900 ring-1 ring-white/10">
       <div className="relative aspect-video bg-black">
         {ad?.is_active && <AdBanner config={ad} />}
-        {playing ? (
-          <video
-            ref={videoRef}
-            playsInline
-            muted
-            className="h-full w-full object-contain"
-          />
-        ) : (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6 text-center">
+        {/* Video SELALU terpasang — start() membaca videoRef saat tombol
+            ditekan, saat itu playing masih false. */}
+        <video
+          ref={videoRef}
+          playsInline
+          muted
+          className={`h-full w-full object-contain ${playing ? "" : "invisible"}`}
+        />
+        {!playing && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
             {failed ? (
               <>
                 <p className="max-w-xs text-xs leading-relaxed text-bad-400">
@@ -155,7 +156,7 @@ function EmbedPlayer({
               <>
                 <button
                   onClick={() => start()}
-                  disabled={loadingSession || !camera.is_online}
+                  disabled={loadingSession}
                   className="flex h-16 w-16 items-center justify-center rounded-full bg-accent-600 text-onaccent transition hover:bg-accent-500 active:scale-95 disabled:opacity-40"
                   aria-label={`Putar ${camera.name}`}
                 >
@@ -172,7 +173,7 @@ function EmbedPlayer({
                     ? "Menyiapkan sesi…"
                     : camera.is_online
                       ? "Klik untuk memutar"
-                      : "Kamera offline"}
+                      : "Kamera terdeteksi offline — klik untuk mencoba"}
                 </span>
               </>
             )}
