@@ -291,6 +291,7 @@ function UserFormModal({
             <option value="user">Pengguna</option>
             <option value="admin">Admin</option>
             <option value="guest">Tamu</option>
+            <option value="super_admin">Super Admin</option>
           </Select>
         </Field>
         <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 rounded-xl border border-ink-700/60 bg-ink-900/60 px-4 py-3">
