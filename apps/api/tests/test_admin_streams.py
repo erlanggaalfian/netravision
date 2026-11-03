@@ -53,7 +53,7 @@ async def test_scan_auto(app_client):
     async with _client(app) as c:
         r = await c.post("/api/admin/scan", json={
             "brand": "auto", "host": "192.168.1.10",
-            "user": "admin", "password": "x",
+            "user": "admin", "password": "x", "probe": False,
         })
     assert r.status_code == 200, r.text
     cands = r.json()["candidates"]
@@ -70,7 +70,7 @@ async def test_scan_single_brand(app_client):
     async with _client(app) as c:
         r = await c.post("/api/admin/scan", json={
             "brand": "dahua", "host": "192.168.1.11",
-            "user": "admin", "password": "x",
+            "user": "admin", "password": "x", "probe": False,
         })
     assert r.status_code == 200, r.text
     cands = r.json()["candidates"]
@@ -195,3 +195,23 @@ async def test_sharing_grants_view_access(app_client):
         r = await c.get("/api/streams")
         names = [s["name"] for s in r.json()]
         assert names == ["Cam 1"]
+
+
+async def test_update_toggle_record_patch_mediamtx(app_client):
+    """PUT recording_enabled harus mem-patch record path MediaMTX (main+sub)."""
+    app, fake, db = app_client
+    admin = make_user()
+    s = Stream(id=1, name="Cam 1", rtsp_url="rtsp://u:p@cam/1",
+               main_url="rtsp://u:p@cam/1", sub_url="rtsp://u:p@cam/1_sub")
+    db.add_all([admin, s])
+    await db.commit()
+    auth_as(app, admin)
+    async with _client(app) as c:
+        r = await c.put("/api/admin/streams/1", json={"recording_enabled": True})
+    assert r.status_code == 200, r.text
+    assert fake.patches["stream_1"] == {"record": True}
+    assert fake.patches["stream_1_sub"] == {"record": True}
+    async with _client(app) as c:
+        r = await c.put("/api/admin/streams/1", json={"recording_enabled": False})
+    assert r.status_code == 200, r.text
+    assert fake.patches["stream_1"]["record"] is False

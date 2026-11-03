@@ -130,7 +130,7 @@ async def test_scan_rate_limited(app_client):
             r = await c.post(
                 "/api/admin/scan",
                 json={"brand": "auto", "host": "192.168.1.10",
-                      "user": "admin", "password": "x"},
+                      "user": "admin", "password": "x", "probe": False},
             )
             statuses.append(r.status_code)
         assert statuses[:10] == [200] * 10, statuses
