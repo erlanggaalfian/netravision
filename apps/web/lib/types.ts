@@ -104,6 +104,34 @@ export interface ScanCandidate {
   probe_status?: string | null;
 }
 
+export interface ScanPath {
+  path: string;
+  url: string;
+  status: string; // video | no_video | auth_failed | not_found | timeout | error
+  codec?: string | null;
+  width?: number | null;
+  height?: number | null;
+  fps?: number | null;
+  gop_seconds?: number | null;
+  role?: string | null; // main | sub | null
+}
+
+export interface ScanResult {
+  candidates: ScanCandidate[];
+  paths: ScanPath[];
+  best_main: string | null;
+  best_sub: string | null;
+}
+
+export interface SubnetHost {
+  host: string;
+  port: number;
+  status: string; // video | no_video | auth_failed | not_found | timeout | error | unreachable
+  best_main: string | null;
+  best_sub: string | null;
+  paths: ScanPath[];
+}
+
 export interface StatusChange {
   stream_id: number;
   is_online: boolean;

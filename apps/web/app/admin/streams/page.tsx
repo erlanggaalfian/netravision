@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import { useCameraStatus } from "../../../hooks/useCameraStatus";
-import type { DriveFolder, Group, ScanCandidate, Stream } from "../../../lib/types";
+import type { DriveFolder, Group, ScanPath, ScanResult, Stream } from "../../../lib/types";
 import { ShareModal } from "../../../components/ShareModal";
 import {
   Accordion,
@@ -41,6 +41,25 @@ const STORAGE_LABEL: Record<string, string> = {
   drive: "Google Drive",
   both: "Keduanya",
 };
+
+type Tone = "ok" | "bad" | "warn" | "info" | "muted";
+const SCAN_STATUS: Record<string, { label: string; tone: Tone }> = {
+  video: { label: "Video", tone: "ok" },
+  no_video: { label: "Tanpa video", tone: "warn" },
+  auth_failed: { label: "Login salah", tone: "bad" },
+  not_found: { label: "Tidak ada", tone: "muted" },
+  timeout: { label: "Timeout", tone: "muted" },
+  error: { label: "Gagal", tone: "muted" },
+  unreachable: { label: "Tidak terjangkau", tone: "muted" },
+};
+
+function pathInfo(p: ScanPath): string {
+  if (!p.width || !p.height) return "";
+  const parts = [`${p.width}×${p.height}`];
+  if (p.fps) parts.push(`${p.fps} fps`);
+  if (p.gop_seconds) parts.push(`GOP ${p.gop_seconds}s`);
+  return parts.join(" · ");
+}
 
 const PAGE_SIZE = 12;
 
@@ -625,7 +644,8 @@ function AddStreamModal({
   const [channel, setChannel] = useState("1");
   const [rtspUrl, setRtspUrl] = useState("");
   const [useRtsp, setUseRtsp] = useState(false);
-  const [candidates, setCandidates] = useState<ScanCandidate[] | null>(null);
+  const [results, setResults] = useState<ScanResult | null>(null);
+  const [picked, setPicked] = useState<ScanPath | null>(null);
   const [recordingEnabled, setRecordingEnabled] = useState(false);
   const [retentionDays, setRetentionDays] = useState("7");
   const [latitude, setLatitude] = useState("");
@@ -636,24 +656,24 @@ function AddStreamModal({
   async function doScan() {
     setError("");
     setBusy(true);
-    setCandidates(null);
+    setResults(null);
+    setPicked(null);
     try {
       const body = useRtsp
-        ? { rtsp_url: rtspUrl.trim(), brand: "auto" }
+        ? { rtsp_url: rtspUrl.trim() }
         : {
             brand,
             host: host.trim(),
-            username: user.trim(),
+            user: user.trim(),
             password,
             port: parseInt(port, 10) || 554,
             channel: parseInt(channel, 10) || 1,
           };
-      const res = await api.post<{ candidates: ScanCandidate[] }>(
-        "/admin/scan",
-        body,
-      );
-      setCandidates(res.candidates);
-      if (res.candidates.length === 0) setError("Tidak ada kandidat ditemukan.");
+      const res = await api.post<ScanResult>("/admin/scan", body);
+      setResults(res);
+      if (res.paths.length > 0 && res.best_main) {
+        setPicked(res.paths.find((p) => p.role === "main") ?? null);
+      }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Scan gagal");
     } finally {
@@ -661,23 +681,26 @@ function AddStreamModal({
     }
   }
 
-  async function pick(c: ScanCandidate) {
+  async function save() {
+    if (!picked) return;
     setError("");
     setBusy(true);
     try {
       const lat = latitude.trim() === "" ? null : parseFloat(latitude);
       const lon = longitude.trim() === "" ? null : parseFloat(longitude);
+      // force: path dipilih admin setelah diverifikasi video saat scan;
+      // hindari sesi RTSP ganda ke kamera yang membatasi sesi.
       const res = await api.post<Stream & { mediamtx_registered?: boolean; mediamtx_error?: string | null }>(
         "/admin/streams",
         {
           name: name.trim(),
-          rtsp_url: c.main_url,
-          brand: c.brand,
+          rtsp_url: picked.url,
           storage_mode: "local",
           recording_enabled: recordingEnabled,
           retention_days: Math.min(365, Math.max(1, parseInt(retentionDays, 10) || 7)),
           latitude: lat !== null && !Number.isNaN(lat) ? lat : null,
           longitude: lon !== null && !Number.isNaN(lon) ? lon : null,
+          force: true,
         },
       );
       if (res.mediamtx_registered === false) {
@@ -841,52 +864,68 @@ function AddStreamModal({
 
         <Button
           onClick={doScan}
-          disabled={busy || !name.trim() || (useRtsp ? !rtspUrl.trim() : !host.trim())}
+          disabled={busy || (useRtsp ? !rtspUrl.trim() : !host.trim())}
+          variant="subtle"
           className="w-full"
         >
-          {busy ? "Memindai…" : "Scan"}
+          {busy ? "Memindai…" : "Cari otomatis"}
         </Button>
 
-        {candidates && (
+        {results && (
           <div className="space-y-2">
             <p className="text-sm font-medium text-slate-300">
-              Kandidat ditemukan — pilih satu untuk disimpan:
+              Path RTSP — pilih satu untuk dijadikan main:
             </p>
-            {candidates.map((c, i) => (
-              <button
-                key={i}
-                onClick={() => pick(c)}
-                disabled={busy}
-                className="w-full rounded-lg border border-ink-700 bg-ink-950 p-3 text-left transition-colors hover:border-accent-500"
-              >
-                <span className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium text-white">{c.brand}</span>
-                  <span className="flex items-center gap-1.5">
-                    {c.main_ok === true && (
-                      <Badge tone="ok">Main OK</Badge>
-                    )}
-                    {c.main_ok === false && (
-                      <Badge tone="bad">Main gagal</Badge>
-                    )}
-                    <Badge tone="info">{c.method}</Badge>
-                  </span>
-                </span>
-                <span className="mt-1 block truncate text-xs text-slate-500">
-                  {c.main_url}
-                </span>
-                {c.sub_url && (
-                  <span className="flex items-center gap-1.5 truncate text-xs text-slate-500">
-                    <span>sub: {c.sub_url}</span>
-                    {c.sub_ok === true && (
-                      <span className="shrink-0 rounded bg-ok-400/15 px-1.5 py-0.5 text-[10px] font-medium text-ok-400">OK</span>
-                    )}
-                    {c.sub_ok === false && (
-                      <span className="shrink-0 rounded bg-bad-400/15 px-1.5 py-0.5 text-[10px] font-medium text-bad-400">gagal</span>
-                    )}
-                  </span>
-                )}
-              </button>
-            ))}
+            <div className="max-h-72 space-y-1.5 overflow-y-auto">
+              {[
+                ...results.paths.filter((p) => p.status === "video"),
+                ...results.paths.filter((p) => p.status !== "video"),
+              ].map((p) => {
+                const st = SCAN_STATUS[p.status] ?? SCAN_STATUS.error;
+                const active = picked?.url === p.url;
+                return (
+                  <button
+                    key={p.url}
+                    type="button"
+                    onClick={() => setPicked(p)}
+                    aria-pressed={active}
+                    className={`flex min-h-[44px] w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors ${
+                      active
+                        ? "border-accent-500 bg-accent-500/10"
+                        : "border-ink-700 bg-ink-950 hover:border-ink-500"
+                    }`}
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="truncate font-mono text-[13px] text-white">
+                          {p.path}
+                        </span>
+                        {p.role === "main" && <Badge tone="info">Main</Badge>}
+                        {p.role === "sub" && <Badge tone="muted">Sub</Badge>}
+                      </span>
+                      {pathInfo(p) && (
+                        <span className="mt-0.5 block text-xs text-slate-500">
+                          {pathInfo(p)}
+                        </span>
+                      )}
+                    </span>
+                    <Badge tone={st.tone}>{st.label}</Badge>
+                  </button>
+                );
+              })}
+            </div>
+            {results.paths.length === 0 && (
+              <p className="text-xs text-slate-500">
+                Tidak ada path yang bisa dicoba (host tidak terjangkau).
+              </p>
+            )}
+            <Button
+              onClick={save}
+              disabled={busy || !name.trim() || !picked}
+              className="w-full"
+            >
+              {busy ? "Menyimpan…" : "Simpan kamera"}
+            </Button>
           </div>
         )}
       </div>

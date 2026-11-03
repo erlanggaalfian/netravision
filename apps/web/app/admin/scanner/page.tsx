@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ApiError, api } from "../../../lib/api";
-import type { Stream } from "../../../lib/types";
+import type { Stream, SubnetHost } from "../../../lib/types";
 import {
   Badge,
   Button,
@@ -10,32 +10,26 @@ import {
   ErrorBox,
   Field,
   SectionTitle,
-  Select,
   TextInput,
 } from "../../../components/ui";
 
-const BRANDS = [
-  { slug: "auto", label: "Otomatis (coba semua)" },
-  { slug: "hikvision", label: "Hikvision" },
-  { slug: "dahua", label: "Dahua / Amcrest" },
-  { slug: "uniview_ipc", label: "Uniview (kamera langsung)" },
-  { slug: "uniview_nvr", label: "Uniview (NVR)" },
-  { slug: "hanwha", label: "Hanwha / Samsung" },
-  { slug: "axis", label: "Axis" },
-  { slug: "tplink_vigi", label: "TP-Link Vigi" },
-  { slug: "reolink", label: "Reolink" },
-  { slug: "ezviz", label: "Ezviz" },
-  { slug: "foscam", label: "Foscam" },
-  { slug: "milesight", label: "Milesight" },
-  { slug: "panasonic", label: "Panasonic" },
-];
+type Tone = "ok" | "bad" | "warn" | "info" | "muted";
+const SCAN_STATUS: Record<string, { label: string; tone: Tone }> = {
+  video: { label: "Video", tone: "ok" },
+  no_video: { label: "Tanpa video", tone: "warn" },
+  auth_failed: { label: "Login salah", tone: "bad" },
+  not_found: { label: "Tidak ada", tone: "muted" },
+  timeout: { label: "Timeout", tone: "muted" },
+  error: { label: "Gagal", tone: "muted" },
+  unreachable: { label: "Tidak terjangkau", tone: "muted" },
+};
 
-interface SubnetCandidate {
-  host: string;
-  port: number;
-  brand: string;
-  main_url: string;
-  sub_url: string | null;
+function mainInfo(h: SubnetHost): string {
+  const p = h.paths.find((x) => x.role === "main");
+  if (!p?.width || !p.height) return p?.path ?? "";
+  const parts = [`${p.width}×${p.height}`];
+  if (p.fps) parts.push(`${p.fps} fps`);
+  return parts.join(" · ");
 }
 
 export default function AdminScannerPage() {
@@ -43,35 +37,31 @@ export default function AdminScannerPage() {
   const [port, setPort] = useState("554");
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
-  const [brand, setBrand] = useState("auto");
   const [scanning, setScanning] = useState(false);
-  const [candidates, setCandidates] = useState<SubnetCandidate[] | null>(null);
+  const [hosts, setHosts] = useState<SubnetHost[] | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState(0);
   const [error, setError] = useState("");
 
-  const key = (c: SubnetCandidate) => `${c.host}:${c.port}:${c.brand}`;
+  const key = (h: SubnetHost) => `${h.host}:${h.port}`;
+  const selectable = (hosts ?? []).filter((h) => h.status === "video");
 
   async function doScan() {
     setError("");
     setScanning(true);
-    setCandidates(null);
+    setHosts(null);
     setChecked(new Set());
     setAdded(0);
     try {
-      const res = await api.post<{ candidates: SubnetCandidate[] }>(
-        "/admin/scan-subnet",
-        {
-          ip_range: ipRange.trim(),
-          port: parseInt(port, 10) || 554,
-          username: username.trim(),
-          password,
-          brand,
-        },
-      );
-      setCandidates(res.candidates);
-      if (res.candidates.length === 0)
+      const res = await api.post<{ hosts: SubnetHost[] }>("/admin/scan-subnet", {
+        ip_range: ipRange.trim(),
+        port: parseInt(port, 10) || 554,
+        username: username.trim(),
+        password,
+      });
+      setHosts(res.hosts);
+      if (res.hosts.length === 0)
         setError("Tidak ada kamera ditemukan di subnet ini.");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Scan gagal");
@@ -80,8 +70,8 @@ export default function AdminScannerPage() {
     }
   }
 
-  function toggle(c: SubnetCandidate) {
-    const k = key(c);
+  function toggle(h: SubnetHost) {
+    const k = key(h);
     setChecked((prev) => {
       const next = new Set(prev);
       if (next.has(k)) next.delete(k);
@@ -91,38 +81,84 @@ export default function AdminScannerPage() {
   }
 
   function toggleAll() {
-    if (!candidates) return;
-    if (checked.size === candidates.length) setChecked(new Set());
-    else setChecked(new Set(candidates.map(key)));
+    if (checked.size === selectable.length) setChecked(new Set());
+    else setChecked(new Set(selectable.map(key)));
   }
 
   async function addSelected() {
-    if (!candidates) return;
-    const selected = candidates.filter((c) => checked.has(key(c)));
+    const selected = selectable.filter((h) => checked.has(key(h)));
     if (selected.length === 0) return;
     setError("");
     setAdding(true);
     let ok = 0;
-    for (const c of selected) {
+    for (const h of selected) {
       try {
+        // force: path sudah diverifikasi video saat scan.
         await api.post<Stream>("/admin/streams", {
-          name: `Kamera ${c.host}`,
-          rtsp_url: c.main_url,
-          brand: c.brand,
+          name: `Kamera ${h.host}`,
+          rtsp_url: h.best_main,
           storage_mode: "local",
+          force: true,
         });
         ok++;
       } catch (e) {
         setError(
           e instanceof ApiError
-            ? `Gagal menambah ${c.host}: ${e.message}`
-            : `Gagal menambah ${c.host}`,
+            ? `Gagal menambah ${h.host}: ${e.message}`
+            : `Gagal menambah ${h.host}`,
         );
         break;
       }
     }
     setAdded(ok);
     setAdding(false);
+  }
+
+  function HostRow({ h }: { h: SubnetHost }) {
+    const st = SCAN_STATUS[h.status] ?? SCAN_STATUS.error;
+    const canPick = h.status === "video";
+    const checkbox = (
+      <input
+        type="checkbox"
+        checked={checked.has(key(h))}
+        onChange={() => toggle(h)}
+        disabled={!canPick}
+        className="h-5 w-5 shrink-0 accent-accent-500 disabled:opacity-40"
+        aria-label={`Pilih ${h.host}`}
+      />
+    );
+    return (
+      <>
+        {/* Mobile: kartu */}
+        <li className="flex items-start gap-3 rounded-xl border border-ink-700 bg-ink-950 p-3 md:hidden">
+          {checkbox}
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-mono text-sm text-white">
+              {h.host}:{h.port}
+            </p>
+            <p className="mt-0.5 truncate text-xs text-slate-500">
+              {h.best_main ? mainInfo(h) : "tanpa video"}
+            </p>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              <Badge tone={st.tone}>{st.label}</Badge>
+            </div>
+          </div>
+        </li>
+        {/* Desktop: baris tabel */}
+        <tr key={key(h)} className="hidden hover:bg-white/[0.02] md:table-row">
+          <td className="px-3 py-3">{checkbox}</td>
+          <td className="px-3 py-3 font-mono text-white">{h.host}</td>
+          <td className="px-3 py-3 font-mono text-slate-400">{h.port}</td>
+          <td className="px-3 py-3">
+            <Badge tone={st.tone}>{st.label}</Badge>
+          </td>
+          <td className="max-w-[280px] truncate px-3 py-3 font-mono text-xs text-slate-400">
+            {h.best_main ?? "—"}
+          </td>
+          <td className="px-3 py-3 text-xs text-slate-400">{mainInfo(h)}</td>
+        </tr>
+      </>
+    );
   }
 
   return (
@@ -154,18 +190,6 @@ export default function AdminScannerPage() {
               inputMode="numeric"
               className="font-mono"
             />
-          </Field>
-          <Field label="Merek">
-            <Select
-              value={brand}
-              onChange={(e) => setBrand(e.target.value)}
-            >
-              {BRANDS.map((b) => (
-                <option key={b.slug} value={b.slug}>
-                  {b.label}
-                </option>
-              ))}
-            </Select>
           </Field>
           <Field label="Username">
             <TextInput
@@ -202,14 +226,14 @@ export default function AdminScannerPage() {
         )}
       </Card>
 
-      {candidates !== null && !scanning && (
+      {hosts !== null && !scanning && (
         <Card>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <h3 className="text-sm font-semibold text-white">
-              Kamera ditemukan{" "}
-              <span className="text-slate-400">({candidates.length})</span>
+              Host terdeteksi{" "}
+              <span className="text-slate-400">({hosts.length})</span>
             </h3>
-            {candidates.length > 0 && (
+            {selectable.length > 0 && (
               <Button
                 variant="subtle"
                 onClick={addSelected}
@@ -226,61 +250,54 @@ export default function AdminScannerPage() {
               {added} kamera berhasil ditambahkan. Lihat di tab Kamera.
             </p>
           )}
-          {candidates.length === 0 ? (
+          {hosts.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-500">
               Tidak ada kamera yang merespons di subnet ini.
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b border-ink-700 text-xs uppercase tracking-wider text-slate-500">
-                    <th scope="col" className="w-10 px-3 py-3">
-                      <input
-                        type="checkbox"
-                        checked={checked.size === candidates.length}
-                        onChange={toggleAll}
-                        className="h-5 w-5 accent-accent-500"
-                        aria-label="Pilih semua"
-                      />
-                    </th>
-                    <th scope="col" className="px-3 py-3 font-semibold">IP</th>
-                    <th scope="col" className="px-3 py-3 font-semibold">Port</th>
-                    <th scope="col" className="px-3 py-3 font-semibold">Merek</th>
-                    <th scope="col" className="px-3 py-3 font-semibold">URL Stream</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-ink-700/60">
-                  {candidates.map((c) => (
-                    <tr key={key(c)} className="hover:bg-white/[0.02]">
-                      <td className="px-3 py-3">
+            <>
+              {/* Mobile: daftar kartu */}
+              <ul className="space-y-2 md:hidden">
+                {hosts.map((h) => (
+                  <HostRow key={key(h)} h={h} />
+                ))}
+              </ul>
+              {/* Desktop: tabel */}
+              <div className="hidden overflow-x-auto md:block">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-ink-700 text-xs uppercase tracking-wider text-slate-500">
+                      <th scope="col" className="w-10 px-3 py-3">
                         <input
                           type="checkbox"
-                          checked={checked.has(key(c))}
-                          onChange={() => toggle(c)}
+                          checked={
+                            selectable.length > 0 &&
+                            checked.size === selectable.length
+                          }
+                          onChange={toggleAll}
                           className="h-5 w-5 accent-accent-500"
-                          aria-label={`Pilih ${c.host}`}
+                          aria-label="Pilih semua"
                         />
-                      </td>
-                      <td className="px-3 py-3 font-mono text-white">{c.host}</td>
-                      <td className="px-3 py-3 font-mono text-slate-400">
-                        {c.port}
-                      </td>
-                      <td className="px-3 py-3">
-                        <Badge tone="muted">{c.brand}</Badge>
-                      </td>
-                      <td className="max-w-[280px] truncate px-3 py-3 font-mono text-xs text-slate-400">
-                        {c.main_url}
-                      </td>
+                      </th>
+                      <th scope="col" className="px-3 py-3 font-semibold">IP</th>
+                      <th scope="col" className="px-3 py-3 font-semibold">Port</th>
+                      <th scope="col" className="px-3 py-3 font-semibold">Status</th>
+                      <th scope="col" className="px-3 py-3 font-semibold">Path main</th>
+                      <th scope="col" className="px-3 py-3 font-semibold">Video</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-ink-700/60">
+                    {hosts.map((h) => (
+                      <HostRow key={key(h)} h={h} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </Card>
       )}
-      {candidates === null && !scanning && !error && (
+      {hosts === null && !scanning && !error && (
         <p className="py-10 text-center text-sm text-slate-500">
           Isi subnet lalu tekan “Scan Network” untuk mulai memindai.
         </p>
