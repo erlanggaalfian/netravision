@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { playWhep, stopWhep } from "../lib/whep";
 import { api } from "../lib/api";
 import { AdBanner } from "./AdBanner";
+import { useFullscreen } from "../hooks/useFullscreen";
 import type { Stream, AdConfig } from "../lib/types";
 
 interface Props {
@@ -21,6 +22,11 @@ export function FocusModal({ stream, onClose }: Props) {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const [failed, setFailed] = useState(false);
   const [ad, setAd] = useState<AdConfig | null>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const { fs, rotated, cssRotate, toggle: toggleFs, rotate } = useFullscreen(
+    stageRef,
+    videoRef,
+  );
 
   /* Config iklan: backend menonaktifkan otomatis bila show_ads=False. */
   useEffect(() => {
@@ -54,16 +60,23 @@ export function FocusModal({ stream, onClose }: Props) {
       else pcRef.current = pc;
     };
     /* Main dulu (tajam). Banyak kamera hanya mengizinkan 1 sesi RTSP —
-       bila main ditolak, pakai sub (path sama yang sudah dipakai grid). */
-    playWhep(video, main || sub!, fail)
+       bila main ditolak, pakai sub (path sama yang sudah dipakai grid).
+       MediaMTX baru menolak main setelah ±10 detik, jadi batasi tunggu main
+       4 detik agar fallback ke sub terasa cepat. */
+    const mainCtl = new AbortController();
+    const mainTimer = setTimeout(() => mainCtl.abort(), 4000);
+    playWhep(video, main || sub!, fail, main && sub ? mainCtl.signal : undefined)
       .then(keep)
       .catch(() => {
         if (cancelled) return;
         if (main && sub) playWhep(video, sub, fail).then(keep).catch(fail);
         else fail();
-      });
+      })
+      .finally(() => clearTimeout(mainTimer));
     return () => {
       cancelled = true;
+      clearTimeout(mainTimer);
+      mainCtl.abort();
       stopWhep(pcRef.current);
       pcRef.current = null;
     };
@@ -71,7 +84,7 @@ export function FocusModal({ stream, onClose }: Props) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && !document.fullscreenElement) onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -204,7 +217,11 @@ export function FocusModal({ stream, onClose }: Props) {
         </div>
 
         {/* Video */}
-        <div className="relative aspect-video bg-black">
+        <div
+          ref={stageRef}
+          className={`nv-stage relative aspect-video bg-black ${cssRotate ? "nv-rot" : ""}`}
+        >
+          <div className="nv-rot-inner relative h-full w-full">
           {ad?.is_active && <AdBanner config={ad} />}
           {failed || !stream.is_online ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
@@ -244,13 +261,67 @@ export function FocusModal({ stream, onClose }: Props) {
               </p>
             </div>
           ) : (
-            <video
-              ref={videoRef}
-              controls
-              playsInline
-              className="h-full w-full object-contain"
-            />
+            <>
+              {/* Tombol layar penuh bawaan video dimatikan: di Android ia
+                  memaksa landscape. Pakai kontrol sendiri (ikut rotasi HP,
+                  putar manual lewat tombol). */}
+              <video
+                ref={videoRef}
+                controls
+                controlsList="nofullscreen"
+                disablePictureInPicture
+                playsInline
+                className="h-full w-full object-contain"
+              />
+              <div className="absolute right-2 top-2 flex gap-2">
+                {fs && (
+                  <button
+                    onClick={rotate}
+                    className={`flex h-11 w-11 items-center justify-center rounded-xl text-white backdrop-blur-sm transition active:scale-95 ${rotated ? "bg-accent-400/40 hover:bg-accent-400/50" : "bg-black/50 hover:bg-black/70"}`}
+                    aria-label={rotated ? "Ikuti rotasi HP" : "Putar ke landscape"}
+                    aria-pressed={rotated}
+                    title={rotated ? "Ikuti rotasi HP" : "Putar ke landscape"}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden>
+                      <rect
+                        x="6"
+                        y="2.5"
+                        width="8"
+                        height="13"
+                        rx="1.5"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        transform={rotated ? "rotate(90 10 9)" : undefined}
+                      />
+                      <path
+                        d="M3 13.5a7 7 0 004.5 4M17 6.5a7 7 0 00-4.5-4"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </button>
+                )}
+                <button
+                  onClick={toggleFs}
+                  className="flex h-11 w-11 items-center justify-center rounded-xl bg-black/50 text-white backdrop-blur-sm transition hover:bg-black/70 active:scale-95"
+                  aria-label={fs ? "Keluar layar penuh" : "Layar penuh"}
+                  title={fs ? "Keluar layar penuh" : "Layar penuh"}
+                >
+                  <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden>
+                    <path
+                      d={fs ? "M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4" : "M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"}
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </>
           )}
+          </div>
         </div>
 
         {/* Footer */}

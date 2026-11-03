@@ -8,8 +8,11 @@ export async function playWhep(
   video: HTMLVideoElement,
   url: string,
   onFail?: () => void,
+  signal?: AbortSignal,
 ): Promise<RTCPeerConnection> {
   const pc = new RTCPeerConnection();
+  const abort = () => pc.close();
+  signal?.addEventListener("abort", abort, { once: true });
   pc.addTransceiver("video", { direction: "recvonly" });
   pc.addTransceiver("audio", { direction: "recvonly" });
 
@@ -26,12 +29,14 @@ export async function playWhep(
     method: "POST",
     headers: { "Content-Type": "application/sdp" },
     body: offer.sdp,
+    signal,
   });
   if (!res.ok) {
     pc.close();
     throw new Error(`WHEP gagal (${res.status})`);
   }
   const answerSdp = await res.text();
+  if (signal?.aborted) throw new Error("dibatalkan");
   await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
 
   await new Promise<void>((resolve, reject) => {
@@ -40,6 +45,10 @@ export async function playWhep(
       pc.close();
       reject(new Error("WebRTC tidak tersambung (media UDP tidak sampai)"));
     }, CONNECT_TIMEOUT_MS);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(timer);
+      reject(new Error("dibatalkan"));
+    });
     pc.addEventListener("connectionstatechange", () => {
       if (pc.connectionState === "connected") {
         clearTimeout(timer);
@@ -51,6 +60,8 @@ export async function playWhep(
       }
     });
   });
+  // Sudah tersambung: abort tidak lagi memutus koneksi yang sedang tampil.
+  signal?.removeEventListener("abort", abort);
 
   // Putus di tengah jalan (jaringan/kamera) — beri tahu pemanggil.
   pc.addEventListener("connectionstatechange", () => {

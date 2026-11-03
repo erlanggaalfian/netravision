@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { playWhep, stopWhep } from "../lib/whep";
+import { useFullscreen } from "../hooks/useFullscreen";
 import { withToken } from "../lib/api";
 import type { Stream } from "../lib/types";
 
@@ -22,6 +23,11 @@ export function CameraTile({ stream, onExpand }: Props) {
   const [playing, setPlaying] = useState(false);
   const [failed, setFailed] = useState(false);
   const [showControls, setShowControls] = useState(false);
+
+  const { fs, rotated, cssRotate, toggle: toggleFs, rotate } = useFullscreen(
+    boxRef,
+    videoRef,
+  );
 
   const url = stream.whep_sub_url || stream.whep_main_url;
 
@@ -82,15 +88,16 @@ export function CameraTile({ stream, onExpand }: Props) {
           setShowControls(false);
         }
       }}
-      className={`nv-stage vk-touch-toggle ${showControls ? "cam-show-controls" : ""} group relative aspect-video select-none overflow-hidden rounded-2xl bg-ink-900 ring-2 ${ring}`}
+      className={`nv-stage vk-touch-toggle ${showControls ? "cam-show-controls" : ""} ${cssRotate ? "nv-rot" : ""} group relative aspect-video select-none overflow-hidden rounded-2xl bg-ink-900 ring-2 ${ring}`}
     >
+      <div className="nv-rot-inner relative h-full w-full">
       {stream.is_online && !failed ? (
         <>
           <video
             ref={videoRef}
             muted
             playsInline
-            className="h-full w-full object-cover"
+            className={`h-full w-full ${fs ? "object-contain" : "object-cover"}`}
           />
           {!playing &&
             (stream.poster_url ? (
@@ -174,24 +181,49 @@ export function CameraTile({ stream, onExpand }: Props) {
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {fs && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                rotate();
+              }}
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white transition active:scale-95 ${rotated ? "bg-accent-400/30 hover:bg-accent-400/40" : "bg-white/10 hover:bg-white/20"}`}
+              aria-label={rotated ? "Ikuti rotasi HP" : "Putar ke landscape"}
+              aria-pressed={rotated}
+              title={rotated ? "Ikuti rotasi HP" : "Putar ke landscape"}
+            >
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden>
+                <rect
+                  x="6"
+                  y="2.5"
+                  width="8"
+                  height="13"
+                  rx="1.5"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  transform={rotated ? "rotate(90 10 9)" : undefined}
+                />
+                <path
+                  d="M3 13.5a7 7 0 004.5 4M17 6.5a7 7 0 00-4.5-4"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          )}
           <button
             onClick={(e) => {
               e.stopPropagation();
-              const el = boxRef.current;
-              if (!el) return;
-              if (document.fullscreenElement) {
-                document.exitFullscreen().catch(() => {});
-              } else {
-                el.requestFullscreen?.().catch(() => {});
-              }
+              toggleFs();
             }}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/20 active:scale-95"
-            aria-label={`Layar penuh ${stream.name}`}
-            title="Layar penuh"
+            aria-label={fs ? `Keluar layar penuh ${stream.name}` : `Layar penuh ${stream.name}`}
+            title={fs ? "Keluar layar penuh" : "Layar penuh"}
           >
-            <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden>
               <path
-                d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"
+                d={fs ? "M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4" : "M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"}
                 stroke="currentColor"
                 strokeWidth="1.6"
                 strokeLinecap="round"
@@ -217,6 +249,7 @@ export function CameraTile({ stream, onExpand }: Props) {
           </svg>
         </button>
         </div>
+      </div>
       </div>
     </div>
   );
