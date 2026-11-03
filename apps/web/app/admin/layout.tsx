@@ -29,7 +29,7 @@ export default function AdminLayout({
       <AppShell>
         <div className="mx-auto w-full max-w-6xl px-4 py-5 sm:py-8">
           <nav aria-label="Navigasi admin" className="mb-5 sm:mb-7">
-            <div className="-mx-4 flex gap-6 overflow-x-auto px-4">
+            <div className="nv-scroll-x -mx-4 flex gap-2 overflow-x-auto px-4 py-2">
               {NAV.map((n) => {
                 const active = n.exact
                   ? pathname === n.href
@@ -39,10 +39,10 @@ export default function AdminLayout({
                     key={n.href}
                     href={n.href}
                     aria-current={active ? "page" : undefined}
-                    className={`flex min-h-[44px] shrink-0 items-center whitespace-nowrap border-b-2 text-sm transition-colors ${
+                    className={`nv-glass flex min-h-[42px] shrink-0 cursor-pointer items-center whitespace-nowrap rounded-full px-4 text-sm transition-all duration-150 active:scale-[0.97] ${
                       active
-                        ? "border-accent-500 font-semibold text-white"
-                        : "border-transparent font-medium text-slate-400 hover:border-ink-600 hover:text-slate-200"
+                        ? "nv-glass-active font-semibold text-white"
+                        : "font-medium text-slate-300 hover:-translate-y-px hover:text-white"
                     }`}
                   >
                     {n.label}

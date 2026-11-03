@@ -2,11 +2,11 @@
  *
  * Strategi:
  * - /api/* dan /ws  -> network-only (JANGAN pernah di-cache)
- * - navigasi & aset statis same-origin -> cache-first ("nv-shell-v1"),
+ * - navigasi & aset statis same-origin -> cache-first ("nv-shell-v2"),
  *   fallback ke /live/ saat offline
  */
 
-const CACHE = "nv-shell-v1";
+const CACHE = "nv-shell-v2";
 const PRECACHE = ["/live/", "/login/", "/manifest.webmanifest", "/icons/icon.svg"];
 
 self.addEventListener("install", (event) => {

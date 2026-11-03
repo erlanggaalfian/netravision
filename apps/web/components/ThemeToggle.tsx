@@ -11,7 +11,7 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
       onClick={toggle}
       aria-label={dark ? "Beralih ke mode terang" : "Beralih ke mode gelap"}
       title={dark ? "Mode terang" : "Mode gelap"}
-      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-ink-800 text-neutral-300 ring-1 ring-white/10 transition hover:text-white active:scale-95 ${className}`}
+      className={`nv-glass flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full text-neutral-300 transition hover:text-white active:scale-95 ${className}`}
     >
       {dark ? (
         <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden>

@@ -94,7 +94,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
 
-        <nav className="flex flex-col gap-1 px-3 py-5" aria-label="Navigasi utama">
+        <nav className="flex flex-col gap-2 px-3 py-5" aria-label="Navigasi utama">
           {items.map((n) => {
             const active = pathname?.startsWith(n.href);
             return (
@@ -102,18 +102,12 @@ export function AppShell({ children }: { children: ReactNode }) {
                 key={n.href}
                 href={n.href}
                 aria-current={active ? "page" : undefined}
-                className={`relative flex min-h-[44px] items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150 ease-out ${
+                className={`nv-glass relative flex min-h-[44px] items-center gap-3 rounded-full px-4 py-2.5 text-sm transition-all duration-150 ease-out active:scale-[0.98] ${
                   active
-                    ? "bg-accent-500/10 text-white"
-                    : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-100"
+                    ? "nv-glass-active font-semibold text-white"
+                    : "font-medium text-slate-300 hover:-translate-y-px hover:text-white"
                 }`}
               >
-                {active && (
-                  <span
-                    className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full bg-accent-400"
-                    aria-hidden
-                  />
-                )}
                 <span className={active ? "text-accent-300" : ""}>{n.icon}</span>
                 {n.label}
               </Link>
@@ -138,7 +132,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="flex gap-2">
             <button
               onClick={handleLogout}
-              className="min-h-[44px] flex-1 cursor-pointer rounded-xl bg-white/[0.04] px-3 py-2.5 text-left text-sm font-medium text-slate-300 transition-all duration-150 ease-out hover:bg-white/[0.08] hover:text-white active:scale-[0.99]"
+              className="nv-glass min-h-[44px] flex-1 cursor-pointer rounded-full px-4 py-2.5 text-left text-sm font-medium text-slate-300 transition-all duration-150 ease-out hover:text-white active:scale-[0.98]"
             >
               Keluar
             </button>
@@ -171,7 +165,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <ThemeToggle className="h-11 w-11" />
             <button
               onClick={handleLogout}
-              className="min-h-[44px] cursor-pointer rounded-xl bg-white/[0.04] px-4 text-xs font-semibold text-slate-300 transition-colors duration-150 active:scale-95"
+              className="nv-glass min-h-[44px] cursor-pointer rounded-full px-4 text-xs font-semibold text-slate-300 transition-all duration-150 active:scale-95"
             >
               Keluar
             </button>
@@ -182,7 +176,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         {/* Tab bar mobile */}
         <nav
-          className="fixed inset-x-0 bottom-0 z-40 flex border-t border-white/8 bg-ink-900 pb-[env(safe-area-inset-bottom)] md:hidden"
+          className="nv-glass fixed inset-x-3 bottom-3 z-40 flex rounded-[1.75rem] px-1.5 py-1.5 md:hidden"
           aria-label="Navigasi utama"
         >
           {items
@@ -195,12 +189,12 @@ export function AppShell({ children }: { children: ReactNode }) {
                 href={n.href}
                 aria-current={active ? "page" : undefined}
                 className={`relative flex min-h-[60px] flex-1 cursor-pointer flex-col items-center justify-center gap-1 text-[10px] font-medium transition-colors duration-150 active:scale-95 ${
-                  active ? "text-accent-300" : "text-slate-500"
+                  active ? "text-accent-300" : "text-slate-300"
                 }`}
               >
                 {active && (
                   <span
-                    className="absolute top-0 h-[2.5px] w-10 rounded-full bg-accent-400"
+                    className="absolute inset-x-1 inset-y-0.5 rounded-full bg-accent-500/[0.16] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] ring-1 ring-accent-400/30"
                     aria-hidden
                   />
                 )}

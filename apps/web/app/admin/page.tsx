@@ -56,6 +56,19 @@ export default function AdminDashboard() {
   const diskBar =
     diskPct > 90 ? "bg-bad-400" : diskPct > 70 ? "bg-warn-400" : "bg-accent-500";
 
+  const tileClass =
+    "nv-glass group relative block cursor-pointer overflow-hidden rounded-[1.75rem] p-5 transition-all duration-150 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98]";
+  const chev = (
+    <span
+      aria-hidden
+      className="absolute right-4 top-4 text-slate-400 transition-all duration-150 group-hover:translate-x-0.5 group-hover:text-accent-400"
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9 6l6 6-6 6" />
+      </svg>
+    </span>
+  );
+
   return (
     <div>
       <SectionTitle
@@ -71,10 +84,11 @@ export default function AdminDashboard() {
         </p>
       )}
 
-      {/* Strip status: satu panel ruang kendali, bukan empat kartu identik. */}
-      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-white/10 ring-1 ring-white/10 lg:grid-cols-4">
-        <div className="bg-ink-900 p-5">
-          <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+      {/* Strip status: gelembung kaca transparan, bisa diklik ke halaman masing-masing. */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Link href="/admin/streams" className={tileClass}>
+          {chev}
+          <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
               <circle cx="12" cy="13" r="4" />
@@ -85,13 +99,14 @@ export default function AdminDashboard() {
             {streams === null ? "…" : streams.length}
           </p>
           {online !== null && (
-            <p className="mt-1.5 text-xs text-slate-500">
+            <p className="mt-1.5 text-xs text-slate-400">
               {online} online{offlineCount ? `, ${offlineCount} offline` : ""}
             </p>
           )}
-        </div>
-        <div className="bg-ink-900 p-5">
-          <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+        </Link>
+        <Link href="/admin/users" className={tileClass}>
+          {chev}
+          <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
               <circle cx="9" cy="7" r="4" />
@@ -103,9 +118,10 @@ export default function AdminDashboard() {
           <p className="tnum mt-1.5 text-[28px] font-bold leading-none tracking-tight text-white">
             {users === null ? "…" : users.length}
           </p>
-        </div>
-        <div className="bg-ink-900 p-5">
-          <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+        </Link>
+        <Link href="/admin/keys" className={tileClass}>
+          {chev}
+          <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
             </svg>
@@ -114,9 +130,10 @@ export default function AdminDashboard() {
           <p className="tnum mt-1.5 text-[28px] font-bold leading-none tracking-tight text-white">
             {keys === null ? "…" : keys.length}
           </p>
-        </div>
-        <div className="bg-ink-900 p-5">
-          <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+        </Link>
+        <Link href="/admin/keys" className={tileClass}>
+          {chev}
+          <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <rect x="2" y="3" width="20" height="14" rx="2" />
               <path d="M8 21h8M12 17v4" />
@@ -126,8 +143,8 @@ export default function AdminDashboard() {
           <p className="tnum mt-1.5 text-[28px] font-bold leading-none tracking-tight text-white">
             {summary === null ? "…" : summary.total}
           </p>
-          <p className="mt-1.5 text-xs text-slate-500">total tercatat</p>
-        </div>
+          <p className="mt-1.5 text-xs text-slate-400">total tercatat</p>
+        </Link>
       </div>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-2">

@@ -161,7 +161,7 @@ function PlaybackPanel({
       {error && <ErrorBox message={error} />}
 
       {phase === "idle" && (
-        <div className="rounded-2xl bg-ink-900 px-6 py-10 text-center text-xs text-neutral-400 ring-1 ring-white/10">
+        <div className="nv-glass rounded-2xl px-6 py-10 text-center text-xs text-neutral-400">
           Menyiapkan linimasa…
         </div>
       )}
@@ -174,25 +174,25 @@ function PlaybackPanel({
       )}
 
       {phase === "not-implemented" && (
-        <div className="rounded-2xl bg-ink-900 px-6 py-10 text-center text-xs text-neutral-400 ring-1 ring-white/10">
+        <div className="nv-glass rounded-2xl px-6 py-10 text-center text-xs text-neutral-400">
           Linimasa rekaman tersedia mulai Fase 3.
         </div>
       )}
 
       {phase === "error" && !error && (
-        <div className="rounded-2xl bg-ink-900 px-6 py-10 text-center text-xs text-neutral-400 ring-1 ring-white/10">
+        <div className="nv-glass rounded-2xl px-6 py-10 text-center text-xs text-neutral-400">
           Terjadi kesalahan. Coba muat ulang.
         </div>
       )}
 
       {phase === "ready" && timeline && (
         <div className="flex flex-col gap-3">
-          <Card className="!p-3">
+          <Card className="nv-glass !p-3">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-medium text-neutral-400">
                 {timeline.date}
               </span>
-              <span className="rounded-full bg-ink-800 px-2 py-0.5 text-[10px] font-medium text-neutral-400">
+              <span className="nv-glass rounded-full px-2 py-0.5 text-[10px] font-medium text-neutral-400">
                 {timeline.entries.length} segmen
               </span>
             </div>
@@ -369,7 +369,7 @@ export default function PlaybackPage() {
         />
 
         {/* Kontrol */}
-        <Card className="mb-5">
+        <Card className="nv-glass mb-5">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
               {!multi ? (
@@ -380,7 +380,7 @@ export default function PlaybackPage() {
                   <select
                     value={streamId}
                     onChange={(e) => setStreamId(e.target.value)}
-                    className="h-11 rounded-xl border border-ink-700 bg-ink-950 px-3 text-base text-white outline-none transition-colors focus:border-accent-500"
+                    className="nv-glass h-11 rounded-full px-4 text-base text-white outline-none transition-colors focus:border-accent-400"
                   >
                     {streams.map((s) => (
                       <option key={s.id} value={s.id}>
@@ -402,10 +402,10 @@ export default function PlaybackPage() {
                           key={s.id}
                           onClick={() => toggleMultiId(s.id)}
                           aria-pressed={on}
-                          className={`flex h-11 items-center gap-2 rounded-full px-3.5 text-xs font-medium transition active:scale-95 ${
+                          className={`nv-glass flex h-11 items-center gap-2 rounded-full px-3.5 text-xs font-medium transition active:scale-95 ${
                             on
-                              ? "bg-accent-600 text-onaccent"
-                              : "bg-ink-800 text-neutral-300 ring-1 ring-white/10 hover:bg-ink-700"
+                              ? "nv-glass-active font-semibold text-white"
+                              : "text-neutral-300 hover:-translate-y-px hover:text-white"
                           }`}
                         >
                           <span
@@ -427,7 +427,7 @@ export default function PlaybackPage() {
                   value={date}
                   max={todayStr()}
                   onChange={(e) => setDate(e.target.value)}
-                  className="h-11 rounded-xl border border-ink-700 bg-ink-950 px-3 text-base text-white outline-none transition-colors focus:border-accent-500"
+                  className="nv-glass h-11 rounded-full px-4 text-base text-white outline-none transition-colors focus:border-accent-400"
                 />
               </label>
             </div>
@@ -437,7 +437,7 @@ export default function PlaybackPage() {
                   Grid:
                 </span>
                 <div
-                  className="flex items-center gap-1 rounded-full bg-ink-950 p-1 ring-1 ring-white/10"
+                  className="nv-glass flex items-center gap-1 rounded-full p-1"
                   role="tablist"
                   aria-label="Tata letak grid playback"
                 >
@@ -449,7 +449,7 @@ export default function PlaybackPage() {
                       onClick={() => setGridCols(g.cols)}
                       className={`flex h-11 min-w-[52px] items-center justify-center rounded-full px-3 text-xs font-semibold transition active:scale-95 ${
                         gridCols === g.cols
-                          ? "bg-accent-600 text-onaccent"
+                          ? "nv-glass-active text-white"
                           : "text-neutral-400 hover:text-white"
                       }`}
                     >
@@ -464,7 +464,7 @@ export default function PlaybackPage() {
 
         {/* Panel-panel playback */}
         {selectedStreams.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-2xl bg-ink-900 px-6 py-16 text-center ring-1 ring-white/10">
+          <div className="nv-glass flex flex-col items-center gap-3 rounded-2xl px-6 py-16 text-center">
             <p className="text-sm text-neutral-400">
               {multi
                 ? "Pilih minimal satu kamera untuk memutar ulang."

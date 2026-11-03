@@ -63,10 +63,14 @@ export default function MapsPage() {
   const [savingId, setSavingId] = useState<number | null>(null);
   const [focus, setFocus] = useState<Stream | null>(null);
   const [mapQuery, setMapQuery] = useState("");
+  const [locating, setLocating] = useState(false);
+  const [locateMsg, setLocateMsg] = useState<string | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LType.Map | null>(null);
   const layerRef = useRef<LType.LayerGroup | null>(null);
+  const meLayerRef = useRef<LType.LayerGroup | null>(null);
+  const locateTimerRef = useRef<number | null>(null);
   const LRef = useRef<typeof LType | null>(null);
   const fittedRef = useRef(false);
   const focusRef = useRef(setFocus);
@@ -247,6 +251,60 @@ export default function MapsPage() {
     }
   };
 
+  /* Tombol "lokasi saya": terbangkan peta ke posisi GPS pengguna. */
+  const flashLocate = (msg: string) => {
+    setLocateMsg(msg);
+    if (locateTimerRef.current) window.clearTimeout(locateTimerRef.current);
+    locateTimerRef.current = window.setTimeout(() => setLocateMsg(null), 4000);
+  };
+  const locateMe = () => {
+    const map = mapRef.current;
+    const L = LRef.current;
+    if (!map || !L || locating) return;
+    if (!("geolocation" in navigator)) {
+      flashLocate("Lokasi tidak didukung di browser ini");
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLocating(false);
+        const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+        if (!meLayerRef.current) {
+          meLayerRef.current = L.layerGroup().addTo(map);
+        }
+        meLayerRef.current.clearLayers();
+        if (accuracy && isFinite(accuracy)) {
+          L.circle([lat, lng], {
+            radius: accuracy,
+            color: "#3b82f6",
+            weight: 1,
+            opacity: 0.5,
+            fillColor: "#3b82f6",
+            fillOpacity: 0.12,
+          }).addTo(meLayerRef.current);
+        }
+        L.circleMarker([lat, lng], {
+          radius: 8,
+          color: "#ffffff",
+          weight: 3,
+          fillColor: "#3b82f6",
+          fillOpacity: 1,
+        }).addTo(meLayerRef.current);
+        map.flyTo([lat, lng], Math.max(map.getZoom(), 15), { duration: 0.8 });
+      },
+      (err) => {
+        setLocating(false);
+        flashLocate(
+          err.code === err.PERMISSION_DENIED
+            ? "Izin lokasi ditolak — aktifkan izin lokasi untuk situs ini"
+            : "Posisi tidak ditemukan — coba lagi",
+        );
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
+    );
+  };
+
   return (
     <AppShell>
       {/* Override tema Leaflet: popup + kontrol zoom ikut data-theme */}
@@ -254,7 +312,14 @@ export default function MapsPage() {
         .leaflet-popup-content-wrapper { background: var(--nv-ink-900); color: var(--nv-white); border-radius: 14px; }
         .leaflet-popup-content { margin: 14px 16px; line-height: 1.4; }
         .leaflet-popup-tip { background: var(--nv-ink-900); }
-        .leaflet-bar a { width: 44px !important; height: 44px !important; line-height: 44px !important; }
+        .leaflet-bar { border: 1px solid rgba(147,197,253,0.45) !important; border-radius: 999px !important; overflow: hidden; background: linear-gradient(115deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.02) 38%, transparent 55%), linear-gradient(135deg, rgba(31,58,95,0.94), rgba(22,42,72,0.94) 55%, rgba(18,36,62,0.94)) !important; -webkit-backdrop-filter: blur(14px) saturate(140%); backdrop-filter: blur(14px) saturate(140%); box-shadow: inset 0 1px 0 rgba(255,255,255,0.22), 0 10px 26px rgba(2,6,23,0.35) !important; }
+        .leaflet-bar a { width: 28px !important; height: 28px !important; line-height: 28px !important; font-size: 15px !important; background: transparent !important; color: var(--nv-white) !important; border-bottom: 1px solid rgba(147,197,253,0.25) !important; }
+        .leaflet-bar a:last-child { border-bottom: 0 !important; }
+        .leaflet-bar a:hover { background: rgba(255,255,255,0.12) !important; }
+        [data-theme="light"] .leaflet-bar { border-color: rgba(255,255,255,0.85) !important; background: linear-gradient(115deg, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0.08) 38%, transparent 55%), linear-gradient(135deg, rgba(255,255,255,0.92), rgba(255,255,255,0.85) 55%, rgba(255,255,255,0.82)) !important; box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 10px 26px rgba(30,50,90,0.16) !important; }
+        [data-theme="light"] .leaflet-bar a { border-bottom-color: rgba(16,26,44,0.10) !important; }
+        [data-theme="light"] .leaflet-bar a:hover { background: rgba(16,26,44,0.05) !important; }
+        @media (max-width: 767px) { .leaflet-top .leaflet-control-zoom { margin-top: 54px !important; } }
       `}</style>
       <div className="px-4 pt-5 md:px-5 md:pt-7">
         <SectionTitle
@@ -262,7 +327,7 @@ export default function MapsPage() {
           desc="Lokasi semua kamera. Seret marker untuk memindahkan posisi (admin)."
         />
       </div>
-      <div className="flex h-[calc(100dvh-300px)] min-h-[420px] flex-col gap-4 p-4 md:h-[calc(100dvh-150px)] md:flex-row md:p-5">
+      <div className="flex flex-col gap-4 p-4 md:h-[calc(100dvh-150px)] md:min-h-[420px] md:flex-row md:p-5">
         {/* Peta */}
         <div className="relative min-h-[320px] flex-1 overflow-hidden rounded-2xl ring-1 ring-white/10">
           <div ref={containerRef} className="absolute inset-0 z-0" />
@@ -275,8 +340,34 @@ export default function MapsPage() {
             </div>
           )}
           {isAdmin && (
-            <div className="absolute bottom-8 right-3 z-10 max-w-[calc(100%-24px)] rounded-xl bg-ink-900/95 px-3.5 py-2.5 text-xs text-neutral-300 ring-1 ring-white/10">
+            <div className="nv-frost absolute left-1/2 top-3 z-10 -translate-x-1/2 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs text-neutral-300">
               Seret marker untuk memindahkan posisi kamera
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={locateMe}
+            disabled={locating}
+            aria-label="Tunjukkan lokasi saya"
+            title="Lokasi saya"
+            className="nv-frost absolute left-2.5 top-[120px] z-10 flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-full text-neutral-200 transition-transform duration-150 active:scale-95 disabled:opacity-70 md:top-[76px]"
+          >
+            {locating ? (
+              <svg className="animate-spin" width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.5" opacity="0.25" />
+                <path d="M21 12a9 9 0 00-9-9" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                <circle cx="12" cy="12" r="6.5" />
+                <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+                <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+              </svg>
+            )}
+          </button>
+          {locateMsg && (
+            <div className="nv-frost absolute left-2.5 top-[156px] z-10 max-w-[240px] rounded-2xl px-3 py-2 text-[11px] leading-snug text-neutral-200 md:top-[112px]">
+              {locateMsg}
             </div>
           )}
           <div className="absolute bottom-3 left-3 z-10 flex items-center gap-3 rounded-xl bg-ink-900/95 px-3.5 py-2.5 text-[11px] font-medium text-neutral-300 ring-1 ring-white/10">
@@ -314,19 +405,19 @@ export default function MapsPage() {
               onChange={(e) => setMapQuery(e.target.value)}
               placeholder="Cari CCTV…"
               aria-label="Cari CCTV"
-              className="h-11 w-full rounded-xl bg-ink-900 pl-10 pr-4 text-base text-white ring-1 ring-white/10 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-500"
+              className="nv-glass h-11 w-full rounded-full pl-10 pr-4 text-base text-white placeholder:text-neutral-400 focus:border-accent-400 focus:outline-none"
             />
           </div>
 
           {error && <ErrorBox message={error} />}
           {saveError && <ErrorBox message={saveError} />}
 
-          <Card className="!p-4">
+          <Card className="nv-glass !p-4">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-white">
                 Belum dipetakan
               </h2>
-              <span className="rounded-full bg-ink-800 px-2.5 py-0.5 text-[11px] font-medium text-neutral-400">
+              <span className="nv-glass rounded-full px-2.5 py-0.5 text-[11px] font-medium text-neutral-400">
                 {unmappedShown.length}
               </span>
             </div>
@@ -339,7 +430,7 @@ export default function MapsPage() {
                 {unmappedShown.map((s) => (
                   <li
                     key={s.id}
-                    className="flex items-center justify-between gap-2 rounded-xl bg-ink-800/70 px-3 py-2"
+                    className="nv-glass flex items-center justify-between gap-2 rounded-full px-4 py-2"
                   >
                     <div className="flex min-w-0 items-center gap-2.5">
                       <span
@@ -370,10 +461,10 @@ export default function MapsPage() {
             )}
           </Card>
 
-          <Card className="!p-4">
+          <Card className="nv-glass !p-4">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-white">Di peta</h2>
-              <span className="rounded-full bg-ink-800 px-2.5 py-0.5 text-[11px] font-medium text-neutral-400">
+              <span className="nv-glass rounded-full px-2.5 py-0.5 text-[11px] font-medium text-neutral-400">
                 {mappedShown.length}
               </span>
             </div>
@@ -382,7 +473,7 @@ export default function MapsPage() {
                 {q ? "Tidak ada yang cocok." : "Belum ada kamera yang dipetakan."}
               </p>
             ) : (
-              <ul className="flex max-h-40 flex-col gap-1 overflow-y-auto md:max-h-56">
+              <ul className="flex max-h-40 flex-col gap-2 overflow-y-auto md:max-h-56">
                 {mappedShown.map((s) => (
                   <li key={s.id}>
                     <button
@@ -394,7 +485,7 @@ export default function MapsPage() {
                           });
                         }
                       }}
-                      className="flex min-h-[44px] w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition hover:bg-ink-800 active:scale-[0.99]"
+                      className="nv-glass flex min-h-[44px] w-full cursor-pointer items-center gap-2.5 rounded-full px-4 py-2.5 text-left transition-all duration-150 hover:-translate-y-px active:scale-[0.99]"
                     >
                       <span
                         className={`h-2 w-2 shrink-0 rounded-full ${s.is_online ? "bg-ok-400" : "bg-bad-400"}`}
