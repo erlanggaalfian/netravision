@@ -22,6 +22,7 @@ export function FocusModal({ stream, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  const switchRef = useRef<((url: string, target: "LQ" | "HQ") => void) | null>(null);
   const [failed, setFailed] = useState(false);
   const [quality, setQuality] = useState<"LQ" | "HQ">("LQ");
   const isDesktop = () =>
@@ -67,37 +68,60 @@ export function FocusModal({ stream, onClose }: Props) {
     const sub = stream?.whep_sub_url;
     if (!video || !(main || sub) || !stream?.is_online) return;
     let cancelled = false;
-    let upgrade: RTCPeerConnection | null = null;
+    let pending: RTCPeerConnection | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const fail = () => {
       if (!cancelled) setFailed(true);
     };
 
-    /* Sambung MAIN di elemen tersembunyi; tukar srcObject saat sudah
-       bergambar (tanpa layar hitam), lalu tutup koneksi SUB. */
-    const goHQ = () => {
-      if (!main || cancelled) return;
+    /* Ganti stream dengan smooth: sambung URL baru di elemen tersembunyi,
+       tukar srcObject saat sudah bergambar (tanpa layar hitam/loading),
+       lalu tutup koneksi lama. Dipakai untuk upgrade otomatis maupun
+       toggle manual LQ/HQ dua arah. */
+    const smoothSwitch = (url: string, target: "LQ" | "HQ") => {
+      if (cancelled || !url) return;
+      // Batalkan switch yang masih jalan bila ada.
+      if (pending) {
+        stopWhep(pending);
+        pending = null;
+      }
       const hidden = document.createElement("video");
       hidden.muted = true;
       hidden.playsInline = true;
-      playWhep(hidden, main)
+      // Tandai switch ini sedang berjalan agar tidak tertimpa.
+      let myCancelled = false;
+      const cancelMine = () => {
+        myCancelled = true;
+      };
+      playWhep(hidden, url)
         .then((pc) => {
-          upgrade = pc;
+          if (cancelled || myCancelled) return stopWhep(pc);
+          pending = pc;
           const swap = () => {
-            if (cancelled || hidden.videoWidth === 0) return;
+            if (cancelled || myCancelled || hidden.videoWidth === 0) return;
             video.srcObject = hidden.srcObject;
             video.play().catch(() => {});
             stopWhep(pcRef.current);
             pcRef.current = pc;
-            upgrade = null;
-            setQuality("HQ");
+            pending = null;
+            setQuality(target);
           };
           if (hidden.videoWidth > 0) swap();
           else hidden.addEventListener("resize", swap, { once: true });
         })
         .catch(() => {
-          /* main gagal: tetap SUB (sama v2) */
+          /* gagal: tetap di stream lama, jangan tampilkan error */
         });
+      return cancelMine;
+    };
+    // Simpan agar toggle manual bisa pakai.
+    switchRef.current = smoothSwitch;
+
+    /* Sambung MAIN di elemen tersembunyi; tukar srcObject saat sudah
+       bergambar (tanpa layar hitam), lalu tutup koneksi SUB. */
+    const goHQ = () => {
+      if (!main || cancelled) return;
+      smoothSwitch(main, "HQ");
     };
 
     if (want === "LQ" || !main || !sub) {
@@ -123,9 +147,10 @@ export function FocusModal({ stream, onClose }: Props) {
     return () => {
       cancelled = true;
       clearTimeout(timer);
-      stopWhep(upgrade);
+      stopWhep(pending);
       stopWhep(pcRef.current);
       pcRef.current = null;
+      switchRef.current = null;
     };
   }, [stream, want]);
 
@@ -218,7 +243,13 @@ export function FocusModal({ stream, onClose }: Props) {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button
-              onClick={() => setWant(quality === "HQ" ? "LQ" : "HQ")}
+              onClick={() => {
+                const target = quality === "HQ" ? "LQ" : "HQ";
+                const url = target === "HQ" ? stream?.whep_main_url : stream?.whep_sub_url;
+                // Smooth: sambung di background, tukar saat sudah bergambar.
+                // Jangan ubah `want` agar effect tidak restart (layar hitam).
+                if (url && switchRef.current) switchRef.current(url, target);
+              }}
               aria-label={quality === "HQ" ? "Ganti ke sub stream (LQ)" : "Ganti ke main stream (HD)"}
               title={quality === "HQ" ? "Ganti ke sub stream (LQ)" : "Ganti ke main stream (HD)"}
               className={`flex h-11 min-w-11 items-center justify-center rounded-xl px-3 text-xs font-bold tracking-wide transition active:scale-95 ${quality === "HQ" ? "bg-ok-400/20 text-ok-400 hover:bg-ok-400/30" : "bg-white/10 text-white hover:bg-white/20"}`}
