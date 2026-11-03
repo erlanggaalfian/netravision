@@ -148,13 +148,6 @@
   --nv-white: #ffffff;
 }
 
-/* Background letterbox area video mengikuti tema terang/gelap.
-   .nv-stage memaksa variabel ke gelap, jadi override khusus di sini:
-   mode terang pakai abu terang, mode gelap tetap near-black. */
-[data-theme="light"] .nv-stage.nv-video-bg {
-  background-color: #e9edf2;
-}
-
 html {
   /* Cegah browser mobile menggelembungkan ukuran teks sendiri
      (terlihat seperti ter-zoom pada blok teks lebar). */

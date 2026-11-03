@@ -25,6 +25,7 @@ export function FocusModal({ stream, onClose }: Props) {
   const switchRef = useRef<((url: string, target: "LQ" | "HQ") => void) | null>(null);
   const [failed, setFailed] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [vRatio, setVRati] = useState<string | null>(null);
   const [quality, setQuality] = useState<"LQ" | "HQ">("LQ");
   const isDesktop = () =>
     typeof window !== "undefined" &&
@@ -65,6 +66,7 @@ export function FocusModal({ stream, onClose }: Props) {
   useEffect(() => {
     setFailed(false);
     setPlaying(false);
+    setVRati(null);
     setQuality("LQ");
     const video = videoRef.current;
     const main = stream?.whep_main_url;
@@ -309,7 +311,8 @@ export function FocusModal({ stream, onClose }: Props) {
         {/* Video */}
         <div
           ref={stageRef}
-          className={`nv-stage nv-video-bg relative aspect-video bg-black ${cssRotate ? "nv-rot" : ""}`}
+          className={`nv-stage relative ${vRatio ? "" : "aspect-video"} bg-black ${cssRotate ? "nv-rot" : ""}`}
+          style={vRatio ? { aspectRatio: vRatio } : undefined}
         >
           <div className="nv-rot-inner relative h-full w-full">
           {ad?.is_active && <AdBanner config={ad} />}
@@ -362,6 +365,12 @@ export function FocusModal({ stream, onClose }: Props) {
                 disablePictureInPicture
                 playsInline
                 onPlaying={() => setPlaying(true)}
+                onLoadedMetadata={(e) => {
+                  const v = e.currentTarget;
+                  if (v.videoWidth && v.videoHeight) {
+                    setVRati(`${v.videoWidth} / ${v.videoHeight}`);
+                  }
+                }}
                 className="h-full w-full object-contain"
               />
               {/* Poster langsung tampil saat popup dibuka agar tidak hitam/
