@@ -130,7 +130,7 @@ function EmbedPlayer({
   const showKeepAlive = left !== null && left < 90_000 && playing;
 
   return (
-    <div className="nv-stage overflow-hidden rounded-2xl bg-ink-900 ring-1 ring-white/10">
+    <div className="nv-stage nv-panel-modern overflow-hidden">
       <div className="relative aspect-video bg-black">
         {ad?.is_active && <AdBanner config={ad} />}
         {/* Video SELALU terpasang — start() membaca videoRef saat tombol

@@ -137,7 +137,7 @@ function GroupSections({
   }
   if (error) {
     return (
-      <div className="rounded-2xl bg-ink-900 px-6 py-10 text-center text-sm text-neutral-400 ring-1 ring-white/10">
+      <div className="nv-panel-modern px-6 py-10 text-center text-sm text-neutral-400">
         {error}
         <p className="mt-1 text-xs text-neutral-400">
           Mode grup membutuhkan akses admin.
@@ -164,7 +164,7 @@ function GroupSections({
 
   if (sections.length === 0) {
     return (
-      <div className="rounded-2xl bg-ink-900 px-6 py-10 text-center text-sm text-neutral-400 ring-1 ring-white/10">
+      <div className="nv-panel-modern px-6 py-10 text-center text-sm text-neutral-400">
         Tidak ada grup kamera untuk layout ini.
       </div>
     );
@@ -438,7 +438,7 @@ export default function MonitorsPage() {
                   ))}
                 </div>
               ) : openStreams.length === 0 ? (
-                <div className="rounded-2xl bg-ink-900 p-8 text-center text-sm text-neutral-400 ring-1 ring-white/10">
+                <div className="nv-panel-modern p-8 text-center text-sm text-neutral-400">
                   Tidak ada kamera yang cocok — mungkin kamera sudah dihapus.
                 </div>
               ) : groupMode ? (
@@ -468,7 +468,7 @@ export default function MonitorsPage() {
             <SectionTitle
               title={editing.id ? "Ubah monitor" : "Monitor baru"}
             />
-            <div className="rounded-2xl bg-ink-900 p-5 ring-1 ring-white/10">
+            <div className="nv-panel-modern p-5">
               <label className="mb-1.5 block text-sm font-medium text-neutral-300">
                 Nama monitor
               </label>
@@ -617,7 +617,7 @@ export default function MonitorsPage() {
                 ))}
               </div>
             ) : layouts.length === 0 ? (
-              <div className="flex flex-col items-center gap-3 rounded-2xl bg-ink-900 px-6 py-16 text-center ring-1 ring-white/10">
+              <div className="nv-panel-modern flex flex-col items-center gap-3 px-6 py-16 text-center">
                 <svg
                   width="40"
                   height="40"
@@ -653,7 +653,7 @@ export default function MonitorsPage() {
                   return (
                     <div
                       key={l.id}
-                      className="overflow-hidden rounded-2xl bg-ink-900 ring-1 ring-white/10"
+                      className="nv-panel-modern overflow-hidden"
                     >
                       {/* Baris ringkasan + pratinjau — collapsed-first di mobile */}
                       <button

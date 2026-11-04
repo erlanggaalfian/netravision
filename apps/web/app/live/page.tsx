@@ -248,7 +248,7 @@ export default function LivePage() {
         {fetching ? (
           <SkeletonGrid />
         ) : error ? (
-          <div className="flex flex-col items-center gap-4 rounded-2xl bg-ink-900 px-6 py-16 text-center ring-1 ring-white/10">
+          <div className="nv-panel-modern flex flex-col items-center gap-4 px-6 py-16 text-center">
             <svg
               width="40"
               height="40"
@@ -275,7 +275,7 @@ export default function LivePage() {
             </Button>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center gap-4 rounded-2xl bg-ink-900 px-6 py-16 text-center ring-1 ring-white/10">
+          <div className="nv-panel-modern flex flex-col items-center gap-4 px-6 py-16 text-center">
             <svg
               width="40"
               height="40"

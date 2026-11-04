@@ -370,7 +370,7 @@ export default function MapsPage() {
               {locateMsg}
             </div>
           )}
-          <div className="absolute bottom-3 left-3 z-10 flex items-center gap-3 rounded-xl bg-ink-900/95 px-3.5 py-2.5 text-[11px] font-medium text-neutral-300 ring-1 ring-white/10">
+          <div className="absolute bottom-3 left-3 z-10 flex items-center gap-3 rounded-2xl border border-white/10 bg-ink-900 px-4 py-3 text-[11px] font-medium text-neutral-300 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.4)]">
             <span className="flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-full bg-ok-400" /> Online
             </span>

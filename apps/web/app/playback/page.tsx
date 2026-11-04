@@ -233,7 +233,7 @@ function PlaybackPanel({
             </div>
           </Card>
 
-          <div className="nv-stage overflow-hidden rounded-2xl bg-ink-900 ring-1 ring-white/10">
+          <div className="nv-stage nv-panel-modern overflow-hidden">
             {videoSrc ? (
               <video
                 ref={videoRef}
