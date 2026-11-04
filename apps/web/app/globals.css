@@ -305,8 +305,8 @@ textarea {
   border: 1px solid var(--nv-ink-700);
 }
 [data-theme="light"] .nv-glass {
-  background: var(--nv-white);
-  border-color: var(--nv-slate-200);
+  background: var(--nv-ink-900);
+  border-color: var(--nv-ink-700);
 }
 /* Tab aktif: satu-satunya pemakaian aksen (teks pendamping sudah putih). */
 .nv-glass-active {
@@ -326,7 +326,7 @@ textarea {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04);
 }
 [data-theme="light"] .nv-frost {
-  background: var(--nv-white);
-  border-color: var(--nv-slate-200);
+  background: var(--nv-ink-900);
+  border-color: var(--nv-ink-700);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04);
 }
