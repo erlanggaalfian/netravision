@@ -2,11 +2,13 @@
  *
  * Strategi:
  * - /api/* dan /ws  -> network-only (JANGAN pernah di-cache)
- * - navigasi & aset statis same-origin -> cache-first ("nv-shell-v2"),
- *   fallback ke /live/ saat offline
+ * - navigasi (HTML) -> network-first ("nv-shell-v3"), fallback cache saat offline.
+ *   HTML tidak di-cache-first agar refresh selalu dapat versi terbaru dari server.
+ * - aset _next/static/* (JS/CSS ber-hash) -> cache-first, aman karena nama file
+ *   berubah tiap build.
  */
 
-const CACHE = "nv-shell-v2";
+const CACHE = "nv-shell-v3";
 const PRECACHE = ["/live/", "/login/", "/manifest.webmanifest", "/icons/icon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -39,22 +41,40 @@ self.addEventListener("fetch", (event) => {
   // API & WebSocket: selalu ke jaringan, jangan sentuh cache.
   if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/ws")) return;
 
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request)
-        .then((response) => {
+  // Aset _next/static/*: cache-first (nama file ber-hash, aman).
+  if (url.pathname.startsWith("/_next/static/")) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached;
+        return fetch(request).then((response) => {
           if (response && response.ok) {
             const copy = response.clone();
             caches.open(CACHE).then((cache) => cache.put(request, copy));
           }
           return response;
-        })
-        .catch(() => {
-          // Offline: kembalikan halaman live bila yang diminta navigasi.
+        });
+      }),
+    );
+    return;
+  }
+
+  // Navigasi & HTML lain: network-first agar selalu versi terbaru.
+  event.respondWith(
+    fetch(request)
+      .then((response) => {
+        if (response && response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE).then((cache) => cache.put(request, copy));
+        }
+        return response;
+      })
+      .catch(() => {
+        // Offline: pakai cache, fallback ke /live/ untuk navigasi.
+        return caches.match(request).then((cached) => {
+          if (cached) return cached;
           if (request.mode === "navigate") return caches.match("/live/");
           throw new Error("offline");
         });
-    }),
+      }),
   );
 });
