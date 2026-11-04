@@ -31,9 +31,11 @@ export default function AdminLayout({
           <nav aria-label="Navigasi admin" className="mb-5 sm:mb-7">
             <div className="nv-scroll-x -mx-4 flex gap-2 overflow-x-auto px-4 py-2">
               {NAV.map((n) => {
+                // Normalisasi trailing slash agar /admin/ tetap cocok dengan /admin
+                const cleanPath = (pathname ?? "").replace(/\/+$/, "") || "/";
                 const active = n.exact
-                  ? pathname === n.href
-                  : pathname.startsWith(n.href + "/") || pathname === n.href;
+                  ? cleanPath === n.href
+                  : cleanPath.startsWith(n.href + "/") || cleanPath === n.href;
                 return (
                   <Link
                     key={n.href}
