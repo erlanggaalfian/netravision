@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { isAdminRole, useAuth } from "../lib/auth";
 import { useCameraStatus } from "../hooks/useCameraStatus";
 import { ThemeToggle } from "./ThemeToggle";
@@ -59,40 +59,21 @@ const NAV: NavItem[] = [
   },
 ];
 
-/* Kerangka aplikasi: sidebar di desktop, tab bar bawah + drawer di mobile.
-   Bahasa desain mengikuti NetBackup: navbar/drawer biru solid, kartu putih,
+/* Kerangka aplikasi: sidebar di desktop, tab bar bawah di mobile.
+   Bahasa desain mengikuti NetBackup: navbar biru solid, kartu putih,
    tab bar bawah putih menempel. */
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
   const { connected } = useCameraStatus();
-  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const items = NAV.filter((n) => !n.adminOnly || isAdminRole(user?.role));
-  /* Drawer menampilkan semua menu (termasuk yang disembunyikan dari tab bar). */
-  const drawerItems = NAV.filter((n) => !n.adminOnly || isAdminRole(user?.role));
 
   const handleLogout = async () => {
-    setDrawerOpen(false);
     await logout();
     router.push("/login");
   };
-
-  /* Kunci scroll body + tutup dengan Escape saat drawer terbuka. */
-  useEffect(() => {
-    if (!drawerOpen) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setDrawerOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = prev;
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [drawerOpen]);
 
   return (
     <div className="flex min-h-dvh bg-ink-950">
@@ -167,21 +148,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* Topbar mobile: biru solid */}
         <header className="flex items-center justify-between bg-accent-500 px-4 py-3 md:hidden">
           <div className="flex items-center gap-2.5">
-            <button
-              onClick={() => setDrawerOpen(true)}
-              aria-label="Buka menu"
-              aria-expanded={drawerOpen}
-              className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-xl text-white transition-all duration-150 hover:bg-white/10 active:scale-95"
-            >
-              <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden>
-                <path
-                  d="M3 6h16M3 11h16M3 16h16"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-xs font-extrabold text-accent-600">
               N
             </span>
@@ -235,100 +201,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           })}
         </nav>
 
-        {/* Drawer menu mobile: biru full-height, geser dari kiri */}
-        <div
-          className={`fixed inset-0 z-50 md:hidden ${drawerOpen ? "" : "pointer-events-none"}`}
-          aria-hidden={!drawerOpen}
-        >
-          {/* Backdrop */}
-          <div
-            onClick={() => setDrawerOpen(false)}
-            className={`absolute inset-0 bg-black/60 transition-opacity duration-200 ${
-              drawerOpen ? "opacity-100" : "opacity-0"
-            }`}
-          />
-          {/* Panel */}
-          <aside
-            role="dialog"
-            aria-label="Menu"
-            className={`absolute inset-y-0 left-0 flex w-[300px] max-w-[85vw] flex-col bg-accent-500 shadow-[8px_0_32px_rgba(0,0,0,0.4)] transition-transform duration-200 ease-out ${
-              drawerOpen ? "translate-x-0" : "-translate-x-full"
-            }`}
-          >
-            <div className="flex items-center justify-between px-4 py-3">
-              <div className="flex items-center gap-2.5">
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-xs font-extrabold text-accent-600">
-                  N
-                </span>
-                <div>
-                  <div className="text-sm font-bold tracking-tight text-white">
-                    NetraVision
-                  </div>
-                  <div className="flex items-center gap-1 text-[10px] font-medium text-white/80">
-                    <span
-                      className={`h-1 w-1 rounded-full ${connected ? "bg-ok-400" : "bg-warn-400"}`}
-                    />
-                    {connected ? "Terhubung" : "Menghubungkan…"}
-                  </div>
-                </div>
-              </div>
-              <button
-                onClick={() => setDrawerOpen(false)}
-                aria-label="Tutup menu"
-                className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-xl text-white transition-all duration-150 hover:bg-white/10 active:scale-95"
-              >
-                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
-                  <path
-                    d="M5 5l10 10M15 5L5 15"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </button>
-            </div>
-
-            <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Menu">
-              {drawerItems.map((n) => {
-                const active = pathname?.startsWith(n.href);
-                return (
-                  <Link
-                    key={n.href}
-                    href={n.href}
-                    onClick={() => setDrawerOpen(false)}
-                    aria-current={active ? "page" : undefined}
-                    className={`flex min-h-[48px] items-center gap-3 rounded-xl px-4 py-3 text-sm transition-colors duration-150 active:scale-[0.98] ${
-                      active
-                        ? "bg-white/15 font-bold text-white"
-                        : "font-medium text-white/85 hover:bg-white/10 hover:text-white"
-                    }`}
-                  >
-                    {n.icon}
-                    {n.label}
-                  </Link>
-                );
-              })}
-            </nav>
-
-            <div className="p-4">
-              <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/20">
-                <div className="text-sm text-white/85">
-                  Halo,{" "}
-                  <span className="font-bold text-white">{user?.username}</span>
-                </div>
-                <div className="mt-0.5 text-[11px] capitalize text-white/70">
-                  {user?.role}
-                </div>
-                <button
-                  onClick={handleLogout}
-                  className="mt-3 min-h-[48px] w-full cursor-pointer rounded-xl bg-red-600 px-4 text-sm font-semibold text-white transition-all duration-150 hover:bg-red-500 active:scale-[0.98]"
-                >
-                  Keluar
-                </button>
-              </div>
-            </div>
-          </aside>
-        </div>
       </div>
     </div>
   );
