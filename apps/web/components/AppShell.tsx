@@ -145,17 +145,17 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {/* Konten */}
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Topbar mobile: biru solid */}
-        <header className="flex items-center justify-between bg-accent-500 px-4 py-3 md:hidden">
+        {/* Topbar mobile */}
+        <header className="flex items-center justify-between border-b border-white/8 bg-ink-900 px-4 py-3 md:hidden">
           <div className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-xs font-extrabold text-accent-600">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-600 text-xs font-extrabold text-onaccent">
               N
             </span>
             <div>
               <div className="text-sm font-bold tracking-tight text-white">
                 NetraVision
               </div>
-              <div className="flex items-center gap-1 text-[10px] font-medium text-white/80">
+              <div className="flex items-center gap-1 text-[10px] font-medium text-slate-400">
                 <span
                   className={`h-1 w-1 rounded-full ${connected ? "bg-ok-400" : "bg-warn-400"}`}
                 />
@@ -167,7 +167,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <ThemeToggle className="h-11 w-11" />
             <button
               onClick={handleLogout}
-              className="min-h-[44px] cursor-pointer rounded-xl bg-white/15 px-4 text-xs font-semibold text-white transition-all duration-150 hover:bg-white/25 active:scale-95"
+              className="min-h-[44px] cursor-pointer rounded-xl border border-white/10 bg-white/5 px-4 text-xs font-semibold text-slate-300 transition-all duration-150 hover:bg-white/10 hover:text-white active:scale-95"
             >
               Keluar
             </button>
