@@ -159,7 +159,7 @@ export default function AdminStoragePage() {
     <div>
       <SectionTitle
         title="Tautan Folder Google Drive"
-        desc="Daftar folder tujuan untuk rekaman mode Google Drive dan mode Keduanya. Tambah beberapa tautan bila perlu — tiap kamera bisa memilih disimpan ke folder mana."
+        desc="Tempel tautan folder yang sudah di-share dari Google Drive. Link 1 untuk akun A, link 2 untuk akun B, dst. Tiap kamera bisa memilih disimpan ke folder/akun mana."
       />
       {error && (
         <div className="mb-4">
@@ -213,7 +213,7 @@ export default function AdminStoragePage() {
               <div className="min-w-0">
                 <p className="flex flex-wrap items-center gap-2 font-medium">
                   <span className="truncate">
-                    {f.folder_name || `Folder ${i + 1}`}
+                    {f.folder_name || `Akun ${i + 1}`}
                   </span>
                   {i === 0 && <Badge tone="info">Default</Badge>}
                 </p>
@@ -259,9 +259,9 @@ export default function AdminStoragePage() {
               onChange={(e) => setFolderUrl(e.target.value)}
             />
           </Field>
-          <Field label="Nama Folder (label, opsional)">
+          <Field label="Nama / Label Akun (opsional)">
             <TextInput
-              placeholder="mis. CCTV-Gudang"
+              placeholder="mis. Akun A - CCTV-Gudang"
               value={folderName}
               onChange={(e) => setFolderName(e.target.value)}
             />
