@@ -6,12 +6,11 @@ import { api } from "../../lib/api";
 import { useCameraStatus } from "../../hooks/useCameraStatus";
 import type { Stream, User } from "../../lib/types";
 import {
-  Card,
   EmptyState,
-  SectionTitle,
   Spinner,
   fmtBytes,
 } from "../../components/ui";
+import { NBButton, NBCard, NBTitle } from "./_nb";
 
 interface DiskRaw {
   path: string;
@@ -57,7 +56,7 @@ export default function AdminDashboard() {
     diskPct > 90 ? "bg-bad-400" : diskPct > 70 ? "bg-warn-400" : "bg-accent-500";
 
   const tileClass =
-    "nv-glass group relative block cursor-pointer overflow-hidden rounded-[1.75rem] p-5 transition-all duration-150 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98]";
+    "group relative block cursor-pointer overflow-hidden rounded-xl border border-ink-700/70 bg-ink-900 p-5 shadow-[0_1px_3px_rgba(15,23,42,0.08)] transition-all duration-150 hover:-translate-y-0.5 hover:border-ink-500 active:translate-y-0 active:scale-[0.98]";
   const chev = (
     <span
       aria-hidden
@@ -71,7 +70,7 @@ export default function AdminDashboard() {
 
   return (
     <div>
-      <SectionTitle
+      <NBTitle
         title="Dasbor"
         desc="Status kamera, penyimpanan, dan akses"
       />
@@ -148,9 +147,9 @@ export default function AdminDashboard() {
       </div>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
-        <Card>
+        <NBCard>
           <div className="flex items-baseline justify-between gap-3">
-            <h2 className="text-sm font-semibold text-white">
+            <h2 className="text-lg font-bold tracking-tight text-white">
               Penyimpanan rekaman
             </h2>
             {disk !== null && (
@@ -186,10 +185,10 @@ export default function AdminDashboard() {
               <p className="mt-1 truncate text-xs text-slate-400">{disk.path}</p>
             </div>
           )}
-        </Card>
+        </NBCard>
 
-        <Card className="p-0">
-          <h2 className="px-4 pt-4 text-sm font-semibold text-white sm:px-5 sm:pt-5">
+        <NBCard className="p-0">
+          <h2 className="px-4 pt-4 text-lg font-bold tracking-tight text-white sm:px-5 sm:pt-5">
             Akses embed per API key
           </h2>
           {summary === null ? (
@@ -215,7 +214,7 @@ export default function AdminDashboard() {
               ))}
             </ul>
           )}
-        </Card>
+        </NBCard>
       </div>
     </div>
   );

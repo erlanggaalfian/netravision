@@ -24,12 +24,13 @@ const NAV: NavItem[] = [
   { href: "/admin/storage", label: "Penyimpanan", icon: "M4 7l8-4 8 4-8 4-8-4zM4 7v10l8 4 8-4V7M12 11v8", superAdminOnly: true },
 ];
 
-/* Pola persis Nexfiber Lainnya: grup + list divide-y */
+/* Pola persis Nexfiber Lainnya: grup + list divide-y.
+   Styling kartu putih NetBackup: border jelas + shadow halus. */
 function Group({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="mb-4">
       <h2 className="mb-1 px-1 text-xs text-slate-400">{title}</h2>
-      <ul className="divide-y divide-white/5 overflow-hidden rounded-xl border border-white/10 bg-ink-900">{children}</ul>
+      <ul className="divide-y divide-ink-700/60 overflow-hidden rounded-xl border border-ink-700/70 bg-ink-900 shadow-[0_1px_3px_rgba(15,23,42,0.08)]">{children}</ul>
     </section>
   );
 }
@@ -65,10 +66,10 @@ export default function AdminLayout({
                     key={n.href}
                     href={n.href}
                     aria-current={active ? "page" : undefined}
-                    className={`flex min-h-[42px] shrink-0 cursor-pointer items-center whitespace-nowrap rounded-full px-4 text-sm transition-all duration-150 active:scale-[0.97] ${
+                    className={`flex min-h-[42px] shrink-0 cursor-pointer items-center whitespace-nowrap rounded-lg px-4 text-sm transition-all duration-150 active:scale-[0.97] ${
                       active
-                        ? "bg-gradient-to-r from-accent-600 to-accent-500 font-semibold text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
-                        : "font-medium text-slate-300 hover:bg-white/5 hover:text-white"
+                        ? "bg-accent-500 font-semibold text-onaccent shadow-[0_1px_2px_rgba(0,151,252,0.35)]"
+                        : "font-medium text-slate-400 hover:bg-ink-800 hover:text-slate-200"
                     }`}
                   >
                     {n.label}
@@ -83,7 +84,7 @@ export default function AdminLayout({
             <Group title="Admin">
               {visibleNav.map((n) => (
                 <li key={n.href}>
-                  <Link href={n.href} className={`${row} text-slate-200 transition-colors hover:bg-white/5 active:bg-white/5`}>
+                  <Link href={n.href} className={`${row} text-slate-200 transition-colors hover:bg-ink-800/50 active:bg-ink-800/60`}>
                     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden className="shrink-0 text-slate-300">
                       <path d={n.icon} stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>

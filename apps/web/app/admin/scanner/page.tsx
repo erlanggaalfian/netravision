@@ -3,15 +3,8 @@
 import { useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import type { Stream, SubnetHost } from "../../../lib/types";
-import {
-  Badge,
-  Button,
-  Card,
-  ErrorBox,
-  Field,
-  SectionTitle,
-  TextInput,
-} from "../../../components/ui";
+import { ErrorBox } from "../../../components/ui";
+import { NBBadge, NBButton, NBCard, NBField, NBInput, NBTitle } from "../_nb";
 
 type Tone = "ok" | "bad" | "warn" | "info" | "muted";
 const SCAN_STATUS: Record<string, { label: string; tone: Tone }> = {
@@ -130,7 +123,7 @@ export default function AdminScannerPage() {
     return (
       <>
         {/* Mobile: kartu */}
-        <li className="flex items-start gap-3 rounded-xl border border-ink-700 bg-ink-950 p-3 md:hidden">
+        <li className="flex items-start gap-3 rounded-xl border border-ink-700/70 bg-ink-950 p-3 shadow-[0_1px_2px_rgba(15,23,42,0.05)] md:hidden">
           {checkbox}
           <div className="min-w-0 flex-1">
             <p className="truncate font-mono text-sm text-white">
@@ -140,7 +133,7 @@ export default function AdminScannerPage() {
               {h.best_main ? mainInfo(h) : "tanpa video"}
             </p>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
-              <Badge tone={st.tone}>{st.label}</Badge>
+              <NBBadge tone={st.tone}>{st.label}</NBBadge>
             </div>
           </div>
         </li>
@@ -150,7 +143,7 @@ export default function AdminScannerPage() {
           <td className="px-3 py-3 font-mono text-white">{h.host}</td>
           <td className="px-3 py-3 font-mono text-slate-400">{h.port}</td>
           <td className="px-3 py-3">
-            <Badge tone={st.tone}>{st.label}</Badge>
+            <NBBadge tone={st.tone}>{st.label}</NBBadge>
           </td>
           <td className="max-w-[280px] truncate px-3 py-3 font-mono text-xs text-slate-400">
             {h.best_main ?? "—"}
@@ -163,7 +156,7 @@ export default function AdminScannerPage() {
 
   return (
     <div>
-      <SectionTitle
+      <NBTitle
         title="Camera Scanner"
         desc="Pindai subnet jaringan lokal untuk menemukan kamera (maks 256 host)"
       />
@@ -173,43 +166,43 @@ export default function AdminScannerPage() {
         </div>
       )}
 
-      <Card className="mb-5">
+      <NBCard className="mb-5">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Field label="IP Subnet (CIDR)" hint="cth: 192.168.1.0/24">
-            <TextInput
+          <NBField label="IP Subnet (CIDR)" hint="cth: 192.168.1.0/24">
+            <NBInput
               value={ipRange}
               onChange={(e) => setIpRange(e.target.value)}
               placeholder="192.168.1.0/24"
               className="font-mono"
             />
-          </Field>
-          <Field label="Port RTSP">
-            <TextInput
+          </NBField>
+          <NBField label="Port RTSP">
+            <NBInput
               value={port}
               onChange={(e) => setPort(e.target.value)}
               inputMode="numeric"
               className="font-mono"
             />
-          </Field>
-          <Field label="Username">
-            <TextInput
+          </NBField>
+          <NBField label="Username">
+            <NBInput
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="off"
             />
-          </Field>
-          <Field label="Password">
-            <TextInput
+          </NBField>
+          <NBField label="Password">
+            <NBInput
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="new-password"
             />
-          </Field>
+          </NBField>
           <div className="flex items-end">
-            <Button onClick={doScan} disabled={scanning} className="w-full sm:w-auto">
+            <NBButton onClick={doScan} disabled={scanning} className="w-full sm:w-auto">
               {scanning ? "Memindai…" : "Scan Network"}
-            </Button>
+            </NBButton>
           </div>
         </div>
 
@@ -224,25 +217,25 @@ export default function AdminScannerPage() {
             <style>{`.nv-scanbar{width:40%;animation:nvscan 1.2s ease-in-out infinite}@keyframes nvscan{0%{margin-left:-40%}100%{margin-left:100%}}`}</style>
           </div>
         )}
-      </Card>
+      </NBCard>
 
       {hosts !== null && !scanning && (
-        <Card>
+        <NBCard>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <h3 className="text-sm font-semibold text-white">
               Host terdeteksi{" "}
               <span className="text-slate-400">({hosts.length})</span>
             </h3>
             {selectable.length > 0 && (
-              <Button
-                variant="subtle"
+              <NBButton
+                variant="secondary"
                 onClick={addSelected}
                 disabled={adding || checked.size === 0}
               >
                 {adding
                   ? "Menambah…"
                   : `+ Tambah terpilih (${checked.size})`}
-              </Button>
+              </NBButton>
             )}
           </div>
           {added > 0 && (
@@ -295,7 +288,7 @@ export default function AdminScannerPage() {
               </div>
             </>
           )}
-        </Card>
+        </NBCard>
       )}
       {hosts === null && !scanning && !error && (
         <p className="py-10 text-center text-sm text-slate-400">

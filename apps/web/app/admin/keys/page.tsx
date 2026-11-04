@@ -3,19 +3,17 @@
 import { useEffect, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import type { AdConfig, ApiKey, Stream } from "../../../lib/types";
+import { ErrorBox, Modal, Spinner } from "../../../components/ui";
 import {
-  Badge,
-  Button,
-  Card,
-  ConfirmModal,
-  ErrorBox,
-  Field,
-  Modal,
-  SectionTitle,
-  Select,
-  Spinner,
-  TextInput,
-} from "../../../components/ui";
+  NBBadge,
+  NBButton,
+  NBCard,
+  NBConfirmModal,
+  NBField,
+  NBInput,
+  NBSelect,
+  NBTitle,
+} from "../_nb";
 
 type KeyOut = ApiKey;
 
@@ -181,15 +179,15 @@ export default function AdminKeysPage() {
 
   return (
     <div>
-      <SectionTitle
+      <NBTitle
         title="API Key"
         desc="Kunci embed untuk pihak ketiga — key penuh hanya tampil sekali saat dibuat"
         action={
           <div className="flex flex-wrap gap-2">
-            <Button variant="subtle" onClick={() => setShowGuide(true)}>
+            <NBButton variant="secondary" onClick={() => setShowGuide(true)}>
               Panduan Integrasi
-            </Button>
-            <Button onClick={() => setShowAdd(true)}>+ Buat Key</Button>
+            </NBButton>
+            <NBButton onClick={() => setShowAdd(true)}>+ Buat Key</NBButton>
           </div>
         }
       />
@@ -206,20 +204,20 @@ export default function AdminKeysPage() {
       ) : (
         <div className="space-y-2">
           {keys.map((k) => (
-            <Card key={k.id} className="p-4 transition-colors hover:border-ink-500">
+            <NBCard key={k.id} className="p-4 transition-colors hover:border-ink-500">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate font-medium text-white">{k.name}</p>
                   <p className="mt-1 flex flex-wrap gap-1.5">
-                    <Badge tone={k.is_active ? "ok" : "muted"}>
+                    <NBBadge tone={k.is_active ? "ok" : "muted"}>
                       {k.is_active ? "Aktif" : "Nonaktif"}
-                    </Badge>
-                    <Badge tone="muted">{k.stream_ids.length} kamera</Badge>
+                    </NBBadge>
+                    <NBBadge tone="muted">{k.stream_ids.length} kamera</NBBadge>
                     {k.domain_lock && (
-                      <Badge tone="info">{k.domain_lock}</Badge>
+                      <NBBadge tone="info">{k.domain_lock}</NBBadge>
                     )}
                     {!k.include_playback && (
-                      <Badge tone="muted">Tanpa playback</Badge>
+                      <NBBadge tone="muted">Tanpa playback</NBBadge>
                     )}
                   </p>
                   {k.custom_camera_name && (
@@ -232,8 +230,8 @@ export default function AdminKeysPage() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="subtle"
+                  <NBButton
+                    variant="secondary"
                     onClick={() => toggleActive(k)}
                     disabled={togglingId === k.id}
                     className="px-3"
@@ -243,17 +241,17 @@ export default function AdminKeysPage() {
                       : k.is_active
                         ? "Nonaktifkan"
                         : "Aktifkan"}
-                  </Button>
-                  <Button
+                  </NBButton>
+                  <NBButton
                     variant="danger"
                     onClick={() => setDeleting(k)}
                     className="px-3"
                   >
                     Hapus
-                  </Button>
+                  </NBButton>
                 </div>
               </div>
-            </Card>
+            </NBCard>
           ))}
         </div>
       )}
@@ -261,10 +259,10 @@ export default function AdminKeysPage() {
       <EmbedPlayerSettings />
 
       <div className="mb-3 mt-8 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-white">Log akses</h2>
+        <h2 className="text-lg font-bold tracking-tight text-white">Log akses</h2>
         <div className="flex flex-wrap gap-2">
-          <Button
-            variant="subtle"
+          <NBButton
+            variant="secondary"
             onClick={() => {
               setLogsOffset(0);
               loadLogs(true);
@@ -272,41 +270,41 @@ export default function AdminKeysPage() {
            
           >
             Muat ulang
-          </Button>
-          <Button
+          </NBButton>
+          <NBButton
             variant="danger"
             onClick={() => setClearingLogs(true)}
            
           >
             Hapus semua log
-          </Button>
+          </NBButton>
         </div>
       </div>
 
-      <Card className="mb-3 p-4">
+      <NBCard className="mb-3 p-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Filter key">
-            <Select value={logKeyF} onChange={(e) => setLogKeyF(e.target.value)}>
+          <NBField label="Filter key">
+            <NBSelect value={logKeyF} onChange={(e) => setLogKeyF(e.target.value)}>
               <option value="all">Semua key</option>
               {(keys ?? []).map((k) => (
                 <option key={k.id} value={k.id}>
                   {k.name}
                 </option>
               ))}
-            </Select>
-          </Field>
-          <Field label="Filter status">
-            <Select
+            </NBSelect>
+          </NBField>
+          <NBField label="Filter status">
+            <NBSelect
               value={logStatusF}
               onChange={(e) => setLogStatusF(e.target.value)}
             >
               <option value="all">Semua status</option>
               <option value="ok">Berhasil</option>
               <option value="denied">Ditolak</option>
-            </Select>
-          </Field>
+            </NBSelect>
+          </NBField>
         </div>
-      </Card>
+      </NBCard>
 
       {logsLoading && logs.length === 0 ? (
         <Spinner />
@@ -314,7 +312,7 @@ export default function AdminKeysPage() {
         <ListEmptyState text="Belum ada akses tercatat." />
       ) : (
         <>
-          <Card className="overflow-x-auto p-0">
+          <NBCard className="overflow-x-auto p-0">
             <table className="w-full min-w-[640px] text-sm">
               <thead>
                 <tr className="border-b border-ink-700 text-left text-xs uppercase tracking-wider text-slate-400">
@@ -345,9 +343,9 @@ export default function AdminKeysPage() {
                         {streamName(l.stream_id)}
                       </td>
                       <td className="px-4 py-2.5">
-                        <Badge tone={denied ? "bad" : "ok"}>
+                        <NBBadge tone={denied ? "bad" : "ok"}>
                           {denied ? "Ditolak" : (l.action ?? "—")}
-                        </Badge>
+                        </NBBadge>
                       </td>
                       <td className="px-4 py-2.5 font-mono text-xs text-slate-400">
                         {l.ip ?? "—"}
@@ -357,17 +355,17 @@ export default function AdminKeysPage() {
                 })}
               </tbody>
             </table>
-          </Card>
+          </NBCard>
           {!logsDone && (
             <div className="mt-3 text-center">
-              <Button
-                variant="subtle"
+              <NBButton
+                variant="secondary"
                 onClick={() => loadLogs(false)}
                 disabled={logsLoading}
                 className="min-h-[44px]"
               >
                 {logsLoading ? "Memuat…" : "Muat lebih banyak"}
-              </Button>
+              </NBButton>
             </div>
           )}
         </>
@@ -392,21 +390,21 @@ export default function AdminKeysPage() {
             {created.key}
           </p>
           <div className="mt-5 flex justify-end gap-2">
-            <Button
-              variant="subtle"
+            <NBButton
+              variant="secondary"
               onClick={() => {
                 setCreated(null);
                 setShowGuide(true);
               }}
             >
               Panduan Integrasi
-            </Button>
-            <Button onClick={() => setCreated(null)}>Selesai</Button>
+            </NBButton>
+            <NBButton onClick={() => setCreated(null)}>Selesai</NBButton>
           </div>
         </Modal>
       )}
       {deleting && (
-        <ConfirmModal
+        <NBConfirmModal
           title="Hapus API key"
           message={`Hapus key "${deleting.name}"? Embed yang memakainya ikut mati.`}
           onCancel={() => setDeleting(null)}
@@ -414,7 +412,7 @@ export default function AdminKeysPage() {
         />
       )}
       {clearingLogs && (
-        <ConfirmModal
+        <NBConfirmModal
           title="Hapus semua log"
           message="Hapus seluruh catatan akses API? Tindakan ini tidak bisa dibatalkan."
           onCancel={() => setClearingLogs(false)}
@@ -466,8 +464,8 @@ function EmbedPlayerSettings() {
   if (!cfg && !error) return <Spinner />;
 
   return (
-    <Card className="mt-8 p-4 sm:p-5">
-      <h2 className="text-lg font-semibold text-white">Pengaturan Embed Player</h2>
+    <NBCard className="mt-8 p-4 sm:p-5">
+      <h2 className="text-lg font-bold tracking-tight text-white">Pengaturan Embed Player</h2>
       <p className="mt-1 text-sm text-slate-400">
         Berlaku untuk semua pemutar embed pihak ketiga
       </p>
@@ -495,11 +493,11 @@ function EmbedPlayerSettings() {
               aria-label="Klik untuk memutar"
             />
           </label>
-          <Field
+          <NBField
             label="Batas waktu pemutaran (detik)"
             hint="Pemutaran berhenti otomatis setelah durasi ini"
           >
-            <TextInput
+            <NBInput
               inputMode="numeric"
               value={String(cfg.embed_timeout_seconds ?? 300)}
               onChange={(e) => {
@@ -510,16 +508,16 @@ function EmbedPlayerSettings() {
                 });
               }}
             />
-          </Field>
+          </NBField>
           <div className="flex items-center gap-3">
-            <Button onClick={save} disabled={busy} className="min-h-[44px]">
+            <NBButton onClick={save} disabled={busy} className="min-h-[44px]">
               {busy ? "Menyimpan…" : "Simpan"}
-            </Button>
+            </NBButton>
             {saved && <span className="text-sm text-ok-400">Tersimpan</span>}
           </div>
         </div>
       )}
-    </Card>
+    </NBCard>
   );
 }
 
@@ -563,16 +561,16 @@ function IntegrationGuideModal({
 
   return (
     <Modal title="Panduan Integrasi API" onClose={onClose} wide>
-      <Field
+      <NBField
         label="API key"
         hint="Tempel key Anda bila belum terisi otomatis"
       >
-        <TextInput
+        <NBInput
           value={key}
           onChange={(e) => setKey(e.target.value.trim())}
           placeholder="Tempel API key di sini…"
         />
-      </Field>
+      </NBField>
       <div className="mt-4 space-y-4">
         {methods.map((m) => (
           <div
@@ -584,14 +582,14 @@ function IntegrationGuideModal({
             <p className="mt-2 break-all rounded-lg bg-ink-950 p-3 font-mono text-xs text-accent-300">
               {key ? m.code : "— isi API key dulu —"}
             </p>
-            <Button
-              variant="subtle"
+            <NBButton
+              variant="secondary"
               disabled={!key}
               onClick={() => doCopy(m.id, m.code)}
               className="mt-2"
             >
               {copied === m.id ? "Tersalin ✓" : "Salin"}
-            </Button>
+            </NBButton>
           </div>
         ))}
       </div>
@@ -665,38 +663,38 @@ function KeyFormModal({
         </div>
       )}
       <div className="space-y-4">
-        <Field label="Nama key">
-          <TextInput
+        <NBField label="Nama key">
+          <NBInput
             placeholder="cth: Website mitra"
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
-        </Field>
+        </NBField>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Kunci domain (opsional)" hint="cth: mitra.or.id">
-            <TextInput
+          <NBField label="Kunci domain (opsional)" hint="cth: mitra.or.id">
+            <NBInput
               value={domainLock}
               onChange={(e) => setDomainLock(e.target.value)}
             />
-          </Field>
-          <Field label="Kata sandi embed (opsional)">
-            <TextInput
+          </NBField>
+          <NBField label="Kata sandi embed (opsional)">
+            <NBInput
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
-          </Field>
+          </NBField>
         </div>
-        <Field
+        <NBField
           label="Judul kamera kustom (opsional)"
           hint="Untuk menyamarkan nama asli, cth: Kamera Depan, Pos Jaga"
         >
-          <TextInput
+          <NBInput
             value={customName}
             onChange={(e) => setCustomName(e.target.value)}
             placeholder="Kosongkan untuk memakai nama asli"
           />
-        </Field>
+        </NBField>
         <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3">
           <span>
             <span className="block text-sm font-medium text-white">
@@ -714,7 +712,7 @@ function KeyFormModal({
             aria-label="Sertakan playback"
           />
         </label>
-        <Field label={`Kamera yang boleh diakses${ordered.length ? ` (${ordered.length})` : ""}`}>
+        <NBField label={`Kamera yang boleh diakses${ordered.length ? ` (${ordered.length})` : ""}`}>
           <div className="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-ink-700 p-2">
             {streams.map((s) => (
               <label
@@ -731,9 +729,9 @@ function KeyFormModal({
               </label>
             ))}
           </div>
-        </Field>
+        </NBField>
         {ordered.length > 1 && (
-          <Field label="Urutan kamera">
+          <NBField label="Urutan kamera">
             <div className="space-y-1 rounded-lg border border-ink-700 p-2">
               {ordered.map((id, i) => (
                 <div
@@ -767,15 +765,15 @@ function KeyFormModal({
                 </div>
               ))}
             </div>
-          </Field>
+          </NBField>
         )}
-        <Button
+        <NBButton
           onClick={save}
           disabled={busy || !name.trim() || ordered.length === 0}
           className="w-full"
         >
           {busy ? "Membuat…" : "Buat Key"}
-        </Button>
+        </NBButton>
       </div>
     </Modal>
   );

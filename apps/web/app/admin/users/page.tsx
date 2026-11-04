@@ -3,20 +3,18 @@
 import { useEffect, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import type { Stream, User } from "../../../lib/types";
+import { ErrorBox, Modal, Spinner } from "../../../components/ui";
 import {
-  Accordion,
-  Badge,
-  Button,
-  ConfirmModal,
-  EmptyState,
-  ErrorBox,
-  Field,
-  Modal,
-  SectionTitle,
-  Select,
-  Spinner,
-  TextInput,
-} from "../../../components/ui";
+  NBAccordion,
+  NBBadge,
+  NBButton,
+  NBConfirmModal,
+  NBEmptyState,
+  NBField,
+  NBInput,
+  NBSelect,
+  NBTitle,
+} from "../_nb";
 
 const ROLE_LABEL: Record<string, string> = {
   admin: "Admin",
@@ -93,10 +91,10 @@ export default function AdminUsersPage() {
 
   return (
     <div>
-      <SectionTitle
+      <NBTitle
         title="Pengguna"
         desc="Kelola akun dan hak akses kamera"
-        action={<Button onClick={() => setShowAdd(true)}>+ Tambah Pengguna</Button>}
+        action={<NBButton onClick={() => setShowAdd(true)}>+ Tambah Pengguna</NBButton>}
       />
       {error && (
         <div className="mb-4">
@@ -117,7 +115,7 @@ export default function AdminUsersPage() {
                     {u.username}
                   </span>
                   <span className="mt-0.5 flex flex-wrap gap-1">
-                    <Badge
+                    <NBBadge
                       tone={
                         u.role === "admin" || u.role === "super_admin"
                           ? "info"
@@ -127,10 +125,10 @@ export default function AdminUsersPage() {
                       }
                     >
                       {ROLE_LABEL[u.role] ?? u.role}
-                    </Badge>
-                    <Badge tone={u.show_ads ? "ok" : "muted"}>
+                    </NBBadge>
+                    <NBBadge tone={u.show_ads ? "ok" : "muted"}>
                       Iklan: {u.show_ads ? "Ya" : "Tidak"}
-                    </Badge>
+                    </NBBadge>
                   </span>
                   <span className="mt-1 block text-xs text-slate-400">
                     Dibuat oleh: {u.dibuat_oleh ?? "—"}
@@ -140,37 +138,37 @@ export default function AdminUsersPage() {
             );
             const actions = (
               <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="subtle"
+                <NBButton
+                  variant="secondary"
                   onClick={() => setAccessFor(u)}
                   className="px-3"
                 >
                   Akses Kamera
-                </Button>
-                <Button
-                  variant="subtle"
+                </NBButton>
+                <NBButton
+                  variant="secondary"
                   onClick={() => setEditing(u)}
                   className="px-3"
                 >
                   Ubah
-                </Button>
-                <Button
+                </NBButton>
+                <NBButton
                   variant="danger"
                   onClick={() => setDeleting(u)}
                   className="px-3"
                 >
                   Hapus
-                </Button>
+                </NBButton>
               </div>
             );
             return (
               <div key={u.id}>
                 <div className="md:hidden">
-                  <Accordion summary={summary}>
+                  <NBAccordion summary={summary}>
                     <div className="space-y-3">{actions}</div>
-                  </Accordion>
+                  </NBAccordion>
                 </div>
-                <div className="hidden items-center justify-between gap-3 rounded-xl border border-ink-700/60 bg-ink-900 px-4 py-3 transition-colors hover:border-ink-500 md:flex">
+                <div className="hidden items-center justify-between gap-3 rounded-xl border border-ink-700/70 bg-ink-900 px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-colors hover:border-ink-500 md:flex">
                   {summary}
                   {actions}
                 </div>
@@ -207,7 +205,7 @@ export default function AdminUsersPage() {
         />
       )}
       {deleting && (
-        <ConfirmModal
+        <NBConfirmModal
           title="Hapus pengguna"
           message={`Hapus akun "${deleting.username}"?`}
           onCancel={() => setDeleting(null)}
@@ -270,30 +268,30 @@ function UserFormModal({
         </div>
       )}
       <div className="space-y-4">
-        <Field label="Nama pengguna">
-          <TextInput
+        <NBField label="Nama pengguna">
+          <NBInput
             value={username}
             onChange={(e) => setUsername(e.target.value)}
           />
-        </Field>
-        <Field
+        </NBField>
+        <NBField
           label={user ? "Kata sandi baru (kosongkan bila tidak diubah)" : "Kata sandi"}
           hint={!user ? "Minimal 8 karakter" : undefined}
         >
-          <TextInput
+          <NBInput
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
-        </Field>
-        <Field label="Peran">
-          <Select value={role} onChange={(e) => setRole(e.target.value)}>
+        </NBField>
+        <NBField label="Peran">
+          <NBSelect value={role} onChange={(e) => setRole(e.target.value)}>
             <option value="user">Pengguna</option>
             <option value="admin">Admin</option>
             <option value="guest">Tamu</option>
             <option value="super_admin">Super Admin</option>
-          </Select>
-        </Field>
+          </NBSelect>
+        </NBField>
         <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 rounded-xl border border-ink-700/60 bg-ink-900/60 px-4 py-3">
           <span>
             <span className="block text-sm font-medium text-white">
@@ -311,13 +309,13 @@ function UserFormModal({
             aria-label="Tampilkan Iklan"
           />
         </label>
-        <Button
+        <NBButton
           onClick={save}
           disabled={busy || !username.trim() || (!user && !password)}
           className="w-full"
         >
           {busy ? "Menyimpan…" : "Simpan"}
-        </Button>
+        </NBButton>
       </div>
     </Modal>
   );
@@ -383,7 +381,7 @@ function AccessModal({
       {!loaded ? (
         <Spinner />
       ) : streams.length === 0 ? (
-        <EmptyState text="Belum ada kamera." />
+        <NBEmptyState text="Belum ada kamera." />
       ) : (
         <div>
           <div className="mb-2 flex items-center justify-between gap-2 px-1">
@@ -426,12 +424,12 @@ function AccessModal({
         </div>
       )}
       <div className="mt-5 flex justify-end gap-2">
-        <Button variant="ghost" onClick={onClose}>
+        <NBButton variant="secondary" onClick={onClose}>
           Batal
-        </Button>
-        <Button onClick={save} disabled={busy || !loaded || loadFailed}>
+        </NBButton>
+        <NBButton onClick={save} disabled={busy || !loaded || loadFailed}>
           {busy ? "Menyimpan…" : "Simpan"}
-        </Button>
+        </NBButton>
       </div>
     </Modal>
   );

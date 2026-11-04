@@ -3,16 +3,14 @@
 import { useEffect, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import type { Stream, User } from "../../../lib/types";
+import { ErrorBox, Modal, Spinner } from "../../../components/ui";
 import {
-  Badge,
-  Button,
-  Card,
-  ErrorBox,
-  Modal,
-  SectionTitle,
-  Spinner,
-  TextInput,
-} from "../../../components/ui";
+  NBBadge,
+  NBButton,
+  NBCard,
+  NBTitle,
+  NBInput,
+} from "../_nb";
 
 type Arah = "akun" | "kamera";
 
@@ -75,7 +73,7 @@ export default function AdminAccessPage() {
 
   return (
     <div>
-      <SectionTitle
+      <NBTitle
         title="Akses Kamera"
         desc="Atur kamera mana yang dapat dilihat tiap akun"
       />
@@ -85,7 +83,7 @@ export default function AdminAccessPage() {
         </div>
       )}
 
-      <Card>
+      <NBCard>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex rounded-xl border border-ink-700 bg-ink-950 p-1">
             {(["akun", "kamera"] as Arah[]).map((a) => (
@@ -94,7 +92,7 @@ export default function AdminAccessPage() {
                 onClick={() => setArah(a)}
                 className={`min-h-[44px] rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
                   arah === a
-                    ? "bg-accent-600 text-onaccent"
+                    ? "bg-accent-500 text-onaccent"
                     : "text-slate-400 hover:text-white"
                 }`}
               >
@@ -103,7 +101,7 @@ export default function AdminAccessPage() {
             ))}
           </div>
           <div className="w-full sm:w-64">
-            <TextInput
+            <NBInput
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Cari…"
@@ -133,17 +131,17 @@ export default function AdminAccessPage() {
                       {u.username}
                     </td>
                     <td className="px-3 py-3">
-                      <Badge tone="muted">
+                      <NBBadge tone="muted">
                         {ROLE_LABEL[u.role] ?? u.role}
-                      </Badge>
+                      </NBBadge>
                     </td>
                     <td className="px-3 py-3 text-center">
-                      <Button
-                        variant="subtle"
+                      <NBButton
+                        variant="secondary"
                         onClick={() => setManageUser(u)}
                       >
                         Kelola
-                      </Button>
+                      </NBButton>
                     </td>
                   </tr>
                 ))}
@@ -180,20 +178,20 @@ export default function AdminAccessPage() {
                       {s.name}
                     </td>
                     <td className="px-3 py-3">
-                      <Badge tone={s.is_online ? "ok" : "bad"}>
+                      <NBBadge tone={s.is_online ? "ok" : "bad"}>
                         {s.is_online ? "Online" : "Offline"}
-                      </Badge>
+                      </NBBadge>
                     </td>
                     <td className="px-3 py-3 text-center font-mono text-slate-300">
                       {grantCount(s.id)}
                     </td>
                     <td className="px-3 py-3 text-center">
-                      <Button
-                        variant="subtle"
+                      <NBButton
+                        variant="secondary"
                         onClick={() => setManageStream(s)}
                       >
                         Kelola
-                      </Button>
+                      </NBButton>
                     </td>
                   </tr>
                 ))}
@@ -211,7 +209,7 @@ export default function AdminAccessPage() {
             </table>
           </div>
         )}
-      </Card>
+      </NBCard>
 
       {manageUser && streams && (
         <AccessByUserModal
@@ -304,7 +302,7 @@ function AccessByUserModal({
             {streams.map((s) => (
               <label
                 key={s.id}
-                className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/[0.03]"
+                className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-ink-800/50"
               >
                 <input
                   type="checkbox"
@@ -313,19 +311,19 @@ function AccessByUserModal({
                   className="h-5 w-5 shrink-0 accent-accent-500"
                 />
                 <span className="flex-1 text-sm text-slate-200">{s.name}</span>
-                <Badge tone={s.is_online ? "ok" : "bad"}>
+                <NBBadge tone={s.is_online ? "ok" : "bad"}>
                   {s.is_online ? "Online" : "Offline"}
-                </Badge>
+                </NBBadge>
               </label>
             ))}
           </div>
           <div className="mt-5 flex justify-end gap-2">
-            <Button variant="ghost" onClick={onClose}>
+            <NBButton variant="secondary" onClick={onClose}>
               Batal
-            </Button>
-            <Button onClick={save} disabled={busy}>
+            </NBButton>
+            <NBButton onClick={save} disabled={busy}>
               {busy ? "Menyimpan…" : "Simpan"}
-            </Button>
+            </NBButton>
           </div>
         </>
       )}
@@ -416,7 +414,7 @@ function AccessByCameraModal({
         <>
           <div className="max-h-64 space-y-1 overflow-y-auto">
             {/* Principal Tamu: semua sesi guest */}
-            <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl border border-ink-700 bg-ink-950/60 px-3 py-2 hover:bg-white/[0.03]">
+            <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl border border-ink-700 bg-ink-950/60 px-3 py-2 hover:bg-ink-800/50">
               <input
                 type="checkbox"
                 checked={guestAccess}
@@ -426,12 +424,12 @@ function AccessByCameraModal({
               <span className="flex-1 text-sm text-slate-200">
                 Tamu <span className="text-slate-400">(semua sesi guest)</span>
               </span>
-              <Badge tone="muted">Tamu</Badge>
+              <NBBadge tone="muted">Tamu</NBBadge>
             </label>
             {users.map((u) => (
               <label
                 key={u.id}
-                className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/[0.03]"
+                className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-ink-800/50"
               >
                 <input
                   type="checkbox"
@@ -442,17 +440,17 @@ function AccessByCameraModal({
                 <span className="flex-1 text-sm text-slate-200">
                   {u.username}
                 </span>
-                <Badge tone="muted">{ROLE_LABEL[u.role] ?? u.role}</Badge>
+                <NBBadge tone="muted">{ROLE_LABEL[u.role] ?? u.role}</NBBadge>
               </label>
             ))}
           </div>
           <div className="mt-5 flex justify-end gap-2">
-            <Button variant="ghost" onClick={onClose}>
+            <NBButton variant="secondary" onClick={onClose}>
               Batal
-            </Button>
-            <Button onClick={save} disabled={busy}>
+            </NBButton>
+            <NBButton onClick={save} disabled={busy}>
               {busy ? "Menyimpan…" : "Simpan"}
-            </Button>
+            </NBButton>
           </div>
         </>
       )}

@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
-import { Button, ErrorBox, TextInput } from "../../components/ui";
+import { ErrorBox } from "../../components/ui";
 
 /* Marka lensa — digambar murni SVG. */
 function LensMark({ className = "" }: { className?: string }) {
@@ -16,6 +16,11 @@ function LensMark({ className = "" }: { className?: string }) {
     </svg>
   );
 }
+
+/* Input gaya NetBackup: border jelas, radius 8px, 16px (anti-zoom iOS).
+   Token ink dan accent adaptif di kedua tema via globals.css. */
+const inputCls =
+  "w-full rounded-lg border border-ink-700 bg-ink-950 px-4 py-3 text-[16px] text-white placeholder:text-slate-400 outline-none transition-all duration-150 ease-out focus:border-accent-400 focus:ring-4 focus:ring-accent-500/15";
 
 export default function LoginPage() {
   const { user, loading, login, loginGuest } = useAuth();
@@ -63,12 +68,18 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-dvh flex-col items-center justify-center bg-ink-950 px-5 py-10">
-      <div className="w-full max-w-sm">
-        <div className="rounded-2xl border border-white/8 bg-ink-900 p-6 shadow-[0_2px_12px_rgba(0,0,0,0.18)] sm:p-7">
+    <main className="flex min-h-dvh flex-col bg-ink-950">
+      {/* Pita biru di atas ala header NetBackup */}
+      <div className="bg-gradient-to-b from-accent-400 to-accent-600">
+        <div className="h-32 sm:h-40" aria-hidden />
+      </div>
+
+      <div className="mx-auto w-full max-w-sm flex-1 px-5">
+        {/* Kartu login putih: radius 16px, border + shadow jelas */}
+        <div className="-mt-16 rounded-2xl border border-ink-700 bg-ink-900 p-6 shadow-[0_16px_40px_rgba(2,132,199,0.18)] sm:-mt-20 sm:p-8">
           <div className="mb-6 flex flex-col items-center gap-3">
-            <LensMark className="h-12 w-12" />
-            <p className="text-lg font-bold tracking-tight text-white">
+            <LensMark className="h-14 w-14" />
+            <p className="text-xl font-bold tracking-tight text-white">
               NetraVision
             </p>
           </div>
@@ -86,13 +97,14 @@ export default function LoginPage() {
               >
                 Nama pengguna
               </label>
-              <TextInput
+              <input
                 id="username"
                 autoComplete="username"
                 placeholder="nama pengguna"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 required
+                className={inputCls}
               />
             </div>
             <div>
@@ -102,7 +114,7 @@ export default function LoginPage() {
               >
                 Kata sandi
               </label>
-              <TextInput
+              <input
                 id="password"
                 type="password"
                 autoComplete="current-password"
@@ -110,21 +122,25 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                className={inputCls}
               />
             </div>
-            <div className="pt-1 space-y-3">
-              <Button type="submit" disabled={busy} className="w-full">
+            <div className="space-y-3 pt-1">
+              <button
+                type="submit"
+                disabled={busy}
+                className="min-h-[48px] w-full cursor-pointer rounded-lg bg-accent-500 px-4 text-[16px] font-semibold text-onaccent transition-all duration-150 ease-out hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]"
+              >
                 {busy ? "Memeriksa…" : "Masuk"}
-              </Button>
-              <Button
+              </button>
+              <button
                 type="button"
-                variant="ghost"
                 onClick={onGuest}
                 disabled={busy}
-                className="w-full"
+                className="min-h-[48px] w-full cursor-pointer rounded-lg border border-ink-700 bg-transparent px-4 text-sm font-semibold text-slate-300 transition-all duration-150 ease-out hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]"
               >
                 Guest login
-              </Button>
+              </button>
             </div>
           </form>
         </div>

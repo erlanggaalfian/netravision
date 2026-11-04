@@ -83,19 +83,21 @@
    agar tetap terbaca; status ok/warn/bad digeser ke tone-700. */
 [data-theme="light"] {
   color-scheme: light;
-  --nv-ink-950: #e9edf2;
+  /* Bahasa desain NetBackup (netbackup.my.id): biru primer #0097FC,
+     latar #f4f7f9, kartu putih, border slate-200. */
+  --nv-ink-950: #f4f7f9;
   --nv-ink-900: #ffffff;
-  --nv-ink-850: #f1f4f8;
+  --nv-ink-850: #f1f5f9;
   --nv-ink-800: #e2e8f0;
-  --nv-ink-700: #d3dbe4;
-  --nv-ink-600: #b6c2d1;
-  --nv-ink-500: #93a3b8;
-  --nv-accent-300: #1e40af;
-  --nv-accent-400: #1d4ed8;
-  --nv-accent-500: #1d4ed8;
-  --nv-accent-600: #1e40af;
-  --nv-ok-400: #047857;
-  --nv-warn-300: #b45309;
+  --nv-ink-700: #cbd5e1;
+  --nv-ink-600: #94a3b8;
+  --nv-ink-500: #64748b;
+  --nv-accent-300: #43bdfc;
+  --nv-accent-400: #0097fc;
+  --nv-accent-500: #0097fc;
+  --nv-accent-600: #0284c7;
+  --nv-ok-400: #059669;
+  --nv-warn-300: #d97706;
   --nv-warn-400: #b45309;
   --nv-bad-400: #dc2626;
   --nv-neutral-200: #3f4753;

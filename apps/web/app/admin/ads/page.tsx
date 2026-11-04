@@ -3,17 +3,16 @@
 import { useEffect, useRef, useState } from "react";
 import type { AdConfig } from "../../../lib/types";
 import { ApiError, api, apiFetch } from "../../../lib/api";
+import { ErrorBox, Spinner } from "../../../components/ui";
 import {
-  Button,
-  Card,
-  ErrorBox,
-  Field,
-  SectionTitle,
-  Select,
-  Spinner,
-  TextArea,
-  TextInput,
-} from "../../../components/ui";
+  NBButton,
+  NBCard,
+  NBField,
+  NBInput,
+  NBSelect,
+  NBTextArea,
+  NBTitle,
+} from "../_nb";
 
 const DEFAULTS: AdConfig = {
   image_url: "",
@@ -88,7 +87,7 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
   }
 
   return (
-    <div className="mb-6 rounded-2xl border border-ink-700/60 bg-ink-900 p-4">
+    <div className="mb-6 rounded-xl border border-ink-700/70 bg-ink-900 p-4 shadow-[0_1px_3px_rgba(15,23,42,0.08)]">
       <div className="mb-3 flex items-center justify-between">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
           Live Preview (Pratinjau Langsung)
@@ -244,7 +243,7 @@ function ColorRow({
           className="h-9 w-9 shrink-0 cursor-pointer rounded-lg border border-ink-600 bg-transparent"
           aria-label={label}
         />
-        <TextInput
+        <NBInput
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="#1E293B"
@@ -326,7 +325,7 @@ export default function AdminAdsPage() {
 
   return (
     <div>
-      <SectionTitle
+      <NBTitle
         title="Ad Space Config"
         desc="Atur gambar dan teks berjalan pada popup guest"
       />
@@ -336,7 +335,7 @@ export default function AdminAdsPage() {
         </div>
       )}
       {cfg && (
-        <Card>
+        <NBCard>
           <AdPreview cfg={cfg} />
 
           {/* Toggle status */}
@@ -358,7 +357,7 @@ export default function AdminAdsPage() {
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
             {/* Seksi 1: Tata Letak & Latar */}
-            <div className="space-y-4 rounded-xl border border-ink-700/60 bg-ink-900/40 p-4">
+            <div className="space-y-4 rounded-xl border border-ink-700/70 bg-ink-900 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
               <div className="border-b border-ink-700/60 pb-2">
                 <span className="font-mono text-xs font-semibold uppercase text-accent-400">
                   1. Tata Letak &amp; Latar
@@ -372,16 +371,16 @@ export default function AdminAdsPage() {
                 display={`${cfg.box_width}%`}
                 onChange={(v) => set("box_width", v)}
               />
-              <Field label="Posisi Aliran Konten">
-                <Select
+              <NBField label="Posisi Aliran Konten">
+                <NBSelect
                   value={cfg.text_align}
                   onChange={(e) => set("text_align", e.target.value)}
                 >
                   <option value="left">Rata Kiri</option>
                   <option value="center">Rata Tengah</option>
                   <option value="right">Rata Kanan</option>
-                </Select>
-              </Field>
+                </NBSelect>
+              </NBField>
               <ColorRow
                 label="Warna Latar Belakang"
                 value={cfg.bg_color}
@@ -398,7 +397,7 @@ export default function AdminAdsPage() {
             </div>
 
             {/* Seksi 2: Logo Sponsor & Media */}
-            <div className="space-y-4 rounded-xl border border-ink-700/60 bg-ink-900/40 p-4">
+            <div className="space-y-4 rounded-xl border border-ink-700/70 bg-ink-900 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
               <div className="border-b border-ink-700/60 pb-2">
                 <span className="font-mono text-xs font-semibold uppercase text-accent-400">
                   2. Logo Sponsor &amp; Media
@@ -434,17 +433,17 @@ export default function AdminAdsPage() {
                       e.target.value = "";
                     }}
                   />
-                  <Button
-                    variant="subtle"
+                  <NBButton
+                    variant="secondary"
                     onClick={() => fileRef.current?.click()}
                     disabled={uploading}
                     className="flex-1"
                   >
                     {uploading ? "Mengunggah…" : "Pilih Berkas"}
-                  </Button>
+                  </NBButton>
                 </div>
                 <div className="mt-2">
-                  <TextInput
+                  <NBInput
                     value={cfg.image_url}
                     onChange={(e) => set("image_url", e.target.value)}
                     placeholder="Atau tempel URL gambar..."
@@ -472,28 +471,28 @@ export default function AdminAdsPage() {
             </div>
 
             {/* Seksi 3: Teks Bergulir & Font */}
-            <div className="space-y-4 rounded-xl border border-ink-700/60 bg-ink-900/40 p-4">
+            <div className="space-y-4 rounded-xl border border-ink-700/70 bg-ink-900 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
               <div className="border-b border-ink-700/60 pb-2">
                 <span className="font-mono text-xs font-semibold uppercase text-accent-400">
                   3. Teks Bergulir (Marquee)
                 </span>
               </div>
-              <Field label="Isi Teks Marquee">
-                <TextArea
+              <NBField label="Isi Teks Marquee">
+                <NBTextArea
                   rows={2}
                   value={cfg.marquee_text}
                   onChange={(e) => set("marquee_text", e.target.value)}
                   placeholder="Ketik kalimat informasi iklan..."
                 />
-              </Field>
+              </NBField>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <ColorRow
                   label="Warna Teks"
                   value={cfg.text_color}
                   onChange={(v) => set("text_color", v)}
                 />
-                <Field label="Jenis Font">
-                  <Select
+                <NBField label="Jenis Font">
+                  <NBSelect
                     value={cfg.font_family}
                     onChange={(e) => set("font_family", e.target.value)}
                   >
@@ -503,8 +502,8 @@ export default function AdminAdsPage() {
                     <option value="cursive">Cursive</option>
                     <option value="Arial, sans-serif">Arial</option>
                     <option value="'Courier New', monospace">Courier</option>
-                  </Select>
-                </Field>
+                  </NBSelect>
+                </NBField>
               </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <RangeRow
@@ -536,9 +535,9 @@ export default function AdminAdsPage() {
           </div>
 
           <div className="mt-6">
-            <Button onClick={save} disabled={busy} className="w-full">
+            <NBButton onClick={save} disabled={busy} className="w-full">
               {busy ? "Menyimpan…" : "Simpan Konfigurasi Iklan"}
-            </Button>
+            </NBButton>
             {saved && (
               <p className="mt-3 flex items-center justify-center gap-1.5 text-sm text-ok-400">
                 <svg
@@ -558,7 +557,7 @@ export default function AdminAdsPage() {
               </p>
             )}
           </div>
-        </Card>
+        </NBCard>
       )}
     </div>
   );

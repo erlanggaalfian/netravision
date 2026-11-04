@@ -5,20 +5,18 @@ import { ApiError, api } from "../../../lib/api";
 import { useCameraStatus } from "../../../hooks/useCameraStatus";
 import type { DriveFolder, Group, ScanPath, ScanResult, Stream } from "../../../lib/types";
 import { ShareModal } from "../../../components/ShareModal";
+import { ErrorBox, Modal, Spinner } from "../../../components/ui";
 import {
-  Accordion,
-  Badge,
-  Button,
-  Card,
-  ConfirmModal,
-  ErrorBox,
-  Field,
-  Modal,
-  SectionTitle,
-  Select,
-  Spinner,
-  TextInput,
-} from "../../../components/ui";
+  NBAccordion,
+  NBBadge,
+  NBButton,
+  NBCard,
+  NBConfirmModal,
+  NBField,
+  NBInput,
+  NBSelect,
+  NBTitle,
+} from "../_nb";
 
 const BRANDS = [
   { slug: "auto", label: "Otomatis (coba semua)" },
@@ -127,42 +125,42 @@ function StreamRow({
       <span className="min-w-0">
         <span className="block truncate font-medium text-white">{s.name}</span>
         <span className="mt-0.5 flex flex-wrap gap-1.5">
-          <Badge tone={online ? "ok" : "bad"}>{online ? "Online" : "Offline"}</Badge>
-          {s.brand && <Badge tone="muted">{s.brand}</Badge>}
-          <Badge tone="info">{STORAGE_LABEL[s.storage_mode] ?? s.storage_mode}</Badge>
-          <Badge tone={s.recording_enabled ? "ok" : "muted"}>
+          <NBBadge tone={online ? "ok" : "bad"}>{online ? "Online" : "Offline"}</NBBadge>
+          {s.brand && <NBBadge tone="muted">{s.brand}</NBBadge>}
+          <NBBadge tone="info">{STORAGE_LABEL[s.storage_mode] ?? s.storage_mode}</NBBadge>
+          <NBBadge tone={s.recording_enabled ? "ok" : "muted"}>
             Rekaman: {s.recording_enabled ? "Aktif" : "Mati"}
-          </Badge>
+          </NBBadge>
         </span>
       </span>
     </span>
   );
   const actions = (
     <div className="flex flex-wrap gap-2">
-      <Button variant="subtle" onClick={onShare} className="px-3">
+      <NBButton variant="secondary" onClick={onShare} className="px-3">
         Bagikan
-      </Button>
-      <Button variant="subtle" onClick={onEdit} className="px-3">
+      </NBButton>
+      <NBButton variant="secondary" onClick={onEdit} className="px-3">
         Ubah
-      </Button>
-      <Button variant="danger" onClick={onDelete} className="px-3">
+      </NBButton>
+      <NBButton variant="danger" onClick={onDelete} className="px-3">
         Hapus
-      </Button>
+      </NBButton>
     </div>
   );
   return (
     <>
       <div className="md:hidden">
-        <Accordion summary={summary}>
+        <NBAccordion summary={summary}>
           <div className="space-y-3">
             <p className="text-xs text-slate-400">
               Terakhir terlihat: {s.last_seen_at ?? "—"}
             </p>
             {actions}
           </div>
-        </Accordion>
+        </NBAccordion>
       </div>
-      <div className="hidden items-center justify-between gap-3 rounded-xl border border-ink-700/60 bg-ink-900 px-4 py-3 transition-colors hover:border-ink-500 md:flex">
+      <div className="hidden items-center justify-between gap-3 rounded-xl border border-ink-700/70 bg-ink-900 px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-colors hover:border-ink-500 md:flex">
         {summary}
         {actions}
       </div>
@@ -296,11 +294,11 @@ export default function AdminStreamsPage() {
 
   return (
     <div>
-      <SectionTitle
+      <NBTitle
         title="Kamera"
         desc="Kelola stream CCTV dan koneksinya"
         action={
-          <Button onClick={() => setShowAdd(true)}>+ Tambah Kamera</Button>
+          <NBButton onClick={() => setShowAdd(true)}>+ Tambah Kamera</NBButton>
         }
       />
       {error && (
@@ -310,10 +308,10 @@ export default function AdminStreamsPage() {
       )}
 
       {/* Filter */}
-      <Card className="mb-4 p-4">
+      <NBCard className="mb-4 p-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Field label="Cari kamera">
-            <TextInput
+          <NBField label="Cari kamera">
+            <NBInput
               placeholder="Nama kamera…"
               value={q}
               onChange={(e) => {
@@ -321,9 +319,9 @@ export default function AdminStreamsPage() {
                 setPage(1);
               }}
             />
-          </Field>
-          <Field label="Grup">
-            <Select
+          </NBField>
+          <NBField label="Grup">
+            <NBSelect
               value={groupF}
               onChange={(e) => {
                 setGroupF(e.target.value);
@@ -336,10 +334,10 @@ export default function AdminStreamsPage() {
                   {g.name}
                 </option>
               ))}
-            </Select>
-          </Field>
-          <Field label="Status">
-            <Select
+            </NBSelect>
+          </NBField>
+          <NBField label="Status">
+            <NBSelect
               value={statusF}
               onChange={(e) => {
                 setStatusF(e.target.value);
@@ -349,43 +347,43 @@ export default function AdminStreamsPage() {
               <option value="all">Semua status</option>
               <option value="online">Online</option>
               <option value="offline">Offline</option>
-            </Select>
-          </Field>
+            </NBSelect>
+          </NBField>
           <div className="flex items-end gap-2">
             <span className="tabular-nums">
-              <Badge tone="info">
+              <NBBadge tone="info">
                 {filtered.length} dari {(streams ?? []).length}
-              </Badge>
+              </NBBadge>
             </span>
             {filtersActive && (
-              <Button variant="subtle" onClick={clearFilters}>
+              <NBButton variant="secondary" onClick={clearFilters}>
                 Bersihkan
-              </Button>
+              </NBButton>
             )}
           </div>
         </div>
-      </Card>
+      </NBCard>
 
       {/* Bulk bar */}
       {selected.size > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-ink-700 bg-ink-900 px-4 py-3">
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-ink-700/70 bg-ink-900 px-4 py-3 shadow-[0_1px_3px_rgba(15,23,42,0.08)]">
           <span className="text-sm text-slate-300">
             {selected.size} dipilih
           </span>
-          <Button
-            variant="subtle"
+          <NBButton
+            variant="secondary"
             onClick={() => setShowCoords(true)}
            
           >
             Set koordinat ({selected.size})
-          </Button>
-          <Button
+          </NBButton>
+          <NBButton
             variant="danger"
             onClick={() => setBulkDeleting(true)}
            
           >
             Hapus terpilih ({selected.size})
-          </Button>
+          </NBButton>
           <button
             type="button"
             onClick={() => setSelected(new Set())}
@@ -439,41 +437,41 @@ export default function AdminStreamsPage() {
           {/* Pagination */}
           {totalPages > 1 && (
             <div className="mt-4 flex flex-wrap items-center justify-center gap-1.5">
-              <Button
-                variant="subtle"
+              <NBButton
+                variant="secondary"
                 disabled={curPage <= 1}
                 onClick={() => setPage(1)}
                 className="px-3"
               >
                 «
-              </Button>
-              <Button
-                variant="subtle"
+              </NBButton>
+              <NBButton
+                variant="secondary"
                 disabled={curPage <= 1}
                 onClick={() => setPage(curPage - 1)}
                 className="px-3"
               >
                 ‹
-              </Button>
+              </NBButton>
               <span className="px-2 text-sm tabular-nums text-slate-400">
                 {curPage} / {totalPages}
               </span>
-              <Button
-                variant="subtle"
+              <NBButton
+                variant="secondary"
                 disabled={curPage >= totalPages}
                 onClick={() => setPage(curPage + 1)}
                 className="px-3"
               >
                 ›
-              </Button>
-              <Button
-                variant="subtle"
+              </NBButton>
+              <NBButton
+                variant="secondary"
                 disabled={curPage >= totalPages}
                 onClick={() => setPage(totalPages)}
                 className="px-3"
               >
                 »
-              </Button>
+              </NBButton>
             </div>
           )}
         </>
@@ -507,7 +505,7 @@ export default function AdminStreamsPage() {
         />
       )}
       {deleting && (
-        <ConfirmModal
+        <NBConfirmModal
           title="Hapus kamera"
           message={`Hapus "${deleting.name}"? Path MediaMTX ikut dilepas.`}
           onCancel={() => setDeleting(null)}
@@ -523,7 +521,7 @@ export default function AdminStreamsPage() {
         />
       )}
       {bulkDeleting && (
-        <ConfirmModal
+        <NBConfirmModal
           title="Hapus kamera terpilih"
           message={`Hapus ${selected.size} kamera terpilih?`}
           onCancel={() => setBulkDeleting(false)}
@@ -591,24 +589,24 @@ function BulkCoordsModal({
         </div>
       )}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field label="Latitude" hint="-90 s/d 90">
-          <TextInput
+        <NBField label="Latitude" hint="-90 s/d 90">
+          <NBInput
             inputMode="decimal"
             placeholder="-6.2"
             value={lat}
             onChange={(e) => setLat(e.target.value)}
           />
-        </Field>
-        <Field label="Longitude" hint="-180 s/d 180">
-          <TextInput
+        </NBField>
+        <NBField label="Longitude" hint="-180 s/d 180">
+          <NBInput
             inputMode="decimal"
             placeholder="106.8"
             value={lon}
             onChange={(e) => setLon(e.target.value)}
           />
-        </Field>
+        </NBField>
       </div>
-      <Button
+      <NBButton
         className="mt-4 w-full"
         disabled={!valid || busy}
         onClick={async () => {
@@ -623,7 +621,7 @@ function BulkCoordsModal({
         }}
       >
         {busy ? "Menyimpan…" : "Terapkan ke semua terpilih"}
-      </Button>
+      </NBButton>
     </Modal>
   );
 }
@@ -727,16 +725,16 @@ function AddStreamModal({
         </div>
       )}
       <div className="space-y-4">
-        <Field label="Nama kamera">
-          <TextInput
+        <NBField label="Nama kamera">
+          <NBInput
             placeholder="cth: Gerbang Depan"
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
-        </Field>
+        </NBField>
 
         <div
-          className="grid grid-cols-2 gap-1 rounded-xl border border-ink-700 bg-ink-950 p-1"
+          className="grid grid-cols-2 gap-1 rounded-xl border border-ink-700/70 bg-ink-950 p-1"
           role="group"
           aria-label="Metode penambahan kamera"
         >
@@ -751,7 +749,7 @@ function AddStreamModal({
               onClick={() => setUseRtsp(o.rtsp)}
               className={`min-h-[44px] rounded-lg px-3 text-sm font-medium transition-colors ${
                 useRtsp === o.rtsp
-                  ? "bg-ink-700 text-white"
+                  ? "bg-accent-500 text-onaccent"
                   : "text-slate-400 hover:text-slate-200"
               }`}
             >
@@ -761,59 +759,59 @@ function AddStreamModal({
         </div>
 
         {useRtsp ? (
-          <Field label="URL RTSP">
-            <TextInput
+          <NBField label="URL RTSP">
+            <NBInput
               placeholder="rtsp://admin:pass@192.168.1.100:554/..."
               value={rtspUrl}
               onChange={(e) => setRtspUrl(e.target.value)}
             />
-          </Field>
+          </NBField>
         ) : (
           <>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label="Brand">
-                <Select value={brand} onChange={(e) => setBrand(e.target.value)}>
+              <NBField label="Brand">
+                <NBSelect value={brand} onChange={(e) => setBrand(e.target.value)}>
                   {BRANDS.map((b) => (
                     <option key={b.slug} value={b.slug}>
                       {b.label}
                     </option>
                   ))}
-                </Select>
-              </Field>
-              <Field label="Host / IP">
-                <TextInput
+                </NBSelect>
+              </NBField>
+              <NBField label="Host / IP">
+                <NBInput
                   placeholder="192.168.1.100"
                   value={host}
                   onChange={(e) => setHost(e.target.value)}
                 />
-              </Field>
-              <Field label="Username">
-                <TextInput
+              </NBField>
+              <NBField label="Username">
+                <NBInput
                   value={user}
                   onChange={(e) => setUser(e.target.value)}
                 />
-              </Field>
-              <Field label="Password">
-                <TextInput
+              </NBField>
+              <NBField label="Password">
+                <NBInput
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                 />
-              </Field>
-              <Field label="Port RTSP">
-                <TextInput
+              </NBField>
+              <NBField label="Port RTSP">
+                <NBInput
                   inputMode="numeric"
                   value={port}
                   onChange={(e) => setPort(e.target.value)}
                 />
-              </Field>
-              <Field label="Channel">
-                <TextInput
+              </NBField>
+              <NBField label="Channel">
+                <NBInput
                   inputMode="numeric"
                   value={channel}
                   onChange={(e) => setChannel(e.target.value)}
                 />
-              </Field>
+              </NBField>
             </div>
             {brand === "ezviz" && (
               <p className="text-xs text-slate-400">
@@ -836,40 +834,40 @@ function AddStreamModal({
             Simpan rekaman ke disk
           </label>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Field label="Retensi (hari)" hint="1–365">
-              <TextInput
+            <NBField label="Retensi (hari)" hint="1–365">
+              <NBInput
                 inputMode="numeric"
                 value={retentionDays}
                 onChange={(e) => setRetentionDays(e.target.value)}
               />
-            </Field>
-            <Field label="Latitude">
-              <TextInput
+            </NBField>
+            <NBField label="Latitude">
+              <NBInput
                 inputMode="decimal"
                 placeholder="-6.2"
                 value={latitude}
                 onChange={(e) => setLatitude(e.target.value)}
               />
-            </Field>
-            <Field label="Longitude">
-              <TextInput
+            </NBField>
+            <NBField label="Longitude">
+              <NBInput
                 inputMode="decimal"
                 placeholder="106.8"
                 value={longitude}
                 onChange={(e) => setLongitude(e.target.value)}
               />
-            </Field>
+            </NBField>
           </div>
         </div>
 
-        <Button
+        <NBButton
           onClick={doScan}
           disabled={busy || (useRtsp ? !rtspUrl.trim() : !host.trim())}
-          variant="subtle"
+          variant="secondary"
           className="w-full"
         >
           {busy ? "Memindai…" : "Cari otomatis"}
-        </Button>
+        </NBButton>
 
         {results && (
           <div className="space-y-2">
@@ -892,7 +890,7 @@ function AddStreamModal({
                     className={`flex min-h-[44px] w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors ${
                       active
                         ? "border-accent-500 bg-accent-500/10"
-                        : "border-ink-700 bg-ink-950 hover:border-ink-500"
+                        : "border-ink-700/70 bg-ink-950 hover:border-ink-500"
                     }`}
                   >
                     <span className="min-w-0 flex-1">
@@ -900,8 +898,8 @@ function AddStreamModal({
                         <span className="truncate font-mono text-[13px] text-white">
                           {p.path}
                         </span>
-                        {p.role === "main" && <Badge tone="info">Main</Badge>}
-                        {p.role === "sub" && <Badge tone="muted">Sub</Badge>}
+                        {p.role === "main" && <NBBadge tone="info">Main</NBBadge>}
+                        {p.role === "sub" && <NBBadge tone="muted">Sub</NBBadge>}
                       </span>
                       {pathInfo(p) && (
                         <span className="mt-0.5 block text-xs text-slate-400">
@@ -909,7 +907,7 @@ function AddStreamModal({
                         </span>
                       )}
                     </span>
-                    <Badge tone={st.tone}>{st.label}</Badge>
+                    <NBBadge tone={st.tone}>{st.label}</NBBadge>
                   </button>
                 );
               })}
@@ -919,13 +917,13 @@ function AddStreamModal({
                 Tidak ada path yang bisa dicoba (host tidak terjangkau).
               </p>
             )}
-            <Button
+            <NBButton
               onClick={save}
               disabled={busy || !name.trim() || !picked}
               className="w-full"
             >
               {busy ? "Menyimpan…" : "Simpan kamera"}
-            </Button>
+            </NBButton>
           </div>
         )}
       </div>
@@ -1000,9 +998,9 @@ function EditStreamModal({
       <div className="space-y-5">
         <div className="space-y-4">
           <p className="text-[13px] font-medium text-slate-400">Kamera</p>
-          <Field label="Nama kamera">
-            <TextInput value={name} onChange={(e) => setName(e.target.value)} />
-          </Field>
+          <NBField label="Nama kamera">
+            <NBInput value={name} onChange={(e) => setName(e.target.value)} />
+          </NBField>
           <label className="flex min-h-[44px] items-center gap-3 text-sm text-slate-300">
             <input
               type="checkbox"
@@ -1027,46 +1025,46 @@ function EditStreamModal({
             Simpan rekaman ke disk
           </label>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Field label="Retensi (hari)" hint="1–365">
-              <TextInput
+            <NBField label="Retensi (hari)" hint="1–365">
+              <NBInput
                 inputMode="numeric"
                 value={retentionDays}
                 onChange={(e) => setRetentionDays(e.target.value)}
               />
-            </Field>
-            <Field label="Latitude">
-              <TextInput
+            </NBField>
+            <NBField label="Latitude">
+              <NBInput
                 inputMode="decimal"
                 placeholder="-6.2"
                 value={latitude}
                 onChange={(e) => setLatitude(e.target.value)}
               />
-            </Field>
-            <Field label="Longitude">
-              <TextInput
+            </NBField>
+            <NBField label="Longitude">
+              <NBInput
                 inputMode="decimal"
                 placeholder="106.8"
                 value={longitude}
                 onChange={(e) => setLongitude(e.target.value)}
               />
-            </Field>
+            </NBField>
           </div>
-          <Field label="Mode penyimpanan rekaman">
-            <Select
+          <NBField label="Mode penyimpanan rekaman">
+            <NBSelect
               value={storageMode}
               onChange={(e) => setStorageMode(e.target.value)}
             >
               <option value="local">Lokal</option>
               <option value="drive">Google Drive</option>
               <option value="both">Keduanya</option>
-            </Select>
-          </Field>
+            </NBSelect>
+          </NBField>
           {showDriveFolder && (
-            <Field
+            <NBField
               label="Folder Google Drive tujuan"
               hint="Pilih folder tempat rekaman kamera ini disimpan"
             >
-              <Select
+              <NBSelect
                 value={driveFolderId}
                 onChange={(e) => setDriveFolderId(e.target.value)}
               >
@@ -1076,13 +1074,13 @@ function EditStreamModal({
                     {f.folder_name || f.folder_id}
                   </option>
                 ))}
-              </Select>
-            </Field>
+              </NBSelect>
+            </NBField>
           )}
         </div>
-        <Button onClick={save} disabled={busy || !name.trim()} className="w-full">
+        <NBButton onClick={save} disabled={busy || !name.trim()} className="w-full">
           {busy ? "Menyimpan…" : "Simpan"}
-        </Button>
+        </NBButton>
       </div>
     </Modal>
   );

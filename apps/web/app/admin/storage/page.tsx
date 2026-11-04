@@ -2,19 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
+import { ErrorBox, Modal, Spinner } from "../../../components/ui";
 import {
-  Badge,
-  Button,
-  Card,
-  ConfirmModal,
-  EmptyState,
-  ErrorBox,
-  Field,
-  Modal,
-  SectionTitle,
-  Spinner,
-  TextInput,
-} from "../../../components/ui";
+  NBBadge,
+  NBButton,
+  NBCard,
+  NBConfirmModal,
+  NBEmptyState,
+  NBField,
+  NBInput,
+  NBTitle,
+} from "../_nb";
 
 interface GDriveFolder {
   id: number;
@@ -157,7 +155,7 @@ export default function AdminStoragePage() {
 
   return (
     <div>
-      <SectionTitle
+      <NBTitle
         title="Tautan Folder Google Drive"
         desc="Tempel tautan folder yang sudah di-share dari Google Drive. Link 1 untuk akun A, link 2 untuk akun B, dst. Tiap kamera bisa memilih disimpan ke folder/akun mana."
       />
@@ -168,10 +166,10 @@ export default function AdminStoragePage() {
       )}
 
       {/* Koneksi Google Drive */}
-      <Card className="mb-6 max-w-2xl">
+      <NBCard className="mb-6 max-w-2xl">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-white">Koneksi Google Drive</p>
+            <p className="text-lg font-bold tracking-tight text-white">Koneksi Google Drive</p>
             <p className="mt-1 text-sm text-slate-400">
               {conn?.connected ? (
                 <>
@@ -189,33 +187,33 @@ export default function AdminStoragePage() {
           </div>
           {conn?.connected ? (
             <div className="flex items-center gap-2">
-              <Badge tone="ok">Terhubung</Badge>
-              <Button variant="danger" onClick={disconnect} className="px-3">
+              <NBBadge tone="ok">Terhubung</NBBadge>
+              <NBButton variant="danger" onClick={disconnect} className="px-3">
                 Putuskan
-              </Button>
+              </NBButton>
             </div>
           ) : (
-            <Button onClick={openConnect} className="min-h-[44px]">
+            <NBButton onClick={openConnect} className="min-h-[44px]">
               Hubungkan Google Drive
-            </Button>
+            </NBButton>
           )}
         </div>
-      </Card>
+      </NBCard>
 
       {/* Daftar tautan */}
       <div className="mb-6 space-y-3">
         {data && data.folders.length === 0 && (
-          <EmptyState text="Belum ada tautan. Tambahkan tautan folder Google Drive di bawah." />
+          <NBEmptyState text="Belum ada tautan. Tambahkan tautan folder Google Drive di bawah." />
         )}
         {data?.folders.map((f, i) => (
-          <Card key={f.id} className="transition-colors hover:border-ink-500">
+          <NBCard key={f.id} className="transition-colors hover:border-ink-500">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="flex flex-wrap items-center gap-2 font-medium">
                   <span className="truncate">
                     {f.folder_name || `Akun ${i + 1}`}
                   </span>
-                  {i === 0 && <Badge tone="info">Default</Badge>}
+                  {i === 0 && <NBBadge tone="info">Default</NBBadge>}
                 </p>
                 <p className="mt-1 break-all font-mono text-xs text-slate-400">
                   ID: {f.folder_id}
@@ -233,40 +231,40 @@ export default function AdminStoragePage() {
                   </p>
                 )}
               </div>
-              <Button
+              <NBButton
                 variant="danger"
                 onClick={() => setDeleting(f)}
                 className="px-3"
               >
                 Hapus
-              </Button>
+              </NBButton>
             </div>
-          </Card>
+          </NBCard>
         ))}
       </div>
 
       {/* Tambah tautan */}
-      <Card className="max-w-2xl">
-        <p className="mb-4 text-sm font-semibold text-white">Tambah Tautan</p>
+      <NBCard className="max-w-2xl">
+        <p className="mb-4 text-lg font-bold tracking-tight text-white">Tambah Tautan</p>
         <div className="space-y-4">
-          <Field
+          <NBField
             label="Tautan Folder Google Drive"
             hint="Salin tautan folder dari Google Drive (tombol Bagikan → Salin link). ID folder dibaca otomatis dari tautan."
           >
-            <TextInput
+            <NBInput
               placeholder="https://drive.google.com/drive/folders/..."
               value={folderUrl}
               onChange={(e) => setFolderUrl(e.target.value)}
             />
-          </Field>
-          <Field label="Nama / Label Akun (opsional)">
-            <TextInput
+          </NBField>
+          <NBField label="Nama / Label Akun (opsional)">
+            <NBInput
               placeholder="mis. Akun A - CCTV-Gudang"
               value={folderName}
               onChange={(e) => setFolderName(e.target.value)}
             />
-          </Field>
-          <Field
+          </NBField>
+          <NBField
             label="Path Lokal (mount rclone, opsional)"
             hint={
               data?.staging_default
@@ -274,22 +272,22 @@ export default function AdminStoragePage() {
                 : "Lokasi mount rclone untuk folder ini, mis. /mnt/gdrive-gudang"
             }
           >
-            <TextInput
+            <NBInput
               placeholder="/mnt/gdrive-..."
               value={localPath}
               onChange={(e) => setLocalPath(e.target.value)}
             />
-          </Field>
+          </NBField>
           <div>
-            <Button onClick={add} disabled={busy}>
+            <NBButton onClick={add} disabled={busy}>
               {busy ? "Menambah…" : "+ Tambah Tautan"}
-            </Button>
+            </NBButton>
           </div>
         </div>
-      </Card>
+      </NBCard>
 
-      <Card className="mt-6 max-w-2xl">
-        <p className="mb-2 text-sm font-semibold text-white">Cara kerja</p>
+      <NBCard className="mt-6 max-w-2xl">
+        <p className="mb-2 text-lg font-bold tracking-tight text-white">Cara kerja</p>
         <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-400">
           <li>Klik “Hubungkan Google Drive” di atas dan ikuti 3 langkahnya (sekali saja).</li>
           <li>Tempel tautan foldernya di atas (bisa banyak).</li>
@@ -299,10 +297,10 @@ export default function AdminStoragePage() {
           </li>
           <li>Segmen rekaman yang sudah stabil ter-upload otomatis tiap menit.</li>
         </ol>
-      </Card>
+      </NBCard>
 
       {deleting && (
-        <ConfirmModal
+        <NBConfirmModal
           title="Hapus tautan"
           message={`Hapus "${deleting.folder_name || deleting.folder_id}"? Kamera yang memakai folder ini kembali ke default.`}
           onCancel={() => setDeleting(null)}
@@ -335,15 +333,15 @@ export default function AdminStoragePage() {
             </li>
           </ol>
           <div className="mt-4">
-            <Field label="Token rclone" hint='Mulai dengan {"access_token": ...'>
+            <NBField label="Token rclone" hint='Mulai dengan {"access_token": ...'>
               <textarea
                 rows={4}
-                className="w-full rounded-xl border border-white/10 bg-ink-950 px-3.5 py-2.5 font-mono text-xs text-slate-100 placeholder:text-slate-400 outline-none transition-colors focus:border-accent-400"
+                className="w-full rounded-lg border border-ink-700 bg-ink-950 px-3.5 py-2.5 font-mono text-xs text-slate-100 placeholder:text-slate-400 outline-none transition-all focus:border-accent-500 focus:ring-4 focus:ring-accent-500/15"
                 placeholder='{"access_token":"ya29...","token_type":"Bearer","refresh_token":"1//...","expiry":"..."}'
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
               />
-            </Field>
+            </NBField>
           </div>
           {connectError && (
             <div className="mt-3">
@@ -351,12 +349,12 @@ export default function AdminStoragePage() {
             </div>
           )}
           <div className="mt-5 flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setShowConnect(false)}>
+            <NBButton variant="secondary" onClick={() => setShowConnect(false)}>
               Batal
-            </Button>
-            <Button onClick={connect} disabled={connectBusy} className="min-h-[44px]">
+            </NBButton>
+            <NBButton onClick={connect} disabled={connectBusy} className="min-h-[44px]">
               {connectBusy ? "Menghubungkan…" : "Simpan & Hubungkan"}
-            </Button>
+            </NBButton>
           </div>
         </Modal>
       )}

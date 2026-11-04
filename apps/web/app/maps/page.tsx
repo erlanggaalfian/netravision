@@ -179,7 +179,7 @@ export default function MapsPage() {
       const btn = document.createElement("button");
       btn.textContent = "Lihat live";
       btn.style.cssText =
-        "width:100%;padding:10px 12px;border-radius:10px;background:var(--nv-accent-600);color:#fff;font-size:13px;font-weight:600;border:none;cursor:pointer;min-height:44px";
+        "width:100%;padding:10px 12px;border-radius:8px;background:var(--nv-accent-500);color:#fff;font-size:13px;font-weight:600;border:none;cursor:pointer;min-height:44px";
       btn.onclick = () => {
         map.closePopup();
         focusRef.current(s);
@@ -309,7 +309,7 @@ export default function MapsPage() {
     <AppShell>
       {/* Override tema Leaflet: popup + kontrol zoom ikut data-theme */}
       <style>{`
-        .leaflet-popup-content-wrapper { background: var(--nv-ink-900); color: var(--nv-white); border-radius: 14px; }
+        .leaflet-popup-content-wrapper { background: var(--nv-ink-900); color: var(--nv-white); border-radius: 12px; border: 1px solid var(--nv-ink-700); }
         .leaflet-popup-content { margin: 14px 16px; line-height: 1.4; }
         .leaflet-popup-tip { background: var(--nv-ink-900); }
         .leaflet-bar { border: 1px solid var(--nv-ink-700) !important; border-radius: 999px !important; overflow: hidden; background: var(--nv-ink-900) !important; box-shadow: 0 1px 3px rgba(2,6,23,0.35), 0 4px 12px rgba(2,6,23,0.25) !important; }
@@ -329,7 +329,7 @@ export default function MapsPage() {
       </div>
       <div className="flex flex-col gap-4 p-4 md:h-[calc(100dvh-150px)] md:min-h-[420px] md:flex-row md:p-5">
         {/* Peta */}
-        <div className="relative min-h-[320px] flex-1 overflow-hidden rounded-2xl ring-1 ring-white/10">
+        <div className="relative min-h-[320px] flex-1 overflow-hidden rounded-2xl ring-1 ring-ink-800">
           <div ref={containerRef} className="absolute inset-0 z-0" />
           {fetching && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-ink-950/60">
@@ -370,13 +370,16 @@ export default function MapsPage() {
               {locateMsg}
             </div>
           )}
-          <div className="absolute bottom-3 left-3 z-10 flex items-center gap-3 rounded-2xl border border-white/10 bg-ink-900 px-4 py-3 text-[11px] font-medium text-neutral-300 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.4)]">
-            <span className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-ok-400" /> Online
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-bad-400" /> Offline
-            </span>
+          <div className="nv-frost absolute bottom-3 left-3 z-10 rounded-xl px-4 py-3">
+            <div className="mb-2 text-xs font-bold text-white">Legenda</div>
+            <div className="flex items-center gap-3 text-[11px] font-medium text-neutral-300">
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-ok-400" /> Online
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-bad-400" /> Offline
+              </span>
+            </div>
           </div>
         </div>
 
@@ -405,32 +408,32 @@ export default function MapsPage() {
               onChange={(e) => setMapQuery(e.target.value)}
               placeholder="Cari CCTV…"
               aria-label="Cari CCTV"
-              className="nv-glass h-11 w-full rounded-full pl-10 pr-4 text-base text-white placeholder:text-neutral-400 focus:border-accent-400 focus:outline-none"
+              className="h-11 w-full rounded-lg border border-ink-800 bg-ink-900 pl-10 pr-4 text-base text-white placeholder:text-neutral-400 outline-none transition-all duration-150 focus:border-accent-400 focus:ring-4 focus:ring-accent-500/15"
             />
           </div>
 
           {error && <ErrorBox message={error} />}
           {saveError && <ErrorBox message={saveError} />}
 
-          <Card className="nv-glass !p-4">
+          <Card className="!rounded-xl !border-ink-800 !p-4">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-white">
+              <h2 className="text-sm font-bold text-white">
                 Belum dipetakan
               </h2>
-              <span className="nv-glass rounded-full px-2.5 py-0.5 text-[11px] font-medium text-neutral-400">
+              <span className="rounded-full border border-ink-800 bg-ink-900 px-2.5 py-0.5 text-[11px] font-medium text-neutral-400">
                 {unmappedShown.length}
               </span>
             </div>
             {unmappedShown.length === 0 ? (
-              <p className="text-xs leading-relaxed text-neutral-400">
+              <div className="rounded-xl border border-ink-800 bg-ink-900 px-4 py-6 text-center text-xs leading-relaxed text-neutral-400">
                 {q ? "Tidak ada yang cocok." : "Semua kamera sudah punya posisi."}
-              </p>
+              </div>
             ) : (
               <ul className="flex max-h-48 flex-col gap-1.5 overflow-y-auto md:max-h-64">
                 {unmappedShown.map((s) => (
                   <li
                     key={s.id}
-                    className="nv-glass flex items-center justify-between gap-2 rounded-full px-4 py-2"
+                    className="flex min-h-[44px] items-center justify-between gap-2 rounded-xl border border-ink-800 bg-ink-900 px-4 py-2"
                   >
                     <div className="flex min-w-0 items-center gap-2.5">
                       <span
@@ -445,7 +448,7 @@ export default function MapsPage() {
                         variant="primary"
                         onClick={() => placeAtCenter(s)}
                         disabled={savingId === s.id}
-                        className="h-11 shrink-0 px-3 text-xs"
+                        className="h-11 shrink-0 !rounded-lg !bg-accent-500 px-3 text-xs hover:!bg-accent-400"
                       >
                         {savingId === s.id ? "…" : "Tengah peta"}
                       </Button>
@@ -461,17 +464,17 @@ export default function MapsPage() {
             )}
           </Card>
 
-          <Card className="nv-glass !p-4">
+          <Card className="!rounded-xl !border-ink-800 !p-4">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-white">Di peta</h2>
-              <span className="nv-glass rounded-full px-2.5 py-0.5 text-[11px] font-medium text-neutral-400">
+              <h2 className="text-sm font-bold text-white">Di peta</h2>
+              <span className="rounded-full border border-ink-800 bg-ink-900 px-2.5 py-0.5 text-[11px] font-medium text-neutral-400">
                 {mappedShown.length}
               </span>
             </div>
             {mappedShown.length === 0 ? (
-              <p className="text-xs leading-relaxed text-neutral-400">
+              <div className="rounded-xl border border-ink-800 bg-ink-900 px-4 py-6 text-center text-xs leading-relaxed text-neutral-400">
                 {q ? "Tidak ada yang cocok." : "Belum ada kamera yang dipetakan."}
-              </p>
+              </div>
             ) : (
               <ul className="flex max-h-40 flex-col gap-2 overflow-y-auto md:max-h-56">
                 {mappedShown.map((s) => (
@@ -485,7 +488,7 @@ export default function MapsPage() {
                           });
                         }
                       }}
-                      className="nv-glass flex min-h-[44px] w-full cursor-pointer items-center gap-2.5 rounded-full px-4 py-2.5 text-left transition-all duration-150 hover:-translate-y-px active:scale-[0.99]"
+                      className="flex min-h-[44px] w-full cursor-pointer items-center gap-2.5 rounded-xl border border-ink-800 bg-ink-900 px-4 py-2.5 text-left transition-all duration-150 hover:-translate-y-px active:scale-[0.99]"
                     >
                       <span
                         className={`h-2 w-2 shrink-0 rounded-full ${s.is_online ? "bg-ok-400" : "bg-bad-400"}`}

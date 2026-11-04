@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { playWhep, stopWhep } from "../lib/whep";
 import { api, withToken } from "../lib/api";
 import { AdBanner } from "./AdBanner";
+import { Badge } from "./ui";
 import { useFullscreen } from "../hooks/useFullscreen";
 import type { Stream, AdConfig } from "../lib/types";
 
@@ -231,7 +232,7 @@ export function FocusModal({ stream, onClose }: Props) {
         aria-label={stream.name}
       >
         {/* Header */}
-        <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5">
+        <div className="flex items-center justify-between gap-3 border-b border-ink-800 px-4 py-3 sm:px-5">
           <div className="flex min-w-0 items-center gap-3">
             <span
               className={`h-2.5 w-2.5 shrink-0 rounded-full ${stream.is_online ? "bg-ok-400" : "bg-bad-400"}`}
@@ -257,7 +258,7 @@ export function FocusModal({ stream, onClose }: Props) {
               }}
               aria-label={quality === "HQ" ? "Ganti ke sub stream (LQ)" : "Ganti ke main stream (HD)"}
               title={quality === "HQ" ? "Ganti ke sub stream (LQ)" : "Ganti ke main stream (HD)"}
-              className={`flex h-11 min-w-11 items-center justify-center rounded-xl px-3 text-xs font-bold tracking-wide transition active:scale-95 ${quality === "HQ" ? "bg-ok-400/20 text-ok-400 hover:bg-ok-400/30" : "bg-ink-500/15 text-white hover:bg-ink-500/25"}`}
+              className={`flex h-11 min-w-11 items-center justify-center rounded-xl px-3 text-xs font-bold tracking-wide transition active:scale-95 ${quality === "HQ" ? "bg-accent-600 text-onaccent card-shadow" : "border border-ink-800 bg-ink-950 text-neutral-300 hover:text-white"}`}
             >
               {quality}
             </button>
@@ -265,7 +266,7 @@ export function FocusModal({ stream, onClose }: Props) {
               onClick={snapshot}
               aria-label="Ambil snapshot"
               title="Ambil snapshot"
-              className="flex h-11 items-center gap-2 rounded-xl bg-ink-500/15 px-4 text-sm font-medium text-white transition hover:bg-ink-500/25 active:scale-95"
+              className="flex h-11 items-center gap-2 rounded-xl border border-ink-800 bg-ink-950 px-4 text-sm font-medium text-white transition hover:bg-ink-800 active:scale-95"
             >
               <svg
                 width="16"
@@ -287,7 +288,7 @@ export function FocusModal({ stream, onClose }: Props) {
             <button
               onClick={onClose}
               data-focus-close
-              className="flex h-11 w-11 items-center justify-center rounded-xl bg-ink-500/15 text-white transition hover:bg-ink-500/25 active:scale-95"
+              className="flex h-11 w-11 items-center justify-center rounded-xl border border-ink-800 bg-ink-950 text-white transition hover:bg-ink-800 active:scale-95"
               aria-label="Tutup"
             >
               <svg
@@ -443,11 +444,9 @@ export function FocusModal({ stream, onClose }: Props) {
 
         {/* Footer */}
         <div className="flex items-center justify-between px-4 py-2.5 sm:px-5">
-          <span
-            className={`text-xs font-medium ${stream.is_online ? "text-ok-400" : "text-bad-400"}`}
-          >
-            {stream.is_online ? "● Online" : "● Offline"}
-          </span>
+          <Badge tone={stream.is_online ? "ok" : "bad"}>
+            {stream.is_online ? "Online" : "Offline"}
+          </Badge>
           <span className="hidden text-xs text-slate-400 sm:block">
             Tekan ESC untuk menutup
           </span>

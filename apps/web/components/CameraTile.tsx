@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { playWhep, stopWhep } from "../lib/whep";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { withToken } from "../lib/api";
+import { Badge } from "./ui";
 import type { Stream } from "../lib/types";
 
 interface Props {
@@ -74,7 +75,7 @@ export function CameraTile({ stream, onExpand }: Props) {
 
   const toggleControls = () => setShowControls((v) => !v);
 
-  const ring = !stream.is_online || failed ? "ring-bad-400" : "ring-ok-400";
+  const online = stream.is_online && !failed;
 
   return (
     <div
@@ -88,8 +89,16 @@ export function CameraTile({ stream, onExpand }: Props) {
           setShowControls(false);
         }
       }}
-      className={`nv-stage vk-touch-toggle ${showControls ? "cam-show-controls" : ""} ${cssRotate ? "nv-rot" : ""} group relative aspect-video select-none overflow-hidden rounded-2xl bg-ink-900 ring-2 ${ring}`}
+      className={`vk-touch-toggle ${showControls ? "cam-show-controls" : ""} group relative select-none overflow-hidden ${
+        fs
+          ? "fixed inset-0 z-[70] border-0 bg-black"
+          : "rounded-xl border border-ink-800 bg-ink-900 card-shadow"
+      }`}
     >
+      {/* Area video: selalu gelap (nv-stage), di kedua tema. */}
+      <div
+        className={`nv-stage relative bg-black ${cssRotate ? "nv-rot" : ""} ${fs ? "h-full" : "aspect-video"}`}
+      >
       <div className="nv-rot-inner relative h-full w-full">
       {stream.is_online && !failed ? (
         <>
@@ -170,16 +179,8 @@ export function CameraTile({ stream, onExpand }: Props) {
         </div>
       )}
 
-      {/* Overlay kontrol: scrim netral di bawah teks */}
-      <div className="cam-controls absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/85 via-black/40 to-transparent px-3 pb-3 pt-8">
-        <div className="flex min-w-0 items-center gap-2">
-          <span
-            className={`h-2 w-2 shrink-0 rounded-full ${stream.is_online && !failed ? "bg-ok-400" : "bg-bad-400"}`}
-          />
-          <span className="truncate text-sm font-medium text-white">
-            {stream.name}
-          </span>
-        </div>
+      {/* Overlay kontrol: hanya tombol aksi (nama + status ada di footer kartu) */}
+      <div className="cam-controls absolute inset-x-0 bottom-0 flex items-center justify-end gap-2 bg-gradient-to-t from-black/85 via-black/40 to-transparent px-3 pb-3 pt-8">
         <div className="flex shrink-0 items-center gap-2">
           {fs && (
             <button
@@ -251,6 +252,23 @@ export function CameraTile({ stream, onExpand }: Props) {
         </div>
       </div>
       </div>
+      </div>
+      {/* Footer kartu ala NetBackup: nama + badge status pill */}
+      {!fs && (
+        <div className="flex items-center justify-between gap-2 px-3 py-2.5">
+          <span className="flex min-w-0 items-center gap-2">
+            <span
+              className={`h-2 w-2 shrink-0 rounded-full ${online ? "bg-ok-400" : "bg-bad-400"}`}
+            />
+            <span className="truncate text-sm font-semibold text-white">
+              {stream.name}
+            </span>
+          </span>
+          <Badge tone={online ? "ok" : "bad"}>
+            {online ? "Online" : "Offline"}
+          </Badge>
+        </div>
+      )}
     </div>
   );
 }

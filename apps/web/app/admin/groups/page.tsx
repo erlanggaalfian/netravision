@@ -3,18 +3,16 @@
 import { useEffect, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import type { Group, Stream } from "../../../lib/types";
+import { ErrorBox, Modal, Spinner } from "../../../components/ui";
 import {
-  Accordion,
-  Button,
-  EmptyState,
-  ErrorBox,
-  Field,
-  Modal,
-  SectionTitle,
-  Spinner,
-  TextArea,
-  TextInput,
-} from "../../../components/ui";
+  NBAccordion,
+  NBButton,
+  NBEmptyState,
+  NBField,
+  NBInput,
+  NBTextArea,
+  NBTitle,
+} from "../_nb";
 
 function GroupIcon({ className = "" }: { className?: string }) {
   return (
@@ -73,10 +71,10 @@ export default function AdminGroupsPage() {
 
   return (
     <div>
-      <SectionTitle
+      <NBTitle
         title="Grup Wilayah"
         desc="Kelompokkan kamera per area dan atur cakupannya"
-        action={<Button onClick={() => setShowAdd(true)}>+ Tambah Grup</Button>}
+        action={<NBButton onClick={() => setShowAdd(true)}>+ Tambah Grup</NBButton>}
       />
       {error && (
         <div className="mb-4">
@@ -103,22 +101,22 @@ export default function AdminGroupsPage() {
               </span>
             );
             const actions = (
-              <Button
-                variant="subtle"
+              <NBButton
+                variant="secondary"
                 onClick={() => setGrantsFor(g)}
                 className="px-3"
               >
                 Kelola Kamera
-              </Button>
+              </NBButton>
             );
             return (
               <div key={g.id}>
                 <div className="md:hidden">
-                  <Accordion summary={summary}>
+                  <NBAccordion summary={summary}>
                     <div>{actions}</div>
-                  </Accordion>
+                  </NBAccordion>
                 </div>
-                <div className="hidden items-center justify-between gap-3 rounded-xl border border-ink-700/60 bg-ink-900 px-4 py-3 transition-colors hover:border-ink-500 md:flex">
+                <div className="hidden items-center justify-between gap-3 rounded-xl border border-ink-700/70 bg-ink-900 px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-colors hover:border-ink-500 md:flex">
                   {summary}
                   {actions}
                 </div>
@@ -184,23 +182,23 @@ function AddGroupModal({
         </div>
       )}
       <div className="space-y-4">
-        <Field label="Nama grup">
-          <TextInput
+        <NBField label="Nama grup">
+          <NBInput
             placeholder="cth: Gedung A"
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
-        </Field>
-        <Field label="Deskripsi (opsional)">
-          <TextArea
+        </NBField>
+        <NBField label="Deskripsi (opsional)">
+          <NBTextArea
             rows={2}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
-        </Field>
-        <Button onClick={save} disabled={busy || !name.trim()} className="w-full">
+        </NBField>
+        <NBButton onClick={save} disabled={busy || !name.trim()} className="w-full">
           {busy ? "Menyimpan…" : "Simpan"}
-        </Button>
+        </NBButton>
       </div>
     </Modal>
   );
@@ -269,7 +267,7 @@ function GrantsModal({
       {!loaded ? (
         <Spinner />
       ) : streams.length === 0 ? (
-        <EmptyState text="Belum ada kamera." />
+        <NBEmptyState text="Belum ada kamera." />
       ) : (
         <div>
           <div className="mb-2 flex items-center justify-between gap-2 px-1">
@@ -312,12 +310,12 @@ function GrantsModal({
         </div>
       )}
       <div className="mt-5 flex justify-end gap-2">
-        <Button variant="ghost" onClick={onClose}>
+        <NBButton variant="secondary" onClick={onClose}>
           Batal
-        </Button>
-        <Button onClick={save} disabled={busy || !loaded || loadFailed}>
+        </NBButton>
+        <NBButton onClick={save} disabled={busy || !loaded || loadFailed}>
           {busy ? "Menyimpan…" : "Simpan"}
-        </Button>
+        </NBButton>
       </div>
     </Modal>
   );
