@@ -297,12 +297,12 @@ export function Modal({
       aria-modal="true"
     >
       <div
-        className={`nv-pop max-h-[92dvh] w-full overflow-y-auto rounded-t-2xl border border-white/10 bg-ink-900 p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:rounded-2xl sm:p-6 ${
+        className={`nv-pop max-h-[92dvh] w-full overflow-y-auto rounded-t-2xl bg-ink-900 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:rounded-2xl ${
           wide ? "sm:max-w-2xl" : "sm:max-w-lg"
         }`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4 sm:px-6">
           <h2 className="text-lg font-bold tracking-tight text-white">
             {title}
           </h2>
@@ -314,7 +314,9 @@ export function Modal({
             <XIcon />
           </button>
         </div>
-        {children}
+        <div className="px-5 py-5 sm:px-6 sm:py-6">
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -335,12 +337,12 @@ export function ConfirmModal({
 }) {
   return (
     <Modal title={title} onClose={onCancel}>
-      <p className="text-sm leading-relaxed text-slate-300">{message}</p>
-      <div className="mt-6 flex justify-end gap-2">
-        <Button variant="ghost" onClick={onCancel}>
+      <p className="text-[15px] leading-relaxed text-slate-300">{message}</p>
+      <div className="mt-6 grid gap-2.5 sm:flex sm:justify-end">
+        <Button variant="ghost" onClick={onCancel} className="min-h-[48px] w-full sm:w-auto">
           Batal
         </Button>
-        <Button variant="danger" onClick={onConfirm}>
+        <Button variant="danger" onClick={onConfirm} className="min-h-[48px] w-full sm:w-auto">
           {confirmLabel}
         </Button>
       </div>
