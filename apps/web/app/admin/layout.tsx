@@ -79,26 +79,38 @@ export default function AdminLayout({
             </div>
           </nav>
 
-          {/* Mobile: persis Nexfiber Lainnya */}
-          <nav aria-label="Navigasi admin" className="mb-5 md:hidden">
-            <Group title="Admin">
-              {visibleNav.map((n) => (
-                <li key={n.href}>
-                  <Link href={n.href} className={`${row} text-slate-200 transition-colors hover:bg-ink-800/50 active:bg-ink-800/60`}>
-                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden className="shrink-0 text-slate-300">
-                      <path d={n.icon} stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                    <span className="flex-1">{n.label}</span>
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden className="shrink-0 text-slate-500">
-                      <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </Link>
-                </li>
-              ))}
-            </Group>
-          </nav>
-
-          {children}
+          {/* Mobile: menu hanya di /admin, subhalaman langsung konten */}
+          {(() => {
+            const cleanPath = (pathname ?? "").replace(/\/+$/, "") || "/";
+            const isAdminIndex = cleanPath === "/admin";
+            return (
+              <>
+                {isAdminIndex && (
+                  <nav aria-label="Navigasi admin" className="mb-5 md:hidden">
+                    <Group title="Admin">
+                      {visibleNav.map((n) => (
+                        <li key={n.href}>
+                          <Link href={n.href} className={`${row} text-slate-200 transition-colors hover:bg-ink-800/50 active:bg-ink-800/60`}>
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden className="shrink-0 text-slate-300">
+                              <path d={n.icon} stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                            <span className="flex-1">{n.label}</span>
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden className="shrink-0 text-slate-500">
+                              <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </Link>
+                        </li>
+                      ))}
+                    </Group>
+                  </nav>
+                )}
+                {/* Desktop tetap tampil menu tab; mobile subhalaman: sembunyikan children di /admin */}
+                <div className={isAdminIndex ? "hidden md:block" : ""}>
+                  {children}
+                </div>
+              </>
+            );
+          })()}
         </div>
       </AppShell>
     </AdminGuard>
