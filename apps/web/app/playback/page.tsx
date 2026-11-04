@@ -52,11 +52,11 @@ function fmtTime(iso: string): string {
   return d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
 }
 
-/* Kartu kosong ala NetBackup: putih, border + shadow, ilustrasi ramah. */
+/* Kartu kosong: panel modern, ikon gradient + glow. */
 function EmptyCard({ title, desc }: { title: string; desc: string }) {
   return (
-    <div className="rounded-xl border border-white/8 bg-ink-900 card-shadow px-6 py-12 text-center">
-      <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-accent-500/10 text-accent-400">
+    <div className="nv-panel-modern px-6 py-12 text-center">
+      <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-b from-accent-500 to-accent-600 text-onaccent shadow-[0_8px_24px_-8px_var(--nv-accent-500)]">
         <svg
           width="28"
           height="28"
@@ -73,8 +73,8 @@ function EmptyCard({ title, desc }: { title: string; desc: string }) {
           />
         </svg>
       </div>
-      <p className="text-[15px] font-bold text-white">{title}</p>
-      <p className="mx-auto mt-1.5 max-w-xs text-xs leading-relaxed text-neutral-400">
+      <p className="text-lg font-extrabold tracking-tight text-white">{title}</p>
+      <p className="mx-auto mt-1.5 max-w-xs text-[13px] leading-relaxed text-neutral-400">
         {desc}
       </p>
     </div>
@@ -179,14 +179,13 @@ function PlaybackPanel({
   return (
     <div className="flex min-w-0 flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-[15px] font-bold text-white">
+        <span className="truncate text-base font-extrabold tracking-tight text-white">
           {streamName}
         </span>
         <Button
           variant="primary"
           onClick={load}
           disabled={phase === "loading"}
-          className="rounded-lg! bg-accent-500! hover:bg-accent-400!"
         >
           {phase === "loading" ? "Memuat…" : "Muat"}
         </Button>
@@ -202,9 +201,9 @@ function PlaybackPanel({
       )}
 
       {phase === "loading" && (
-        <div className="animate-pulse rounded-xl border border-white/8 bg-ink-900 card-shadow p-4 motion-reduce:animate-none">
-          <div className="h-10 rounded-lg bg-ink-800" />
-          <div className="mt-3 aspect-video rounded-lg bg-ink-800" />
+        <div className="nv-panel-modern animate-pulse p-4 motion-reduce:animate-none">
+          <div className="h-10 rounded-xl bg-ink-800" />
+          <div className="mt-3 aspect-video rounded-xl bg-ink-800" />
         </div>
       )}
 
@@ -224,7 +223,7 @@ function PlaybackPanel({
 
       {phase === "ready" && timeline && (
         <div className="flex flex-col gap-3">
-          <Card className="!rounded-xl !p-3">
+          <Card className="!rounded-xl !p-3 nv-panel-modern">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-semibold text-neutral-400">
                 {timeline.date}
@@ -233,7 +232,7 @@ function PlaybackPanel({
                 {timeline.entries.length} segmen
               </span>
             </div>
-            <div className="relative h-12 overflow-hidden rounded-xl bg-ink-950 ring-1 ring-white/5">
+            <div className="relative h-12 overflow-hidden rounded-full bg-ink-950 ring-1 ring-white/5">
               {Array.from({ length: 25 }).map((_, h) => (
                 <span
                   key={h}
@@ -251,9 +250,9 @@ function PlaybackPanel({
                     onClick={() => playEntry(e)}
                     title={`${fmtTime(e.start)} – ${fmtTime(e.end)}${e.has_event ? " · ada event" : ""}`}
                     aria-label={`Putar segmen ${fmtTime(e.start)}`}
-                    className={`absolute top-0.5 h-11 rounded-md transition ${
+                    className={`absolute top-0.5 h-11 rounded-full transition ${
                       isActive
-                        ? "bg-accent-400"
+                        ? "bg-gradient-to-b from-accent-400 to-accent-500 shadow-[0_2px_12px_-2px_var(--nv-accent-500)]"
                         : e.has_event
                           ? "bg-warn-400/80 hover:bg-warn-400"
                           : "bg-accent-600/60 hover:bg-accent-500"
@@ -270,9 +269,9 @@ function PlaybackPanel({
             </div>
           </Card>
 
-          <div className="overflow-hidden rounded-xl border border-white/8 bg-ink-900 card-shadow">
-            <div className="flex items-center justify-between gap-2 border-b border-white/8 px-4 py-2.5">
-              <span className="text-sm font-bold text-white">Pratinjau</span>
+          <div className="nv-panel-modern overflow-hidden">
+            <div className="flex items-center justify-between gap-2 border-b border-white/8 px-4 py-3">
+              <span className="text-[15px] font-extrabold tracking-tight text-white">Pratinjau</span>
               {active && (
                 <span className="truncate text-xs font-medium text-neutral-400">
                   {fmtTime(active.start)} – {fmtTime(active.end)}
@@ -316,7 +315,7 @@ function PlaybackPanel({
               )}
             </div>
             {active && (
-              <div className="flex items-center justify-between gap-2 border-t border-white/8 px-4 py-2.5">
+              <div className="flex items-center justify-between gap-2 border-t border-white/8 px-4 py-3">
                 <span className="truncate text-xs text-neutral-400">
                   {active.has_event && (
                     <span className="mr-2 rounded-full bg-warn-400/15 px-2 py-0.5 text-[10px] font-semibold text-warn-400">
@@ -329,7 +328,6 @@ function PlaybackPanel({
                   variant="primary"
                   onClick={downloadActive}
                   disabled={downloading}
-                  className="rounded-lg! bg-accent-500! hover:bg-accent-400!"
                 >
                   {downloading ? "Mengunduh…" : "Unduh"}
                 </Button>
@@ -410,9 +408,6 @@ export default function PlaybackPage() {
               variant={multi ? "primary" : "subtle"}
               onClick={() => setMulti((v) => !v)}
               aria-pressed={multi}
-              className={
-                multi ? "rounded-lg! bg-accent-500! hover:bg-accent-400!" : "rounded-lg!"
-              }
             >
               {multi ? "Multi aktif" : "Multi kamera"}
             </Button>
@@ -420,7 +415,7 @@ export default function PlaybackPage() {
         />
 
         {/* Kontrol */}
-        <Card className="mb-5">
+        <Card className="mb-5 nv-panel-modern">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
               {!multi ? (
@@ -431,7 +426,7 @@ export default function PlaybackPage() {
                   <select
                     value={streamId}
                     onChange={(e) => setStreamId(e.target.value)}
-                    className="nv-glass h-11 rounded-lg px-4 text-base text-white outline-none transition-colors focus:border-accent-400"
+                    className="nv-glass h-11 rounded-xl px-4 text-base text-white outline-none transition-all duration-150 focus:border-accent-400 focus:shadow-[0_0_0_4px_rgba(0,151,252,0.15)]"
                   >
                     {streams.map((s) => (
                       <option key={s.id} value={s.id}>
@@ -478,7 +473,7 @@ export default function PlaybackPage() {
                   value={date}
                   max={todayStr()}
                   onChange={(e) => setDate(e.target.value)}
-                  className="nv-glass h-11 rounded-lg px-4 text-base text-white outline-none transition-colors focus:border-accent-400"
+                  className="nv-glass h-11 rounded-xl px-4 text-base text-white outline-none transition-all duration-150 focus:border-accent-400 focus:shadow-[0_0_0_4px_rgba(0,151,252,0.15)]"
                 />
               </label>
             </div>

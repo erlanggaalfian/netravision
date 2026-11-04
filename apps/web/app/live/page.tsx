@@ -38,7 +38,7 @@ function SkeletonGrid() {
       {Array.from({ length: 8 }).map((_, i) => (
         <div
           key={i}
-          className="aspect-video animate-pulse rounded-xl bg-ink-800 motion-reduce:animate-none"
+          className="aspect-video animate-pulse rounded-2xl bg-ink-800 motion-reduce:animate-none"
         />
       ))}
     </div>
@@ -120,29 +120,29 @@ export default function LivePage() {
   return (
     <AppShell>
       <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-7">
-        {/* Header + filter: kartu putih ala NetBackup */}
-        <div className="mb-5 rounded-xl border border-ink-800 bg-ink-900 p-4 card-shadow">
+        {/* Header + filter: panel modern */}
+        <div className="nv-panel-modern mb-5 p-4 sm:p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h1 className="text-lg font-bold tracking-tight text-white">
+              <h1 className="text-2xl font-extrabold tracking-tight text-white sm:text-[26px]">
                 Live
               </h1>
-              <p className="mt-1 text-sm text-slate-400">
+              <p className="mt-1.5 text-sm text-slate-400">
                 {merged.length} kamera · {onlineCount} online
               </p>
             </div>
             <div className="flex max-w-full flex-wrap items-center gap-2">
               <span
-                className="flex h-11 items-center gap-2 rounded-xl border border-ink-800 bg-ink-950 px-4 text-xs font-medium text-neutral-300"
+                className="flex h-11 items-center gap-2 rounded-full border border-ink-700 bg-ink-950 px-4 text-xs font-semibold text-neutral-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
                 title={connected ? "WebSocket terhubung" : "Menghubungkan…"}
               >
                 <span
-                  className={`h-2 w-2 rounded-full ${connected ? "bg-ok-400" : "bg-warn-400"}`}
+                  className={`h-2 w-2 rounded-full ${connected ? "bg-ok-400 shadow-[0_0_8px_2px_rgba(74,222,128,0.5)]" : "bg-warn-400 shadow-[0_0_8px_2px_rgba(251,191,36,0.5)]"}`}
                 />
                 {connected ? "Real-time" : "Menghubungkan…"}
               </span>
               <div
-                className="flex items-center gap-1 rounded-xl border border-ink-800 bg-ink-950 p-1"
+                className="flex items-center gap-1 rounded-full border border-ink-700 bg-ink-950 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
                 role="tablist"
                 aria-label="Tata letak grid"
               >
@@ -153,10 +153,10 @@ export default function LivePage() {
                     aria-selected={gridKey === g.key}
                     title={`Tampilkan ${g.label} kamera`}
                     onClick={() => setGridKey(g.key)}
-                    className={`flex h-11 min-w-[52px] items-center justify-center rounded-lg px-3 text-xs font-semibold transition active:scale-95 ${
+                    className={`flex h-10 min-w-[48px] items-center justify-center rounded-full px-3 text-xs font-bold transition-all duration-200 active:scale-95 ${
                       gridKey === g.key
-                        ? "bg-accent-600 text-onaccent"
-                        : "text-neutral-400 hover:text-white"
+                        ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
+                        : "text-neutral-400 hover:bg-white/5 hover:text-white"
                     }`}
                   >
                     {g.label}
@@ -167,7 +167,7 @@ export default function LivePage() {
                 onClick={load}
                 disabled={fetching}
                 aria-label="Muat ulang"
-                className="flex h-11 items-center gap-2 rounded-xl border border-ink-800 bg-ink-950 px-4 text-sm font-medium text-neutral-200 transition hover:bg-ink-800 active:scale-95 disabled:opacity-50"
+                className="flex h-11 items-center gap-2 rounded-full border border-ink-700 bg-ink-950 px-4 text-sm font-semibold text-neutral-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-all duration-200 hover:border-ink-600 hover:bg-ink-800 active:scale-95 disabled:opacity-50"
               >
                 <svg
                   width="15"
@@ -214,11 +214,11 @@ export default function LivePage() {
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Cari kamera…"
                 aria-label="Cari kamera"
-                className="h-11 w-full rounded-xl border border-ink-800 bg-ink-950 pl-10 pr-4 text-base text-white placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-500"
+                className="h-11 w-full rounded-full border border-ink-700 bg-ink-950 pl-10 pr-4 text-base text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] placeholder:text-neutral-500 transition-all duration-200 focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/30"
               />
             </div>
             <div
-              className="flex w-full items-center gap-1 overflow-x-auto rounded-xl border border-ink-800 bg-ink-950 p-1 lg:w-auto"
+              className="flex w-full items-center gap-1 overflow-x-auto rounded-full border border-ink-700 bg-ink-950 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] lg:w-auto"
               role="tablist"
               aria-label="Filter status kamera"
             >
@@ -228,15 +228,15 @@ export default function LivePage() {
                   role="tab"
                   aria-selected={filter === f.id}
                   onClick={() => setFilter(f.id)}
-                  className={`flex h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-sm font-medium transition active:scale-95 sm:px-5 lg:flex-none ${
+                  className={`flex h-10 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm font-semibold transition-all duration-200 active:scale-95 sm:px-5 lg:flex-none ${
                     filter === f.id
-                      ? "bg-accent-600 text-onaccent"
-                      : "text-neutral-400 hover:text-white"
+                      ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
+                      : "text-neutral-400 hover:bg-white/5 hover:text-white"
                   }`}
                 >
                   {f.label}
                   <span
-                    className={`rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none ${
+                    className={`rounded-full px-1.5 py-0.5 text-xs font-bold leading-none ${
                       filter === f.id
                         ? "bg-black/20 text-onaccent"
                         : "bg-ink-500/25 text-neutral-300"
@@ -254,56 +254,60 @@ export default function LivePage() {
         {fetching ? (
           <SkeletonGrid />
         ) : error ? (
-          <div className="flex flex-col items-center gap-4 rounded-xl border border-ink-800 bg-ink-900 px-6 py-16 text-center card-shadow">
-            <svg
-              width="40"
-              height="40"
-              viewBox="0 0 24 24"
-              fill="none"
-              className="text-neutral-400"
-              aria-hidden
-            >
-              <path
-                d="M12 8v5M12 16.5v.01M4.9 4.9l14.2 14.2M10.3 3.9A9 9 0 0121 12a9 9 0 01-1.5 5M3.1 6.5A9 9 0 003 12a9 9 0 0013.7 7.7"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-              />
-            </svg>
+          <div className="nv-panel-modern flex flex-col items-center gap-4 px-6 py-16 text-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-bad-500/10">
+              <svg
+                width="32"
+                height="32"
+                viewBox="0 0 24 24"
+                fill="none"
+                className="text-bad-400"
+                aria-hidden
+              >
+                <path
+                  d="M12 8v5M12 16.5v.01M4.9 4.9l14.2 14.2M10.3 3.9A9 9 0 0121 12a9 9 0 01-1.5 5M3.1 6.5A9 9 0 003 12a9 9 0 0013.7 7.7"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </div>
             <div>
-              <p className="text-sm font-medium text-neutral-200">
+              <p className="text-base font-bold tracking-tight text-white">
                 Gagal memuat kamera
               </p>
-              <p className="mt-1 text-xs text-neutral-400">{error}</p>
+              <p className="mt-1.5 text-sm text-neutral-400">{error}</p>
             </div>
             <Button onClick={load}>
               Coba lagi
             </Button>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center gap-4 rounded-xl border border-ink-800 bg-ink-900 px-6 py-16 text-center card-shadow">
-            <svg
-              width="40"
-              height="40"
-              viewBox="0 0 20 20"
-              fill="none"
-              className="text-neutral-400"
-              aria-hidden
-            >
-              <path
-                d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM2.5 10s3-5.5 7.5-5.5S17.5 10 17.5 10s-3 5.5-7.5 5.5S2.5 10 2.5 10z"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-            <p className="text-sm font-medium text-neutral-200">
+          <div className="nv-panel-modern flex flex-col items-center gap-4 px-6 py-16 text-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-accent-500/10">
+              <svg
+                width="32"
+                height="32"
+                viewBox="0 0 20 20"
+                fill="none"
+                className="text-accent-400"
+                aria-hidden
+              >
+                <path
+                  d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM2.5 10s3-5.5 7.5-5.5S17.5 10 17.5 10s-3 5.5-7.5 5.5S2.5 10 2.5 10z"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+            <p className="text-base font-bold tracking-tight text-white">
               {merged.length === 0
                 ? "Belum ada kamera"
                 : "Tidak ada kamera yang cocok"}
             </p>
-            <p className="max-w-xs text-xs leading-relaxed text-neutral-400">
+            <p className="max-w-xs text-sm leading-relaxed text-neutral-400">
               {merged.length === 0
                 ? "Tambahkan kamera lewat halaman Admin untuk mulai memantau."
                 : "Coba ubah kata kunci atau filter status."}

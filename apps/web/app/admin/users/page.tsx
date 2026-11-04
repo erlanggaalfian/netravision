@@ -43,16 +43,7 @@ function UserIcon({ className = "" }: { className?: string }) {
   );
 }
 
-function ListEmptyState({ text }: { text: string }) {
-  return (
-    <div className="rounded-xl border border-dashed border-ink-700 bg-ink-900/50 px-4 py-12 text-center">
-      <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-ink-800/70 ring-1 ring-white/5">
-        <UserIcon className="text-slate-500" />
-      </span>
-      <p className="mt-3 text-sm text-slate-400">{text}</p>
-    </div>
-  );
-}
+
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<User[] | null>(null);
@@ -104,7 +95,7 @@ export default function AdminUsersPage() {
       {users === null ? (
         <Spinner />
       ) : users.length === 0 ? (
-        <ListEmptyState text="Belum ada pengguna." />
+        <NBEmptyState icon={<UserIcon className="h-8 w-8 text-slate-500" />} text="Belum ada pengguna." />
       ) : (
         <div className="space-y-2">
           {users.map((u) => {

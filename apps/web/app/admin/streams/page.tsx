@@ -12,6 +12,7 @@ import {
   NBButton,
   NBCard,
   NBConfirmModal,
+  NBEmptyState,
   NBField,
   NBInput,
   NBSelect,
@@ -81,16 +82,7 @@ function CameraIcon({ className = "" }: { className?: string }) {
   );
 }
 
-function ListEmptyState({ text }: { text: string }) {
-  return (
-    <div className="rounded-xl border border-dashed border-ink-700 bg-ink-900/50 px-4 py-12 text-center">
-      <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-ink-800/70 ring-1 ring-white/5">
-        <CameraIcon className="text-slate-500" />
-      </span>
-      <p className="mt-3 text-sm text-slate-400">{text}</p>
-    </div>
-  );
-}
+
 
 function StreamRow({
   s,
@@ -397,7 +389,8 @@ export default function AdminStreamsPage() {
       {streams === null ? (
         <Spinner />
       ) : pageItems.length === 0 ? (
-        <ListEmptyState
+        <NBEmptyState
+          icon={<CameraIcon className="h-8 w-8 text-slate-500" />}
           text={
             filtersActive
               ? "Tidak ada kamera yang cocok dengan filter."

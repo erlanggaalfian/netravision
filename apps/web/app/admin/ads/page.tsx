@@ -87,7 +87,7 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
   }
 
   return (
-    <div className="mb-6 rounded-xl border border-ink-700/70 bg-ink-900 p-4 shadow-[0_1px_3px_rgba(15,23,42,0.08)]">
+    <div className="nv-panel-modern mb-6 p-4">
       <div className="mb-3 flex items-center justify-between">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
           Live Preview (Pratinjau Langsung)
@@ -339,7 +339,7 @@ export default function AdminAdsPage() {
           <AdPreview cfg={cfg} />
 
           {/* Toggle status */}
-          <div className="mb-6 flex items-center justify-between rounded-xl border border-ink-700/60 bg-ink-900/60 p-4">
+          <div className="nv-panel-modern mb-6 flex items-center justify-between p-4">
             <div>
               <span className="block font-mono text-xs font-semibold uppercase tracking-wider text-white">
                 Status Penayangan Iklan
@@ -357,8 +357,8 @@ export default function AdminAdsPage() {
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
             {/* Seksi 1: Tata Letak & Latar */}
-            <div className="space-y-4 rounded-xl border border-ink-700/70 bg-ink-900 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
-              <div className="border-b border-ink-700/60 pb-2">
+            <div className="nv-panel-modern space-y-4 p-4">
+              <div className="border-b border-slate-200/10 pb-2">
                 <span className="font-mono text-xs font-semibold uppercase text-accent-400">
                   1. Tata Letak &amp; Latar
                 </span>
@@ -397,8 +397,8 @@ export default function AdminAdsPage() {
             </div>
 
             {/* Seksi 2: Logo Sponsor & Media */}
-            <div className="space-y-4 rounded-xl border border-ink-700/70 bg-ink-900 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
-              <div className="border-b border-ink-700/60 pb-2">
+            <div className="nv-panel-modern space-y-4 p-4">
+              <div className="border-b border-slate-200/10 pb-2">
                 <span className="font-mono text-xs font-semibold uppercase text-accent-400">
                   2. Logo Sponsor &amp; Media
                 </span>
@@ -471,8 +471,8 @@ export default function AdminAdsPage() {
             </div>
 
             {/* Seksi 3: Teks Bergulir & Font */}
-            <div className="space-y-4 rounded-xl border border-ink-700/70 bg-ink-900 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
-              <div className="border-b border-ink-700/60 pb-2">
+            <div className="nv-panel-modern space-y-4 p-4">
+              <div className="border-b border-slate-200/10 pb-2">
                 <span className="font-mono text-xs font-semibold uppercase text-accent-400">
                   3. Teks Bergulir (Marquee)
                 </span>

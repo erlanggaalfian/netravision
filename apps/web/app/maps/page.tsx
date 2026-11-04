@@ -179,7 +179,7 @@ export default function MapsPage() {
       const btn = document.createElement("button");
       btn.textContent = "Lihat live";
       btn.style.cssText =
-        "width:100%;padding:10px 12px;border-radius:8px;background:var(--nv-accent-500);color:#fff;font-size:13px;font-weight:600;border:none;cursor:pointer;min-height:44px";
+        "width:100%;padding:10px 12px;border-radius:12px;background:linear-gradient(180deg,var(--nv-accent-500),var(--nv-accent-600));color:#fff;font-size:13px;font-weight:700;border:none;cursor:pointer;min-height:44px;box-shadow:0 4px 16px -4px var(--nv-accent-500), inset 0 1px 0 rgba(255,255,255,0.2)";
       btn.onclick = () => {
         map.closePopup();
         focusRef.current(s);
@@ -309,16 +309,17 @@ export default function MapsPage() {
     <AppShell>
       {/* Override tema Leaflet: popup + kontrol zoom ikut data-theme */}
       <style>{`
-        .leaflet-popup-content-wrapper { background: var(--nv-ink-900); color: var(--nv-white); border-radius: 12px; border: 1px solid var(--nv-ink-700); }
+        .leaflet-popup-content-wrapper { background: var(--nv-ink-900); color: var(--nv-white); border-radius: 16px; border: 1px solid var(--nv-ink-700); box-shadow: 0 12px 32px -8px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06); }
         .leaflet-popup-content { margin: 14px 16px; line-height: 1.4; }
         .leaflet-popup-tip { background: var(--nv-ink-900); }
-        .leaflet-bar { border: 1px solid var(--nv-ink-700) !important; border-radius: 999px !important; overflow: hidden; background: var(--nv-ink-900) !important; box-shadow: 0 1px 3px rgba(2,6,23,0.35), 0 4px 12px rgba(2,6,23,0.25) !important; }
+        .leaflet-bar { border: 1px solid var(--nv-ink-700) !important; border-radius: 999px !important; overflow: hidden; background: var(--nv-ink-900) !important; box-shadow: 0 4px 16px -4px rgba(2,6,23,0.4), inset 0 1px 0 rgba(255,255,255,0.06) !important; }
         .leaflet-bar a { width: 28px !important; height: 28px !important; line-height: 28px !important; font-size: 15px !important; background: transparent !important; color: var(--nv-white) !important; border-bottom: 1px solid var(--nv-ink-700) !important; }
         .leaflet-bar a:last-child { border-bottom: 0 !important; }
         .leaflet-bar a:hover { background: var(--nv-ink-800) !important; }
-        [data-theme="light"] .leaflet-bar { border-color: var(--nv-ink-700) !important; background: var(--nv-ink-900) !important; box-shadow: 0 1px 3px rgba(30,50,90,0.12), 0 4px 12px rgba(30,50,90,0.10) !important; }
+        [data-theme="light"] .leaflet-bar { border-color: var(--nv-ink-700) !important; background: var(--nv-ink-900) !important; box-shadow: 0 4px 16px -4px rgba(30,50,90,0.18), inset 0 1px 0 rgba(255,255,255,0.8) !important; }
         [data-theme="light"] .leaflet-bar a { border-bottom-color: var(--nv-ink-700) !important; }
         [data-theme="light"] .leaflet-bar a:hover { background: var(--nv-ink-800) !important; }
+        [data-theme="light"] .leaflet-popup-content-wrapper { box-shadow: 0 12px 32px -12px rgba(15,23,42,0.25), inset 0 1px 0 rgba(255,255,255,0.8); }
         @media (max-width: 767px) { .leaflet-top .leaflet-control-zoom { margin-top: 54px !important; } }
       `}</style>
       <div className="px-4 pt-5 md:px-5 md:pt-7">
@@ -329,7 +330,7 @@ export default function MapsPage() {
       </div>
       <div className="flex flex-col gap-4 p-4 md:h-[calc(100dvh-150px)] md:min-h-[420px] md:flex-row md:p-5">
         {/* Peta */}
-        <div className="relative min-h-[320px] flex-1 overflow-hidden rounded-2xl ring-1 ring-ink-800">
+        <div className="relative min-h-[320px] flex-1 overflow-hidden rounded-2xl ring-1 ring-ink-800 shadow-[0_12px_40px_-12px_rgba(0,0,0,0.45)]">
           <div ref={containerRef} className="absolute inset-0 z-0" />
           {fetching && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-ink-950/60">
@@ -408,16 +409,16 @@ export default function MapsPage() {
               onChange={(e) => setMapQuery(e.target.value)}
               placeholder="Cari CCTV…"
               aria-label="Cari CCTV"
-              className="h-11 w-full rounded-lg border border-ink-800 bg-ink-900 pl-10 pr-4 text-base text-white placeholder:text-neutral-400 outline-none transition-all duration-150 focus:border-accent-400 focus:ring-4 focus:ring-accent-500/15"
+              className="h-11 w-full rounded-xl border border-ink-800 bg-ink-900 pl-10 pr-4 text-base text-white placeholder:text-neutral-400 outline-none transition-all duration-150 focus:border-accent-400 focus:shadow-[0_0_0_4px_rgba(0,151,252,0.15)]"
             />
           </div>
 
           {error && <ErrorBox message={error} />}
           {saveError && <ErrorBox message={saveError} />}
 
-          <Card className="!rounded-xl !border-ink-800 !p-4">
+          <Card className="!rounded-xl !border-ink-800 !p-4 nv-panel-modern">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-bold text-white">
+              <h2 className="text-[15px] font-extrabold tracking-tight text-white">
                 Belum dipetakan
               </h2>
               <span className="rounded-full border border-ink-800 bg-ink-900 px-2.5 py-0.5 text-[11px] font-medium text-neutral-400">
@@ -448,7 +449,7 @@ export default function MapsPage() {
                         variant="primary"
                         onClick={() => placeAtCenter(s)}
                         disabled={savingId === s.id}
-                        className="h-11 shrink-0 !rounded-lg !bg-accent-500 px-3 text-xs hover:!bg-accent-400"
+                        className="h-11 shrink-0 px-3 text-xs"
                       >
                         {savingId === s.id ? "…" : "Tengah peta"}
                       </Button>
@@ -464,9 +465,9 @@ export default function MapsPage() {
             )}
           </Card>
 
-          <Card className="!rounded-xl !border-ink-800 !p-4">
+          <Card className="!rounded-xl !border-ink-800 !p-4 nv-panel-modern">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-bold text-white">Di peta</h2>
+              <h2 className="text-[15px] font-extrabold tracking-tight text-white">Di peta</h2>
               <span className="rounded-full border border-ink-800 bg-ink-900 px-2.5 py-0.5 text-[11px] font-medium text-neutral-400">
                 {mappedShown.length}
               </span>

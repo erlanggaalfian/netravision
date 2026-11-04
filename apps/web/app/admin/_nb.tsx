@@ -1,9 +1,9 @@
 "use client";
 
-/* Primitif UI bahasa desain NetBackup — KHUSUS halaman admin.
-   Kartu putih radius 12px + border jelas + shadow halus, tombol primer
-   biru #0097FC radius 8px, badge pill uppercase, judul section 18px.
-   Memakai token tema (ink/accent/slate) sehingga mode gelap tetap benar. */
+/* Primitif UI bahasa desain modern — KHUSUS halaman admin.
+   Selaras dengan components/ui.tsx: gradient buttons + glow, panel modern
+   (nv-panel-modern), heading besar/bold. Permukaan SOLID (tanpa blur),
+   memakai token tema (ink/accent/slate) sehingga mode gelap/terang benar. */
 
 import { useState, type ReactNode } from "react";
 
@@ -16,7 +16,7 @@ export function NBCard({
 }) {
   return (
     <div
-      className={`rounded-xl border border-ink-700/70 bg-ink-900 p-4 shadow-[0_1px_3px_rgba(15,23,42,0.08)] sm:p-5 ${className}`}
+      className={`nv-panel-modern p-4 sm:p-5 ${className}`}
     >
       {children}
     </div>
@@ -33,11 +33,11 @@ export function NBTitle({
   action?: ReactNode;
 }) {
   return (
-    <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+    <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h1 className="text-lg font-bold tracking-tight text-white">{title}</h1>
+        <h1 className="text-[28px] font-extrabold tracking-tight text-slate-100">{title}</h1>
         {desc && (
-          <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-400">
+          <p className="mt-1.5 max-w-2xl text-[15px] leading-relaxed text-slate-400">
             {desc}
           </p>
         )}
@@ -58,14 +58,14 @@ export function NBButton({
   variant?: NBBtnVariant;
 }) {
   const base =
-    "inline-flex min-h-[44px] cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]";
+    "inline-flex min-h-[44px] cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]";
   const styles: Record<NBBtnVariant, string> = {
     primary:
-      "bg-accent-500 text-onaccent shadow-[0_1px_2px_rgba(0,151,252,0.35)] hover:bg-accent-600",
+      "bg-gradient-to-b from-accent-500 to-accent-600 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-500),inset_0_1px_0_rgba(255,255,255,0.2)] hover:from-accent-400 hover:to-accent-500 hover:shadow-[0_6px_20px_-4px_var(--nv-accent-500),inset_0_1px_0_rgba(255,255,255,0.25)]",
     secondary:
-      "border border-ink-700 bg-ink-900 text-slate-300 hover:bg-ink-800",
+      "border border-slate-200/20 bg-ink-800 text-slate-200 hover:border-slate-200/40 hover:bg-ink-700",
     danger:
-      "border border-bad-400/40 bg-bad-400/10 text-bad-400 hover:bg-bad-400/20",
+      "border border-bad-400/30 bg-bad-400/15 text-bad-400 hover:bg-bad-400/25 hover:shadow-[0_4px_16px_-6px_var(--nv-bad-400)]",
   };
   return (
     <button className={`${base} ${styles[variant]} ${className}`} {...rest}>
@@ -82,11 +82,11 @@ export function NBBadge({
   children: ReactNode;
 }) {
   const styles = {
-    ok: "bg-ok-400/15 text-ok-400",
-    bad: "bg-bad-400/15 text-bad-400",
-    warn: "bg-warn-400/15 text-warn-400",
-    info: "bg-accent-500/15 text-accent-600",
-    muted: "bg-ink-800 text-slate-400",
+    ok: "bg-ok-400/15 text-ok-400 ring-1 ring-ok-400/25",
+    bad: "bg-bad-400/15 text-bad-400 ring-1 ring-bad-400/25",
+    warn: "bg-warn-400/15 text-warn-400 ring-1 ring-warn-400/25",
+    info: "bg-accent-500/15 text-accent-600 ring-1 ring-accent-500/25",
+    muted: "bg-ink-800 text-slate-400 ring-1 ring-slate-200/15",
   } as const;
   return (
     <span
@@ -108,7 +108,7 @@ export function NBField({
 }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-sm font-medium text-slate-300">
+      <span className="mb-1.5 block text-sm font-semibold text-slate-200">
         {label}
       </span>
       {children}
@@ -118,7 +118,7 @@ export function NBField({
 }
 
 const nbInputCls =
-  "w-full rounded-lg border border-ink-700 bg-ink-900 px-3.5 py-2.5 text-slate-100 placeholder:text-slate-400 outline-none transition-all duration-150 ease-out focus:border-accent-500 focus:ring-4 focus:ring-accent-500/15";
+  "w-full rounded-xl border border-slate-200/20 bg-ink-800 px-3.5 py-2.5 text-[15px] text-slate-100 placeholder:text-slate-400 outline-none transition-all duration-150 ease-out hover:border-slate-200/35 focus:border-accent-500 focus:bg-ink-900 focus:ring-4 focus:ring-accent-500/15";
 
 export function NBInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`${nbInputCls} ${props.className ?? ""}`} />;
@@ -132,10 +132,10 @@ export function NBTextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaEleme
   return <textarea {...props} className={`${nbInputCls} ${props.className ?? ""}`} />;
 }
 
-/* Wadah tabel putih: border + radius 12 + shadow halus. */
+/* Wadah tabel: panel modern + header jelas. */
 export function NBTableWrap({ children }: { children: ReactNode }) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-ink-700/70 bg-ink-900 shadow-[0_1px_3px_rgba(15,23,42,0.08)]">
+    <div className="nv-panel-modern overflow-x-auto">
       {children}
     </div>
   );
@@ -149,16 +149,47 @@ export function NBTh({
   className?: string;
 }) {
   return (
-    <th scope="col" className={`px-3 py-3 font-semibold ${className}`}>
+    <th
+      scope="col"
+      className={`border-b border-slate-200/10 bg-ink-800/40 px-4 py-3 text-left text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400 ${className}`}
+    >
       {children}
     </th>
   );
 }
 
-/* Baris kartu daftar (mobile accordion / desktop row): putih, border jelas. */
+/* Sel tabel standar: padding konsisten + border baris halus. */
+export function NBTd({
+  children,
+  className = "",
+  ...rest
+}: React.TdHTMLAttributes<HTMLTableCellElement>) {
+  return (
+    <td className={`border-b border-slate-200/5 px-4 py-3 text-sm text-slate-200 ${className ?? ""}`} {...rest}>
+      {children}
+    </td>
+  );
+}
+
+/* Baris tabel dengan hover halus (bungkus <tr>). */
+export function NBTr({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <tr className={`transition-colors duration-150 hover:bg-ink-800/50 ${className}`}>
+      {children}
+    </tr>
+  );
+}
+
+/* Baris kartu daftar (mobile accordion / desktop row). */
 export function NBRowCard({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-xl border border-ink-700/70 bg-ink-900 px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-colors hover:border-ink-500">
+    <div className="nv-panel-modern px-4 py-3 transition-colors duration-150 hover:border-accent-500/40">
       {children}
     </div>
   );
@@ -175,7 +206,7 @@ export function NBAccordion({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="rounded-xl border border-ink-700/70 bg-ink-900 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+    <div className="nv-panel-modern overflow-hidden">
       <button
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
@@ -199,7 +230,7 @@ export function NBAccordion({
           />
         </svg>
       </button>
-      {open && <div className="border-t border-ink-700/60 p-4">{children}</div>}
+      {open && <div className="border-t border-slate-200/10 p-4">{children}</div>}
     </div>
   );
 }
@@ -226,15 +257,15 @@ export function NBConfirmModal({
       aria-modal="true"
     >
       <div
-        className="w-full max-w-lg overflow-y-auto rounded-t-xl border border-ink-700/70 bg-ink-900 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-[0_8px_32px_rgba(15,23,42,0.18)] sm:rounded-xl"
+        className="nv-pop nv-panel-modern w-full max-w-lg overflow-y-auto !rounded-2xl pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-ink-700/60 px-5 py-4">
-          <h2 className="text-lg font-bold tracking-tight text-white">{title}</h2>
+        <div className="flex items-center justify-between border-b border-slate-200/10 px-5 py-4">
+          <h2 className="text-xl font-extrabold tracking-tight text-slate-100">{title}</h2>
           <button
             onClick={onCancel}
             aria-label="Tutup"
-            className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-ink-800 hover:text-white"
+            className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-xl text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-200"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
               <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
@@ -257,11 +288,56 @@ export function NBConfirmModal({
   );
 }
 
-/* Empty state kartu garis putus-putus. */
-export function NBEmptyState({ text }: { text: string }) {
+/* Empty state modern: ikon + teks, di dalam panel modern. */
+export function NBEmptyState({ text, icon }: { text: string; icon?: ReactNode }) {
   return (
-    <div className="rounded-xl border border-dashed border-ink-700 bg-ink-900/50 px-4 py-12 text-center text-sm text-slate-400">
-      <p>{text}</p>
+    <div className="nv-panel-modern px-4 py-14 text-center">
+      {icon ? (
+        <span className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-ink-800/70 ring-1 ring-slate-200/10">
+          {icon}
+        </span>
+      ) : (
+        <svg
+          width="40"
+          height="40"
+          viewBox="0 0 24 24"
+          fill="none"
+          aria-hidden
+          className="mx-auto mb-3 text-slate-400"
+        >
+          <path
+            d="M20 7H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2zM16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      )}
+      <p className="text-[15px] font-medium text-slate-300">{text}</p>
+    </div>
+  );
+}
+
+/* Kartu statistik modern. */
+export function NBStat({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string | number;
+  sub?: string;
+}) {
+  return (
+    <div className="nv-panel-modern p-5">
+      <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
+        {label}
+      </p>
+      <p className="tnum mt-2 text-[32px] font-extrabold leading-none tracking-tight text-slate-100">
+        {value}
+      </p>
+      {sub && <p className="mt-2 text-xs text-slate-400">{sub}</p>}
     </div>
   );
 }

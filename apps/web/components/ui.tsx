@@ -55,7 +55,7 @@ export function Card({
 }) {
   return (
     <div
-      className={`rounded-2xl border border-white/8 bg-ink-900 p-5 card-shadow ${className}`}
+      className={`rounded-2xl border border-slate-200/10 bg-ink-900 p-5 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.1),0_8px_24px_-8px_rgba(0,0,0,0.12)] ${className}`}
     >
       {children}
     </div>
@@ -72,13 +72,13 @@ export function SectionTitle({
   action?: ReactNode;
 }) {
   return (
-    <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+    <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-white">
+        <h1 className="text-[28px] font-extrabold tracking-tight text-slate-100">
           {title}
         </h1>
         {desc && (
-          <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-400">
+          <p className="mt-1.5 max-w-2xl text-[15px] leading-relaxed text-slate-400">
             {desc}
           </p>
         )}
@@ -102,10 +102,10 @@ export function Stat({
       <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">
         {label}
       </p>
-      <p className="tnum mt-1.5 text-[28px] font-bold leading-none tracking-tight text-white">
+      <p className="tnum mt-2 text-[32px] font-extrabold leading-none tracking-tight text-slate-100">
         {value}
       </p>
-      {sub && <p className="mt-1.5 text-xs text-slate-400">{sub}</p>}
+      {sub && <p className="mt-2 text-xs text-slate-400">{sub}</p>}
     </Card>
   );
 }
@@ -124,12 +124,12 @@ export function Button({
     "inline-flex min-h-[44px] cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]";
   const styles: Record<BtnVariant, string> = {
     primary:
-      "bg-accent-600 text-onaccent card-shadow hover:bg-accent-500",
+      "bg-gradient-to-b from-accent-500 to-accent-600 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-500),inset_0_1px_0_rgba(255,255,255,0.2)] hover:from-accent-400 hover:to-accent-500 hover:shadow-[0_6px_20px_-4px_var(--nv-accent-500),inset_0_1px_0_rgba(255,255,255,0.25)]",
     ghost:
-      "border border-white/10 bg-transparent text-slate-200 hover:border-white/20 hover:bg-white/5 hover:text-white",
+      "border border-slate-200/20 bg-transparent text-slate-200 hover:border-slate-200/40 hover:bg-slate-200/5",
     danger:
-      "border border-bad-400/30 bg-bad-400/15 text-bad-400 hover:bg-bad-400/25",
-    subtle: "bg-ink-800 text-slate-200 hover:bg-ink-700 hover:text-white",
+      "border border-bad-400/30 bg-bad-400/15 text-bad-400 hover:bg-bad-400/25 hover:shadow-[0_4px_16px_-6px_var(--nv-bad-400)]",
+    subtle: "bg-ink-800 text-slate-200 hover:bg-ink-700",
   };
   return (
     <button className={`${base} ${styles[variant]} ${className}`} {...rest}>
@@ -159,7 +159,7 @@ export function Field({
 }
 
 const inputCls =
-  "w-full rounded-xl border border-white/10 bg-ink-950 px-3.5 py-2.5 text-slate-100 placeholder:text-slate-400 outline-none transition-all duration-150 ease-out focus:border-accent-400 focus:ring-4 focus:ring-accent-500/15";
+  "w-full rounded-xl border border-slate-200/15 bg-ink-950 px-4 py-2.5 text-[15px] text-slate-100 placeholder:text-slate-400 outline-none transition-all duration-150 ease-out hover:border-slate-200/25 focus:border-accent-400 focus:ring-4 focus:ring-accent-500/15 focus:shadow-[0_0_0_4px_var(--nv-accent-500),0_0_20px_-4px_var(--nv-accent-500)]";
 
 export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`${inputCls} ${props.className ?? ""}`} />;
@@ -215,15 +215,15 @@ export function Badge({
   children: ReactNode;
 }) {
   const styles = {
-    ok: "border-ok-400/30 bg-ok-400/15 text-ok-400",
-    bad: "border-bad-400/30 bg-bad-400/15 text-bad-400",
-    warn: "border-warn-400/30 bg-warn-400/15 text-warn-400",
-    info: "border-accent-500/30 bg-accent-500/15 text-accent-300",
-    muted: "border-white/10 bg-ink-800 text-slate-400",
+    ok: "border-ok-400/25 bg-ok-400/12 text-ok-300 shadow-[0_2px_8px_-2px_var(--nv-ok-400)]",
+    bad: "border-bad-400/25 bg-bad-400/12 text-bad-300 shadow-[0_2px_8px_-2px_var(--nv-bad-400)]",
+    warn: "border-warn-400/25 bg-warn-400/12 text-warn-300 shadow-[0_2px_8px_-2px_var(--nv-warn-400)]",
+    info: "border-accent-500/25 bg-accent-500/12 text-accent-300 shadow-[0_2px_8px_-2px_var(--nv-accent-500)]",
+    muted: "border-slate-200/15 bg-ink-800 text-slate-400",
   } as const;
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-[3px] text-[11px] font-semibold ${styles[tone]}`}
+      className={`inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-bold tracking-wide ${styles[tone]}`}
     >
       {children}
     </span>
@@ -250,7 +250,7 @@ export function SegmentedControl<T extends string | number>({
     <div
       role="radiogroup"
       aria-label={ariaLabel}
-      className="inline-flex items-center gap-1 rounded-xl border border-white/10 bg-ink-950 p-1"
+      className="inline-flex items-center gap-1 rounded-2xl border border-slate-200/12 bg-ink-950 p-1.5 shadow-[inset_0_2px_4px_rgba(0,0,0,0.15)]"
     >
       {options.map((o) => {
         const active = o.value === value;
@@ -262,12 +262,12 @@ export function SegmentedControl<T extends string | number>({
             aria-checked={active}
             title={o.title}
             onClick={() => onChange(o.value)}
-            className={`inline-flex cursor-pointer items-center justify-center rounded-lg px-3.5 text-sm font-semibold transition-colors duration-150 ${
+            className={`inline-flex cursor-pointer items-center justify-center rounded-xl px-4 text-sm font-semibold transition-all duration-150 active:scale-[0.97] ${
               size === "sm" ? "min-h-[36px]" : "min-h-[44px]"
             } ${
               active
-                ? "bg-accent-600 text-onaccent card-shadow"
-                : "text-slate-400 hover:bg-white/5 hover:text-white"
+                ? "bg-gradient-to-b from-accent-500 to-accent-600 text-onaccent shadow-[0_4px_12px_-2px_var(--nv-accent-500),inset_0_1px_0_rgba(255,255,255,0.2)]"
+                : "text-slate-400 hover:bg-slate-200/5 hover:text-slate-200"
             }`}
           >
             {o.label}

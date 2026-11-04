@@ -10,6 +10,10 @@ import {
   NBCard,
   NBTitle,
   NBInput,
+  NBTableWrap,
+  NBTh,
+  NBTd,
+  NBTr,
 } from "../_nb";
 
 type Arah = "akun" | "kamera";
@@ -115,99 +119,99 @@ export default function AdminAccessPage() {
             <Spinner />
           </div>
         ) : arah === "akun" ? (
-          <div className="overflow-x-auto">
+          <NBTableWrap>
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-ink-700 text-xs uppercase tracking-wider text-slate-400">
-                  <th scope="col" className="px-3 py-3 font-semibold">Akun</th>
-                  <th scope="col" className="px-3 py-3 font-semibold">Peran</th>
-                  <th scope="col" className="px-3 py-3 text-center font-semibold">Aksi</th>
-                </tr>
+                <NBTr>
+                  <NBTh>Akun</NBTh>
+                  <NBTh>Peran</NBTh>
+                  <NBTh className="text-center">Aksi</NBTh>
+                </NBTr>
               </thead>
-              <tbody className="divide-y divide-ink-700/60">
+              <tbody>
                 {filteredUsers.map((u) => (
-                  <tr key={u.id} className="hover:bg-white/[0.02]">
-                    <td className="px-3 py-3 font-medium text-white">
+                  <NBTr key={u.id}>
+                    <NBTd className="font-medium">
                       {u.username}
-                    </td>
-                    <td className="px-3 py-3">
+                    </NBTd>
+                    <NBTd>
                       <NBBadge tone="muted">
                         {ROLE_LABEL[u.role] ?? u.role}
                       </NBBadge>
-                    </td>
-                    <td className="px-3 py-3 text-center">
+                    </NBTd>
+                    <NBTd className="text-center">
                       <NBButton
                         variant="secondary"
                         onClick={() => setManageUser(u)}
                       >
                         Kelola
                       </NBButton>
-                    </td>
-                  </tr>
+                    </NBTd>
+                  </NBTr>
                 ))}
                 {filteredUsers.length === 0 && (
-                  <tr>
-                    <td
+                  <NBTr>
+                    <NBTd
                       colSpan={3}
-                      className="px-3 py-8 text-center text-sm text-slate-400"
+                      className="py-8 text-center text-slate-400"
                     >
                       Tidak ada akun yang cocok.
-                    </td>
-                  </tr>
+                    </NBTd>
+                  </NBTr>
                 )}
               </tbody>
             </table>
-          </div>
+          </NBTableWrap>
         ) : (
-          <div className="overflow-x-auto">
+          <NBTableWrap>
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-ink-700 text-xs uppercase tracking-wider text-slate-400">
-                  <th scope="col" className="px-3 py-3 font-semibold">Kamera</th>
-                  <th scope="col" className="px-3 py-3 font-semibold">Status</th>
-                  <th scope="col" className="px-3 py-3 text-center font-semibold">
+                <NBTr>
+                  <NBTh>Kamera</NBTh>
+                  <NBTh>Status</NBTh>
+                  <NBTh className="text-center">
                     Akun berakses
-                  </th>
-                  <th scope="col" className="px-3 py-3 text-center font-semibold">Aksi</th>
-                </tr>
+                  </NBTh>
+                  <NBTh className="text-center">Aksi</NBTh>
+                </NBTr>
               </thead>
-              <tbody className="divide-y divide-ink-700/60">
+              <tbody>
                 {filteredStreams.map((s) => (
-                  <tr key={s.id} className="hover:bg-white/[0.02]">
-                    <td className="px-3 py-3 font-medium text-white">
+                  <NBTr key={s.id}>
+                    <NBTd className="font-medium">
                       {s.name}
-                    </td>
-                    <td className="px-3 py-3">
+                    </NBTd>
+                    <NBTd>
                       <NBBadge tone={s.is_online ? "ok" : "bad"}>
                         {s.is_online ? "Online" : "Offline"}
                       </NBBadge>
-                    </td>
-                    <td className="px-3 py-3 text-center font-mono text-slate-300">
+                    </NBTd>
+                    <NBTd className="text-center font-mono">
                       {grantCount(s.id)}
-                    </td>
-                    <td className="px-3 py-3 text-center">
+                    </NBTd>
+                    <NBTd className="text-center">
                       <NBButton
                         variant="secondary"
                         onClick={() => setManageStream(s)}
                       >
                         Kelola
                       </NBButton>
-                    </td>
-                  </tr>
+                    </NBTd>
+                  </NBTr>
                 ))}
                 {filteredStreams.length === 0 && (
-                  <tr>
-                    <td
+                  <NBTr>
+                    <NBTd
                       colSpan={4}
-                      className="px-3 py-8 text-center text-sm text-slate-400"
+                      className="py-8 text-center text-slate-400"
                     >
                       Tidak ada kamera yang cocok.
-                    </td>
-                  </tr>
+                    </NBTd>
+                  </NBTr>
                 )}
               </tbody>
             </table>
-          </div>
+          </NBTableWrap>
         )}
       </NBCard>
 

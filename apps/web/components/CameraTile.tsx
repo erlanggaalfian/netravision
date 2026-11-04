@@ -89,10 +89,10 @@ export function CameraTile({ stream, onExpand }: Props) {
           setShowControls(false);
         }
       }}
-      className={`vk-touch-toggle ${showControls ? "cam-show-controls" : ""} group relative select-none overflow-hidden ${
+      className={`vk-touch-toggle ${showControls ? "cam-show-controls" : ""} group relative select-none overflow-hidden transition-all duration-300 ${
         fs
           ? "fixed inset-0 z-[70] border-0 bg-black"
-          : "rounded-xl border border-ink-800 bg-ink-900 card-shadow"
+          : "rounded-2xl border border-ink-800 bg-ink-900 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.35)] hover:-translate-y-0.5 hover:border-ink-700 hover:shadow-[0_16px_40px_-12px_rgba(0,0,0,0.5)]"
       }`}
     >
       {/* Area video: selalu gelap (nv-stage), di kedua tema. */}
@@ -118,57 +118,59 @@ export function CameraTile({ stream, onExpand }: Props) {
               />
             ) : (
               <div className="absolute inset-0 flex items-center justify-center">
-                <span className="flex items-center gap-2 text-xs text-slate-400">
+                <span className="flex items-center gap-2.5 rounded-full bg-black/50 px-4 py-2 text-xs font-medium text-slate-300">
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/15 border-t-accent-400 motion-reduce:animate-none" />
                   Menghubungkan…
                 </span>
               </div>
             ))}
           {playing && (
-            <span className="pointer-events-none absolute left-3 top-3 flex items-center gap-1.5 rounded-md bg-black/60 px-2 py-1 text-[11px] font-semibold tracking-wide text-white">
-              <span className="h-1.5 w-1.5 rounded-full bg-bad-400" />
+            <span className="pointer-events-none absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-black/70 px-2.5 py-1 text-[11px] font-bold tracking-wider text-white shadow-[0_4px_12px_rgba(0,0,0,0.4)]">
+              <span className="h-1.5 w-1.5 rounded-full bg-bad-400 shadow-[0_0_8px_2px_rgba(248,113,113,0.6)]" />
               LIVE
             </span>
           )}
         </>
       ) : (
-        <div className="relative flex h-full w-full flex-col items-center justify-center gap-2 bg-ink-900 px-4 text-center">
+        <div className="relative flex h-full w-full flex-col items-center justify-center gap-2.5 bg-ink-900 px-4 text-center">
           {stream.poster_url && (
             <img
               src={withToken(stream.poster_url)}
               alt=""
               aria-hidden
               loading="lazy"
-              className="absolute inset-0 h-full w-full object-cover opacity-25"
+              className="absolute inset-0 h-full w-full object-cover opacity-20"
             />
           )}
-          <svg
-            width="30"
-            height="30"
-            viewBox="0 0 24 24"
-            fill="none"
-            className="relative text-slate-400"
-            aria-hidden
-          >
-            <path
-              d="M3 8.5A1.5 1.5 0 014.5 7h9A1.5 1.5 0 0115 8.5v6a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 013 14.5v-6z"
-              stroke="currentColor"
-              strokeWidth="1.6"
-            />
-            <path
-              d="M15 10.5l5-3v9l-5-3"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinejoin="round"
-            />
-            <path
-              d="M4 4l16 16"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-            />
-          </svg>
-          <span className="relative text-sm font-medium text-slate-300">
+          <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-ink-800">
+            <svg
+              width="26"
+              height="26"
+              viewBox="0 0 24 24"
+              fill="none"
+              className="text-slate-400"
+              aria-hidden
+            >
+              <path
+                d="M3 8.5A1.5 1.5 0 014.5 7h9A1.5 1.5 0 0115 8.5v6a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 013 14.5v-6z"
+                stroke="currentColor"
+                strokeWidth="1.6"
+              />
+              <path
+                d="M15 10.5l5-3v9l-5-3"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinejoin="round"
+              />
+              <path
+                d="M4 4l16 16"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+              />
+            </svg>
+          </div>
+          <span className="relative text-sm font-semibold tracking-tight text-slate-200">
             {stream.is_online ? "Gagal memuat" : "Offline"}
           </span>
           <span className="relative text-xs text-slate-400">
@@ -218,7 +220,7 @@ export function CameraTile({ stream, onExpand }: Props) {
               e.stopPropagation();
               toggleFs();
             }}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/20 active:scale-95"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white shadow-[0_4px_12px_rgba(0,0,0,0.3)] transition-all duration-200 hover:bg-white/25 hover:shadow-[0_6px_16px_rgba(0,0,0,0.4)] active:scale-95"
             aria-label={fs ? `Keluar layar penuh ${stream.name}` : `Layar penuh ${stream.name}`}
             title={fs ? "Keluar layar penuh" : "Layar penuh"}
           >
@@ -237,7 +239,7 @@ export function CameraTile({ stream, onExpand }: Props) {
               e.stopPropagation();
               onExpand(stream);
             }}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/20 active:scale-95"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white shadow-[0_4px_12px_rgba(0,0,0,0.3)] transition-all duration-200 hover:bg-white/25 hover:shadow-[0_6px_16px_rgba(0,0,0,0.4)] active:scale-95"
           aria-label={`Perbesar ${stream.name}`}
         >
           <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
@@ -255,12 +257,12 @@ export function CameraTile({ stream, onExpand }: Props) {
       </div>
       {/* Footer kartu ala NetBackup: nama + badge status pill */}
       {!fs && (
-        <div className="flex items-center justify-between gap-2 px-3 py-2.5">
-          <span className="flex min-w-0 items-center gap-2">
+        <div className="flex items-center justify-between gap-2 border-t border-ink-800/60 px-3.5 py-3">
+          <span className="flex min-w-0 items-center gap-2.5">
             <span
-              className={`h-2 w-2 shrink-0 rounded-full ${online ? "bg-ok-400" : "bg-bad-400"}`}
+              className={`h-2 w-2 shrink-0 rounded-full ${online ? "bg-ok-400 shadow-[0_0_8px_2px_rgba(74,222,128,0.5)]" : "bg-bad-400 shadow-[0_0_8px_2px_rgba(248,113,113,0.4)]"}`}
             />
-            <span className="truncate text-sm font-semibold text-white">
+            <span className="truncate text-sm font-semibold tracking-tight text-white">
               {stream.name}
             </span>
           </span>

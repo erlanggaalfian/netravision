@@ -24,13 +24,12 @@ const NAV: NavItem[] = [
   { href: "/admin/storage", label: "Penyimpanan", icon: "M4 7l8-4 8 4-8 4-8-4zM4 7v10l8 4 8-4V7M12 11v8", superAdminOnly: true },
 ];
 
-/* Pola persis Nexfiber Lainnya: grup + list divide-y.
-   Styling kartu putih NetBackup: border jelas + shadow halus. */
+/* Pola persis Nexfiber Lainnya: grup + list divide-y, panel modern. */
 function Group({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="mb-4">
-      <h2 className="mb-1 px-1 text-xs text-slate-400">{title}</h2>
-      <ul className="divide-y divide-ink-700/60 overflow-hidden rounded-xl border border-ink-700/70 bg-ink-900 shadow-[0_1px_3px_rgba(15,23,42,0.08)]">{children}</ul>
+      <h2 className="mb-1.5 px-1 text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">{title}</h2>
+      <ul className="nv-panel-modern divide-y divide-slate-200/10 overflow-hidden !p-0">{children}</ul>
     </section>
   );
 }
@@ -66,9 +65,9 @@ export default function AdminLayout({
                     key={n.href}
                     href={n.href}
                     aria-current={active ? "page" : undefined}
-                    className={`flex min-h-[42px] shrink-0 cursor-pointer items-center whitespace-nowrap rounded-lg px-4 text-sm transition-all duration-150 active:scale-[0.97] ${
+                    className={`flex min-h-[42px] shrink-0 cursor-pointer items-center whitespace-nowrap rounded-full px-4 text-sm transition-all duration-150 active:scale-[0.97] ${
                       active
-                        ? "bg-accent-500 font-semibold text-onaccent shadow-[0_1px_2px_rgba(0,151,252,0.35)]"
+                        ? "bg-gradient-to-b from-accent-500 to-accent-600 font-semibold text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-500),inset_0_1px_0_rgba(255,255,255,0.2)]"
                         : "font-medium text-slate-400 hover:bg-ink-800 hover:text-slate-200"
                     }`}
                   >

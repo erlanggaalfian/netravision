@@ -9,10 +9,15 @@ import {
   NBButton,
   NBCard,
   NBConfirmModal,
+  NBEmptyState,
   NBField,
   NBInput,
   NBSelect,
   NBTitle,
+  NBTableWrap,
+  NBTh,
+  NBTd,
+  NBTr,
 } from "../_nb";
 
 type KeyOut = ApiKey;
@@ -51,16 +56,7 @@ function KeyIcon({ className = "" }: { className?: string }) {
   );
 }
 
-function ListEmptyState({ text }: { text: string }) {
-  return (
-    <div className="rounded-xl border border-dashed border-ink-700 bg-ink-900/50 px-4 py-12 text-center">
-      <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-ink-800/70 ring-1 ring-white/5">
-        <KeyIcon className="text-slate-500" />
-      </span>
-      <p className="mt-3 text-sm text-slate-400">{text}</p>
-    </div>
-  );
-}
+
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -200,7 +196,7 @@ export default function AdminKeysPage() {
       {keys === null ? (
         <Spinner />
       ) : keys.length === 0 ? (
-        <ListEmptyState text="Belum ada API key." />
+        <NBEmptyState icon={<KeyIcon className="h-8 w-8 text-slate-500" />} text="Belum ada API key." />
       ) : (
         <div className="space-y-2">
           {keys.map((k) => (
@@ -309,53 +305,50 @@ export default function AdminKeysPage() {
       {logsLoading && logs.length === 0 ? (
         <Spinner />
       ) : logs.length === 0 ? (
-        <ListEmptyState text="Belum ada akses tercatat." />
+        <NBEmptyState icon={<KeyIcon className="h-8 w-8 text-slate-500" />} text="Belum ada akses tercatat." />
       ) : (
         <>
-          <NBCard className="overflow-x-auto p-0">
+          <NBTableWrap>
             <table className="w-full min-w-[640px] text-sm">
               <thead>
-                <tr className="border-b border-ink-700 text-left text-xs uppercase tracking-wider text-slate-400">
-                  <th scope="col" className="px-4 py-2.5 font-semibold">Waktu</th>
-                  <th scope="col" className="px-4 py-2.5 font-semibold">Key</th>
-                  <th scope="col" className="px-4 py-2.5 font-semibold">Kamera</th>
-                  <th scope="col" className="px-4 py-2.5 font-semibold">Aksi</th>
-                  <th scope="col" className="px-4 py-2.5 font-semibold">IP</th>
-                </tr>
+                <NBTr>
+                  <NBTh>Waktu</NBTh>
+                  <NBTh>Key</NBTh>
+                  <NBTh>Kamera</NBTh>
+                  <NBTh>Aksi</NBTh>
+                  <NBTh>IP</NBTh>
+                </NBTr>
               </thead>
               <tbody>
                 {logs.map((l) => {
                   const denied = (l.action ?? "").includes(".denied");
                   return (
-                    <tr
-                      key={l.id}
-                      className="border-b border-ink-700/40 transition-colors last:border-0 hover:bg-ink-800/40"
-                    >
-                      <td className="px-4 py-2.5 text-slate-300">
+                    <NBTr key={l.id}>
+                      <NBTd>
                         {l.accessed_at
                           ? new Date(l.accessed_at).toLocaleString("id-ID")
                           : "—"}
-                      </td>
-                      <td className="px-4 py-2.5 text-slate-400">
+                      </NBTd>
+                      <NBTd className="text-slate-400">
                         {keyName(l.key_id)}
-                      </td>
-                      <td className="px-4 py-2.5 text-slate-400">
+                      </NBTd>
+                      <NBTd className="text-slate-400">
                         {streamName(l.stream_id)}
-                      </td>
-                      <td className="px-4 py-2.5">
+                      </NBTd>
+                      <NBTd>
                         <NBBadge tone={denied ? "bad" : "ok"}>
                           {denied ? "Ditolak" : (l.action ?? "—")}
                         </NBBadge>
-                      </td>
-                      <td className="px-4 py-2.5 font-mono text-xs text-slate-400">
+                      </NBTd>
+                      <NBTd className="font-mono text-xs text-slate-400">
                         {l.ip ?? "—"}
-                      </td>
-                    </tr>
+                      </NBTd>
+                    </NBTr>
                   );
                 })}
               </tbody>
             </table>
-          </NBCard>
+          </NBTableWrap>
           {!logsDone && (
             <div className="mt-3 text-center">
               <NBButton

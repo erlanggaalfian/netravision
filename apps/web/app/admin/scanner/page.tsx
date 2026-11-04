@@ -4,7 +4,7 @@ import { useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import type { Stream, SubnetHost } from "../../../lib/types";
 import { ErrorBox } from "../../../components/ui";
-import { NBBadge, NBButton, NBCard, NBField, NBInput, NBTitle } from "../_nb";
+import { NBBadge, NBButton, NBCard, NBField, NBInput, NBTitle, NBTableWrap, NBTh, NBTd, NBTr } from "../_nb";
 
 type Tone = "ok" | "bad" | "warn" | "info" | "muted";
 const SCAN_STATUS: Record<string, { label: string; tone: Tone }> = {
@@ -138,18 +138,18 @@ export default function AdminScannerPage() {
           </div>
         </li>
         {/* Desktop: baris tabel */}
-        <tr key={key(h)} className="hidden hover:bg-white/[0.02] md:table-row">
-          <td className="px-3 py-3">{checkbox}</td>
-          <td className="px-3 py-3 font-mono text-white">{h.host}</td>
-          <td className="px-3 py-3 font-mono text-slate-400">{h.port}</td>
-          <td className="px-3 py-3">
+        <NBTr key={key(h)} className="hidden md:table-row">
+          <NBTd>{checkbox}</NBTd>
+          <NBTd className="font-mono">{h.host}</NBTd>
+          <NBTd className="font-mono">{h.port}</NBTd>
+          <NBTd>
             <NBBadge tone={st.tone}>{st.label}</NBBadge>
-          </td>
-          <td className="max-w-[280px] truncate px-3 py-3 font-mono text-xs text-slate-400">
+          </NBTd>
+          <NBTd className="max-w-[280px] truncate font-mono text-xs">
             {h.best_main ?? "—"}
-          </td>
-          <td className="px-3 py-3 text-xs text-slate-400">{mainInfo(h)}</td>
-        </tr>
+          </NBTd>
+          <NBTd className="text-xs">{mainInfo(h)}</NBTd>
+        </NBTr>
       </>
     );
   }
@@ -256,11 +256,12 @@ export default function AdminScannerPage() {
                 ))}
               </ul>
               {/* Desktop: tabel */}
-              <div className="hidden overflow-x-auto md:block">
+              <div className="hidden md:block">
+                <NBTableWrap>
                 <table className="w-full text-left text-sm">
                   <thead>
-                    <tr className="border-b border-ink-700 text-xs uppercase tracking-wider text-slate-400">
-                      <th scope="col" className="w-10 px-3 py-3">
+                    <NBTr>
+                      <NBTh className="w-10">
                         <input
                           type="checkbox"
                           checked={
@@ -271,20 +272,21 @@ export default function AdminScannerPage() {
                           className="h-5 w-5 accent-accent-500"
                           aria-label="Pilih semua"
                         />
-                      </th>
-                      <th scope="col" className="px-3 py-3 font-semibold">IP</th>
-                      <th scope="col" className="px-3 py-3 font-semibold">Port</th>
-                      <th scope="col" className="px-3 py-3 font-semibold">Status</th>
-                      <th scope="col" className="px-3 py-3 font-semibold">Path main</th>
-                      <th scope="col" className="px-3 py-3 font-semibold">Video</th>
-                    </tr>
+                      </NBTh>
+                      <NBTh>IP</NBTh>
+                      <NBTh>Port</NBTh>
+                      <NBTh>Status</NBTh>
+                      <NBTh>Path main</NBTh>
+                      <NBTh>Video</NBTh>
+                    </NBTr>
                   </thead>
-                  <tbody className="divide-y divide-ink-700/60">
+                  <tbody>
                     {hosts.map((h) => (
                       <HostRow key={key(h)} h={h} />
                     ))}
                   </tbody>
                 </table>
+                </NBTableWrap>
               </div>
             </>
           )}
