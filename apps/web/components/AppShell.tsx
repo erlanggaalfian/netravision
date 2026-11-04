@@ -172,11 +172,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 pb-24 md:pb-8">{children}</main>
+        <main className="min-w-0 flex-1 pb-20 md:pb-8">{children}</main>
 
         {/* Tab bar mobile */}
         <nav
-          className="nv-glass fixed inset-x-3 bottom-3 z-40 flex rounded-2xl px-1.5 py-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.35)] md:hidden"
+          className="nv-glass fixed inset-x-4 bottom-4 z-40 flex rounded-2xl p-1 shadow-[0_4px_16px_rgba(0,0,0,0.35)] md:hidden"
           aria-label="Navigasi utama"
         >
           {items
@@ -188,13 +188,13 @@ export function AppShell({ children }: { children: ReactNode }) {
                 key={n.href}
                 href={n.href}
                 aria-current={active ? "page" : undefined}
-                className={`relative flex min-h-[60px] flex-1 cursor-pointer flex-col items-center justify-center gap-1 text-[10px] font-medium transition-colors duration-150 active:scale-95 ${
+                className={`relative flex min-h-[52px] flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 text-[10px] font-medium leading-tight transition-colors duration-150 active:scale-95 ${
                   active ? "text-accent-300" : "text-slate-300"
                 }`}
               >
                 {active && (
                   <span
-                    className="absolute inset-x-1 inset-y-0.5 rounded-xl bg-accent-500/20 ring-1 ring-accent-400/30"
+                    className="absolute inset-x-2 inset-y-1 rounded-lg bg-accent-500/20 ring-1 ring-accent-400/30"
                     aria-hidden
                   />
                 )}
