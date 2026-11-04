@@ -114,15 +114,10 @@ function StreamRow({
   const summary = (
     <span className="flex min-w-0 flex-1 items-center gap-3">
       {checkbox}
-      <span className="min-w-0">
-        <span className="block truncate font-medium text-white">{s.name}</span>
-        <span className="mt-0.5 flex flex-wrap gap-1.5">
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[15px] font-bold tracking-tight text-slate-100">{s.name}</span>
+        <span className="mt-1 block">
           <NBBadge tone={online ? "ok" : "bad"}>{online ? "Online" : "Offline"}</NBBadge>
-          {s.brand && <NBBadge tone="muted">{s.brand}</NBBadge>}
-          <NBBadge tone="info">{STORAGE_LABEL[s.storage_mode] ?? s.storage_mode}</NBBadge>
-          <NBBadge tone={s.recording_enabled ? "ok" : "muted"}>
-            Rekaman: {s.recording_enabled ? "Aktif" : "Mati"}
-          </NBBadge>
         </span>
       </span>
     </span>
@@ -140,14 +135,28 @@ function StreamRow({
       </NBButton>
     </div>
   );
+  const details = (
+    <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-[13px]">
+      {s.brand && (
+        <>
+          <dt className="text-slate-400">Brand</dt>
+          <dd className="text-right font-medium text-slate-200">{s.brand}</dd>
+        </>
+      )}
+      <dt className="text-slate-400">Penyimpanan</dt>
+      <dd className="text-right font-medium text-slate-200">{STORAGE_LABEL[s.storage_mode] ?? s.storage_mode}</dd>
+      <dt className="text-slate-400">Rekaman</dt>
+      <dd className="text-right font-medium text-slate-200">{s.recording_enabled ? "Aktif" : "Mati"}</dd>
+      <dt className="text-slate-400">Terakhir terlihat</dt>
+      <dd className="text-right font-medium text-slate-200">{s.last_seen_at ? new Date(s.last_seen_at).toLocaleString("id-ID") : "—"}</dd>
+    </dl>
+  );
   return (
     <>
       <div className="md:hidden">
         <NBAccordion summary={summary}>
-          <div className="space-y-3">
-            <p className="text-xs text-slate-400">
-              Terakhir terlihat: {s.last_seen_at ?? "—"}
-            </p>
+          <div className="space-y-4">
+            {details}
             {actions}
           </div>
         </NBAccordion>
