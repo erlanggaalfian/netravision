@@ -176,7 +176,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         {/* Tab bar mobile */}
         <nav
-          className="nv-glass fixed inset-x-3 bottom-3 z-40 flex rounded-[1.75rem] px-1.5 py-1.5 md:hidden"
+          className="nv-glass fixed inset-x-3 bottom-3 z-40 flex rounded-2xl px-1.5 py-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.35)] md:hidden"
           aria-label="Navigasi utama"
         >
           {items
@@ -194,7 +194,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               >
                 {active && (
                   <span
-                    className="absolute inset-x-1 inset-y-0.5 rounded-full bg-accent-500/[0.16] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] ring-1 ring-accent-400/30"
+                    className="absolute inset-x-1 inset-y-0.5 rounded-xl bg-accent-500/20 ring-1 ring-accent-400/30"
                     aria-hidden
                   />
                 )}
