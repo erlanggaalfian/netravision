@@ -41,7 +41,7 @@ export default function AdminLayout({
                     aria-current={active ? "page" : undefined}
                     className={`nv-glass flex min-h-[42px] shrink-0 cursor-pointer items-center whitespace-nowrap rounded-full px-4 text-sm transition-all duration-150 active:scale-[0.97] ${
                       active
-                        ? "nv-glass-active font-semibold text-white"
+                        ? "nv-glass-active font-semibold text-onaccent"
                         : "font-medium text-slate-300 hover:-translate-y-px hover:text-white"
                     }`}
                   >

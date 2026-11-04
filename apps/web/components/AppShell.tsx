@@ -104,7 +104,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 aria-current={active ? "page" : undefined}
                 className={`nv-glass relative flex min-h-[44px] items-center gap-3 rounded-full px-4 py-2.5 text-sm transition-all duration-150 ease-out active:scale-[0.98] ${
                   active
-                    ? "nv-glass-active font-semibold text-white"
+                    ? "nv-glass-active font-semibold text-onaccent"
                     : "font-medium text-slate-300 hover:-translate-y-px hover:text-white"
                 }`}
               >
@@ -124,7 +124,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <div className="truncate text-sm font-semibold text-slate-100">
                 {user?.username}
               </div>
-              <div className="text-[11px] capitalize text-slate-500">
+              <div className="text-[11px] capitalize text-slate-400">
                 {user?.role}
               </div>
             </div>
@@ -153,7 +153,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <div className="text-sm font-bold tracking-tight text-white">
                 NetraVision
               </div>
-              <div className="flex items-center gap-1 text-[10px] font-medium text-slate-500">
+              <div className="flex items-center gap-1 text-[10px] font-medium text-slate-400">
                 <span
                   className={`h-1 w-1 rounded-full ${connected ? "bg-ok-400" : "bg-warn-400"}`}
                 />

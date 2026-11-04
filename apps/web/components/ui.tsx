@@ -99,13 +99,13 @@ export function Stat({
 }) {
   return (
     <Card className="p-5">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">
         {label}
       </p>
       <p className="tnum mt-1.5 text-[28px] font-bold leading-none tracking-tight text-white">
         {value}
       </p>
-      {sub && <p className="mt-1.5 text-xs text-slate-500">{sub}</p>}
+      {sub && <p className="mt-1.5 text-xs text-slate-400">{sub}</p>}
     </Card>
   );
 }
@@ -153,13 +153,13 @@ export function Field({
         {label}
       </span>
       {children}
-      {hint && <span className="mt-1.5 block text-xs text-slate-500">{hint}</span>}
+      {hint && <span className="mt-1.5 block text-xs text-slate-400">{hint}</span>}
     </label>
   );
 }
 
 const inputCls =
-  "w-full rounded-xl border border-white/10 bg-ink-950 px-3.5 py-2.5 text-slate-100 placeholder:text-slate-500 outline-none transition-all duration-150 ease-out focus:border-accent-400 focus:ring-4 focus:ring-accent-500/15";
+  "w-full rounded-xl border border-white/10 bg-ink-950 px-3.5 py-2.5 text-slate-100 placeholder:text-slate-400 outline-none transition-all duration-150 ease-out focus:border-accent-400 focus:ring-4 focus:ring-accent-500/15";
 
 export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`${inputCls} ${props.className ?? ""}`} />;
@@ -396,7 +396,7 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-dashed border-white/10 bg-ink-900/50 px-4 py-12 text-center text-sm text-slate-500">
+    <div className="rounded-2xl border border-dashed border-white/10 bg-ink-900/50 px-4 py-12 text-center text-sm text-slate-400">
       {icon && <div className="mb-3 flex justify-center">{icon}</div>}
       <p>{text}</p>
       {action && <div className="mt-4 flex justify-center">{action}</div>}

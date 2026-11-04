@@ -10,7 +10,7 @@ import { Button, ErrorBox, TextInput } from "../../components/ui";
 function LensMark({ className = "" }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <rect x="1.5" y="1.5" width="21" height="21" rx="6" fill="#2563eb" />
+      <rect x="1.5" y="1.5" width="21" height="21" rx="6" fill="var(--nv-accent-600)" />
       <circle cx="12" cy="12" r="5.5" stroke="#fff" strokeWidth="1.8" />
       <circle cx="12" cy="12" r="1.8" fill="#fff" />
     </svg>

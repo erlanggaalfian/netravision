@@ -101,12 +101,12 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
         <style>{`@keyframes nv-marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }`}</style>
         {/* Label kamera kiri-atas */}
         <div className="absolute left-3 top-3 flex select-none items-center gap-1.5 rounded-md border border-white/10 bg-black/70 px-2.5 py-1 font-mono text-[10px] text-white">
-          <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+          <span className="h-2 w-2 animate-pulse rounded-full bg-ok-400" />
           <span className="font-bold tracking-wide">LOBBY UTAMA - LIVE</span>
         </div>
         {/* Indikator REC kanan-atas */}
-        <div className="absolute right-3 top-3 flex select-none items-center gap-1.5 rounded-md border border-white/10 bg-black/70 px-2.5 py-1 font-mono text-[10px] font-bold tracking-widest text-rose-500">
-          <span className="h-1.5 w-1.5 animate-ping rounded-full bg-rose-500" />
+        <div className="absolute right-3 top-3 flex select-none items-center gap-1.5 rounded-md border border-white/10 bg-black/70 px-2.5 py-1 font-mono text-[10px] font-bold tracking-widest text-bad-400">
+          <span className="h-1.5 w-1.5 animate-ping rounded-full bg-bad-400" />
           <span>● REC</span>
         </div>
         {/* Jam mock kanan-bawah */}

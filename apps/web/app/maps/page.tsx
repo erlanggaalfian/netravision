@@ -312,13 +312,13 @@ export default function MapsPage() {
         .leaflet-popup-content-wrapper { background: var(--nv-ink-900); color: var(--nv-white); border-radius: 14px; }
         .leaflet-popup-content { margin: 14px 16px; line-height: 1.4; }
         .leaflet-popup-tip { background: var(--nv-ink-900); }
-        .leaflet-bar { border: 1px solid rgba(147,197,253,0.45) !important; border-radius: 999px !important; overflow: hidden; background: linear-gradient(115deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.02) 38%, transparent 55%), linear-gradient(135deg, rgba(31,58,95,0.94), rgba(22,42,72,0.94) 55%, rgba(18,36,62,0.94)) !important; -webkit-backdrop-filter: blur(14px) saturate(140%); backdrop-filter: blur(14px) saturate(140%); box-shadow: inset 0 1px 0 rgba(255,255,255,0.22), 0 10px 26px rgba(2,6,23,0.35) !important; }
-        .leaflet-bar a { width: 28px !important; height: 28px !important; line-height: 28px !important; font-size: 15px !important; background: transparent !important; color: var(--nv-white) !important; border-bottom: 1px solid rgba(147,197,253,0.25) !important; }
+        .leaflet-bar { border: 1px solid var(--nv-ink-700) !important; border-radius: 999px !important; overflow: hidden; background: var(--nv-ink-900) !important; box-shadow: 0 1px 3px rgba(2,6,23,0.35), 0 4px 12px rgba(2,6,23,0.25) !important; }
+        .leaflet-bar a { width: 28px !important; height: 28px !important; line-height: 28px !important; font-size: 15px !important; background: transparent !important; color: var(--nv-white) !important; border-bottom: 1px solid var(--nv-ink-700) !important; }
         .leaflet-bar a:last-child { border-bottom: 0 !important; }
-        .leaflet-bar a:hover { background: rgba(255,255,255,0.12) !important; }
-        [data-theme="light"] .leaflet-bar { border-color: rgba(255,255,255,0.85) !important; background: linear-gradient(115deg, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0.08) 38%, transparent 55%), linear-gradient(135deg, rgba(255,255,255,0.92), rgba(255,255,255,0.85) 55%, rgba(255,255,255,0.82)) !important; box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 10px 26px rgba(30,50,90,0.16) !important; }
-        [data-theme="light"] .leaflet-bar a { border-bottom-color: rgba(16,26,44,0.10) !important; }
-        [data-theme="light"] .leaflet-bar a:hover { background: rgba(16,26,44,0.05) !important; }
+        .leaflet-bar a:hover { background: var(--nv-ink-800) !important; }
+        [data-theme="light"] .leaflet-bar { border-color: var(--nv-ink-700) !important; background: var(--nv-ink-900) !important; box-shadow: 0 1px 3px rgba(30,50,90,0.12), 0 4px 12px rgba(30,50,90,0.10) !important; }
+        [data-theme="light"] .leaflet-bar a { border-bottom-color: var(--nv-ink-700) !important; }
+        [data-theme="light"] .leaflet-bar a:hover { background: var(--nv-ink-800) !important; }
         @media (max-width: 767px) { .leaflet-top .leaflet-control-zoom { margin-top: 54px !important; } }
       `}</style>
       <div className="px-4 pt-5 md:px-5 md:pt-7">

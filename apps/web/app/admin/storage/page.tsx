@@ -172,7 +172,7 @@ export default function AdminStoragePage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-white">Koneksi Google Drive</p>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-sm text-slate-400">
               {conn?.connected ? (
                 <>
                   Terhubung{conn.email && conn.email !== "terhubung" ? ` sebagai ${conn.email}` : ""} — rekaman ter-upload otomatis.
@@ -217,17 +217,17 @@ export default function AdminStoragePage() {
                   </span>
                   {i === 0 && <Badge tone="info">Default</Badge>}
                 </p>
-                <p className="mt-1 break-all font-mono text-xs text-slate-500">
+                <p className="mt-1 break-all font-mono text-xs text-slate-400">
                   ID: {f.folder_id}
                 </p>
-                <p className="mt-0.5 break-all text-xs text-slate-500">
+                <p className="mt-0.5 break-all text-xs text-slate-400">
                   Mount: {f.local_path || "—"}
                   {!f.local_path_custom && data.staging_default && (
                     <span> (default)</span>
                   )}
                 </p>
                 {f.updated_at && (
-                  <p className="mt-1 text-xs text-slate-500">
+                  <p className="mt-1 text-xs text-slate-400">
                     Diperbarui {new Date(f.updated_at).toLocaleString("id-ID")}
                     {f.updated_by ? ` oleh ${f.updated_by}` : ""}
                   </p>
@@ -313,7 +313,7 @@ export default function AdminStoragePage() {
       {/* Modal Hubungkan Google Drive */}
       {showConnect && (
         <Modal title="Hubungkan Google Drive" onClose={() => setShowConnect(false)}>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-slate-400">
             Sekali saja — tanpa SSH, tanpa Cloud Console.
           </p>
           <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-400">
@@ -338,7 +338,7 @@ export default function AdminStoragePage() {
             <Field label="Token rclone" hint='Mulai dengan {"access_token": ...'>
               <textarea
                 rows={4}
-                className="w-full rounded-xl border border-white/10 bg-ink-950 px-3.5 py-2.5 font-mono text-xs text-slate-100 placeholder:text-slate-500 outline-none transition-colors focus:border-accent-400"
+                className="w-full rounded-xl border border-white/10 bg-ink-950 px-3.5 py-2.5 font-mono text-xs text-slate-100 placeholder:text-slate-400 outline-none transition-colors focus:border-accent-400"
                 placeholder='{"access_token":"ya29...","token_type":"Bearer","refresh_token":"1//...","expiry":"..."}'
                 value={token}
                 onChange={(e) => setToken(e.target.value)}

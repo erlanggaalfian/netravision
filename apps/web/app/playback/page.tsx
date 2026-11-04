@@ -250,7 +250,7 @@ function PlaybackPanel({
                   height="28"
                   viewBox="0 0 20 20"
                   fill="none"
-                  className="text-neutral-500"
+                  className="text-neutral-400"
                   aria-hidden
                 >
                   <path
@@ -404,7 +404,7 @@ export default function PlaybackPage() {
                           aria-pressed={on}
                           className={`nv-glass flex h-11 items-center gap-2 rounded-full px-3.5 text-xs font-medium transition active:scale-95 ${
                             on
-                              ? "nv-glass-active font-semibold text-white"
+                              ? "nv-glass-active font-semibold text-onaccent"
                               : "text-neutral-300 hover:-translate-y-px hover:text-white"
                           }`}
                         >
@@ -449,7 +449,7 @@ export default function PlaybackPage() {
                       onClick={() => setGridCols(g.cols)}
                       className={`flex h-11 min-w-[52px] items-center justify-center rounded-full px-3 text-xs font-semibold transition active:scale-95 ${
                         gridCols === g.cols
-                          ? "nv-glass-active text-white"
+                          ? "nv-glass-active text-onaccent"
                           : "text-neutral-400 hover:text-white"
                       }`}
                     >

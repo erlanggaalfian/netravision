@@ -94,7 +94,7 @@ export default function AdminAccessPage() {
                 onClick={() => setArah(a)}
                 className={`min-h-[44px] rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
                   arah === a
-                    ? "bg-accent-600 text-white"
+                    ? "bg-accent-600 text-onaccent"
                     : "text-slate-400 hover:text-white"
                 }`}
               >
@@ -120,7 +120,7 @@ export default function AdminAccessPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-ink-700 text-xs uppercase tracking-wider text-slate-500">
+                <tr className="border-b border-ink-700 text-xs uppercase tracking-wider text-slate-400">
                   <th scope="col" className="px-3 py-3 font-semibold">Akun</th>
                   <th scope="col" className="px-3 py-3 font-semibold">Peran</th>
                   <th scope="col" className="px-3 py-3 text-center font-semibold">Aksi</th>
@@ -151,7 +151,7 @@ export default function AdminAccessPage() {
                   <tr>
                     <td
                       colSpan={3}
-                      className="px-3 py-8 text-center text-sm text-slate-500"
+                      className="px-3 py-8 text-center text-sm text-slate-400"
                     >
                       Tidak ada akun yang cocok.
                     </td>
@@ -164,7 +164,7 @@ export default function AdminAccessPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-ink-700 text-xs uppercase tracking-wider text-slate-500">
+                <tr className="border-b border-ink-700 text-xs uppercase tracking-wider text-slate-400">
                   <th scope="col" className="px-3 py-3 font-semibold">Kamera</th>
                   <th scope="col" className="px-3 py-3 font-semibold">Status</th>
                   <th scope="col" className="px-3 py-3 text-center font-semibold">
@@ -201,7 +201,7 @@ export default function AdminAccessPage() {
                   <tr>
                     <td
                       colSpan={4}
-                      className="px-3 py-8 text-center text-sm text-slate-500"
+                      className="px-3 py-8 text-center text-sm text-slate-400"
                     >
                       Tidak ada kamera yang cocok.
                     </td>
@@ -424,7 +424,7 @@ function AccessByCameraModal({
                 className="h-5 w-5 shrink-0 accent-accent-500"
               />
               <span className="flex-1 text-sm text-slate-200">
-                Tamu <span className="text-slate-500">(semua sesi guest)</span>
+                Tamu <span className="text-slate-400">(semua sesi guest)</span>
               </span>
               <Badge tone="muted">Tamu</Badge>
             </label>
