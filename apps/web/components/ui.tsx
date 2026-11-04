@@ -291,13 +291,13 @@ export function Modal({
 }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-ink-950/70 p-0 sm:items-center sm:p-6"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-0 sm:items-center sm:p-6"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
     >
       <div
-        className={`nv-pop max-h-[92dvh] w-full overflow-y-auto rounded-t-2xl border border-white/10 bg-ink-900 p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl sm:rounded-2xl sm:p-6 ${
+        className={`nv-pop max-h-[92dvh] w-full overflow-y-auto rounded-t-2xl border border-white/10 bg-ink-900 p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:rounded-2xl sm:p-6 ${
           wide ? "sm:max-w-2xl" : "sm:max-w-lg"
         }`}
         onClick={(e) => e.stopPropagation()}

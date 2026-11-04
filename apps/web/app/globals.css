@@ -187,16 +187,21 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Pop-in halus untuk dialog. */
+/* Dialog pop-in, kontrak vibekoding (design-system.md §3.4):
+   200ms cubic-bezier(0,0,.2,1), naik dari bawah. */
 @keyframes nv-pop {
   from {
     opacity: 0;
-    transform: translateY(8px) scale(0.98);
+    transform: translateY(40px);
   }
   to {
     opacity: 1;
     transform: none;
   }
+}
+.nv-pop {
+  animation: nv-pop 200ms cubic-bezier(0, 0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04);
 }
 .nv-pop {
   animation: nv-pop 0.18s ease-out;
@@ -265,7 +270,7 @@ textarea {
 
 /* Shadow kartu adaptif tema: dalam di mode gelap, lembut di mode terang. */
 .card-shadow {
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04);
 }
 [data-theme="light"] .card-shadow {
   box-shadow:
@@ -291,104 +296,37 @@ textarea {
   display: none;
 }
 
-/* ---- Kaca cair (liquid glass): gelembung transparan ala iOS.
-   Latar sangat transparan + blur & saturasi latar + tepi cahaya specular
-   di sisi atas + bayangan lembut. Di mode gelap kacanya BIRU DATAR tanpa gradasi (seperti gelembung
-   Admin aktif di dock bawah); gradasi kaca putih hanya di tema terang.
-   Warna kaca memakai rgba putih literal (tidak ikut token tema) agar
-   efek kacanya konsisten; varian tema terang menyesuaikan kekuatannya. */
+/* ---- Permukaan panel: PADAT, ikut token tema (tanpa blur, tanpa gradasi).
+   Alasan: panel ini melayang di atas peta/video sehingga butuh latar solid
+   agar teks terbaca. Warna dari token --nv-ink (identitas aplikasi), bukan
+   rgba literal. Aksen hanya di satu tempat: tab yang sedang dipilih. */
 .nv-glass {
-  background: rgba(59, 130, 246, 0.16);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
-  backdrop-filter: blur(18px) saturate(140%);
-  border: 1px solid rgba(96, 165, 250, 0.35);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    0 14px 34px rgba(2, 6, 23, 0.25);
+  background: var(--nv-ink-900);
+  border: 1px solid var(--nv-ink-700);
 }
 [data-theme="light"] .nv-glass {
-  background:
-    linear-gradient(
-      115deg,
-      rgba(255, 255, 255, 0.55) 0%,
-      rgba(255, 255, 255, 0.08) 38%,
-      transparent 55%
-    ),
-    linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.66),
-      rgba(255, 255, 255, 0.34) 55%,
-      rgba(255, 255, 255, 0.2)
-    );
-  border-color: rgba(255, 255, 255, 0.8);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    inset 0 -1px 0 rgba(16, 26, 44, 0.05),
-    0 14px 34px rgba(30, 50, 90, 0.13);
+  background: var(--nv-white);
+  border-color: var(--nv-slate-200);
 }
-/* Varian aktif: kaca beraksen biru (tab yang sedang dipilih). */
+/* Tab aktif: satu-satunya pemakaian aksen (teks pendamping sudah putih). */
 .nv-glass-active {
-  background: rgba(59, 130, 246, 0.38);
-  border-color: rgba(147, 197, 253, 0.6);
+  background: var(--nv-accent-600);
+  border-color: var(--nv-accent-500);
 }
 [data-theme="light"] .nv-glass-active {
-  background:
-    linear-gradient(
-      115deg,
-      rgba(255, 255, 255, 0.5) 0%,
-      rgba(255, 255, 255, 0.08) 38%,
-      transparent 55%
-    ),
-    linear-gradient(
-      135deg,
-      rgba(29, 78, 216, 0.22),
-      rgba(29, 78, 216, 0.11) 55%,
-      rgba(29, 78, 216, 0.06)
-    );
-  border-color: rgba(29, 78, 216, 0.35);
+  background: var(--nv-accent-600);
+  border-color: var(--nv-accent-600);
 }
 
-/* Kaca buram (frost): gelembung seperti .nv-glass tetapi TIDAK tembus
-   pandang — isinya hampir padat, latar hanya diburamkan kuat. Dipakai
-   untuk elemen yang melayang di atas peta/video agar teksnya selalu
-   terbaca. Mode gelap: biru datar pekat; terang: putih pekat. */
+/* Panel kontrol melayang di atas peta/video: sama padat, dengan bayangan
+   tipis sebagai penanda elevasi (memisahkan kontrol dari peta). */
 .nv-frost {
-  background:
-    linear-gradient(
-      115deg,
-      rgba(255, 255, 255, 0.14) 0%,
-      rgba(255, 255, 255, 0.02) 38%,
-      transparent 55%
-    ),
-    linear-gradient(
-      135deg,
-      rgba(31, 58, 95, 0.94),
-      rgba(22, 42, 72, 0.94) 55%,
-      rgba(18, 36, 62, 0.94)
-    );
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-  backdrop-filter: blur(14px) saturate(140%);
-  border: 1px solid rgba(147, 197, 253, 0.45);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    0 10px 26px rgba(2, 6, 23, 0.35);
+  background: var(--nv-ink-900);
+  border: 1px solid var(--nv-ink-700);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04);
 }
 [data-theme="light"] .nv-frost {
-  background:
-    linear-gradient(
-      115deg,
-      rgba(255, 255, 255, 0.5) 0%,
-      rgba(255, 255, 255, 0.08) 38%,
-      transparent 55%
-    ),
-    linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.92),
-      rgba(255, 255, 255, 0.85) 55%,
-      rgba(255, 255, 255, 0.82)
-    );
-  border-color: rgba(255, 255, 255, 0.85);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 10px 26px rgba(30, 50, 90, 0.16);
+  background: var(--nv-white);
+  border-color: var(--nv-slate-200);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04);
 }

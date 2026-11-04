@@ -219,7 +219,7 @@ export function FocusModal({ stream, onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/85 p-3 sm:p-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-3 sm:p-6"
       onClick={onClose}
     >
       <div
@@ -394,7 +394,7 @@ export function FocusModal({ stream, onClose }: Props) {
                 {fs && (
                   <button
                     onClick={rotate}
-                    className={`flex h-11 w-11 items-center justify-center rounded-xl text-white backdrop-blur-sm transition active:scale-95 ${rotated ? "bg-accent-400/40 hover:bg-accent-400/50" : "bg-black/50 hover:bg-black/70"}`}
+                    className={`flex h-11 w-11 items-center justify-center rounded-xl text-white transition active:scale-95 ${rotated ? "bg-accent-400/40 hover:bg-accent-400/50" : "bg-black/50 hover:bg-black/70"}`}
                     aria-label={rotated ? "Ikuti rotasi HP" : "Putar ke landscape"}
                     aria-pressed={rotated}
                     title={rotated ? "Ikuti rotasi HP" : "Putar ke landscape"}
@@ -421,7 +421,7 @@ export function FocusModal({ stream, onClose }: Props) {
                 )}
                 <button
                   onClick={toggleFs}
-                  className="flex h-11 w-11 items-center justify-center rounded-xl bg-black/50 text-white backdrop-blur-sm transition hover:bg-black/70 active:scale-95"
+                  className="flex h-11 w-11 items-center justify-center rounded-xl bg-black/70 text-white transition hover:bg-black/70 active:scale-95"
                   aria-label={fs ? "Keluar layar penuh" : "Layar penuh"}
                   title={fs ? "Keluar layar penuh" : "Layar penuh"}
                 >
