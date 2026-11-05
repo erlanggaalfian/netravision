@@ -11,6 +11,7 @@ interface Props {
    Selalu gelap (area video), mengikuti 16 field AdConfig. */
 export function AdBanner({ config, className = "" }: Props) {
   if (!config.is_active) return null;
+  if (!config.marquee_text?.trim() && !config.image_url?.trim()) return null;
 
   const bgAlpha = Math.min(1, Math.max(0, config.bg_opacity));
   const imgAlpha = Math.min(1, Math.max(0, config.image_opacity));
