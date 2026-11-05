@@ -136,3 +136,10 @@ export function withToken(url: string | null | undefined): string | undefined {
   if (!t) return url;
   return url + (url.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(t);
 }
+
+/* Normalisasi URL upload lama: /uploads/... -> /api/uploads/... agar lewat
+   reverse-proxy. Upload baru sudah memakai /api/uploads/... langsung. */
+export function normalizeUploadUrl(url: string): string {
+  if (url.startsWith("/uploads/")) return "/api" + url;
+  return url;
+}

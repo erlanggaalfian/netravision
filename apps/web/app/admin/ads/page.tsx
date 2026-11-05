@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { AdConfig } from "../../../lib/types";
-import { ApiError, api, apiFetch } from "../../../lib/api";
+import { ApiError, api, apiFetch, normalizeUploadUrl } from "../../../lib/api";
 import { ErrorBox, Spinner } from "../../../components/ui";
 import {
   NBButton,
@@ -138,7 +138,7 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
           {cfg.image_url && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={cfg.image_url}
+              src={normalizeUploadUrl(cfg.image_url)}
               alt="Logo sponsor"
               className="w-auto shrink-0 rounded object-contain"
               style={{
@@ -429,7 +429,7 @@ export default function AdminAdsPage() {
                   {cfg.image_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={cfg.image_url}
+                      src={normalizeUploadUrl(cfg.image_url)}
                       alt="Pratinjau logo"
                       className="max-h-14 object-contain"
                     />

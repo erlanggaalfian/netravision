@@ -1,6 +1,7 @@
 "use client";
 
 import type { AdConfig } from "../lib/types";
+import { normalizeUploadUrl } from "../lib/api";
 
 interface Props {
   config: AdConfig;
@@ -44,7 +45,7 @@ export function AdBanner({ config, className = "" }: Props) {
         {config.image_url && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={config.image_url}
+            src={normalizeUploadUrl(config.image_url)}
             alt=""
             aria-hidden
             className="shrink-0 rounded object-contain"
