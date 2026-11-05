@@ -4,12 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { playWhep, stopWhep } from "../lib/whep";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { withToken } from "../lib/api";
+import { AdBanner } from "./AdBanner";
 import { Badge } from "./ui";
-import type { Stream } from "../lib/types";
+import type { AdConfig, Stream } from "../lib/types";
 
 interface Props {
   stream: Stream;
   onExpand: (stream: Stream) => void;
+  ad?: AdConfig | null;
 }
 
 /* Tile kamera: TIDAK PERNAH dilipat (aturan yang dikunci).
@@ -17,7 +19,7 @@ interface Props {
    Kontrol overlay: tap-toggle di layar sentuh (class vk-touch-toggle).
    Visual konsol NVR: rounded-2xl, ring status 2px (ok/warn/bad),
    scrim netral untuk kontrol, empty/offline state rapi (ikon SVG + teks). */
-export function CameraTile({ stream, onExpand }: Props) {
+export function CameraTile({ stream, onExpand, ad }: Props) {
   const boxRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -182,6 +184,7 @@ export function CameraTile({ stream, onExpand }: Props) {
       )}
 
       {/* Overlay kontrol: hanya tombol aksi (nama + status ada di footer kartu) */}
+      {ad?.is_active && <AdBanner config={ad} />}
       <div className="cam-controls absolute inset-x-0 bottom-0 flex items-center justify-end gap-2 bg-gradient-to-t from-black/85 via-black/40 to-transparent px-3 pb-3 pt-8">
         <div className="flex shrink-0 items-center gap-2">
           {fs && (

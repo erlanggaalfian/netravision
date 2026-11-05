@@ -15,7 +15,7 @@ import {
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { useCameraStatus } from "../../hooks/useCameraStatus";
-import type { Stream } from "../../lib/types";
+import type { AdConfig, Stream } from "../../lib/types";
 
 /* Monitor kustom: tata letak kisi tersimpan (pengganti custom-monitor v2.0).
    Disimpan di localStorage key "nv_monitors". */
@@ -118,6 +118,7 @@ function GroupSections({
   layoutIds,
   colsClass,
   onExpand,
+  ad,
 }: {
   groups: { id: number; name: string; stream_ids: number[] }[] | null;
   loading: boolean;
@@ -126,6 +127,7 @@ function GroupSections({
   layoutIds: number[];
   colsClass: string;
   onExpand: (s: Stream) => void;
+  ad?: AdConfig | null;
 }) {
   if (loading || groups === null) {
     return (
@@ -182,7 +184,7 @@ function GroupSections({
           </h2>
           <div className={`grid gap-4 ${colsClass}`}>
             {sec.streams.map((s) => (
-              <CameraTile key={s.id} stream={s} onExpand={onExpand} />
+              <CameraTile key={s.id} stream={s} onExpand={onExpand} ad={ad} />
             ))}
           </div>
         </section>
@@ -205,6 +207,7 @@ export default function MonitorsPage() {
   const [editing, setEditing] = useState<MonitorLayout | null>(null);
   const [focus, setFocus] = useState<Stream | null>(null);
   const [groupMode, setGroupMode] = useState(false);
+  const [ad, setAd] = useState<AdConfig | null>(null);
   const [groups, setGroups] = useState<{ id: number; name: string; stream_ids: number[] }[] | null>(null);
   const [groupsError, setGroupsError] = useState<string | null>(null);
   const [groupsLoading, setGroupsLoading] = useState(false);
@@ -239,6 +242,23 @@ export default function MonitorsPage() {
       setLayouts(loadLayouts());
     }
   }, [loading, user, router, load]);
+
+  /* Config iklan: sekali per halaman, dipakai semua tile. */
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    api
+      .get<AdConfig>("/ad-config")
+      .then((c) => {
+        if (!cancelled) setAd(c);
+      })
+      .catch(() => {
+        /* iklan opsional; abaikan bila gagal */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   const persist = (next: MonitorLayout[]) => {
     setLayouts(next);
@@ -450,13 +470,14 @@ export default function MonitorsPage() {
                   layoutIds={openLayout.streamIds}
                   colsClass={COLS_CLASS[openLayout.cols] ?? COLS_CLASS[2]}
                   onExpand={setFocus}
+                  ad={ad}
                 />
               ) : (
                 <div
                   className={`grid gap-4 ${COLS_CLASS[openLayout.cols] ?? COLS_CLASS[2]}`}
                 >
                   {openStreams.map((s) => (
-                    <CameraTile key={s.id} stream={s} onExpand={setFocus} />
+                    <CameraTile key={s.id} stream={s} onExpand={setFocus} ad={ad} />
                   ))}
                 </div>
               )}

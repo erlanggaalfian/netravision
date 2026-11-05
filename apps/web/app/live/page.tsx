@@ -9,7 +9,7 @@ import { Button, Spinner } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { useCameraStatus } from "../../hooks/useCameraStatus";
-import type { Stream } from "../../lib/types";
+import type { AdConfig, Stream } from "../../lib/types";
 
 type StatusFilter = "all" | "online" | "offline";
 
@@ -54,6 +54,7 @@ export default function LivePage() {
   const [streams, setStreams] = useState<Stream[]>([]);
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [ad, setAd] = useState<AdConfig | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [gridKey, setGridKey] = useState("4");
@@ -82,6 +83,23 @@ export default function LivePage() {
     }
     if (user) load();
   }, [loading, user, router, load]);
+
+  /* Config iklan: sekali per halaman, dipakai semua tile. */
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    api
+      .get<AdConfig>("/ad-config")
+      .then((c) => {
+        if (!cancelled) setAd(c);
+      })
+      .catch(() => {
+        /* iklan opsional; abaikan bila gagal */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   /* Override status dari WebSocket bila tersedia. */
   const merged = useMemo(
@@ -316,7 +334,7 @@ export default function LivePage() {
         ) : (
           <div className={`grid gap-4 ${GRID_CLASS[gridCols] ?? GRID_CLASS[2]}`}>
             {filtered.map((s) => (
-              <CameraTile key={s.id} stream={s} onExpand={setFocus} />
+              <CameraTile key={s.id} stream={s} onExpand={setFocus} ad={ad} />
             ))}
           </div>
         )}
