@@ -260,10 +260,11 @@ def create_app() -> FastAPI:
     # /ws TANPA prefix /api (kontrak).
     app.include_router(ws.router)
     # File statis untuk gambar iklan yang diunggah.
+    # Prefix /api agar lewat reverse-proxy Apache yang sama seperti /api/* (v2: /api/static/ads/...).
     from fastapi.staticfiles import StaticFiles
 
     Path("data/uploads").mkdir(parents=True, exist_ok=True)
-    app.mount("/uploads", StaticFiles(directory="data/uploads"), name="uploads")
+    app.mount("/api/uploads", StaticFiles(directory="data/uploads"), name="uploads")
     return app
 
 

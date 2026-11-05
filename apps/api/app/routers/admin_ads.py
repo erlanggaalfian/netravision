@@ -124,4 +124,4 @@ async def upload_ad_image(image: UploadFile = File(...)):
     if len(content) > 5 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="ukuran maksimal 5 MB")
     dest.write_bytes(content)
-    return {"image_url": f"/uploads/ads/{fname}"}
+    return {"image_url": f"/api/uploads/ads/{fname}"}
