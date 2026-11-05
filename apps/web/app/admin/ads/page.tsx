@@ -74,8 +74,8 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
           : "flex-start",
   };
   if (cfg.box_width >= 100) {
-    bannerStyle.left = 10;
-    bannerStyle.right = 10;
+    bannerStyle.left = 0;
+    bannerStyle.right = 0;
   } else {
     bannerStyle.width = `${cfg.box_width}%`;
     if (cfg.text_align === "left") bannerStyle.left = 10;
@@ -96,8 +96,26 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
           Widescreen Monitor (16:9)
         </span>
       </div>
-      <div className="nv-stage relative aspect-video w-full overflow-hidden rounded-xl border border-white/10">
+      <div className="nv-stage relative aspect-video w-full overflow-hidden rounded-xl border border-white/10 bg-gradient-to-br from-ink-800 via-ink-900 to-black">
         <style>{`@keyframes nv-marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }`}</style>
+        {/* Pola grid halus ala feed kamera */}
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.15]"
+          style={{
+            backgroundImage:
+              "linear-gradient(rgba(255,255,255,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.12) 1px, transparent 1px)",
+            backgroundSize: "48px 48px",
+          }}
+          aria-hidden
+        />
+        {/* Ikon kamera tengah (placeholder feed) */}
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-500">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <path d="M3 8.5A1.5 1.5 0 014.5 7h9A1.5 1.5 0 0115 8.5v6a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 013 14.5v-6z" stroke="currentColor" strokeWidth="1.4" />
+            <path d="M15 10.5l5-3v9l-5-3" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+          </svg>
+          <span className="text-xs font-medium">Pratinjau video</span>
+        </div>
         {/* Label kamera kiri-atas */}
         <div className="absolute left-3 top-3 flex select-none items-center gap-1.5 rounded-md border border-white/10 bg-black/70 px-2.5 py-1 font-mono text-[10px] text-white">
           <span className="h-2 w-2 animate-pulse rounded-full bg-ok-400" />
@@ -134,7 +152,7 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
               className="flex whitespace-nowrap"
               style={{ animation: `nv-marquee ${duration}s linear infinite` }}
             >
-              {[0, 1].map((i) => (
+              {[0, 1, 2, 3].map((i) => (
                 <span
                   key={i}
                   style={{

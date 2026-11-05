@@ -60,7 +60,7 @@ export function AdBanner({ config, className = "" }: Props) {
               className="flex w-max whitespace-nowrap"
               style={{ animation: `nv-marquee ${duration}s linear infinite` }}
             >
-              {[0, 1].map((i) => (
+              {[0, 1, 2, 3].map((i) => (
                 <span
                   key={i}
                   className="pr-16"
