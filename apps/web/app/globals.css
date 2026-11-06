@@ -209,6 +209,22 @@ body {
   animation: nv-pop 0.18s ease-out;
 }
 
+/* Lampu status: titik berdenyut lembut seperti lampu menyala, glow
+   membesar-mengecil perlahan mengikuti warna titik (currentColor,
+   jadi elemen pemakai wajib membawa text-* sewarna bg-* titiknya). */
+@keyframes nv-lamp {
+  0%,
+  100% {
+    box-shadow: 0 0 2px 0 color-mix(in srgb, currentColor 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 10px 3px color-mix(in srgb, currentColor 65%, transparent);
+  }
+}
+.nv-lamp {
+  animation: nv-lamp 2.4s ease-in-out infinite;
+}
+
 /* Cegah auto-zoom iOS pada input (pola mobile yang dikunci). */
 input,
 select,
