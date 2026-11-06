@@ -203,7 +203,7 @@ export default function LivePage() {
               </span>
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold text-slate-400">
-                  {isDesktop ? "Grid:" : "Kamera:"}
+                  {isDesktop ? "Grid:" : "Tampilkan:"}
                 </span>
                 <div
                   className="flex items-center gap-1 rounded-full border border-ink-700 bg-ink-950 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
@@ -225,13 +225,15 @@ export default function LivePage() {
                           : `Tampilkan ${g.label} kamera`
                       }
                       onClick={() => setGridKey(g.key)}
-                      className={`flex h-10 min-w-[48px] items-center justify-center rounded-full px-3 text-xs font-bold transition-all duration-200 active:scale-95 ${
+                      className={`flex h-10 min-w-[48px] items-center justify-center whitespace-nowrap rounded-full px-3 text-xs font-bold transition-all duration-200 active:scale-95 ${
                         activeOpt.key === g.key
                           ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
                           : "text-neutral-400 hover:bg-white/5 hover:text-white"
                       }`}
                     >
-                      {g.label}
+                      {/* Angka polos menebak-nebak: tulis satuannya langsung
+                          di tombol HP ("4 kamera"), bukan cuma "4". */}
+                      {isDesktop ? g.label : `${g.label} kamera`}
                     </button>
                   ))}
                 </div>
