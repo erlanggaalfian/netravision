@@ -73,8 +73,8 @@ function EmptyCard({ title, desc }: { title: string; desc: string }) {
           />
         </svg>
       </div>
-      <p className="text-lg font-extrabold tracking-tight text-white">{title}</p>
-      <p className="mx-auto mt-1.5 max-w-xs text-[13px] leading-relaxed text-neutral-400">
+      <p className="text-lg font-extrabold tracking-tight text-slate-100">{title}</p>
+      <p className="mx-auto mt-1.5 max-w-xs text-[13px] leading-relaxed text-slate-400">
         {desc}
       </p>
     </div>
@@ -177,9 +177,10 @@ function PlaybackPanel({
   );
 
   return (
-    <div className="flex min-w-0 flex-col gap-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-base font-extrabold tracking-tight text-white">
+    <div className="nv-panel-modern min-w-0 overflow-hidden">
+      {/* Header panel: nama kamera + Muat, di dalam panel */}
+      <div className="flex items-center justify-between gap-2 border-b border-slate-200/10 px-4 py-3">
+        <span className="truncate text-base font-extrabold tracking-tight text-slate-100">
           {streamName}
         </span>
         <Button
@@ -191,48 +192,59 @@ function PlaybackPanel({
         </Button>
       </div>
 
-      {error && <ErrorBox message={error} />}
+      {error && (
+        <div className="px-4 pt-3">
+          <ErrorBox message={error} />
+        </div>
+      )}
 
       {phase === "idle" && (
-        <EmptyCard
-          title="Menyiapkan linimasa…"
-          desc="Sebentar ya, kami sedang mengambil jadwal rekaman kamera ini."
-        />
+        <div className="p-4">
+          <EmptyCard
+            title="Menyiapkan linimasa…"
+            desc="Sebentar ya, kami sedang mengambil jadwal rekaman kamera ini."
+          />
+        </div>
       )}
 
       {phase === "loading" && (
-        <div className="nv-panel-modern animate-pulse p-4 motion-reduce:animate-none">
+        <div className="animate-pulse p-4 motion-reduce:animate-none">
           <div className="h-10 rounded-xl bg-ink-800" />
           <div className="mt-3 aspect-video rounded-xl bg-ink-800" />
         </div>
       )}
 
       {phase === "not-implemented" && (
-        <EmptyCard
-          title="Linimasa belum tersedia"
-          desc="Linimasa rekaman tersedia mulai Fase 3. Coba lagi nanti."
-        />
+        <div className="p-4">
+          <EmptyCard
+            title="Linimasa belum tersedia"
+            desc="Linimasa rekaman tersedia mulai Fase 3. Coba lagi nanti."
+          />
+        </div>
       )}
 
       {phase === "error" && !error && (
-        <EmptyCard
-          title="Terjadi kesalahan"
-          desc="Gagal memuat linimasa. Coba muat ulang."
-        />
+        <div className="p-4">
+          <EmptyCard
+            title="Terjadi kesalahan"
+            desc="Gagal memuat linimasa. Coba muat ulang."
+          />
+        </div>
       )}
 
       {phase === "ready" && timeline && (
-        <div className="flex flex-col gap-3">
-          <Card className="!rounded-xl !p-3 nv-panel-modern">
+        <>
+          {/* Linimasa */}
+          <div className="border-b border-slate-200/10 px-4 py-3">
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-semibold text-neutral-400">
+              <span className="text-xs font-semibold text-slate-400">
                 {timeline.date}
               </span>
-              <span className="rounded-full border border-white/8 bg-ink-950 px-2.5 py-[3px] text-[11px] font-semibold text-neutral-400">
+              <span className="rounded-full border border-slate-200/10 bg-ink-950 px-2.5 py-[3px] text-[11px] font-semibold text-slate-400">
                 {timeline.entries.length} segmen
               </span>
             </div>
-            <div className="relative h-12 overflow-hidden rounded-full bg-ink-950 ring-1 ring-white/5">
+            <div className="relative h-12 overflow-hidden rounded-full bg-ink-950 ring-1 ring-slate-200/10">
               {Array.from({ length: 25 }).map((_, h) => (
                 <span
                   key={h}
@@ -262,18 +274,19 @@ function PlaybackPanel({
                 );
               })}
               {timeline.entries.length === 0 && (
-                <div className="flex h-full items-center justify-center text-[11px] text-neutral-400">
+                <div className="flex h-full items-center justify-center text-[11px] text-slate-400">
                   Tidak ada rekaman pada tanggal ini
                 </div>
               )}
             </div>
-          </Card>
+          </div>
 
-          <div className="nv-panel-modern overflow-hidden">
-            <div className="flex items-center justify-between gap-2 border-b border-white/8 px-4 py-3">
-              <span className="text-[15px] font-extrabold tracking-tight text-white">Pratinjau</span>
+          {/* Pratinjau */}
+          <div>
+            <div className="flex items-center justify-between gap-2 border-b border-slate-200/10 px-4 py-3">
+              <span className="text-[15px] font-extrabold tracking-tight text-slate-100">Pratinjau</span>
               {active && (
-                <span className="truncate text-xs font-medium text-neutral-400">
+                <span className="truncate text-xs font-medium text-slate-400">
                   {fmtTime(active.start)} – {fmtTime(active.end)}
                 </span>
               )}
@@ -295,7 +308,7 @@ function PlaybackPanel({
                     height="28"
                     viewBox="0 0 20 20"
                     fill="none"
-                    className="text-neutral-400"
+                    className="text-slate-400"
                     aria-hidden
                   >
                     <path
@@ -306,7 +319,7 @@ function PlaybackPanel({
                       strokeLinejoin="round"
                     />
                   </svg>
-                  <p className="text-xs text-neutral-400">
+                  <p className="text-xs text-slate-400">
                     {active
                       ? "Memuat video…"
                       : "Klik salah satu segmen pada linimasa untuk memutar."}
@@ -315,8 +328,8 @@ function PlaybackPanel({
               )}
             </div>
             {active && (
-              <div className="flex items-center justify-between gap-2 border-t border-white/8 px-4 py-3">
-                <span className="truncate text-xs text-neutral-400">
+              <div className="flex items-center justify-between gap-2 border-t border-slate-200/10 px-4 py-3">
+                <span className="truncate text-xs text-slate-400">
                   {active.has_event && (
                     <span className="mr-2 rounded-full bg-warn-400/15 px-2 py-0.5 text-[10px] font-semibold text-warn-400">
                       Event
@@ -334,7 +347,7 @@ function PlaybackPanel({
               </div>
             )}
           </div>
-        </div>
+        </>
       )}
     </div>
   );
@@ -420,13 +433,13 @@ export default function PlaybackPage() {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
               {!multi ? (
                 <label className="flex flex-1 flex-col gap-1.5">
-                  <span className="text-xs font-semibold text-neutral-400">
+                  <span className="text-xs font-semibold text-slate-400">
                     Kamera
                   </span>
                   <select
                     value={streamId}
                     onChange={(e) => setStreamId(e.target.value)}
-                    className="nv-glass h-11 rounded-xl px-4 text-base text-white outline-none transition-all duration-150 focus:border-accent-400 focus:shadow-[0_0_0_4px_rgba(0,151,252,0.15)]"
+                    className="h-11 rounded-xl border border-slate-200/15 bg-ink-950 px-4 text-base text-slate-100 outline-none transition-all duration-150 focus:border-accent-400 focus:ring-4 focus:ring-accent-500/15"
                   >
                     {streams.map((s) => (
                       <option key={s.id} value={s.id}>
@@ -437,10 +450,10 @@ export default function PlaybackPage() {
                 </label>
               ) : (
                 <div className="flex flex-1 flex-col gap-1.5">
-                  <span className="text-xs font-semibold text-neutral-400">
+                  <span className="text-xs font-semibold text-slate-400">
                     Kamera ({multiIds.length} dipilih)
                   </span>
-                  <div className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto rounded-xl bg-ink-950/60 p-2 ring-1 ring-white/5">
+                  <div className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto rounded-xl bg-ink-950/60 p-2 ring-1 ring-slate-200/10">
                     {streams.map((s) => {
                       const on = multiIds.includes(s.id);
                       return (
@@ -448,10 +461,10 @@ export default function PlaybackPage() {
                           key={s.id}
                           onClick={() => toggleMultiId(s.id)}
                           aria-pressed={on}
-                          className={`nv-glass flex h-11 items-center gap-2 rounded-full px-3.5 text-xs font-medium transition active:scale-95 ${
+                          className={`flex h-11 items-center gap-2 rounded-full border px-3.5 text-xs font-medium transition active:scale-95 ${
                             on
-                              ? "nv-glass-active font-semibold text-onaccent"
-                              : "text-neutral-300 hover:-translate-y-px hover:text-white"
+                              ? "border-accent-500/40 bg-gradient-to-b from-accent-500 to-accent-600 font-semibold text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-500)]"
+                              : "border-slate-200/15 bg-ink-950 text-slate-300 hover:-translate-y-px hover:text-slate-100"
                           }`}
                         >
                           <span
@@ -465,7 +478,7 @@ export default function PlaybackPage() {
                 </div>
               )}
               <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-semibold text-neutral-400">
+                <span className="text-xs font-semibold text-slate-400">
                   Tanggal
                 </span>
                 <input
@@ -473,17 +486,17 @@ export default function PlaybackPage() {
                   value={date}
                   max={todayStr()}
                   onChange={(e) => setDate(e.target.value)}
-                  className="nv-glass h-11 rounded-xl px-4 text-base text-white outline-none transition-all duration-150 focus:border-accent-400 focus:shadow-[0_0_0_4px_rgba(0,151,252,0.15)]"
+                  className="h-11 rounded-xl border border-slate-200/15 bg-ink-950 px-4 text-base text-slate-100 outline-none transition-all duration-150 focus:border-accent-400 focus:ring-4 focus:ring-accent-500/15"
                 />
               </label>
             </div>
             {multi && (
               <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-neutral-400">
+                <span className="text-xs font-semibold text-slate-400">
                   Grid:
                 </span>
                 <div
-                  className="nv-glass flex items-center gap-1 rounded-full p-1"
+                  className="flex items-center gap-1 rounded-full border border-ink-700 bg-ink-950 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
                   role="tablist"
                   aria-label="Tata letak grid playback"
                 >
@@ -493,10 +506,10 @@ export default function PlaybackPage() {
                       role="tab"
                       aria-selected={gridCols === g.cols}
                       onClick={() => setGridCols(g.cols)}
-                      className={`flex h-11 min-w-[52px] items-center justify-center rounded-full px-3 text-xs font-semibold transition active:scale-95 ${
+                      className={`flex h-10 min-w-[52px] items-center justify-center rounded-full px-3 text-xs font-bold transition-all duration-200 active:scale-95 ${
                         gridCols === g.cols
-                          ? "nv-glass-active text-onaccent"
-                          : "text-neutral-400 hover:text-white"
+                          ? "bg-gradient-to-b from-accent-500 to-accent-600 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-500)]"
+                          : "text-slate-400 hover:text-slate-100"
                       }`}
                     >
                       {g.label}
