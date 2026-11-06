@@ -67,6 +67,16 @@ export interface AdConfig {
   image_height: number;
   embed_timeout_seconds: number;
   click_to_play: boolean;
+  position: string;
+  banner_height: number;
+  display_mode: string;
+  popup_trigger: string;
+  popup_show_seconds: number;
+  popup_hide_seconds: number;
+  audience: string;
+  audience_roles: string[];
+  audience_user_ids: number[];
+  click_url: string;
 }
 
 export interface Group {

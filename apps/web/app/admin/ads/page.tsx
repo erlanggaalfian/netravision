@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { AdConfig } from "../../../lib/types";
+import type { AdConfig, User } from "../../../lib/types";
 import { ApiError, api, apiFetch, normalizeUploadUrl } from "../../../lib/api";
 import { ErrorBox, Spinner } from "../../../components/ui";
 import {
@@ -31,6 +31,16 @@ const DEFAULTS: AdConfig = {
   image_height: 20,
   embed_timeout_seconds: 300,
   click_to_play: true,
+  position: "bottom",
+  banner_height: 0,
+  display_mode: "marquee",
+  popup_trigger: "always",
+  popup_show_seconds: 10,
+  popup_hide_seconds: 50,
+  audience: "all",
+  audience_roles: [],
+  audience_user_ids: [],
+  click_url: "",
 };
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -72,6 +82,8 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
         : cfg.text_align === "right"
           ? "flex-end"
           : "flex-start",
+    minHeight: cfg.banner_height > 0 ? cfg.banner_height : 30,
+    height: cfg.banner_height > 0 ? cfg.banner_height : undefined,
   };
   if (cfg.box_width >= 100) {
     bannerStyle.left = 0;
@@ -85,6 +97,9 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
       bannerStyle.transform = "translateX(-50%)";
     }
   }
+  const bannerPos = cfg.position === "top" ? "top-0" : "bottom-0";
+  const bannerBorder = cfg.position === "top" ? "border-b" : "border-t";
+  const isStatic = cfg.display_mode === "static" || cfg.display_mode === "popup";
 
   return (
     <div className="nv-panel-modern mb-6 p-4">
@@ -130,9 +145,9 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
         <div className="absolute bottom-3 right-3 select-none rounded-md border border-white/10 bg-black/70 px-2 py-0.5 font-mono text-[10px] text-slate-300">
           {now}
         </div>
-        {/* Banner overlay lower-third */}
+        {/* Banner overlay (posisi ikut pengaturan) */}
         <div
-          className="absolute bottom-0 flex items-center gap-2 overflow-hidden border-t border-white/10 px-2.5 py-1.5"
+          className={`absolute ${bannerPos} flex items-center gap-2 overflow-hidden border-white/10 px-2.5 py-1.5 ${bannerBorder}`}
           style={bannerStyle}
         >
           {cfg.image_url && (
@@ -148,24 +163,38 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
             />
           )}
           <div className="relative flex min-w-0 flex-1 items-center overflow-hidden">
-            <div
-              className="flex whitespace-nowrap"
-              style={{ animation: `nv-marquee ${duration}s linear infinite` }}
-            >
-              {[0, 1, 2, 3].map((i) => (
-                <span
-                  key={i}
-                  style={{
-                    color: cfg.text_color,
-                    opacity: cfg.text_opacity,
-                    fontSize: cfg.font_size,
-                    fontFamily: cfg.font_family,
-                  }}
-                >
-                  {text}
-                </span>
-              ))}
-            </div>
+            {isStatic ? (
+              <span
+                className="block truncate whitespace-nowrap"
+                style={{
+                  color: cfg.text_color,
+                  opacity: cfg.text_opacity,
+                  fontSize: cfg.font_size,
+                  fontFamily: cfg.font_family,
+                }}
+              >
+                {text}
+              </span>
+            ) : (
+              <div
+                className="flex whitespace-nowrap"
+                style={{ animation: `nv-marquee ${duration}s linear infinite` }}
+              >
+                {[0, 1, 2, 3].map((i) => (
+                  <span
+                    key={i}
+                    style={{
+                      color: cfg.text_color,
+                      opacity: cfg.text_opacity,
+                      fontSize: cfg.font_size,
+                      fontFamily: cfg.font_family,
+                    }}
+                  >
+                    {text}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -278,6 +307,9 @@ export default function AdminAdsPage() {
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [users, setUsers] = useState<User[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersLoaded, setUsersLoaded] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -288,6 +320,22 @@ export default function AdminAdsPage() {
         setError(e instanceof ApiError ? e.message : "Gagal memuat konfigurasi"),
       );
   }, []);
+
+  /* Daftar user hanya dimuat saat audiens "User Tertentu" dipilih. */
+  useEffect(() => {
+    if (cfg?.audience !== "users" || usersLoaded || usersLoading) return;
+    setUsersLoading(true);
+    api
+      .get<User[]>("/admin/users")
+      .then((d) => {
+        setUsers(d ?? []);
+        setUsersLoaded(true);
+      })
+      .catch(() => {
+        /* daftar opsional; abaikan bila gagal */
+      })
+      .finally(() => setUsersLoading(false));
+  }, [cfg?.audience, usersLoaded, usersLoading]);
 
   function set<K extends keyof AdConfig>(key: K, value: AdConfig[K]) {
     setCfg((c) => (c ? { ...c, [key]: value } : c));
@@ -412,6 +460,23 @@ export default function AdminAdsPage() {
                 display={`${Math.round(cfg.bg_opacity * 100)}%`}
                 onChange={(v) => set("bg_opacity", v / 100)}
               />
+              <NBField label="Posisi Banner">
+                <NBSelect
+                  value={cfg.position}
+                  onChange={(e) => set("position", e.target.value)}
+                >
+                  <option value="bottom">Bawah</option>
+                  <option value="top">Atas</option>
+                </NBSelect>
+              </NBField>
+              <RangeRow
+                label="Tinggi Banner (0px - 80px)"
+                min={0}
+                max={80}
+                value={cfg.banner_height}
+                display={cfg.banner_height === 0 ? "Otomatis" : `${cfg.banner_height}px`}
+                onChange={(v) => set("banner_height", v)}
+              />
             </div>
 
             {/* Seksi 2: Logo Sponsor & Media */}
@@ -486,6 +551,15 @@ export default function AdminAdsPage() {
                 display={`${cfg.image_height}px`}
                 onChange={(v) => set("image_height", v)}
               />
+              <NBField label="Link Tujuan (opsional)" hint="Dibuka di tab baru saat banner diklik.">
+                <NBInput
+                  value={cfg.click_url}
+                  onChange={(e) => set("click_url", e.target.value)}
+                  placeholder="https://contoh.com"
+                  aria-label="Link tujuan saat banner diklik"
+                  className="text-xs"
+                />
+              </NBField>
             </div>
 
             {/* Seksi 3: Teks Bergulir & Font */}
@@ -550,6 +624,154 @@ export default function AdminAdsPage() {
                 onChange={(v) => set("text_opacity", v / 100)}
               />
             </div>
+
+            {/* Seksi 4: Jenis Tampilan & Popup */}
+            <div className="nv-panel-modern space-y-4 p-4">
+              <div className="border-b border-slate-200/10 pb-2">
+                <span className="font-mono text-xs font-semibold uppercase text-accent-400">
+                  4. Jenis Tampilan &amp; Popup
+                </span>
+              </div>
+              <NBField label="Jenis Tampilan">
+                <NBSelect
+                  value={cfg.display_mode}
+                  onChange={(e) => set("display_mode", e.target.value)}
+                >
+                  <option value="marquee">Marquee (Teks Berjalan)</option>
+                  <option value="popup">Popup Berkala</option>
+                  <option value="static">Statis</option>
+                </NBSelect>
+              </NBField>
+              {cfg.display_mode === "popup" && (
+                <>
+                  <NBField label="Kapan Popup Tampil">
+                    <NBSelect
+                      value={cfg.popup_trigger}
+                      onChange={(e) => set("popup_trigger", e.target.value)}
+                    >
+                      <option value="always">Terus tampil</option>
+                      <option value="interval">Berkala</option>
+                      <option value="hover">Saat hover</option>
+                    </NBSelect>
+                  </NBField>
+                  {cfg.popup_trigger === "interval" && (
+                    <>
+                      <RangeRow
+                        label="Tampil (detik)"
+                        min={1}
+                        max={120}
+                        value={cfg.popup_show_seconds}
+                        display={`${cfg.popup_show_seconds} dtk`}
+                        onChange={(v) => set("popup_show_seconds", v)}
+                      />
+                      <RangeRow
+                        label="Sembunyi (detik)"
+                        min={1}
+                        max={300}
+                        value={cfg.popup_hide_seconds}
+                        display={`${cfg.popup_hide_seconds} dtk`}
+                        onChange={(v) => set("popup_hide_seconds", v)}
+                      />
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Seksi 5: Audiens */}
+          <div className="nv-panel-modern mt-6 space-y-4 p-4">
+            <div className="border-b border-slate-200/10 pb-2">
+              <span className="font-mono text-xs font-semibold uppercase text-accent-400">
+                5. Audiens
+              </span>
+            </div>
+            <NBField label="Tampilkan Ke">
+              <NBSelect
+                value={cfg.audience}
+                onChange={(e) => set("audience", e.target.value)}
+              >
+                <option value="all">Semua</option>
+                <option value="guest">Hanya Guest</option>
+                <option value="roles">Peran Tertentu</option>
+                <option value="users">User Tertentu</option>
+              </NBSelect>
+            </NBField>
+            {cfg.audience === "roles" && (
+              <div className="flex flex-wrap gap-2">
+                {(["guest", "user", "admin"] as const).map((r) => {
+                  const checked = (cfg.audience_roles ?? []).includes(r);
+                  return (
+                    <label
+                      key={r}
+                      className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition-colors ${
+                        checked
+                          ? "border-accent-500/50 bg-accent-500/10 text-accent-300"
+                          : "border-slate-200/15 text-slate-300 hover:border-slate-200/30"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          const cur = cfg.audience_roles ?? [];
+                          set(
+                            "audience_roles",
+                            checked
+                              ? cur.filter((x) => x !== r)
+                              : [...cur, r],
+                          );
+                        }}
+                        className="h-4 w-4 shrink-0 accent-accent-500"
+                      />
+                      <span className="capitalize">{r}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            {cfg.audience === "users" && (
+              <div>
+                {usersLoading ? (
+                  <p className="text-sm text-slate-400">Memuat daftar user…</p>
+                ) : users.length === 0 ? (
+                  <p className="text-sm text-slate-400">Tidak ada user.</p>
+                ) : (
+                  <div className="max-h-64 space-y-1 overflow-y-auto pr-1">
+                    {users.map((u) => {
+                      const checked = (cfg.audience_user_ids ?? []).includes(u.id);
+                      return (
+                        <label
+                          key={u.id}
+                          className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl px-3 text-sm transition-colors hover:bg-ink-800/50"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              const cur = cfg.audience_user_ids ?? [];
+                              set(
+                                "audience_user_ids",
+                                checked
+                                  ? cur.filter((x) => x !== u.id)
+                                  : [...cur, u.id],
+                              );
+                            }}
+                            className="h-4 w-4 shrink-0 accent-accent-500"
+                          />
+                          <span className="min-w-0 flex-1 truncate font-medium text-slate-200">
+                            {u.username}
+                          </span>
+                          <span className="shrink-0 text-xs capitalize text-slate-400">
+                            {u.role}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="mt-6">

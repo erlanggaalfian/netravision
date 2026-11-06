@@ -43,6 +43,19 @@ class AdConfigIn(BaseModel):
     image_height: int = 20
     embed_timeout_seconds: int = 300
     click_to_play: bool = True
+    # Fleksibilitas tampilan (2026-11-06):
+    position: str = "bottom"  # bottom | top
+    banner_height: int = 0  # px, 0 = otomatis
+    display_mode: str = "marquee"  # marquee | popup | static
+    popup_trigger: str = "always"  # always | interval | hover
+    popup_show_seconds: int = 10  # detik tampil (mode popup + trigger interval)
+    popup_hide_seconds: int = 50  # detik sembunyi (mode popup + trigger interval)
+    # Audiens (2026-11-06): all | guest | roles | users
+    audience: str = "all"
+    audience_roles: list[str] = []
+    audience_user_ids: list[int] = []
+    # Interaksi (2026-11-06):
+    click_url: str = ""
 
 
 class GroupAdsIn(BaseModel):
@@ -85,16 +98,40 @@ async def public_ad_config(
     token: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ):
-    """Config iklan publik; nonaktifkan bila user login punya show_ads=False."""
+    """Config iklan publik; nonaktifkan bila user login punya show_ads=False
+    atau di luar audiens yang dikonfigurasi superadmin."""
     raw = credentials.credentials if credentials else token
+    user: User | None = None
     if raw:
         try:
             user = await _user_from_token(raw, db)
         except HTTPException:
             user = None
-        if isinstance(user, User) and user.role != "super_admin" and not user.show_ads:
+    cfg = await _get_value(db, "default")
+    if not cfg.get("is_active", True):
+        return _inactive_config()
+    if isinstance(user, User):
+        # show_ads=False (paritas v2.0) selalu menonaktifkan.
+        if user.role != "super_admin" and not user.show_ads:
             return _inactive_config()
-    return await _get_value(db, "default")
+        # Audiens per peran / per user (2026-11-06).
+        audience = cfg.get("audience", "all")
+        if audience == "guest":
+            return _inactive_config()
+        if audience == "roles":
+            roles = cfg.get("audience_roles") or []
+            if roles and user.role not in roles:
+                return _inactive_config()
+        elif audience == "users":
+            ids = cfg.get("audience_user_ids") or []
+            if ids and user.id not in ids:
+                return _inactive_config()
+    else:
+        # Tamu (tanpa login): hanya bila audiens all atau guest.
+        audience = cfg.get("audience", "all")
+        if audience in ("roles", "users"):
+            return _inactive_config()
+    return cfg
 
 
 @admin_router.post("/admin/ad-config")
