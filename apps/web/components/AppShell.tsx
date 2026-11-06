@@ -107,7 +107,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 className={`flex min-h-[44px] items-center gap-3 rounded-xl px-4 py-2.5 text-sm transition-colors duration-150 active:scale-[0.98] ${
                   active
                     ? "bg-accent-500/10 font-semibold text-accent-500"
-                    : "font-medium text-slate-400 hover:bg-slate-100 hover:text-slate-300"
+                    : "font-medium text-slate-400 hover:bg-ink-800 hover:text-slate-200"
                 }`}
               >
                 {n.icon}
