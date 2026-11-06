@@ -19,18 +19,50 @@ const FILTERS: { id: StatusFilter; label: string }[] = [
   { id: "offline", label: "Offline" },
 ];
 
-const GRID_OPTS = [
-  { key: "1", cols: 1, label: "1" },
-  { key: "2", cols: 2, label: "2" },
-  { key: "4", cols: 2, label: "4" },
-  { key: "9", cols: 3, label: "9" },
+/* PC: bentuk grid (jumlah kolom). HP: jumlah kamera yang ditampilkan
+   (grid HP selalu 1 kolom). Label menjelaskan arti angka. */
+interface GridOpt {
+  key: string;
+  label: string;
+  cols?: number;
+  count?: number;
+}
+const GRID_OPTS_PC: GridOpt[] = [
+  { key: "1x1", label: "1×1", cols: 1 },
+  { key: "2x2", label: "2×2", cols: 2 },
+  { key: "3x3", label: "3×3", cols: 3 },
+  { key: "4x4", label: "4×4", cols: 4 },
+];
+const GRID_OPTS_MOBILE: GridOpt[] = [
+  { key: "2", label: "2", count: 2 },
+  { key: "4", label: "4", count: 4 },
+  { key: "6", label: "6", count: 6 },
+  { key: "9", label: "9", count: 9 },
 ];
 
 const GRID_CLASS: Record<number, string> = {
   1: "grid-cols-1",
   2: "grid-cols-1 sm:grid-cols-2",
   3: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3",
+  4: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4",
 };
+
+/* Desktop = sidebar tampil (md, 768px), sama seperti AppShell. */
+function useIsDesktop() {
+  const [isDesktop, setIsDesktop] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(min-width: 768px)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const update = () => setIsDesktop(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return isDesktop;
+}
 
 function SkeletonGrid() {
   return (
@@ -57,8 +89,11 @@ export default function LivePage() {
   const [ad, setAd] = useState<AdConfig | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<StatusFilter>("all");
-  const [gridKey, setGridKey] = useState("4");
-  const gridCols = GRID_OPTS.find((g) => g.key === gridKey)?.cols ?? 2;
+  const [gridKey, setGridKey] = useState("2x2");
+  const isDesktop = useIsDesktop();
+  const gridOpts = isDesktop ? GRID_OPTS_PC : GRID_OPTS_MOBILE;
+  /* Kunci dari perangkat lain tidak cocok: pakai default perangkat ini. */
+  const activeOpt = gridOpts.find((g) => g.key === gridKey) ?? gridOpts[1];
   const [focus, setFocus] = useState<Stream | null>(null);
 
   const load = useCallback(async () => {
@@ -120,6 +155,11 @@ export default function LivePage() {
     });
   }, [merged, query, filter]);
 
+  const gridCols = isDesktop ? (activeOpt.cols ?? 2) : 1;
+  const visibleStreams = isDesktop
+    ? filtered
+    : filtered.slice(0, activeOpt.count ?? 4);
+
   const onlineCount = merged.filter((s) => s.is_online).length;
   const counts: Record<StatusFilter, number> = {
     all: merged.length,
@@ -146,7 +186,9 @@ export default function LivePage() {
                 Live
               </h1>
               <p className="mt-1.5 text-sm text-slate-400">
-                {merged.length} kamera · {onlineCount} online
+                {isDesktop
+                  ? `${merged.length} kamera · ${onlineCount} online`
+                  : `Menampilkan ${visibleStreams.length} dari ${filtered.length} kamera · ${onlineCount} online`}
               </p>
             </div>
             <div className="flex max-w-full flex-wrap items-center gap-2">
@@ -159,27 +201,40 @@ export default function LivePage() {
                 />
                 {connected ? "Real-time" : "Menghubungkan…"}
               </span>
-              <div
-                className="flex items-center gap-1 rounded-full border border-ink-700 bg-ink-950 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
-                role="tablist"
-                aria-label="Tata letak grid"
-              >
-                {GRID_OPTS.map((g) => (
-                  <button
-                    key={g.key}
-                    role="tab"
-                    aria-selected={gridKey === g.key}
-                    title={`Tampilkan ${g.label} kamera`}
-                    onClick={() => setGridKey(g.key)}
-                    className={`flex h-10 min-w-[48px] items-center justify-center rounded-full px-3 text-xs font-bold transition-all duration-200 active:scale-95 ${
-                      gridKey === g.key
-                        ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
-                        : "text-neutral-400 hover:bg-white/5 hover:text-white"
-                    }`}
-                  >
-                    {g.label}
-                  </button>
-                ))}
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-400">
+                  {isDesktop ? "Grid:" : "Kamera:"}
+                </span>
+                <div
+                  className="flex items-center gap-1 rounded-full border border-ink-700 bg-ink-950 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+                  role="tablist"
+                  aria-label={
+                    isDesktop
+                      ? "Tata letak grid"
+                      : "Jumlah kamera yang ditampilkan"
+                  }
+                >
+                  {gridOpts.map((g) => (
+                    <button
+                      key={g.key}
+                      role="tab"
+                      aria-selected={activeOpt.key === g.key}
+                      title={
+                        isDesktop
+                          ? `Grid ${g.label} (${g.cols} kolom)`
+                          : `Tampilkan ${g.label} kamera`
+                      }
+                      onClick={() => setGridKey(g.key)}
+                      className={`flex h-10 min-w-[48px] items-center justify-center rounded-full px-3 text-xs font-bold transition-all duration-200 active:scale-95 ${
+                        activeOpt.key === g.key
+                          ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
+                          : "text-neutral-400 hover:bg-white/5 hover:text-white"
+                      }`}
+                    >
+                      {g.label}
+                    </button>
+                  ))}
+                </div>
               </div>
               <button
                 onClick={load}
@@ -333,7 +388,7 @@ export default function LivePage() {
           </div>
         ) : (
           <div className={`grid gap-4 ${GRID_CLASS[gridCols] ?? GRID_CLASS[2]}`}>
-            {filtered.map((s) => (
+            {visibleStreams.map((s) => (
               <CameraTile key={s.id} stream={s} onExpand={setFocus} ad={ad} />
             ))}
           </div>
