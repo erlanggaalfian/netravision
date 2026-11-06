@@ -37,6 +37,8 @@ const DEFAULTS: AdConfig = {
   popup_trigger: "always",
   popup_show_seconds: 10,
   popup_hide_seconds: 50,
+  marquee_behavior: "always",
+  marquee_show_seconds: 10,
   audience: "all",
   audience_roles: [],
   audience_user_ids: [],
@@ -629,6 +631,31 @@ export default function AdminAdsPage() {
                   <option value="static">Statis</option>
                 </NBSelect>
               </NBField>
+              {cfg.display_mode === "marquee" && (
+                <>
+                  <NBField label="Perilaku Marquee">
+                    <NBSelect
+                      value={cfg.marquee_behavior || "always"}
+                      onChange={(e) => set("marquee_behavior", e.target.value)}
+                    >
+                      <option value="always">Nyala terus (statis)</option>
+                      <option value="timed_hover">
+                        Nyala beberapa detik, muncul lagi saat hover
+                      </option>
+                    </NBSelect>
+                  </NBField>
+                  {cfg.marquee_behavior === "timed_hover" && (
+                    <RangeRow
+                      label="Lama Menyala (detik)"
+                      min={1}
+                      max={120}
+                      value={cfg.marquee_show_seconds}
+                      display={`${cfg.marquee_show_seconds} dtk`}
+                      onChange={(v) => set("marquee_show_seconds", v)}
+                    />
+                  )}
+                </>
+              )}
               {cfg.display_mode === "popup" && (
                 <>
                   <NBField label="Kapan Popup Tampil">

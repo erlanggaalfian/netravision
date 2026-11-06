@@ -50,6 +50,10 @@ class AdConfigIn(BaseModel):
     popup_trigger: str = "always"  # always | interval | hover
     popup_show_seconds: int = 10  # detik tampil (mode popup + trigger interval)
     popup_hide_seconds: int = 50  # detik sembunyi (mode popup + trigger interval)
+    # Perilaku marquee (2026-11-06): always (nyala terus) | timed_hover
+    # (nyala X detik, lalu muncul lagi saat hover)
+    marquee_behavior: str = "always"
+    marquee_show_seconds: int = 10  # detik menyala (mode marquee + timed_hover)
     # Audiens (2026-11-06): all | guest | roles | users
     audience: str = "all"
     audience_roles: list[str] = []

@@ -20,6 +20,8 @@ export function AdBanner({ config, className = "" }: Props) {
 
   const isPopup = config.display_mode === "popup";
   const trigger = config.popup_trigger || "always";
+  const isMarquee = config.display_mode === "marquee";
+  const marqueeBehavior = config.marquee_behavior || "always";
 
   /* Popup interval: tampil X detik, sembunyi Y detik, berulang. */
   useEffect(() => {
@@ -47,6 +49,17 @@ export function AdBanner({ config, className = "" }: Props) {
     config.popup_show_seconds,
     config.popup_hide_seconds,
   ]);
+
+  /* Marquee timed_hover: nyala X detik, lalu sembunyi sampai tile di-hover. */
+  useEffect(() => {
+    if (!isMarquee || marqueeBehavior !== "timed_hover") {
+      setVisible(true);
+      return;
+    }
+    const showMs = Math.max(1, config.marquee_show_seconds || 10) * 1000;
+    const timeout = setTimeout(() => setVisible(false), showMs);
+    return () => clearTimeout(timeout);
+  }, [isMarquee, marqueeBehavior, config.marquee_show_seconds]);
 
   if (!config.is_active) return null;
   if (!config.marquee_text?.trim() && !config.image_url?.trim()) return null;
@@ -85,6 +98,11 @@ export function AdBanner({ config, className = "" }: Props) {
   const intervalCls =
     isPopup && trigger === "interval"
       ? `transition-opacity duration-300 ${visible ? "opacity-100" : "pointer-events-none opacity-0"}`
+      : "";
+  // Marquee timed_hover: sembunyi setelah X detik, muncul lagi saat hover tile.
+  const marqueeTimedCls =
+    isMarquee && marqueeBehavior === "timed_hover"
+      ? `transition-opacity duration-300 ${visible ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`
       : "";
 
   const inner = (
@@ -154,7 +172,7 @@ export function AdBanner({ config, className = "" }: Props) {
     </div>
   );
 
-  const wrapCls = `absolute inset-x-0 ${position} z-20 ${hoverCls} ${intervalCls} ${className}`;
+  const wrapCls = `absolute inset-x-0 ${position} z-20 ${hoverCls} ${intervalCls} ${marqueeTimedCls} ${className}`;
 
   return (
     <div className={wrapCls}>

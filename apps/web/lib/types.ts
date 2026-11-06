@@ -73,6 +73,8 @@ export interface AdConfig {
   popup_trigger: string;
   popup_show_seconds: number;
   popup_hide_seconds: number;
+  marquee_behavior: string;
+  marquee_show_seconds: number;
   audience: string;
   audience_roles: string[];
   audience_user_ids: number[];
