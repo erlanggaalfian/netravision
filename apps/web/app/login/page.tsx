@@ -10,17 +10,22 @@ import { ErrorBox } from "../../components/ui";
 function LensMark({ className = "" }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <rect x="1.5" y="1.5" width="21" height="21" rx="6" fill="var(--nv-accent-600)" />
+      <rect x="1.5" y="1.5" width="21" height="21" rx="6" fill="url(#lensGrad)" />
+      <defs>
+        <linearGradient id="lensGrad" x1="1.5" y1="1.5" x2="22.5" y2="22.5">
+          <stop stopColor="var(--nv-accent-500)" />
+          <stop offset="1" stopColor="var(--nv-accent-600)" />
+        </linearGradient>
+      </defs>
       <circle cx="12" cy="12" r="5.5" stroke="#fff" strokeWidth="1.8" />
       <circle cx="12" cy="12" r="1.8" fill="#fff" />
     </svg>
   );
 }
 
-/* Input gaya NetBackup: border jelas, radius 8px, 16px (anti-zoom iOS).
-   Token ink dan accent adaptif di kedua tema via globals.css. */
+/* Input modern: radius 14px, 16px (anti-zoom iOS), focus glow. */
 const inputCls =
-  "w-full rounded-lg border border-ink-700 bg-ink-950 px-4 py-3 text-[16px] text-white placeholder:text-slate-400 outline-none transition-all duration-150 ease-out focus:border-accent-400 focus:ring-4 focus:ring-accent-500/15";
+  "w-full rounded-xl border border-slate-200/15 bg-ink-950 px-4 py-3 text-[16px] text-slate-100 placeholder:text-slate-400 outline-none transition-all duration-150 ease-out hover:border-slate-200/25 focus:border-accent-400 focus:ring-4 focus:ring-accent-500/15";
 
 export default function LoginPage() {
   const { user, loading, login, loginGuest } = useAuth();
@@ -68,18 +73,15 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-dvh flex-col bg-ink-950">
-      {/* Pita biru di atas ala header NetBackup */}
-      <div className="bg-gradient-to-b from-accent-400 to-accent-600">
-        <div className="h-32 sm:h-40" aria-hidden />
-      </div>
-
-      <div className="mx-auto w-full max-w-sm flex-1 px-5">
-        {/* Kartu login putih: radius 16px, border + shadow jelas */}
-        <div className="-mt-16 rounded-2xl border border-ink-700 bg-ink-900 p-6 shadow-[0_16px_40px_rgba(2,132,199,0.18)] sm:-mt-20 sm:p-8">
-          <div className="mb-6 flex flex-col items-center gap-3">
-            <LensMark className="h-14 w-14" />
-            <p className="text-xl font-bold tracking-tight text-white">
+    <main className="flex min-h-dvh flex-col items-center justify-center bg-ink-950 px-5 py-8">
+      {/* Kartu login terpusat: logo di dalam, tanpa pita, tanpa copy marketing */}
+      <div className="w-full max-w-sm">
+        <div className="nv-panel-modern p-6 sm:p-8">
+          <div className="mb-7 flex flex-col items-center gap-3">
+            <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-b from-accent-500 to-accent-600 shadow-[0_8px_24px_-6px_var(--nv-accent-500)]">
+              <LensMark className="h-10 w-10" />
+            </span>
+            <p className="text-[22px] font-extrabold tracking-tight text-slate-100">
               NetraVision
             </p>
           </div>
@@ -125,11 +127,11 @@ export default function LoginPage() {
                 className={inputCls}
               />
             </div>
-            <div className="space-y-3 pt-1">
+            <div className="space-y-3 pt-2">
               <button
                 type="submit"
                 disabled={busy}
-                className="min-h-[48px] w-full cursor-pointer rounded-lg bg-accent-500 px-4 text-[16px] font-semibold text-onaccent transition-all duration-150 ease-out hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]"
+                className="min-h-[48px] w-full cursor-pointer rounded-xl bg-gradient-to-b from-accent-500 to-accent-600 px-4 text-[16px] font-semibold text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-500),inset_0_1px_0_rgba(255,255,255,0.2)] transition-all duration-150 ease-out hover:from-accent-400 hover:to-accent-500 hover:shadow-[0_6px_20px_-4px_var(--nv-accent-500),inset_0_1px_0_rgba(255,255,255,0.25)] disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]"
               >
                 {busy ? "Memeriksa…" : "Masuk"}
               </button>
@@ -137,7 +139,7 @@ export default function LoginPage() {
                 type="button"
                 onClick={onGuest}
                 disabled={busy}
-                className="min-h-[48px] w-full cursor-pointer rounded-lg border border-ink-700 bg-transparent px-4 text-sm font-semibold text-slate-300 transition-all duration-150 ease-out hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]"
+                className="min-h-[48px] w-full cursor-pointer rounded-xl border border-slate-200/15 bg-transparent px-4 text-sm font-semibold text-slate-300 transition-all duration-150 ease-out hover:border-slate-200/30 hover:bg-slate-200/5 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]"
               >
                 Guest login
               </button>
@@ -145,7 +147,7 @@ export default function LoginPage() {
           </form>
         </div>
 
-        <p className="mt-8 text-center text-xs text-slate-400">
+        <p className="mt-6 text-center text-xs text-slate-400">
           © 2026 NetraVision
         </p>
       </div>
