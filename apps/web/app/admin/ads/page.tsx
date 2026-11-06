@@ -33,11 +33,10 @@ const DEFAULTS: AdConfig = {
   click_to_play: true,
   position: "bottom",
   banner_height: 0,
-  display_mode: "marquee",
-  popup_trigger: "always",
+  display_mode: "always",
+  periodic_trigger: "interval",
   popup_show_seconds: 10,
   popup_hide_seconds: 50,
-  marquee_behavior: "always",
   marquee_hover_show_seconds: 5,
   marquee_hover_cooldown_seconds: 30,
   marquee_click_show_seconds: 5,
@@ -602,37 +601,59 @@ export default function AdminAdsPage() {
               />
             </div>
 
-            {/* Seksi 4: Jenis Tampilan & Popup */}
+            {/* Seksi 4: Jenis Tampilan */}
             <div className="nv-panel-modern space-y-4 p-4">
               <div className="border-b border-slate-200/10 pb-2">
                 <span className="font-mono text-xs font-semibold uppercase text-accent-400">
-                  4. Jenis Tampilan &amp; Popup
+                  4. Jenis Tampilan
                 </span>
               </div>
               <NBField label="Jenis Tampilan">
                 <NBSelect
-                  value={cfg.display_mode === "static" ? "marquee" : cfg.display_mode}
+                  value={
+                    cfg.display_mode === "periodic" ? "periodic" : "always"
+                  }
                   onChange={(e) => set("display_mode", e.target.value)}
                 >
-                  <option value="marquee">Marquee (Teks Berjalan)</option>
-                  <option value="popup">Popup Berkala</option>
+                  <option value="always">Selalu Tampil</option>
+                  <option value="periodic">Berkala</option>
                 </NBSelect>
               </NBField>
-              {cfg.display_mode !== "popup" && (
+              {cfg.display_mode === "periodic" && (
                 <>
-                  <NBField label="Perilaku Marquee">
+                  <NBField label="Cara Tampil Berkala">
                     <NBSelect
-                      value={cfg.marquee_behavior || "always"}
-                      onChange={(e) => set("marquee_behavior", e.target.value)}
+                      value={cfg.periodic_trigger || "interval"}
+                      onChange={(e) => set("periodic_trigger", e.target.value)}
                     >
-                      <option value="always">
-                        Selalu terlihat (hover maupun tidak)
+                      <option value="interval">
+                        Interval (tampil/sembunyi bergantian)
                       </option>
-                      <option value="hover">Terlihat saat hover</option>
-                      <option value="click">Muncul saat diklik</option>
+                      <option value="hover">Saat hover</option>
+                      <option value="click">Saat diklik</option>
                     </NBSelect>
                   </NBField>
-                  {cfg.marquee_behavior === "hover" && (
+                  {cfg.periodic_trigger === "interval" && (
+                    <>
+                      <RangeRow
+                        label="Tampil (detik)"
+                        min={1}
+                        max={120}
+                        value={cfg.popup_show_seconds}
+                        display={`${cfg.popup_show_seconds} dtk`}
+                        onChange={(v) => set("popup_show_seconds", v)}
+                      />
+                      <RangeRow
+                        label="Sembunyi (detik)"
+                        min={1}
+                        max={300}
+                        value={cfg.popup_hide_seconds}
+                        display={`${cfg.popup_hide_seconds} dtk`}
+                        onChange={(v) => set("popup_hide_seconds", v)}
+                      />
+                    </>
+                  )}
+                  {cfg.periodic_trigger === "hover" && (
                     <>
                       <RangeRow
                         label="Terlihat saat hover (detik)"
@@ -652,7 +673,7 @@ export default function AdminAdsPage() {
                       />
                     </>
                   )}
-                  {cfg.marquee_behavior === "click" && (
+                  {cfg.periodic_trigger === "click" && (
                     <RangeRow
                       label="Lama muncul saat diklik (detik)"
                       min={1}
@@ -661,40 +682,6 @@ export default function AdminAdsPage() {
                       display={`${cfg.marquee_click_show_seconds} dtk`}
                       onChange={(v) => set("marquee_click_show_seconds", v)}
                     />
-                  )}
-                </>
-              )}
-              {cfg.display_mode === "popup" && (
-                <>
-                  <NBField label="Kapan Popup Tampil">
-                    <NBSelect
-                      value={cfg.popup_trigger}
-                      onChange={(e) => set("popup_trigger", e.target.value)}
-                    >
-                      <option value="always">Terus tampil</option>
-                      <option value="interval">Berkala</option>
-                      <option value="hover">Saat hover</option>
-                    </NBSelect>
-                  </NBField>
-                  {cfg.popup_trigger === "interval" && (
-                    <>
-                      <RangeRow
-                        label="Tampil (detik)"
-                        min={1}
-                        max={120}
-                        value={cfg.popup_show_seconds}
-                        display={`${cfg.popup_show_seconds} dtk`}
-                        onChange={(v) => set("popup_show_seconds", v)}
-                      />
-                      <RangeRow
-                        label="Sembunyi (detik)"
-                        min={1}
-                        max={300}
-                        value={cfg.popup_hide_seconds}
-                        display={`${cfg.popup_hide_seconds} dtk`}
-                        onChange={(v) => set("popup_hide_seconds", v)}
-                      />
-                    </>
                   )}
                 </>
               )}

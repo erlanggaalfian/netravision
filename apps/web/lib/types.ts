@@ -70,10 +70,9 @@ export interface AdConfig {
   position: string;
   banner_height: number;
   display_mode: string;
-  popup_trigger: string;
+  periodic_trigger: string;
   popup_show_seconds: number;
   popup_hide_seconds: number;
-  marquee_behavior: string;
   marquee_hover_show_seconds: number;
   marquee_hover_cooldown_seconds: number;
   marquee_click_show_seconds: number;

@@ -15,12 +15,11 @@ interface Props {
 
 /* Banner iklan fleksibel (2026-11-06):
    - Posisi: bawah | atas
-   - Mode: marquee (teks berjalan) | popup (berkala). TIDAK ADA statis:
-     teks selalu berjalan di semua pilihan.
-   - Perilaku marquee: always (selalu terlihat, hover maupun tidak) |
+   - Jenis tampilan: always (selalu tampil) | periodic (berkala).
+     Teks SELALU berjalan di semua pilihan, tidak ada statis.
+   - Cara tampil berkala: interval (tampil/sembunyi bergantian) |
      hover (terlihat saat hover + jeda setelah hover) | click (muncul
      saat tile diklik, hilang lagi setelah X detik)
-   - Trigger popup: always (terus) | interval (tampil/sembunyi bergantian) | hover (saat hover video)
    - Klik banner: buka click_url di tab baru bila diisi
    Selalu gelap (area video). */
 export function AdBanner({
@@ -33,10 +32,8 @@ export function AdBanner({
   const [cooling, setCooling] = useState(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  const isPopup = config.display_mode === "popup";
-  const trigger = config.popup_trigger || "always";
-  const isMarquee = config.display_mode !== "popup";
-  const marqueeBehavior = config.marquee_behavior || "always";
+  const isPeriodic = config.display_mode === "periodic";
+  const trigger = config.periodic_trigger || "interval";
 
   const later = (fn: () => void, ms: number) => {
     const t = setTimeout(fn, ms);
@@ -48,18 +45,17 @@ export function AdBanner({
     timers.current = [];
   };
 
-  /* Reset saat mode/perilaku berubah. */
+  /* Reset saat jenis tampilan / cara tampil berubah. */
   useEffect(() => {
     clearTimers();
     setCooling(false);
-    setVisible(marqueeBehavior === "always" || !isMarquee ? true : false);
-    if (isPopup && trigger !== "interval") setVisible(true);
+    setVisible(!isPeriodic);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMarquee, isPopup, trigger, marqueeBehavior]);
+  }, [isPeriodic, trigger]);
 
-  /* Popup interval: tampil X detik, sembunyi Y detik, berulang. */
+  /* Berkala + interval: tampil X detik, sembunyi Y detik, berulang. */
   useEffect(() => {
-    if (!isPopup || trigger !== "interval") return;
+    if (!isPeriodic || trigger !== "interval") return;
     const showMs = Math.max(1, config.popup_show_seconds || 10) * 1000;
     const hideMs = Math.max(1, config.popup_hide_seconds || 50) * 1000;
     let alive = true;
@@ -75,19 +71,19 @@ export function AdBanner({
       clearTimeout(timeout);
     };
   }, [
-    isPopup,
+    isPeriodic,
     trigger,
     config.popup_show_seconds,
     config.popup_hide_seconds,
   ]);
 
-  /* Marquee hover: saat tile di-hover, tampil X detik lalu sembunyi;
+  /* Berkala + hover: saat tile di-hover, tampil X detik lalu sembunyi;
      setelah hover selesai, jeda Y detik sebelum bisa tampil lagi. */
   const hoverShowMs = Math.max(1, config.marquee_hover_show_seconds || 5) * 1000;
   const hoverCooldownMs =
     Math.max(0, config.marquee_hover_cooldown_seconds || 30) * 1000;
   useEffect(() => {
-    if (!isMarquee || marqueeBehavior !== "hover") return;
+    if (!isPeriodic || trigger !== "hover") return;
     if (!hovered) return;
     if (cooling) return;
     setVisible(true);
@@ -98,12 +94,12 @@ export function AdBanner({
       later(() => setCooling(false), hoverCooldownMs);
     }, hoverShowMs);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMarquee, marqueeBehavior, hovered, cooling]);
+  }, [isPeriodic, trigger, hovered, cooling]);
 
-  /* Marquee hover selesai: mulai jeda bila banner sempat tampil. */
+  /* Hover selesai: mulai jeda bila banner sempat tampil. */
   const wasHovered = useRef(false);
   useEffect(() => {
-    if (!isMarquee || marqueeBehavior !== "hover") return;
+    if (!isPeriodic || trigger !== "hover") return;
     if (wasHovered.current && !hovered) {
       clearTimers();
       setVisible(false);
@@ -114,7 +110,7 @@ export function AdBanner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hovered]);
 
-  /* Marquee click: tiap tile diklik, tampil X detik lalu hilang lagi. */
+  /* Berkala + click: tiap tile diklik, tampil X detik lalu hilang lagi. */
   const clickShowMs = Math.max(1, config.marquee_click_show_seconds || 5) * 1000;
   const firstTick = useRef(true);
   useEffect(() => {
@@ -122,7 +118,7 @@ export function AdBanner({
       firstTick.current = false;
       return;
     }
-    if (!isMarquee || marqueeBehavior !== "click") return;
+    if (!isPeriodic || trigger !== "click") return;
     if (clickTick <= 0) return;
     clearTimers();
     setVisible(true);
@@ -160,17 +156,10 @@ export function AdBanner({
     bannerH > 0 ? Math.max(10, bannerH - 12) : 60,
   );
 
-  // Hover (popup): sembunyi sampai tile di-hover (tile punya class `group`).
-  const hoverCls =
-    isPopup && trigger === "hover"
-      ? "opacity-0 transition-opacity duration-200 group-hover:opacity-100"
-      : "";
-  // Interval (popup) + hover/click (marquee): sembunyi saat tidak tampil.
-  const timedCls =
-    (isPopup && trigger === "interval") ||
-    (isMarquee && marqueeBehavior !== "always")
-      ? `transition-opacity duration-300 ${visible ? "opacity-100" : "pointer-events-none opacity-0"}`
-      : "";
+  // Berkala: sembunyi saat tidak tampil.
+  const timedCls = isPeriodic
+    ? `transition-opacity duration-300 ${visible ? "opacity-100" : "pointer-events-none opacity-0"}`
+    : "";
 
   const inner = (
     <div
@@ -227,7 +216,7 @@ export function AdBanner({
     </div>
   );
 
-  const wrapCls = `absolute inset-x-0 ${position} z-20 ${hoverCls} ${timedCls} ${className}`;
+  const wrapCls = `absolute inset-x-0 ${position} z-20 ${timedCls} ${className}`;
 
   return (
     <div className={wrapCls}>
