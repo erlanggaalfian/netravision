@@ -209,20 +209,36 @@ body {
   animation: nv-pop 0.18s ease-out;
 }
 
-/* Lampu status: titik berdenyut lembut seperti lampu menyala, glow
+/* Lampu status: titik bernapas lembut seperti lampu menyala, glow
    membesar-mengecil perlahan mengikuti warna titik (currentColor,
-   jadi elemen pemakai wajib membawa text-* sewarna bg-* titiknya). */
+   jadi elemen pemakai wajib membawa text-* sewarna bg-* titiknya).
+   Glow minimum tetap terlihat jelas supaya tidak terasa kedip
+   nyala-padam; transisi dibuat bertahap (5 titik) dan lambat. */
 @keyframes nv-lamp {
-  0%,
-  100% {
-    box-shadow: 0 0 2px 0 color-mix(in srgb, currentColor 45%, transparent);
+  0% {
+    box-shadow: 0 0 5px 2px color-mix(in srgb, currentColor 35%, transparent);
+    transform: scale(1);
+  }
+  25% {
+    box-shadow: 0 0 10px 3px color-mix(in srgb, currentColor 48%, transparent);
+    transform: scale(1.08);
   }
   50% {
-    box-shadow: 0 0 10px 3px color-mix(in srgb, currentColor 65%, transparent);
+    box-shadow: 0 0 18px 6px color-mix(in srgb, currentColor 62%, transparent);
+    transform: scale(1.15);
+  }
+  75% {
+    box-shadow: 0 0 10px 3px color-mix(in srgb, currentColor 48%, transparent);
+    transform: scale(1.08);
+  }
+  100% {
+    box-shadow: 0 0 5px 2px color-mix(in srgb, currentColor 35%, transparent);
+    transform: scale(1);
   }
 }
 .nv-lamp {
-  animation: nv-lamp 2.4s ease-in-out infinite;
+  animation: nv-lamp 3.2s ease-in-out infinite;
+  will-change: box-shadow, transform;
 }
 
 /* Cegah auto-zoom iOS pada input (pola mobile yang dikunci). */
