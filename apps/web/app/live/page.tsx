@@ -182,8 +182,8 @@ export default function LivePage() {
       <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-7">
         {/* Header: judul + status, lalu pencarian, lalu kontrol (dilipat di HP) */}
         <div className="nv-panel-modern mb-5 p-4 sm:p-5">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
               <h1 className="text-2xl font-extrabold tracking-tight text-white sm:text-[26px]">
                 Live
               </h1>
@@ -195,7 +195,7 @@ export default function LivePage() {
             </div>
             {/* Status koneksi: di HP cukup titik warna saja. */}
             <span
-              className="flex h-11 w-11 items-center justify-center rounded-full bg-ink-800 shadow-sm md:h-11 md:w-auto md:gap-2 md:px-4 md:text-xs md:font-semibold md:text-neutral-300"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-ink-800 shadow-sm md:h-11 md:w-auto md:gap-2 md:px-4 md:text-xs md:font-semibold md:text-neutral-300"
               title={connected ? "WebSocket terhubung" : "Menghubungkan…"}
             >
               <span
