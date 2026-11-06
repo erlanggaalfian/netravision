@@ -38,7 +38,7 @@ const DEFAULTS: AdConfig = {
   popup_show_seconds: 10,
   popup_hide_seconds: 50,
   marquee_hover_show_seconds: 5,
-  marquee_hover_cooldown_seconds: 30,
+  marquee_hover_hide_delay_seconds: 5,
   marquee_click_show_seconds: 5,
   audience: "all",
   audience_roles: [],
@@ -664,12 +664,12 @@ export default function AdminAdsPage() {
                         onChange={(v) => set("marquee_hover_show_seconds", v)}
                       />
                       <RangeRow
-                        label="Jeda setelah hover (detik)"
+                        label="Tahan tampil setelah hover (detik)"
                         min={0}
-                        max={300}
-                        value={cfg.marquee_hover_cooldown_seconds}
-                        display={`${cfg.marquee_hover_cooldown_seconds} dtk`}
-                        onChange={(v) => set("marquee_hover_cooldown_seconds", v)}
+                        max={60}
+                        value={cfg.marquee_hover_hide_delay_seconds}
+                        display={`${cfg.marquee_hover_hide_delay_seconds} dtk`}
+                        onChange={(v) => set("marquee_hover_hide_delay_seconds", v)}
                       />
                     </>
                   )}

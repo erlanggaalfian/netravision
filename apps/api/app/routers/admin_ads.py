@@ -55,7 +55,9 @@ class AdConfigIn(BaseModel):
     popup_show_seconds: int = 10  # detik tampil (berkala + interval)
     popup_hide_seconds: int = 50  # detik sembunyi (berkala + interval)
     marquee_hover_show_seconds: int = 5  # detik terlihat saat hover
-    marquee_hover_cooldown_seconds: int = 30  # detik jeda setelah hover
+    # Jeda setelah hover: iklan masih tampil X detik setelah hover
+    # selesai, baru hilang (bukan cooldown pemblokir).
+    marquee_hover_hide_delay_seconds: int = 5
     marquee_click_show_seconds: int = 5  # detik muncul saat diklik
     # Audiens (2026-11-06): all | guest | roles | users
     audience: str = "all"

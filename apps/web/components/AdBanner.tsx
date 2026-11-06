@@ -29,7 +29,6 @@ export function AdBanner({
   clickTick = 0,
 }: Props) {
   const [visible, setVisible] = useState(true);
-  const [cooling, setCooling] = useState(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const isPeriodic = config.display_mode === "periodic";
@@ -48,7 +47,6 @@ export function AdBanner({
   /* Reset saat jenis tampilan / cara tampil berubah. */
   useEffect(() => {
     clearTimers();
-    setCooling(false);
     setVisible(!isPeriodic);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPeriodic, trigger]);
@@ -77,34 +75,28 @@ export function AdBanner({
     config.popup_hide_seconds,
   ]);
 
-  /* Berkala + hover: saat tile di-hover, tampil X detik lalu sembunyi;
-     setelah hover selesai, jeda Y detik sebelum bisa tampil lagi. */
+  /* Berkala + hover: saat tile di-hover, tampil X detik; setelah hover
+     selesai, iklan MASIH tampil selama jeda, baru hilang. Hover lagi
+     membatalkan timer hilang dan menampilkan lagi (tanpa cooldown). */
   const hoverShowMs = Math.max(1, config.marquee_hover_show_seconds || 5) * 1000;
-  const hoverCooldownMs =
-    Math.max(0, config.marquee_hover_cooldown_seconds || 30) * 1000;
+  const hoverHideDelayMs =
+    Math.max(0, config.marquee_hover_hide_delay_seconds || 5) * 1000;
   useEffect(() => {
     if (!isPeriodic || trigger !== "hover") return;
     if (!hovered) return;
-    if (cooling) return;
-    setVisible(true);
     clearTimers();
-    later(() => {
-      setVisible(false);
-      setCooling(true);
-      later(() => setCooling(false), hoverCooldownMs);
-    }, hoverShowMs);
+    setVisible(true);
+    later(() => setVisible(false), hoverShowMs);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPeriodic, trigger, hovered, cooling]);
+  }, [isPeriodic, trigger, hovered]);
 
-  /* Hover selesai: mulai jeda bila banner sempat tampil. */
+  /* Hover selesai: tahan tampil selama jeda, baru hilang. */
   const wasHovered = useRef(false);
   useEffect(() => {
     if (!isPeriodic || trigger !== "hover") return;
     if (wasHovered.current && !hovered) {
       clearTimers();
-      setVisible(false);
-      setCooling(true);
-      later(() => setCooling(false), hoverCooldownMs);
+      later(() => setVisible(false), hoverHideDelayMs);
     }
     wasHovered.current = hovered;
     // eslint-disable-next-line react-hooks/exhaustive-deps
