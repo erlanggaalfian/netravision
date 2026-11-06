@@ -167,7 +167,7 @@ export default function AdminStoragePage() {
       )}
 
       {/* Koneksi Google Drive */}
-      <NBCard className="mb-6 max-w-2xl">
+      <NBCard className="mb-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-lg font-bold tracking-tight text-white">Koneksi Google Drive</p>
@@ -202,7 +202,7 @@ export default function AdminStoragePage() {
       </NBCard>
 
       {/* Daftar tautan: list ringkas ala menu Admin, detail di accordion */}
-      <div className="mb-6 max-w-2xl">
+      <div className="mb-6">
         <h2 className="mb-1.5 px-1 text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
           Daftar Tautan{data ? ` (${data.folders.length})` : ""}
         </h2>
@@ -257,7 +257,7 @@ export default function AdminStoragePage() {
       </div>
 
       {/* Tambah tautan */}
-      <NBCard className="max-w-2xl">
+      <NBCard>
         <p className="mb-4 text-lg font-bold tracking-tight text-white">Tambah Tautan</p>
         <div className="space-y-4">
           <NBField
@@ -299,7 +299,7 @@ export default function AdminStoragePage() {
         </div>
       </NBCard>
 
-      <NBCard className="mt-6 max-w-2xl">
+      <NBCard className="mt-6">
         <p className="mb-2 text-lg font-bold tracking-tight text-white">Cara kerja</p>
         <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-400">
           <li>Klik “Hubungkan Google Drive” di atas dan ikuti 3 langkahnya (sekali saja).</li>
