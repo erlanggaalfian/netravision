@@ -1,38 +1,69 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AdConfig } from "../lib/types";
 import { normalizeUploadUrl } from "../lib/api";
 
 interface Props {
   config: AdConfig;
   className?: string;
+  /* Sinyal dari tile/modal pembungkus: hovered = pointer di atas tile,
+     clickTick = bertambah tiap tile diklik. Dipakai perilaku hover/click. */
+  hovered?: boolean;
+  clickTick?: number;
 }
 
 /* Banner iklan fleksibel (2026-11-06):
    - Posisi: bawah | atas
-   - Mode: marquee (teks berjalan) | popup (berkala) | static (diam)
+   - Mode: marquee (teks berjalan) | popup (berkala). TIDAK ADA statis:
+     teks selalu berjalan di semua pilihan.
+   - Perilaku marquee: always (selalu terlihat, hover maupun tidak) |
+     hover (terlihat saat hover + jeda setelah hover) | click (muncul
+     saat tile diklik, hilang lagi setelah X detik)
    - Trigger popup: always (terus) | interval (tampil/sembunyi bergantian) | hover (saat hover video)
-   - Klik: buka click_url di tab baru bila diisi
+   - Klik banner: buka click_url di tab baru bila diisi
    Selalu gelap (area video). */
-export function AdBanner({ config, className = "" }: Props) {
+export function AdBanner({
+  config,
+  className = "",
+  hovered = false,
+  clickTick = 0,
+}: Props) {
   const [visible, setVisible] = useState(true);
+  const [cooling, setCooling] = useState(false);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const isPopup = config.display_mode === "popup";
   const trigger = config.popup_trigger || "always";
-  const isMarquee = config.display_mode === "marquee";
+  const isMarquee = config.display_mode !== "popup";
   const marqueeBehavior = config.marquee_behavior || "always";
+
+  const later = (fn: () => void, ms: number) => {
+    const t = setTimeout(fn, ms);
+    timers.current.push(t);
+    return t;
+  };
+  const clearTimers = () => {
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+  };
+
+  /* Reset saat mode/perilaku berubah. */
+  useEffect(() => {
+    clearTimers();
+    setCooling(false);
+    setVisible(marqueeBehavior === "always" || !isMarquee ? true : false);
+    if (isPopup && trigger !== "interval") setVisible(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMarquee, isPopup, trigger, marqueeBehavior]);
 
   /* Popup interval: tampil X detik, sembunyi Y detik, berulang. */
   useEffect(() => {
-    if (!isPopup || trigger !== "interval") {
-      setVisible(true);
-      return;
-    }
+    if (!isPopup || trigger !== "interval") return;
     const showMs = Math.max(1, config.popup_show_seconds || 10) * 1000;
     const hideMs = Math.max(1, config.popup_hide_seconds || 50) * 1000;
-    let timeout: ReturnType<typeof setTimeout>;
     let alive = true;
+    let timeout: ReturnType<typeof setTimeout>;
     const tick = (show: boolean) => {
       if (!alive) return;
       setVisible(show);
@@ -50,16 +81,56 @@ export function AdBanner({ config, className = "" }: Props) {
     config.popup_hide_seconds,
   ]);
 
-  /* Marquee timed_hover: nyala X detik, lalu sembunyi sampai tile di-hover. */
+  /* Marquee hover: saat tile di-hover, tampil X detik lalu sembunyi;
+     setelah hover selesai, jeda Y detik sebelum bisa tampil lagi. */
+  const hoverShowMs = Math.max(1, config.marquee_hover_show_seconds || 5) * 1000;
+  const hoverCooldownMs =
+    Math.max(0, config.marquee_hover_cooldown_seconds || 30) * 1000;
   useEffect(() => {
-    if (!isMarquee || marqueeBehavior !== "timed_hover") {
-      setVisible(true);
+    if (!isMarquee || marqueeBehavior !== "hover") return;
+    if (!hovered) return;
+    if (cooling) return;
+    setVisible(true);
+    clearTimers();
+    later(() => {
+      setVisible(false);
+      setCooling(true);
+      later(() => setCooling(false), hoverCooldownMs);
+    }, hoverShowMs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMarquee, marqueeBehavior, hovered, cooling]);
+
+  /* Marquee hover selesai: mulai jeda bila banner sempat tampil. */
+  const wasHovered = useRef(false);
+  useEffect(() => {
+    if (!isMarquee || marqueeBehavior !== "hover") return;
+    if (wasHovered.current && !hovered) {
+      clearTimers();
+      setVisible(false);
+      setCooling(true);
+      later(() => setCooling(false), hoverCooldownMs);
+    }
+    wasHovered.current = hovered;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hovered]);
+
+  /* Marquee click: tiap tile diklik, tampil X detik lalu hilang lagi. */
+  const clickShowMs = Math.max(1, config.marquee_click_show_seconds || 5) * 1000;
+  const firstTick = useRef(true);
+  useEffect(() => {
+    if (firstTick.current) {
+      firstTick.current = false;
       return;
     }
-    const showMs = Math.max(1, config.marquee_show_seconds || 10) * 1000;
-    const timeout = setTimeout(() => setVisible(false), showMs);
-    return () => clearTimeout(timeout);
-  }, [isMarquee, marqueeBehavior, config.marquee_show_seconds]);
+    if (!isMarquee || marqueeBehavior !== "click") return;
+    if (clickTick <= 0) return;
+    clearTimers();
+    setVisible(true);
+    later(() => setVisible(false), clickShowMs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clickTick]);
+
+  useEffect(() => clearTimers, []);
 
   if (!config.is_active) return null;
   if (!config.marquee_text?.trim() && !config.image_url?.trim()) return null;
@@ -89,20 +160,16 @@ export function AdBanner({ config, className = "" }: Props) {
     bannerH > 0 ? Math.max(10, bannerH - 12) : 60,
   );
 
-  // Hover: sembunyi sampai tile di-hover (tile punya class `group`).
+  // Hover (popup): sembunyi sampai tile di-hover (tile punya class `group`).
   const hoverCls =
     isPopup && trigger === "hover"
       ? "opacity-0 transition-opacity duration-200 group-hover:opacity-100"
       : "";
-  // Interval: sembunyi saat fase hide.
-  const intervalCls =
-    isPopup && trigger === "interval"
+  // Interval (popup) + hover/click (marquee): sembunyi saat tidak tampil.
+  const timedCls =
+    (isPopup && trigger === "interval") ||
+    (isMarquee && marqueeBehavior !== "always")
       ? `transition-opacity duration-300 ${visible ? "opacity-100" : "pointer-events-none opacity-0"}`
-      : "";
-  // Marquee timed_hover: sembunyi setelah X detik, muncul lagi saat hover tile.
-  const marqueeTimedCls =
-    isMarquee && marqueeBehavior === "timed_hover"
-      ? `transition-opacity duration-300 ${visible ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`
       : "";
 
   const inner = (
@@ -136,43 +203,31 @@ export function AdBanner({ config, className = "" }: Props) {
       )}
       {config.marquee_text && (
         <div className="min-w-0 flex-1 overflow-hidden">
-          {config.display_mode === "static" || (isPopup && trigger !== "always") ? (
-            <span
-              className="block truncate whitespace-nowrap"
-              style={{
-                color: hexA(config.text_color, txtAlpha),
-                fontSize: Math.min(24, Math.max(8, config.font_size)),
-                fontFamily: config.font_family || "monospace",
-              }}
-            >
-              {config.marquee_text}
-            </span>
-          ) : (
-            <div
-              className="flex w-max whitespace-nowrap"
-              style={{ animation: `nv-marquee ${duration}s linear infinite` }}
-            >
-              {[0, 1, 2, 3].map((i) => (
-                <span
-                  key={i}
-                  className="pr-16"
-                  style={{
-                    color: hexA(config.text_color, txtAlpha),
-                    fontSize: Math.min(24, Math.max(8, config.font_size)),
-                    fontFamily: config.font_family || "monospace",
-                  }}
-                >
-                  {config.marquee_text}
-                </span>
-              ))}
-            </div>
-          )}
+          {/* Teks SELALU berjalan, di semua mode dan perilaku. */}
+          <div
+            className="flex w-max whitespace-nowrap"
+            style={{ animation: `nv-marquee ${duration}s linear infinite` }}
+          >
+            {[0, 1, 2, 3].map((i) => (
+              <span
+                key={i}
+                className="pr-16"
+                style={{
+                  color: hexA(config.text_color, txtAlpha),
+                  fontSize: Math.min(24, Math.max(8, config.font_size)),
+                  fontFamily: config.font_family || "monospace",
+                }}
+              >
+                {config.marquee_text}
+              </span>
+            ))}
+          </div>
         </div>
       )}
     </div>
   );
 
-  const wrapCls = `absolute inset-x-0 ${position} z-20 ${hoverCls} ${intervalCls} ${marqueeTimedCls} ${className}`;
+  const wrapCls = `absolute inset-x-0 ${position} z-20 ${hoverCls} ${timedCls} ${className}`;
 
   return (
     <div className={wrapCls}>

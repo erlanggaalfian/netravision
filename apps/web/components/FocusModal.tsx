@@ -34,6 +34,9 @@ export function FocusModal({ stream, onClose }: Props) {
     window.matchMedia("(pointer: fine)").matches;
   const [want, setWant] = useState<"LQ" | "HQ">(() => (isDesktop() ? "HQ" : "LQ"));
   const [ad, setAd] = useState<AdConfig | null>(null);
+  /* Sinyal iklan: hover stage + tiap klik stage (perilaku marquee hover/click). */
+  const [stageHovered, setStageHovered] = useState(false);
+  const [adClickTick, setAdClickTick] = useState(0);
   const stageRef = useRef<HTMLDivElement>(null);
   const { fs, rotated, cssRotate, toggle: toggleFs, rotate } = useFullscreen(
     stageRef,
@@ -312,11 +315,16 @@ export function FocusModal({ stream, onClose }: Props) {
         {/* Video */}
         <div
           ref={stageRef}
+          onMouseEnter={() => setStageHovered(true)}
+          onMouseLeave={() => setStageHovered(false)}
+          onClick={() => setAdClickTick((t) => t + 1)}
           className={`nv-stage relative ${vRatio ? "" : "aspect-video"} bg-black ${cssRotate ? "nv-rot" : ""}`}
           style={vRatio ? { aspectRatio: vRatio } : undefined}
         >
           <div className="nv-rot-inner relative h-full w-full">
-          {ad?.is_active && <AdBanner config={ad} />}
+          {ad?.is_active && (
+            <AdBanner config={ad} hovered={stageHovered} clickTick={adClickTick} />
+          )}
           {failed || !stream.is_online ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
               <svg

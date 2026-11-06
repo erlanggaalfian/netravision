@@ -26,6 +26,9 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
   const [playing, setPlaying] = useState(false);
   const [failed, setFailed] = useState(false);
   const [showControls, setShowControls] = useState(false);
+  /* Sinyal iklan: hover tile + tiap klik tile (perilaku marquee hover/click). */
+  const [tileHovered, setTileHovered] = useState(false);
+  const [adClickTick, setAdClickTick] = useState(0);
 
   const { fs, rotated, cssRotate, toggle: toggleFs, rotate } = useFullscreen(
     boxRef,
@@ -82,7 +85,12 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
   return (
     <div
       ref={boxRef}
-      onClick={toggleControls}
+      onClick={() => {
+        toggleControls();
+        setAdClickTick((t) => t + 1);
+      }}
+      onMouseEnter={() => setTileHovered(true)}
+      onMouseLeave={() => setTileHovered(false)}
       /* Fallback keyboard untuk :focus-within (I1): tampilkan kontrol saat
          fokus keyboard masuk ke tile, sembunyikan saat fokus keluar. */
       onFocus={() => setShowControls(true)}
@@ -184,7 +192,9 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
       )}
 
       {/* Overlay kontrol: hanya tombol aksi (nama + status ada di footer kartu) */}
-      {ad?.is_active && <AdBanner config={ad} />}
+      {ad?.is_active && (
+        <AdBanner config={ad} hovered={tileHovered} clickTick={adClickTick} />
+      )}
       <div className="cam-controls absolute inset-x-0 bottom-0 flex items-center justify-end gap-2 bg-gradient-to-t from-black/85 via-black/40 to-transparent px-3 pb-3 pt-8">
         <div className="flex shrink-0 items-center gap-2">
           {fs && (

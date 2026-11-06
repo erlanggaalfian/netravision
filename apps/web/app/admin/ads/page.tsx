@@ -38,7 +38,9 @@ const DEFAULTS: AdConfig = {
   popup_show_seconds: 10,
   popup_hide_seconds: 50,
   marquee_behavior: "always",
-  marquee_show_seconds: 10,
+  marquee_hover_show_seconds: 5,
+  marquee_hover_cooldown_seconds: 30,
+  marquee_click_show_seconds: 5,
   audience: "all",
   audience_roles: [],
   audience_user_ids: [],
@@ -101,7 +103,6 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
   }
   const bannerPos = cfg.position === "top" ? "top-0" : "bottom-0";
   const bannerBorder = cfg.position === "top" ? "border-b" : "border-t";
-  const isStatic = cfg.display_mode === "static" || cfg.display_mode === "popup";
   // Samakan AdBanner: tinggi gambar tidak boleh melebihi tinggi banner
   // dikurangi padding (py-1.5 = 12px) agar tidak terpotong overflow-hidden.
   const previewImgH =
@@ -171,38 +172,25 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
             />
           )}
           <div className="relative flex min-w-0 flex-1 items-center overflow-hidden">
-            {isStatic ? (
-              <span
-                className="block truncate whitespace-nowrap"
-                style={{
-                  color: cfg.text_color,
-                  opacity: cfg.text_opacity,
-                  fontSize: cfg.font_size,
-                  fontFamily: cfg.font_family,
-                }}
-              >
-                {text}
-              </span>
-            ) : (
-              <div
-                className="flex whitespace-nowrap"
-                style={{ animation: `nv-marquee ${duration}s linear infinite` }}
-              >
-                {[0, 1, 2, 3].map((i) => (
-                  <span
-                    key={i}
-                    style={{
-                      color: cfg.text_color,
-                      opacity: cfg.text_opacity,
-                      fontSize: cfg.font_size,
-                      fontFamily: cfg.font_family,
-                    }}
-                  >
-                    {text}
-                  </span>
-                ))}
-              </div>
-            )}
+            {/* Teks SELALU berjalan di preview, semua mode. */}
+            <div
+              className="flex whitespace-nowrap"
+              style={{ animation: `nv-marquee ${duration}s linear infinite` }}
+            >
+              {[0, 1, 2, 3].map((i) => (
+                <span
+                  key={i}
+                  style={{
+                    color: cfg.text_color,
+                    opacity: cfg.text_opacity,
+                    fontSize: cfg.font_size,
+                    fontFamily: cfg.font_family,
+                  }}
+                >
+                  {text}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -623,35 +611,55 @@ export default function AdminAdsPage() {
               </div>
               <NBField label="Jenis Tampilan">
                 <NBSelect
-                  value={cfg.display_mode}
+                  value={cfg.display_mode === "static" ? "marquee" : cfg.display_mode}
                   onChange={(e) => set("display_mode", e.target.value)}
                 >
                   <option value="marquee">Marquee (Teks Berjalan)</option>
                   <option value="popup">Popup Berkala</option>
-                  <option value="static">Statis</option>
                 </NBSelect>
               </NBField>
-              {cfg.display_mode === "marquee" && (
+              {cfg.display_mode !== "popup" && (
                 <>
                   <NBField label="Perilaku Marquee">
                     <NBSelect
                       value={cfg.marquee_behavior || "always"}
                       onChange={(e) => set("marquee_behavior", e.target.value)}
                     >
-                      <option value="always">Nyala terus (statis)</option>
-                      <option value="timed_hover">
-                        Nyala beberapa detik, muncul lagi saat hover
+                      <option value="always">
+                        Selalu terlihat (hover maupun tidak)
                       </option>
+                      <option value="hover">Terlihat saat hover</option>
+                      <option value="click">Muncul saat diklik</option>
                     </NBSelect>
                   </NBField>
-                  {cfg.marquee_behavior === "timed_hover" && (
+                  {cfg.marquee_behavior === "hover" && (
+                    <>
+                      <RangeRow
+                        label="Terlihat saat hover (detik)"
+                        min={1}
+                        max={60}
+                        value={cfg.marquee_hover_show_seconds}
+                        display={`${cfg.marquee_hover_show_seconds} dtk`}
+                        onChange={(v) => set("marquee_hover_show_seconds", v)}
+                      />
+                      <RangeRow
+                        label="Jeda setelah hover (detik)"
+                        min={0}
+                        max={300}
+                        value={cfg.marquee_hover_cooldown_seconds}
+                        display={`${cfg.marquee_hover_cooldown_seconds} dtk`}
+                        onChange={(v) => set("marquee_hover_cooldown_seconds", v)}
+                      />
+                    </>
+                  )}
+                  {cfg.marquee_behavior === "click" && (
                     <RangeRow
-                      label="Lama Menyala (detik)"
+                      label="Lama muncul saat diklik (detik)"
                       min={1}
-                      max={120}
-                      value={cfg.marquee_show_seconds}
-                      display={`${cfg.marquee_show_seconds} dtk`}
-                      onChange={(v) => set("marquee_show_seconds", v)}
+                      max={60}
+                      value={cfg.marquee_click_show_seconds}
+                      display={`${cfg.marquee_click_show_seconds} dtk`}
+                      onChange={(v) => set("marquee_click_show_seconds", v)}
                     />
                   )}
                 </>

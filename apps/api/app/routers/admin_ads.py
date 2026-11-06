@@ -46,14 +46,17 @@ class AdConfigIn(BaseModel):
     # Fleksibilitas tampilan (2026-11-06):
     position: str = "bottom"  # bottom | top
     banner_height: int = 0  # px, 0 = otomatis
-    display_mode: str = "marquee"  # marquee | popup | static
+    display_mode: str = "marquee"  # marquee | popup (tidak ada statis: teks selalu berjalan)
     popup_trigger: str = "always"  # always | interval | hover
     popup_show_seconds: int = 10  # detik tampil (mode popup + trigger interval)
     popup_hide_seconds: int = 50  # detik sembunyi (mode popup + trigger interval)
-    # Perilaku marquee (2026-11-06): always (nyala terus) | timed_hover
-    # (nyala X detik, lalu muncul lagi saat hover)
+    # Perilaku marquee (2026-11-06): always (selalu terlihat, hover
+    # maupun tidak) | hover (terlihat saat hover + jeda) | click (muncul
+    # saat diklik). Teks selalu berjalan di semua pilihan.
     marquee_behavior: str = "always"
-    marquee_show_seconds: int = 10  # detik menyala (mode marquee + timed_hover)
+    marquee_hover_show_seconds: int = 5  # detik terlihat saat hover
+    marquee_hover_cooldown_seconds: int = 30  # detik jeda setelah hover
+    marquee_click_show_seconds: int = 5  # detik muncul saat diklik
     # Audiens (2026-11-06): all | guest | roles | users
     audience: str = "all"
     audience_roles: list[str] = []
