@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { AdConfig, User } from "../../../lib/types";
+import type { AdConfig } from "../../../lib/types";
 import { ApiError, api, apiFetch, normalizeUploadUrl } from "../../../lib/api";
 import { ErrorBox, Spinner } from "../../../components/ui";
 import {
@@ -313,9 +313,6 @@ export default function AdminAdsPage() {
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [users, setUsers] = useState<User[]>([]);
-  const [usersLoading, setUsersLoading] = useState(false);
-  const [usersLoaded, setUsersLoaded] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -326,22 +323,6 @@ export default function AdminAdsPage() {
         setError(e instanceof ApiError ? e.message : "Gagal memuat konfigurasi"),
       );
   }, []);
-
-  /* Daftar user hanya dimuat saat audiens "User Tertentu" dipilih. */
-  useEffect(() => {
-    if (cfg?.audience !== "users" || usersLoaded || usersLoading) return;
-    setUsersLoading(true);
-    api
-      .get<User[]>("/admin/users")
-      .then((d) => {
-        setUsers(d ?? []);
-        setUsersLoaded(true);
-      })
-      .catch(() => {
-        /* daftar opsional; abaikan bila gagal */
-      })
-      .finally(() => setUsersLoading(false));
-  }, [cfg?.audience, usersLoaded, usersLoading]);
 
   function set<K extends keyof AdConfig>(key: K, value: AdConfig[K]) {
     setCfg((c) => (c ? { ...c, [key]: value } : c));
@@ -685,100 +666,9 @@ export default function AdminAdsPage() {
             </div>
           </div>
 
-          {/* Seksi 5: Audiens */}
-          <div className="nv-panel-modern mt-6 space-y-4 p-4">
-            <div className="border-b border-slate-200/10 pb-2">
-              <span className="font-mono text-xs font-semibold uppercase text-accent-400">
-                5. Audiens
-              </span>
-            </div>
-            <NBField label="Tampilkan Ke">
-              <NBSelect
-                value={cfg.audience}
-                onChange={(e) => set("audience", e.target.value)}
-              >
-                <option value="all">Semua</option>
-                <option value="guest">Hanya Guest</option>
-                <option value="roles">Peran Tertentu</option>
-                <option value="users">User Tertentu</option>
-              </NBSelect>
-            </NBField>
-            {cfg.audience === "roles" && (
-              <div className="flex flex-wrap gap-2">
-                {(["guest", "user", "admin"] as const).map((r) => {
-                  const checked = (cfg.audience_roles ?? []).includes(r);
-                  return (
-                    <label
-                      key={r}
-                      className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition-colors ${
-                        checked
-                          ? "border-accent-500/50 bg-accent-500/10 text-accent-300"
-                          : "border-slate-200/15 text-slate-300 hover:border-slate-200/30"
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => {
-                          const cur = cfg.audience_roles ?? [];
-                          set(
-                            "audience_roles",
-                            checked
-                              ? cur.filter((x) => x !== r)
-                              : [...cur, r],
-                          );
-                        }}
-                        className="h-4 w-4 shrink-0 accent-accent-500"
-                      />
-                      <span className="capitalize">{r}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-            {cfg.audience === "users" && (
-              <div>
-                {usersLoading ? (
-                  <p className="text-sm text-slate-400">Memuat daftar user…</p>
-                ) : users.length === 0 ? (
-                  <p className="text-sm text-slate-400">Tidak ada user.</p>
-                ) : (
-                  <div className="max-h-64 space-y-1 overflow-y-auto pr-1">
-                    {users.map((u) => {
-                      const checked = (cfg.audience_user_ids ?? []).includes(u.id);
-                      return (
-                        <label
-                          key={u.id}
-                          className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl px-3 text-sm transition-colors hover:bg-ink-800/50"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => {
-                              const cur = cfg.audience_user_ids ?? [];
-                              set(
-                                "audience_user_ids",
-                                checked
-                                  ? cur.filter((x) => x !== u.id)
-                                  : [...cur, u.id],
-                              );
-                            }}
-                            className="h-4 w-4 shrink-0 accent-accent-500"
-                          />
-                          <span className="min-w-0 flex-1 truncate font-medium text-slate-200">
-                            {u.username}
-                          </span>
-                          <span className="shrink-0 text-xs capitalize text-slate-400">
-                            {u.role}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+          {/* Audiens dihapus dari sini: nantinya diatur per-user di menu
+              Pengguna. Nilai audience di state tetap dipertahankan saat
+              simpan (round-trip), supaya setelan lama tidak hilang. */}
 
           <div className="mt-6">
             <NBButton onClick={save} disabled={busy} className="w-full">
