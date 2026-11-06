@@ -65,10 +65,10 @@ export default function AdminLayout({
                     key={n.href}
                     href={n.href}
                     aria-current={active ? "page" : undefined}
-                    className={`flex min-h-[42px] shrink-0 cursor-pointer items-center whitespace-nowrap rounded-full px-4 text-sm transition-all duration-150 active:scale-[0.97] ${
+                    className={`flex min-h-[42px] shrink-0 cursor-pointer items-center whitespace-nowrap rounded-full border px-4 text-sm transition-all duration-150 active:scale-[0.97] ${
                       active
-                        ? "bg-gradient-to-b from-accent-500 to-accent-600 font-semibold text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-500),inset_0_1px_0_rgba(255,255,255,0.2)]"
-                        : "font-medium text-slate-400 hover:bg-ink-800 hover:text-slate-200"
+                        ? "border-accent-500/40 bg-gradient-to-b from-accent-500 to-accent-600 font-semibold text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-500),inset_0_1px_0_rgba(255,255,255,0.2)]"
+                        : "border-slate-200/15 bg-ink-800/60 font-medium text-slate-300 shadow-[0_1px_3px_rgba(0,0,0,0.2)] hover:border-slate-200/30 hover:bg-ink-800 hover:text-slate-100"
                     }`}
                   >
                     {n.label}

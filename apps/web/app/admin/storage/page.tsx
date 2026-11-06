@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import { ErrorBox, Modal, Spinner } from "../../../components/ui";
 import {
+  NBAccordion,
   NBBadge,
   NBButton,
   NBCard,
@@ -200,47 +201,59 @@ export default function AdminStoragePage() {
         </div>
       </NBCard>
 
-      {/* Daftar tautan */}
-      <div className="mb-6 space-y-3">
+      {/* Daftar tautan: list ringkas ala menu Admin, detail di accordion */}
+      <div className="mb-6 max-w-2xl">
+        <h2 className="mb-1.5 px-1 text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
+          Daftar Tautan{data ? ` (${data.folders.length})` : ""}
+        </h2>
         {data && data.folders.length === 0 && (
           <NBEmptyState text="Belum ada tautan. Tambahkan tautan folder Google Drive di bawah." />
         )}
-        {data?.folders.map((f, i) => (
-          <NBCard key={f.id} className="transition-colors hover:border-ink-500">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="flex flex-wrap items-center gap-2 font-medium">
-                  <span className="truncate">
-                    {f.folder_name || `Akun ${i + 1}`}
+        {data && data.folders.length > 0 && (
+          <div className="nv-panel-modern divide-y divide-slate-200/10 overflow-hidden !p-0">
+            {data.folders.map((f, i) => (
+              <NBAccordion
+                key={f.id}
+                summary={
+                  <span className="flex min-h-[48px] items-center gap-3">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden className="shrink-0 text-slate-400">
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                    </svg>
+                    <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-slate-200">
+                      {f.folder_name || `Akun ${i + 1}`}
+                    </span>
+                    {i === 0 && <NBBadge tone="info">Default</NBBadge>}
                   </span>
-                  {i === 0 && <NBBadge tone="info">Default</NBBadge>}
-                </p>
-                <p className="mt-1 break-all font-mono text-xs text-slate-400">
-                  ID: {f.folder_id}
-                </p>
-                <p className="mt-0.5 break-all text-xs text-slate-400">
-                  Mount: {f.local_path || "—"}
-                  {!f.local_path_custom && data.staging_default && (
-                    <span> (default)</span>
-                  )}
-                </p>
-                {f.updated_at && (
-                  <p className="mt-1 text-xs text-slate-400">
-                    Diperbarui {new Date(f.updated_at).toLocaleString("id-ID")}
-                    {f.updated_by ? ` oleh ${f.updated_by}` : ""}
-                  </p>
-                )}
-              </div>
-              <NBButton
-                variant="danger"
-                onClick={() => setDeleting(f)}
-                className="px-3"
+                }
               >
-                Hapus
-              </NBButton>
-            </div>
-          </NBCard>
-        ))}
+                <div className="space-y-1.5 px-4 pb-4 text-xs text-slate-400">
+                  <p className="break-all font-mono">ID: {f.folder_id}</p>
+                  <p className="break-all">
+                    Mount: {f.local_path || "—"}
+                    {!f.local_path_custom && data.staging_default && (
+                      <span> (default)</span>
+                    )}
+                  </p>
+                  {f.updated_at && (
+                    <p>
+                      Diperbarui {new Date(f.updated_at).toLocaleString("id-ID")}
+                      {f.updated_by ? ` oleh ${f.updated_by}` : ""}
+                    </p>
+                  )}
+                  <div className="pt-2">
+                    <NBButton
+                      variant="danger"
+                      onClick={() => setDeleting(f)}
+                      className="px-3"
+                    >
+                      Hapus
+                    </NBButton>
+                  </div>
+                </div>
+              </NBAccordion>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Tambah tautan */}
