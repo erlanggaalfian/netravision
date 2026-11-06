@@ -29,9 +29,16 @@ async def _user_from_token(raw: str, db: AsyncSession) -> User:
     if payload.get("type") != "access":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token salah tipe")
 
-    # Guest v2.0 bersifat ephemeral — tanpa baris user di DB.
-    # show_ads=True eksplisit: popup iklan memang ditujukan untuk guest.
+    # Guest: pakai baris user 'guest' dari DB bila ada (migrasi 0011),
+    # agar show_ads-nya bisa diatur superadmin di menu Pengguna.
+    # Fallback ke user sintetis bila baris belum ada (DB lama).
     if payload.get("sub") == "guest":
+        result = await db.execute(
+            select(User).where(User.username == "guest", User.is_active.is_(True))
+        )
+        guest = result.scalars().first()
+        if guest is not None:
+            return guest
         return User(id=0, username="guest", password_hash="", role="guest",
                     is_active=True, show_ads=True)
 
