@@ -5,7 +5,6 @@ import { playWhep, stopWhep } from "../lib/whep";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { withToken } from "../lib/api";
 import { AdBanner } from "./AdBanner";
-import { Badge } from "./ui";
 import type { AdConfig, Stream } from "../lib/types";
 
 interface Props {
@@ -268,20 +267,16 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
       </div>
       </div>
       </div>
-      {/* Footer kartu ala NetBackup: nama + badge status pill */}
+      {/* Footer kartu: titik status kecil + nama kamera saja (tanpa chip). */}
       {!fs && (
-        <div className="flex items-center justify-between gap-2 border-t border-ink-800/60 px-3.5 py-3">
-          <span className="flex min-w-0 items-center gap-2.5">
-            <span
-              className={`h-2 w-2 shrink-0 rounded-full ${online ? "bg-ok-400 shadow-[0_0_8px_2px_rgba(74,222,128,0.5)]" : "bg-bad-400 shadow-[0_0_8px_2px_rgba(248,113,113,0.4)]"}`}
-            />
-            <span className="truncate text-sm font-semibold tracking-tight text-white">
-              {stream.name}
-            </span>
+        <div className="flex items-center gap-2 border-t border-ink-800/60 px-3.5 py-3">
+          <span
+            className={`h-2 w-2 shrink-0 rounded-full ${online ? "bg-ok-400" : "bg-bad-400"}`}
+            aria-label={online ? "Online" : "Offline"}
+          />
+          <span className="truncate text-sm font-semibold tracking-tight text-white">
+            {stream.name}
           </span>
-          <Badge tone={online ? "ok" : "bad"}>
-            {online ? "Online" : "Offline"}
-          </Badge>
         </div>
       )}
     </div>

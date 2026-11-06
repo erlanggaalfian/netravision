@@ -91,6 +91,8 @@ export default function LivePage() {
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [gridKey, setGridKey] = useState("2x2");
   const isDesktop = useIsDesktop();
+  /* Panel kontrol dilipat di HP (tombol filter), selalu tampil di desktop. */
+  const [filterOpen, setFilterOpen] = useState(false);
   const gridOpts = isDesktop ? GRID_OPTS_PC : GRID_OPTS_MOBILE;
   /* Kunci dari perangkat lain tidak cocok: pakai default perangkat ini. */
   const activeOpt = gridOpts.find((g) => g.key === gridKey) ?? gridOpts[1];
@@ -178,7 +180,7 @@ export default function LivePage() {
   return (
     <AppShell>
       <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-7">
-        {/* Header + filter: panel modern */}
+        {/* Header: judul + status, lalu pencarian, lalu kontrol (dilipat di HP) */}
         <div className="nv-panel-modern mb-5 p-4 sm:p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -191,16 +193,81 @@ export default function LivePage() {
                   : `Menampilkan ${visibleStreams.length} dari ${filtered.length} kamera · ${onlineCount} online`}
               </p>
             </div>
-            <div className="flex max-w-full flex-wrap items-center gap-2">
+            <span
+              className="flex h-11 items-center gap-2 rounded-full bg-ink-800 px-4 text-xs font-semibold text-neutral-300 shadow-sm"
+              title={connected ? "WebSocket terhubung" : "Menghubungkan…"}
+            >
               <span
-                className="flex h-11 items-center gap-2 rounded-full border border-ink-700 bg-ink-950 px-4 text-xs font-semibold text-neutral-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
-                title={connected ? "WebSocket terhubung" : "Menghubungkan…"}
+                className={`h-2 w-2 rounded-full ${connected ? "bg-ok-400 shadow-[0_0_8px_2px_rgba(74,222,128,0.5)]" : "bg-warn-400 shadow-[0_0_8px_2px_rgba(251,191,36,0.5)]"}`}
+              />
+              {connected ? "Real-time" : "Menghubungkan…"}
+            </span>
+          </div>
+
+          {/* Baris pencarian + tombol filter (HP saja) */}
+          <div className="mt-4 flex items-center gap-2 border-t border-ink-800 pt-4">
+            <div className="relative min-w-0 flex-1 lg:max-w-xs">
+              <svg
+                width="17"
+                height="17"
+                viewBox="0 0 16 16"
+                fill="none"
+                className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400"
+                aria-hidden
               >
-                <span
-                  className={`h-2 w-2 rounded-full ${connected ? "bg-ok-400 shadow-[0_0_8px_2px_rgba(74,222,128,0.5)]" : "bg-warn-400 shadow-[0_0_8px_2px_rgba(251,191,36,0.5)]"}`}
+                <path
+                  d="M7.5 12.5a5 5 0 100-10 5 5 0 000 10zM11.5 11.5L14 14"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
                 />
-                {connected ? "Real-time" : "Menghubungkan…"}
-              </span>
+              </svg>
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Cari kamera…"
+                aria-label="Cari kamera"
+                className="h-11 w-full rounded-full bg-ink-800 pl-10 pr-4 text-base text-white shadow-sm placeholder:text-neutral-500 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-accent-500/30"
+              />
+            </div>
+            <button
+              onClick={() => setFilterOpen((v) => !v)}
+              aria-expanded={filterOpen}
+              aria-label={filterOpen ? "Sembunyikan filter" : "Tampilkan filter"}
+              className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-ink-800 text-slate-300 shadow-sm transition active:scale-95 md:hidden"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                aria-hidden
+              >
+                <line x1="4" y1="21" x2="4" y2="14" />
+                <line x1="4" y1="10" x2="4" y2="3" />
+                <line x1="12" y1="21" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12" y2="3" />
+                <line x1="20" y1="21" x2="20" y2="16" />
+                <line x1="20" y1="12" x2="20" y2="3" />
+                <line x1="1" y1="14" x2="7" y2="14" />
+                <line x1="9" y1="8" x2="15" y2="8" />
+                <line x1="17" y1="16" x2="23" y2="16" />
+              </svg>
+              {filter !== "all" && (
+                <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-accent-500" />
+              )}
+            </button>
+          </div>
+
+          {/* Kontrol grid + refresh + status: dilipat di HP, tampil di desktop */}
+          <div
+            className={`${filterOpen ? "nv-pop block" : "hidden"} mt-4 md:block`}
+          >
+            <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-2">
                 {isDesktop && (
                   <span className="text-xs font-semibold text-slate-400">
@@ -208,7 +275,7 @@ export default function LivePage() {
                   </span>
                 )}
                 <div
-                  className="flex items-center gap-1 rounded-full border border-ink-700 bg-ink-950 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+                  className="flex items-center gap-1 rounded-full bg-ink-800 p-1 shadow-sm"
                   role="tablist"
                   aria-label={
                     isDesktop
@@ -230,12 +297,9 @@ export default function LivePage() {
                       className={`flex h-10 min-w-[48px] items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-xs font-bold transition-all duration-200 active:scale-95 ${
                         activeOpt.key === g.key
                           ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
-                          : "text-neutral-400 hover:bg-white/5 hover:text-white"
+                          : "text-neutral-400 hover:bg-ink-700 hover:text-slate-200"
                       }`}
                     >
-                      {/* HP: ikon kamera + angka ("4" + ikon = 4 kamera),
-                          tanpa kata "kamera" dan tanpa label "Tampilkan:",
-                          ringkas tapi tetap jelas artinya. */}
                       {!isDesktop && (
                         <svg
                           width="14"
@@ -261,7 +325,7 @@ export default function LivePage() {
                 onClick={load}
                 disabled={fetching}
                 aria-label="Muat ulang"
-                className="flex h-11 items-center gap-2 rounded-full border border-ink-700 bg-ink-950 px-4 text-sm font-semibold text-neutral-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-all duration-200 hover:border-ink-600 hover:bg-ink-800 active:scale-95 disabled:opacity-50"
+                className="flex h-11 items-center gap-2 rounded-full bg-ink-800 px-4 text-sm font-semibold text-neutral-200 shadow-sm transition-all duration-200 hover:bg-ink-700 active:scale-95 disabled:opacity-50"
               >
                 <svg
                   width="15"
@@ -281,65 +345,36 @@ export default function LivePage() {
                 </svg>
                 <span className="hidden min-[420px]:inline">Muat ulang</span>
               </button>
-            </div>
-          </div>
-
-          {/* Search + filter */}
-          <div className="mt-4 flex flex-col gap-3 border-t border-ink-800 pt-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="relative w-full lg:max-w-xs">
-              <svg
-                width="17"
-                height="17"
-                viewBox="0 0 16 16"
-                fill="none"
-                className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400"
-                aria-hidden
+              <div
+                className="flex w-full items-center gap-1 overflow-x-auto rounded-full bg-ink-800 p-1 shadow-sm sm:w-auto"
+                role="tablist"
+                aria-label="Filter status kamera"
               >
-                <path
-                  d="M7.5 12.5a5 5 0 100-10 5 5 0 000 10zM11.5 11.5L14 14"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                />
-              </svg>
-              <input
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Cari kamera…"
-                aria-label="Cari kamera"
-                className="h-11 w-full rounded-full border border-ink-700 bg-ink-950 pl-10 pr-4 text-base text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] placeholder:text-neutral-500 transition-all duration-200 focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/30"
-              />
-            </div>
-            <div
-              className="flex w-full items-center gap-1 overflow-x-auto rounded-full border border-ink-700 bg-ink-950 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] lg:w-auto"
-              role="tablist"
-              aria-label="Filter status kamera"
-            >
-              {FILTERS.map((f) => (
-                <button
-                  key={f.id}
-                  role="tab"
-                  aria-selected={filter === f.id}
-                  onClick={() => setFilter(f.id)}
-                  className={`flex h-10 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm font-semibold transition-all duration-200 active:scale-95 sm:px-5 lg:flex-none ${
-                    filter === f.id
-                      ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
-                      : "text-neutral-400 hover:bg-white/5 hover:text-white"
-                  }`}
-                >
-                  {f.label}
-                  <span
-                    className={`rounded-full px-1.5 py-0.5 text-xs font-bold leading-none ${
+                {FILTERS.map((f) => (
+                  <button
+                    key={f.id}
+                    role="tab"
+                    aria-selected={filter === f.id}
+                    onClick={() => setFilter(f.id)}
+                    className={`flex h-10 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm font-semibold transition-all duration-200 active:scale-95 sm:px-5 lg:flex-none ${
                       filter === f.id
-                        ? "bg-black/20 text-onaccent"
-                        : "bg-ink-500/25 text-neutral-300"
+                        ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
+                        : "text-neutral-400 hover:bg-ink-700 hover:text-slate-200"
                     }`}
                   >
-                    {counts[f.id]}
-                  </span>
-                </button>
-              ))}
+                    {f.label}
+                    <span
+                      className={`rounded-full px-1.5 py-0.5 text-xs font-bold leading-none ${
+                        filter === f.id
+                          ? "bg-black/20 text-onaccent"
+                          : "bg-ink-500/25 text-neutral-300"
+                      }`}
+                    >
+                      {counts[f.id]}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>
