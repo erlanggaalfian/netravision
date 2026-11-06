@@ -209,22 +209,21 @@ body {
   animation: nv-pop 0.18s ease-out;
 }
 
-/* Lampu status: kedipan perlahan dan halus seperti lampu menyala.
-   Titik mostly terang, meredup sedikit di tengah siklus lalu kembali
-   terang; amplitudo kecil (glow + opacity saja, tanpa membesar).
-   Warna glow mengikuti warna titik (currentColor, jadi elemen
-   pemakai wajib membawa text-* sewarna bg-* titiknya). */
+/* Lampu status: memudar perlahan lalu terang kembali secara sinambung,
+   seperti lampu diredupkan lalu dinyalakan lagi dengan halus. Tidak ada
+   jeda terang atau momen kedip; seluruh siklus adalah transisi lembut.
+   Amplitudo kecil (glow + opacity saja). Warna glow mengikuti warna
+   titik (currentColor, jadi elemen pemakai wajib membawa text-*
+   sewarna bg-* titiknya). */
 @keyframes nv-lamp {
   0%,
-  30%,
-  70%,
   100% {
     box-shadow: 0 0 6px 2px color-mix(in srgb, currentColor 45%, transparent);
     opacity: 1;
   }
   50% {
-    box-shadow: 0 0 3px 1px color-mix(in srgb, currentColor 22%, transparent);
-    opacity: 0.8;
+    box-shadow: 0 0 2px 1px color-mix(in srgb, currentColor 20%, transparent);
+    opacity: 0.75;
   }
 }
 .nv-lamp {
