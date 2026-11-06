@@ -111,15 +111,13 @@ async def logout(
     dependencies=[Depends(rate_limited(5, 60))],
 )
 async def guest(data: GuestIn) -> TokenOut:
-    """Login tamu terbatas ala v2.0. Nonaktif secara default (GUEST_ENABLED)."""
+    """Login tamu untuk semua pengunjung — tanpa password, tanpa
+    autentikasi apapun (2026-11-06). Nonaktif bila GUEST_ENABLED false."""
     settings = get_settings()
     if not settings.guest_enabled:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="login tamu nonaktif"
         )
-    if settings.guest_password and data.password != settings.guest_password:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="password salah")
-
     access = create_access_token("guest", "guest", "guest", settings, expires_minutes=60)
     return TokenOut(access_token=access, refresh_token=None, expires_in=3600)
 

@@ -27,7 +27,6 @@ class Settings(BaseSettings):
     jwt_refresh_days: int = 7
 
     guest_enabled: bool = False
-    guest_password: str = ""
 
     mediamtx_api_url: str = "http://127.0.0.1:9997"
     mediamtx_whep_base: str = "http://127.0.0.1:8889"

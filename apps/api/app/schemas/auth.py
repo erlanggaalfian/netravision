@@ -13,7 +13,7 @@ class RefreshIn(BaseModel):
 
 
 class GuestIn(BaseModel):
-    password: str = Field(default="", max_length=256)
+    """Body kosong — guest login tanpa password/autentikasi (2026-11-06)."""
 
 
 class TokenOut(BaseModel):

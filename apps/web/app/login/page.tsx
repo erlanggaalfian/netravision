@@ -61,7 +61,7 @@ export default function LoginPage() {
     setError("");
     setBusy(true);
     try {
-      await loginGuest("");
+      await loginGuest();
       router.push("/live");
     } catch (err) {
       setError(

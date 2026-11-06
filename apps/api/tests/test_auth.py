@@ -145,17 +145,17 @@ async def test_logout_clears_refresh(app):
 async def test_guest_disabled_by_default(app):
     c, _ = _client(app)
     async with c:
-        r = await c.post("/api/auth/guest", json={"password": ""})
+        r = await c.post("/api/auth/guest", json={})
     assert r.status_code == 403
 
 
-async def test_guest_enabled(app, monkeypatch):
+async def test_guest_enabled_no_password(app, monkeypatch):
+    """Guest login tanpa password/autentikasi apapun (2026-11-06)."""
     settings = get_settings()
     monkeypatch.setattr(settings, "guest_enabled", True)
-    monkeypatch.setattr(settings, "guest_password", "")
     c, _ = _client(app)
     async with c:
-        r = await c.post("/api/auth/guest", json={"password": ""})
+        r = await c.post("/api/auth/guest", json={})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["access_token"]

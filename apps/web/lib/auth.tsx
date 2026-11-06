@@ -20,7 +20,7 @@ interface AuthCtx {
   user: User | null;
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
-  loginGuest: (code: string) => Promise<void>;
+  loginGuest: () => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -62,10 +62,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(data.user ?? (await fetchMe()));
   }, []);
 
-  const loginGuest = useCallback(async (code: string) => {
-    const data = await api.post<TokenPair & { user: User }>("/auth/guest", {
-      code,
-    });
+  const loginGuest = useCallback(async () => {
+    const data = await api.post<TokenPair & { user: User }>("/auth/guest", {});
     setTokens(data.access_token, data.refresh_token);
     setUser(data.user ?? (await fetchMe()));
   }, []);
