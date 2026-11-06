@@ -152,12 +152,14 @@ export function AppShell({ children }: { children: ReactNode }) {
               N
             </span>
             <div>
-              <div className="flex items-center gap-1.5 text-sm font-bold tracking-tight text-slate-200">
+              <div className="text-sm font-bold tracking-tight text-slate-200">
                 NetraVision
+              </div>
+              <div className="flex items-center gap-1 text-[10px] font-medium text-slate-400">
                 <span
-                  className={`h-2 w-2 rounded-full ${connected ? "bg-ok-400" : "bg-warn-400"}`}
-                  title={connected ? "Terhubung" : "Menghubungkan…"}
+                  className={`h-1 w-1 rounded-full ${connected ? "bg-ok-400" : "bg-warn-400"}`}
                 />
+                {connected ? "Terhubung" : "Menghubungkan…"}
               </div>
             </div>
           </div>
