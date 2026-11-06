@@ -65,6 +65,17 @@ export function AdBanner({ config, className = "" }: Props) {
   const borderSide =
     config.position === "top" ? "border-b" : "border-t";
 
+  // Tinggi gambar tidak boleh melebihi tinggi banner dikurangi padding
+  // vertikal (py-1.5 = 12px), kalau tidak gambar terpotong oleh
+  // overflow-hidden. Bila banner_height 0 (otomatis), banner mengikuti
+  // gambar sehingga tidak ada batasan.
+  const bannerH = config.banner_height > 0 ? config.banner_height : 0;
+  const imgH = Math.min(
+    60,
+    Math.max(10, config.image_height),
+    bannerH > 0 ? Math.max(10, bannerH - 12) : 60,
+  );
+
   // Hover: sembunyi sampai tile di-hover (tile punya class `group`).
   const hoverCls =
     isPopup && trigger === "hover"
@@ -98,9 +109,9 @@ export function AdBanner({ config, className = "" }: Props) {
           src={normalizeUploadUrl(config.image_url)}
           alt=""
           aria-hidden
-          className="shrink-0 rounded object-contain"
+          className="max-h-full shrink-0 rounded object-contain"
           style={{
-            height: Math.min(60, Math.max(10, config.image_height)),
+            height: imgH,
             opacity: imgAlpha,
           }}
         />

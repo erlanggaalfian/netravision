@@ -100,6 +100,12 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
   const bannerPos = cfg.position === "top" ? "top-0" : "bottom-0";
   const bannerBorder = cfg.position === "top" ? "border-b" : "border-t";
   const isStatic = cfg.display_mode === "static" || cfg.display_mode === "popup";
+  // Samakan AdBanner: tinggi gambar tidak boleh melebihi tinggi banner
+  // dikurangi padding (py-1.5 = 12px) agar tidak terpotong overflow-hidden.
+  const previewImgH =
+    cfg.banner_height > 0
+      ? Math.min(cfg.image_height, Math.max(10, cfg.banner_height - 12))
+      : cfg.image_height;
 
   return (
     <div className="nv-panel-modern mb-6 p-4">
@@ -155,9 +161,9 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
             <img
               src={normalizeUploadUrl(cfg.image_url)}
               alt="Logo sponsor"
-              className="w-auto shrink-0 rounded object-contain"
+              className="max-h-full w-auto shrink-0 rounded object-contain"
               style={{
-                height: cfg.image_height,
+                height: previewImgH,
                 opacity: cfg.image_opacity,
               }}
             />
