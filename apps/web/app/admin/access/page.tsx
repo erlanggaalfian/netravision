@@ -89,15 +89,15 @@ export default function AdminAccessPage() {
 
       <NBCard>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex rounded-xl border border-ink-700 bg-ink-950 p-1">
+          <div className="flex rounded-full bg-ink-800 p-1 shadow-sm">
             {(["akun", "kamera"] as Arah[]).map((a) => (
               <button
                 key={a}
                 onClick={() => setArah(a)}
-                className={`min-h-[44px] rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                className={`min-h-[44px] rounded-full px-4 py-2 text-sm font-medium transition-colors ${
                   arah === a
-                    ? "bg-accent-500 text-onaccent"
-                    : "text-slate-400 hover:text-white"
+                    ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
+                    : "text-slate-400 hover:bg-ink-700 hover:text-slate-200"
                 }`}
               >
                 {a === "akun" ? "Per akun" : "Per kamera"}
@@ -418,7 +418,7 @@ function AccessByCameraModal({
         <>
           <div className="max-h-64 space-y-1 overflow-y-auto">
             {/* Principal Tamu: semua sesi guest */}
-            <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl border border-ink-700 bg-ink-950/60 px-3 py-2 hover:bg-ink-800/50">
+            <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl bg-ink-800 shadow-sm/60 px-3 py-2 hover:bg-ink-800/50">
               <input
                 type="checkbox"
                 checked={guestAccess}

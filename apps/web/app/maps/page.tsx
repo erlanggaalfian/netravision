@@ -179,7 +179,7 @@ export default function MapsPage() {
       const btn = document.createElement("button");
       btn.textContent = "Lihat live";
       btn.style.cssText =
-        "width:100%;padding:10px 12px;border-radius:12px;background:linear-gradient(180deg,var(--nv-accent-500),var(--nv-accent-600));color:#fff;font-size:13px;font-weight:700;border:none;cursor:pointer;min-height:44px;box-shadow:0 4px 16px -4px var(--nv-accent-500), inset 0 1px 0 rgba(255,255,255,0.2)";
+        "width:100%;padding:10px 12px;border-radius:12px;background:linear-gradient(90deg,var(--nv-accent-600),var(--nv-accent-500));color:#fff;font-size:13px;font-weight:700;border:none;cursor:pointer;min-height:44px;box-shadow:0 4px 16px -4px var(--nv-accent-600)";
       btn.onclick = () => {
         map.closePopup();
         focusRef.current(s);
@@ -330,7 +330,7 @@ export default function MapsPage() {
       </div>
       <div className="flex flex-col gap-4 p-4 md:h-[calc(100dvh-150px)] md:min-h-[420px] md:flex-row md:p-5">
         {/* Peta */}
-        <div className="relative min-h-[320px] flex-1 overflow-hidden rounded-2xl ring-1 ring-ink-800 shadow-[0_12px_40px_-12px_rgba(0,0,0,0.45)]">
+        <div className="relative min-h-[320px] flex-1 overflow-hidden rounded-2xl shadow-[0_12px_40px_-12px_rgba(0,0,0,0.45)]">
           <div ref={containerRef} className="absolute inset-0 z-0" />
           {fetching && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-ink-950/60">
@@ -409,24 +409,24 @@ export default function MapsPage() {
               onChange={(e) => setMapQuery(e.target.value)}
               placeholder="Cari CCTV…"
               aria-label="Cari CCTV"
-              className="h-11 w-full rounded-xl border border-ink-800 bg-ink-900 pl-10 pr-4 text-base text-white placeholder:text-neutral-400 outline-none transition-all duration-150 focus:border-accent-400 focus:shadow-[0_0_0_4px_rgba(0,151,252,0.15)]"
+              className="h-11 w-full rounded-full bg-ink-800 pl-10 pr-4 text-base text-white shadow-sm placeholder:text-neutral-400 outline-none transition-all duration-150 focus:ring-2 focus:ring-accent-500/30"
             />
           </div>
 
           {error && <ErrorBox message={error} />}
           {saveError && <ErrorBox message={saveError} />}
 
-          <Card className="!rounded-xl !border-ink-800 !p-4 nv-panel-modern">
+          <Card className="!rounded-xl !p-4 nv-panel-modern">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-[15px] font-extrabold tracking-tight text-white">
                 Belum dipetakan
               </h2>
-              <span className="rounded-full border border-ink-800 bg-ink-900 px-2.5 py-0.5 text-[11px] font-medium text-neutral-400">
+              <span className="rounded-full bg-ink-800 px-2.5 py-0.5 text-[11px] font-medium text-neutral-400 shadow-sm">
                 {unmappedShown.length}
               </span>
             </div>
             {unmappedShown.length === 0 ? (
-              <div className="rounded-xl border border-ink-800 bg-ink-900 px-4 py-6 text-center text-xs leading-relaxed text-neutral-400">
+              <div className="rounded-xl bg-ink-800 px-4 py-6 text-center text-xs leading-relaxed text-neutral-400 shadow-sm">
                 {q ? "Tidak ada yang cocok." : "Semua kamera sudah punya posisi."}
               </div>
             ) : (
@@ -434,7 +434,7 @@ export default function MapsPage() {
                 {unmappedShown.map((s) => (
                   <li
                     key={s.id}
-                    className="flex min-h-[44px] items-center justify-between gap-2 rounded-xl border border-ink-800 bg-ink-900 px-4 py-2"
+                    className="flex min-h-[44px] items-center justify-between gap-2 rounded-xl bg-ink-800 px-4 py-2 shadow-sm"
                   >
                     <div className="flex min-w-0 items-center gap-2.5">
                       <span
@@ -465,15 +465,15 @@ export default function MapsPage() {
             )}
           </Card>
 
-          <Card className="!rounded-xl !border-ink-800 !p-4 nv-panel-modern">
+          <Card className="!rounded-xl !p-4 nv-panel-modern">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-[15px] font-extrabold tracking-tight text-white">Di peta</h2>
-              <span className="rounded-full border border-ink-800 bg-ink-900 px-2.5 py-0.5 text-[11px] font-medium text-neutral-400">
+              <span className="rounded-full bg-ink-800 px-2.5 py-0.5 text-[11px] font-medium text-neutral-400 shadow-sm">
                 {mappedShown.length}
               </span>
             </div>
             {mappedShown.length === 0 ? (
-              <div className="rounded-xl border border-ink-800 bg-ink-900 px-4 py-6 text-center text-xs leading-relaxed text-neutral-400">
+              <div className="rounded-xl bg-ink-800 px-4 py-6 text-center text-xs leading-relaxed text-neutral-400 shadow-sm">
                 {q ? "Tidak ada yang cocok." : "Belum ada kamera yang dipetakan."}
               </div>
             ) : (
@@ -489,7 +489,7 @@ export default function MapsPage() {
                           });
                         }
                       }}
-                      className="flex min-h-[44px] w-full cursor-pointer items-center gap-2.5 rounded-xl border border-ink-800 bg-ink-900 px-4 py-2.5 text-left transition-all duration-150 hover:-translate-y-px active:scale-[0.99]"
+                      className="flex min-h-[44px] w-full cursor-pointer items-center gap-2.5 rounded-xl bg-ink-800 px-4 py-2.5 text-left shadow-sm transition-all duration-150 hover:bg-ink-700 active:scale-[0.99]"
                     >
                       <span
                         className={`h-2 w-2 shrink-0 rounded-full ${s.is_online ? "bg-ok-400" : "bg-bad-400"}`}

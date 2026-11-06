@@ -123,7 +123,7 @@ export default function AdminScannerPage() {
     return (
       <>
         {/* Mobile: kartu */}
-        <li className="flex items-start gap-3 rounded-xl border border-ink-700/70 bg-ink-950 p-3 shadow-[0_1px_2px_rgba(15,23,42,0.05)] md:hidden">
+        <li className="flex items-start gap-3 rounded-xl bg-ink-800 shadow-sm p-3 md:hidden">
           {checkbox}
           <div className="min-w-0 flex-1">
             <p className="truncate font-mono text-sm text-white">
@@ -207,7 +207,7 @@ export default function AdminScannerPage() {
         </div>
 
         {scanning && (
-          <div className="mt-5 space-y-2 border-t border-ink-700 pt-4">
+          <div className="mt-5 space-y-2 border-t border-ink-800 pt-4">
             <div className="flex justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400">
               <span>Memindai {ipRange}…</span>
             </div>

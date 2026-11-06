@@ -161,7 +161,7 @@ function StreamRow({
           </div>
         </NBAccordion>
       </div>
-      <div className="hidden items-center justify-between gap-3 rounded-xl border border-ink-700/70 bg-ink-900 px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-colors hover:border-ink-500 md:flex">
+      <div className="hidden items-center justify-between gap-3 rounded-xl bg-ink-800 shadow-sm px-4 py-3 transition-colors md:flex">
         {summary}
         {actions}
       </div>
@@ -367,7 +367,7 @@ export default function AdminStreamsPage() {
 
       {/* Bulk bar */}
       {selected.size > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-ink-700/70 bg-ink-900 px-4 py-3 shadow-[0_1px_3px_rgba(15,23,42,0.08)]">
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl bg-ink-800 shadow-sm px-4 py-3">
           <span className="text-sm text-slate-300">
             {selected.size} dipilih
           </span>
@@ -736,7 +736,7 @@ function AddStreamModal({
         </NBField>
 
         <div
-          className="grid grid-cols-2 gap-1 rounded-xl border border-ink-700/70 bg-ink-950 p-1"
+          className="grid grid-cols-2 gap-1 rounded-xl bg-ink-800 shadow-sm p-1"
           role="group"
           aria-label="Metode penambahan kamera"
         >
@@ -749,10 +749,10 @@ function AddStreamModal({
               type="button"
               aria-pressed={useRtsp === o.rtsp}
               onClick={() => setUseRtsp(o.rtsp)}
-              className={`min-h-[44px] rounded-lg px-3 text-sm font-medium transition-colors ${
+              className={`min-h-[44px] rounded-full px-3 text-sm font-medium transition-colors ${
                 useRtsp === o.rtsp
-                  ? "bg-accent-500 text-onaccent"
-                  : "text-slate-400 hover:text-slate-200"
+                  ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
+                  : "text-slate-400 hover:bg-ink-700 hover:text-slate-200"
               }`}
             >
               {o.label}
@@ -824,7 +824,7 @@ function AddStreamModal({
           </>
         )}
 
-        <div className="space-y-4 rounded-xl border border-ink-700/60 bg-ink-950/60 p-4">
+        <div className="space-y-4 rounded-xl bg-ink-800 shadow-sm p-4">
           <p className="text-[13px] font-medium text-slate-400">Rekaman & lokasi</p>
           <label className="flex min-h-[44px] items-center gap-3 text-sm text-slate-300">
             <input
@@ -889,10 +889,10 @@ function AddStreamModal({
                     type="button"
                     onClick={() => setPicked(p)}
                     aria-pressed={active}
-                    className={`flex min-h-[44px] w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors ${
+                    className={`flex min-h-[44px] w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors ${
                       active
-                        ? "border-accent-500 bg-accent-500/10"
-                        : "border-ink-700/70 bg-ink-950 hover:border-ink-500"
+                        ? "bg-accent-600/15"
+                        : "bg-ink-800 shadow-sm hover:bg-ink-700"
                     }`}
                   >
                     <span className="min-w-0 flex-1">
@@ -1013,7 +1013,7 @@ function EditStreamModal({
             Kamera aktif
           </label>
         </div>
-        <div className="space-y-4 border-t border-ink-700/60 pt-5">
+        <div className="space-y-4 border-t border-ink-800 pt-5">
           <p className="text-[13px] font-medium text-slate-400">
             Penyimpanan rekaman
           </p>

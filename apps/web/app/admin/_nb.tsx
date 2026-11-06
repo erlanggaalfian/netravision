@@ -61,11 +61,10 @@ export function NBButton({
     "inline-flex min-h-[44px] cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]";
   const styles: Record<NBBtnVariant, string> = {
     primary:
-      "bg-gradient-to-b from-accent-500 to-accent-600 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-500),inset_0_1px_0_rgba(255,255,255,0.2)] hover:from-accent-400 hover:to-accent-500 hover:shadow-[0_6px_20px_-4px_var(--nv-accent-500),inset_0_1px_0_rgba(255,255,255,0.25)]",
-    secondary:
-      "border border-slate-200/20 bg-ink-800 text-slate-200 hover:border-slate-200/40 hover:bg-ink-700",
+      "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)] hover:shadow-[0_6px_20px_-4px_var(--nv-accent-600)]",
+    secondary: "bg-ink-800 text-slate-200 hover:bg-ink-700",
     danger:
-      "border border-bad-400/30 bg-bad-400/15 text-bad-400 hover:bg-bad-400/25 hover:shadow-[0_4px_16px_-6px_var(--nv-bad-400)]",
+      "bg-bad-400/15 text-bad-400 hover:bg-bad-400/25 hover:shadow-[0_4px_16px_-6px_var(--nv-bad-400)]",
   };
   return (
     <button className={`${base} ${styles[variant]} ${className}`} {...rest}>
@@ -118,7 +117,7 @@ export function NBField({
 }
 
 const nbInputCls =
-  "w-full rounded-xl border border-slate-200/20 bg-ink-800 px-3.5 py-2.5 text-[15px] text-slate-100 placeholder:text-slate-400 outline-none transition-all duration-150 ease-out hover:border-slate-200/35 focus:border-accent-500 focus:bg-ink-900 focus:ring-4 focus:ring-accent-500/15";
+  "w-full rounded-xl bg-ink-800 px-3.5 py-2.5 text-[15px] text-slate-100 placeholder:text-slate-400 shadow-sm outline-none transition-all duration-150 ease-out focus:ring-2 focus:ring-accent-500/30";
 
 export function NBInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`${nbInputCls} ${props.className ?? ""}`} />;
@@ -151,7 +150,7 @@ export function NBTh({
   return (
     <th
       scope="col"
-      className={`border-b border-slate-200/10 bg-ink-800/40 px-4 py-3 text-left text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400 ${className}`}
+      className={`border-b border-ink-800 bg-ink-800/40 px-4 py-3 text-left text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400 ${className}`}
     >
       {children}
     </th>
@@ -165,7 +164,7 @@ export function NBTd({
   ...rest
 }: React.TdHTMLAttributes<HTMLTableCellElement>) {
   return (
-    <td className={`border-b border-slate-200/5 px-4 py-3 text-sm text-slate-200 ${className ?? ""}`} {...rest}>
+    <td className={`border-b border-ink-800 px-4 py-3 text-sm text-slate-200 ${className ?? ""}`} {...rest}>
       {children}
     </td>
   );
@@ -189,7 +188,7 @@ export function NBTr({
 /* Baris kartu daftar (mobile accordion / desktop row). */
 export function NBRowCard({ children }: { children: ReactNode }) {
   return (
-    <div className="nv-panel-modern px-4 py-3 transition-colors duration-150 hover:border-accent-500/40">
+    <div className="nv-panel-modern px-4 py-3 transition-colors duration-150">
       {children}
     </div>
   );
@@ -230,7 +229,7 @@ export function NBAccordion({
           />
         </svg>
       </button>
-      {open && <div className="border-t border-slate-200/10 p-4">{children}</div>}
+      {open && <div className="border-t border-ink-800 p-4">{children}</div>}
     </div>
   );
 }
@@ -260,7 +259,7 @@ export function NBConfirmModal({
         className="nv-pop nv-panel-modern w-full max-w-lg overflow-y-auto !rounded-2xl pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-slate-200/10 px-5 py-4">
+        <div className="flex items-center justify-between border-b border-ink-800 px-5 py-4">
           <h2 className="text-xl font-extrabold tracking-tight text-slate-100">{title}</h2>
           <button
             onClick={onCancel}

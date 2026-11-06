@@ -200,7 +200,7 @@ export default function AdminKeysPage() {
       ) : (
         <div className="space-y-2">
           {keys.map((k) => (
-            <NBCard key={k.id} className="p-4 transition-colors hover:border-ink-500">
+            <NBCard key={k.id} className="p-4 transition-colors">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate font-medium text-white">{k.name}</p>
@@ -568,7 +568,7 @@ function IntegrationGuideModal({
         {methods.map((m) => (
           <div
             key={m.id}
-            className="rounded-xl border border-ink-700/60 bg-ink-950/60 p-4"
+            className="rounded-xl bg-ink-800 shadow-sm p-4"
           >
             <p className="text-sm font-semibold text-white">{m.title}</p>
             <p className="mt-0.5 text-xs text-slate-400">{m.desc}</p>
@@ -706,7 +706,7 @@ function KeyFormModal({
           />
         </label>
         <NBField label={`Kamera yang boleh diakses${ordered.length ? ` (${ordered.length})` : ""}`}>
-          <div className="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-ink-700 p-2">
+          <div className="max-h-64 space-y-1 overflow-y-auto rounded-lg bg-ink-800 shadow-sm p-2">
             {streams.map((s) => (
               <label
                 key={s.id}
@@ -725,7 +725,7 @@ function KeyFormModal({
         </NBField>
         {ordered.length > 1 && (
           <NBField label="Urutan kamera">
-            <div className="space-y-1 rounded-lg border border-ink-700 p-2">
+            <div className="space-y-1 rounded-lg bg-ink-800 shadow-sm p-2">
               {ordered.map((id, i) => (
                 <div
                   key={id}
@@ -741,7 +741,7 @@ function KeyFormModal({
                     type="button"
                     onClick={() => move(id, -1)}
                     disabled={i === 0}
-                    className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-slate-400 hover:bg-ink-700 hover:text-white disabled:opacity-30"
+                    className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-slate-400 hover:bg-ink-700 hover:text-slate-200 disabled:opacity-30"
                     aria-label={`Naikkan ${nameOf(id)}`}
                   >
                     ↑
@@ -750,7 +750,7 @@ function KeyFormModal({
                     type="button"
                     onClick={() => move(id, 1)}
                     disabled={i === ordered.length - 1}
-                    className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-slate-400 hover:bg-ink-700 hover:text-white disabled:opacity-30"
+                    className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-slate-400 hover:bg-ink-700 hover:text-slate-200 disabled:opacity-30"
                     aria-label={`Turunkan ${nameOf(id)}`}
                   >
                     ↓

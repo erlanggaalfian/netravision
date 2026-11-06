@@ -85,7 +85,7 @@ function MiniPreview({
         return (
           <div
             key={id}
-            className="relative aspect-video overflow-hidden rounded-lg bg-ink-800 ring-1 ring-white/10"
+            className="relative aspect-video overflow-hidden rounded-lg bg-ink-800"
           >
             <span
               className={`absolute left-1.5 top-1.5 h-1.5 w-1.5 rounded-full ${s?.is_online ? "bg-ok-400" : "bg-bad-400"}`}
@@ -97,11 +97,11 @@ function MiniPreview({
         );
       })}
       {rest > 0 ? (
-        <div className="flex aspect-video items-center justify-center rounded-lg bg-ink-800 text-[11px] font-semibold text-neutral-300 ring-1 ring-white/10">
+        <div className="flex aspect-video items-center justify-center rounded-lg bg-ink-800 text-[11px] font-semibold text-neutral-300">
           +{rest}
         </div>
       ) : (
-        <div className="aspect-video rounded-lg border border-dashed border-white/10" />
+        <div className="aspect-video rounded-lg border border-dashed border-ink-700" />
       )}
     </div>
   );
@@ -415,7 +415,7 @@ export default function MonitorsPage() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setOpenId(null)}
-                    className="flex h-11 min-w-[44px] items-center justify-center rounded-xl bg-ink-900 px-3 text-base text-neutral-200 ring-1 ring-white/10 transition hover:bg-ink-800 active:scale-95"
+                    className="flex h-11 min-w-[44px] items-center justify-center rounded-xl bg-ink-800 px-3 text-base text-neutral-200 shadow-sm transition hover:bg-ink-700 active:scale-95"
                     aria-label="Kembali ke daftar monitor"
                   >
                     ←
@@ -429,7 +429,7 @@ export default function MonitorsPage() {
                   </Button>
                   <button
                     onClick={toggleFullscreen}
-                    className="flex h-11 items-center gap-2 rounded-xl bg-ink-900 px-4 text-sm font-medium text-neutral-200 ring-1 ring-white/10 transition hover:bg-ink-800 active:scale-95"
+                    className="flex h-11 items-center gap-2 rounded-xl bg-ink-800 px-4 text-sm font-medium text-neutral-200 shadow-sm transition hover:bg-ink-700 active:scale-95"
                     aria-label="Layar penuh"
                     title="Layar penuh"
                   >
@@ -497,7 +497,7 @@ export default function MonitorsPage() {
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
                 placeholder="cth. Lantai 1"
-                className="mb-5 h-11 w-full rounded-xl bg-ink-800 px-3.5 text-base text-white ring-1 ring-white/10 outline-none placeholder:text-neutral-400 focus:ring-2 focus:ring-accent-500"
+                className="mb-5 h-11 w-full rounded-xl bg-ink-800 px-3.5 text-base text-white shadow-sm outline-none placeholder:text-neutral-400 focus:ring-2 focus:ring-accent-500/30"
               />
 
               <div className="mb-1.5 text-sm font-medium text-neutral-300">
@@ -509,10 +509,10 @@ export default function MonitorsPage() {
                     key={c}
                     onClick={() => setFormCols(c)}
                     aria-pressed={formCols === c}
-                    className={`flex h-11 min-w-[52px] items-center justify-center rounded-xl text-sm font-semibold transition active:scale-95 ${
+                    className={`flex h-11 min-w-[52px] items-center justify-center rounded-full text-sm font-semibold transition active:scale-95 ${
                       formCols === c
-                        ? "bg-accent-600 text-onaccent"
-                        : "bg-ink-800 text-neutral-300 ring-1 ring-white/10 hover:bg-ink-700"
+                        ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
+                        : "bg-ink-800 text-neutral-300 shadow-sm hover:bg-ink-700"
                     }`}
                   >
                     {c}
@@ -528,7 +528,7 @@ export default function MonitorsPage() {
                   Urutan bisa digeser
                 </span>
               </div>
-              <div className="mb-5 flex max-h-72 flex-col gap-1.5 overflow-y-auto rounded-xl bg-ink-950/60 p-2 ring-1 ring-white/5">
+              <div className="mb-5 flex max-h-72 flex-col gap-1.5 overflow-y-auto rounded-xl bg-ink-800 p-2 shadow-sm">
                 {[...streams]
                   .sort((a, b) => {
                     const ia = formIds.indexOf(a.id);
@@ -545,8 +545,8 @@ export default function MonitorsPage() {
                       key={s.id}
                       className={`flex cursor-pointer items-center gap-3 rounded-xl px-3.5 py-3 transition active:scale-[0.99] ${
                         checked
-                          ? "bg-accent-600/15 ring-1 ring-accent-500/40"
-                          : "hover:bg-white/5"
+                          ? "bg-accent-600/15"
+                          : "hover:bg-ink-700"
                       }`}
                     >
                       <input
@@ -570,7 +570,7 @@ export default function MonitorsPage() {
                               moveId(s.id, -1);
                             }}
                             disabled={formIds.indexOf(s.id) === 0}
-                            className="flex h-11 w-11 items-center justify-center rounded-lg bg-white/5 text-neutral-300 transition hover:bg-white/10 active:scale-95 disabled:opacity-30"
+                            className="flex h-11 w-11 items-center justify-center rounded-lg bg-ink-700 text-neutral-300 transition hover:bg-ink-600 active:scale-95 disabled:opacity-30"
                             aria-label={`Geser ${s.name} ke atas`}
                           >
                             ↑
@@ -582,7 +582,7 @@ export default function MonitorsPage() {
                               moveId(s.id, 1);
                             }}
                             disabled={formIds.indexOf(s.id) === formIds.length - 1}
-                            className="flex h-11 w-11 items-center justify-center rounded-lg bg-white/5 text-neutral-300 transition hover:bg-white/10 active:scale-95 disabled:opacity-30"
+                            className="flex h-11 w-11 items-center justify-center rounded-lg bg-ink-700 text-neutral-300 transition hover:bg-ink-600 active:scale-95 disabled:opacity-30"
                             aria-label={`Geser ${s.name} ke bawah`}
                           >
                             ↓
@@ -680,7 +680,7 @@ export default function MonitorsPage() {
                       <button
                         onClick={() => setExpandedId(expanded ? null : l.id)}
                         aria-expanded={expanded}
-                        className="block w-full px-4 py-4 text-left transition hover:bg-white/[0.03] active:scale-[0.995] sm:px-5"
+                        className="block w-full px-4 py-4 text-left transition hover:bg-ink-800 active:scale-[0.995] sm:px-5"
                       >
                         <div className="flex items-center gap-3">
                           <div className="min-w-0 flex-1">
@@ -699,7 +699,7 @@ export default function MonitorsPage() {
                       </button>
                       {/* Aksi — hanya setelah expand */}
                       {expanded && (
-                        <div className="flex gap-2 border-t border-white/10 px-4 py-3 sm:px-5">
+                        <div className="flex gap-2 border-t border-ink-800 px-4 py-3 sm:px-5">
                           <Button onClick={() => setOpenId(l.id)} className="flex-1">
                             Buka
                           </Button>

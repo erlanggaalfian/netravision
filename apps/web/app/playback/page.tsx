@@ -179,7 +179,7 @@ function PlaybackPanel({
   return (
     <div className="nv-panel-modern min-w-0 overflow-hidden">
       {/* Header panel: nama kamera + Muat, di dalam panel */}
-      <div className="flex items-center justify-between gap-2 border-b border-slate-200/10 px-4 py-3">
+      <div className="flex items-center justify-between gap-2 border-b border-ink-800 px-4 py-3">
         <span className="truncate text-base font-extrabold tracking-tight text-slate-100">
           {streamName}
         </span>
@@ -235,20 +235,20 @@ function PlaybackPanel({
       {phase === "ready" && timeline && (
         <>
           {/* Linimasa */}
-          <div className="border-b border-slate-200/10 px-4 py-3">
+          <div className="border-b border-ink-800 px-4 py-3">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-400">
                 {timeline.date}
               </span>
-              <span className="rounded-full border border-slate-200/10 bg-ink-950 px-2.5 py-[3px] text-[11px] font-semibold text-slate-400">
+              <span className="rounded-full bg-ink-800 px-2.5 py-[3px] text-[11px] font-semibold text-slate-400 shadow-sm">
                 {timeline.entries.length} segmen
               </span>
             </div>
-            <div className="relative h-12 overflow-hidden rounded-full bg-ink-950 ring-1 ring-slate-200/10">
+            <div className="relative h-12 overflow-hidden rounded-full bg-ink-800 shadow-sm">
               {Array.from({ length: 25 }).map((_, h) => (
                 <span
                   key={h}
-                  className="absolute top-0 h-full w-px bg-white/5"
+                  className="absolute top-0 h-full w-px bg-ink-500/25"
                   style={{ left: `${(h / 24) * 100}%` }}
                 />
               ))}
@@ -283,7 +283,7 @@ function PlaybackPanel({
 
           {/* Pratinjau */}
           <div>
-            <div className="flex items-center justify-between gap-2 border-b border-slate-200/10 px-4 py-3">
+            <div className="flex items-center justify-between gap-2 border-b border-ink-800 px-4 py-3">
               <span className="text-[15px] font-extrabold tracking-tight text-slate-100">Pratinjau</span>
               {active && (
                 <span className="truncate text-xs font-medium text-slate-400">
@@ -328,7 +328,7 @@ function PlaybackPanel({
               )}
             </div>
             {active && (
-              <div className="flex items-center justify-between gap-2 border-t border-slate-200/10 px-4 py-3">
+              <div className="flex items-center justify-between gap-2 border-t border-ink-800 px-4 py-3">
                 <span className="truncate text-xs text-slate-400">
                   {active.has_event && (
                     <span className="mr-2 rounded-full bg-warn-400/15 px-2 py-0.5 text-[10px] font-semibold text-warn-400">
@@ -363,6 +363,8 @@ export default function PlaybackPage() {
   const [streamId, setStreamId] = useState<string>("");
   const [multiIds, setMultiIds] = useState<number[]>([]);
   const [gridCols, setGridCols] = useState(2);
+  /* Panel kontrol dilipat di HP (tombol filter), selalu tampil di desktop. */
+  const [filterOpen, setFilterOpen] = useState(false);
   const [date, setDate] = useState(todayStr());
 
   useEffect(() => {
@@ -417,18 +419,49 @@ export default function PlaybackPage() {
           title="Putar Ulang"
           desc="Pilih kamera dan tanggal, lalu muat linimasa rekaman."
           action={
-            <Button
-              variant={multi ? "primary" : "subtle"}
-              onClick={() => setMulti((v) => !v)}
-              aria-pressed={multi}
-            >
-              {multi ? "Multi aktif" : "Multi kamera"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setFilterOpen((v) => !v)}
+                aria-expanded={filterOpen}
+                aria-label={filterOpen ? "Sembunyikan filter" : "Tampilkan filter"}
+                className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-ink-800 text-slate-300 shadow-sm transition active:scale-95 md:hidden"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  aria-hidden
+                >
+                  <line x1="4" y1="21" x2="4" y2="14" />
+                  <line x1="4" y1="10" x2="4" y2="3" />
+                  <line x1="12" y1="21" x2="12" y2="12" />
+                  <line x1="12" y1="8" x2="12" y2="3" />
+                  <line x1="20" y1="21" x2="20" y2="16" />
+                  <line x1="20" y1="12" x2="20" y2="3" />
+                  <line x1="1" y1="14" x2="7" y2="14" />
+                  <line x1="9" y1="8" x2="15" y2="8" />
+                  <line x1="17" y1="16" x2="23" y2="16" />
+                </svg>
+              </button>
+              <Button
+                variant={multi ? "primary" : "subtle"}
+                onClick={() => setMulti((v) => !v)}
+                aria-pressed={multi}
+              >
+                {multi ? "Multi aktif" : "Multi kamera"}
+              </Button>
+            </div>
           }
         />
 
-        {/* Kontrol */}
-        <Card className="mb-5 nv-panel-modern">
+        {/* Kontrol: dilipat di HP, tampil di desktop */}
+        <Card
+          className={`mb-5 nv-panel-modern ${filterOpen ? "block" : "hidden md:block"}`}
+        >
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
               {!multi ? (
@@ -439,7 +472,7 @@ export default function PlaybackPage() {
                   <select
                     value={streamId}
                     onChange={(e) => setStreamId(e.target.value)}
-                    className="h-11 rounded-xl border border-slate-200/15 bg-ink-950 px-4 text-base text-slate-100 outline-none transition-all duration-150 focus:border-accent-400 focus:ring-4 focus:ring-accent-500/15"
+                    className="h-11 rounded-xl bg-ink-800 px-4 text-base text-slate-100 shadow-sm outline-none transition-all duration-150 focus:ring-2 focus:ring-accent-500/30"
                   >
                     {streams.map((s) => (
                       <option key={s.id} value={s.id}>
@@ -453,7 +486,7 @@ export default function PlaybackPage() {
                   <span className="text-xs font-semibold text-slate-400">
                     Kamera ({multiIds.length} dipilih)
                   </span>
-                  <div className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto rounded-xl bg-ink-950/60 p-2 ring-1 ring-slate-200/10">
+                  <div className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto rounded-xl bg-ink-800 p-2 shadow-sm">
                     {streams.map((s) => {
                       const on = multiIds.includes(s.id);
                       return (
@@ -461,10 +494,10 @@ export default function PlaybackPage() {
                           key={s.id}
                           onClick={() => toggleMultiId(s.id)}
                           aria-pressed={on}
-                          className={`flex h-11 items-center gap-2 rounded-full border px-3.5 text-xs font-medium transition active:scale-95 ${
+                          className={`flex h-11 items-center gap-2 rounded-full px-3.5 text-xs font-medium transition active:scale-95 ${
                             on
-                              ? "border-accent-500/40 bg-gradient-to-b from-accent-500 to-accent-600 font-semibold text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-500)]"
-                              : "border-slate-200/15 bg-ink-950 text-slate-300 hover:-translate-y-px hover:text-slate-100"
+                              ? "bg-gradient-to-r from-accent-600 to-accent-500 font-semibold text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
+                              : "bg-ink-800 text-slate-300 shadow-sm hover:bg-ink-700 hover:text-slate-200"
                           }`}
                         >
                           <span
@@ -486,7 +519,7 @@ export default function PlaybackPage() {
                   value={date}
                   max={todayStr()}
                   onChange={(e) => setDate(e.target.value)}
-                  className="h-11 rounded-xl border border-slate-200/15 bg-ink-950 px-4 text-base text-slate-100 outline-none transition-all duration-150 focus:border-accent-400 focus:ring-4 focus:ring-accent-500/15"
+                  className="h-11 rounded-xl bg-ink-800 px-4 text-base text-slate-100 shadow-sm outline-none transition-all duration-150 focus:ring-2 focus:ring-accent-500/30"
                 />
               </label>
             </div>
@@ -496,7 +529,7 @@ export default function PlaybackPage() {
                   Grid:
                 </span>
                 <div
-                  className="flex items-center gap-1 rounded-full border border-ink-700 bg-ink-950 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+                  className="flex items-center gap-1 rounded-full bg-ink-800 p-1 shadow-sm"
                   role="tablist"
                   aria-label="Tata letak grid playback"
                 >
@@ -508,8 +541,8 @@ export default function PlaybackPage() {
                       onClick={() => setGridCols(g.cols)}
                       className={`flex h-10 min-w-[52px] items-center justify-center rounded-full px-3 text-xs font-bold transition-all duration-200 active:scale-95 ${
                         gridCols === g.cols
-                          ? "bg-gradient-to-b from-accent-500 to-accent-600 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-500)]"
-                          : "text-slate-400 hover:text-slate-100"
+                          ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
+                          : "text-slate-400 hover:bg-ink-700 hover:text-slate-200"
                       }`}
                     >
                       {g.label}

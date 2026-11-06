@@ -182,7 +182,7 @@ function EmbedPlayer({
 
         {/* Toast keep-alive */}
         {showKeepAlive && (
-          <div className="absolute left-3 top-3 z-30 flex max-w-[calc(100%-24px)] items-center gap-2.5 rounded-xl bg-ink-900/95 px-3.5 py-2.5 ring-1 ring-white/15">
+          <div className="absolute left-3 top-3 z-30 flex max-w-[calc(100%-24px)] items-center gap-2.5 rounded-xl bg-ink-900/95 px-3.5 py-2.5">
             <span className="text-xs font-medium text-neutral-200">
               Sesi berakhir dalam{" "}
               <span className="font-bold text-warn-400">
@@ -309,7 +309,7 @@ function EmbedInner() {
         )}
 
         {phase === "error" && (
-          <div className="flex flex-col items-center gap-2 rounded-2xl bg-ink-900 px-6 py-14 text-center ring-1 ring-white/10">
+          <div className="flex flex-col items-center gap-2 rounded-2xl bg-ink-900 px-6 py-14 text-center">
             <svg
               width="36"
               height="36"
@@ -336,7 +336,7 @@ function EmbedInner() {
         )}
 
         {phase === "unavailable" && (
-          <div className="rounded-2xl bg-ink-900 px-6 py-14 text-center text-sm text-neutral-400 ring-1 ring-white/10">
+          <div className="rounded-2xl bg-ink-900 px-6 py-14 text-center text-sm text-neutral-400">
             Kunci API tidak dikenal.
           </div>
         )}
@@ -353,7 +353,7 @@ function EmbedInner() {
                 <EmbedPlayer key={c.id} apiKey={key} camera={c} ad={ad} />
               ))}
             {cameras.length === 0 && (
-              <div className="rounded-2xl bg-ink-900 px-6 py-14 text-center text-sm text-neutral-400 ring-1 ring-white/10">
+              <div className="rounded-2xl bg-ink-900 px-6 py-14 text-center text-sm text-neutral-400">
                 Tidak ada kamera untuk kunci ini.
               </div>
             )}

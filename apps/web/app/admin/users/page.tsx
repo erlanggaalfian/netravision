@@ -159,7 +159,7 @@ export default function AdminUsersPage() {
                     <div className="space-y-3">{actions}</div>
                   </NBAccordion>
                 </div>
-                <div className="hidden items-center justify-between gap-3 rounded-xl border border-ink-700/70 bg-ink-900 px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-colors hover:border-ink-500 md:flex">
+                <div className="hidden items-center justify-between gap-3 rounded-xl bg-ink-800 shadow-sm px-4 py-3 transition-colors md:flex">
                   {summary}
                   {actions}
                 </div>
@@ -283,7 +283,7 @@ function UserFormModal({
             <option value="super_admin">Super Admin</option>
           </NBSelect>
         </NBField>
-        <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 rounded-xl border border-ink-700/60 bg-ink-900/60 px-4 py-3">
+        <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 rounded-xl bg-ink-800 shadow-sm px-4 py-3">
           <span>
             <span className="block text-sm font-medium text-white">
               Tampilkan Iklan

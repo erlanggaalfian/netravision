@@ -349,7 +349,7 @@ export default function AdminStoragePage() {
             <NBField label="Token rclone" hint='Mulai dengan {"access_token": ...'>
               <textarea
                 rows={4}
-                className="w-full rounded-lg border border-ink-700 bg-ink-950 px-3.5 py-2.5 font-mono text-xs text-slate-100 placeholder:text-slate-400 outline-none transition-all focus:border-accent-500 focus:ring-4 focus:ring-accent-500/15"
+                className="w-full rounded-lg bg-ink-800 px-3.5 py-2.5 font-mono text-xs text-slate-100 shadow-sm placeholder:text-slate-400 outline-none transition-all focus:ring-2 focus:ring-accent-500/30"
                 placeholder='{"access_token":"ya29...","token_type":"Bearer","refresh_token":"1//...","expiry":"..."}'
                 value={token}
                 onChange={(e) => setToken(e.target.value)}

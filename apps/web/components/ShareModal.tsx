@@ -150,7 +150,7 @@ export function ShareModal({
               return (
                 <div
                   key={u.id}
-                  className="flex min-h-[44px] items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/[0.03]"
+                  className="flex min-h-[44px] items-center gap-3 rounded-xl px-3 py-2 hover:bg-ink-800"
                 >
                   <input
                     type="checkbox"
@@ -172,10 +172,10 @@ export function ShareModal({
                       type="button"
                       onClick={() => togglePlayback(u.id)}
                       disabled={isSuper}
-                      className={`shrink-0 cursor-pointer rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-all active:scale-[0.97] disabled:cursor-default disabled:opacity-80 ${
+                      className={`shrink-0 cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all active:scale-[0.97] disabled:cursor-default disabled:opacity-80 ${
                         playback
-                          ? "border-accent-500/40 bg-accent-500/15 text-accent-300"
-                          : "border-slate-200/20 bg-transparent text-slate-400"
+                          ? "bg-accent-500/15 text-accent-300"
+                          : "bg-ink-800 text-slate-400"
                       }`}
                       title={
                         isSuper

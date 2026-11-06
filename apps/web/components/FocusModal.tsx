@@ -261,7 +261,7 @@ export function FocusModal({ stream, onClose }: Props) {
               }}
               aria-label={quality === "HQ" ? "Ganti ke sub stream (LQ)" : "Ganti ke main stream (HD)"}
               title={quality === "HQ" ? "Ganti ke sub stream (LQ)" : "Ganti ke main stream (HD)"}
-              className={`flex h-11 min-w-11 items-center justify-center rounded-xl px-3 text-xs font-bold tracking-wide transition active:scale-95 ${quality === "HQ" ? "bg-accent-600 text-onaccent card-shadow" : "border border-ink-800 bg-ink-950 text-neutral-300 hover:text-white"}`}
+              className={`flex h-11 min-w-11 items-center justify-center rounded-xl px-3 text-xs font-bold tracking-wide transition active:scale-95 ${quality === "HQ" ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]" : "bg-ink-800 text-neutral-300 shadow-sm hover:bg-ink-700 hover:text-slate-200"}`}
             >
               {quality}
             </button>
@@ -269,7 +269,7 @@ export function FocusModal({ stream, onClose }: Props) {
               onClick={snapshot}
               aria-label="Ambil snapshot"
               title="Ambil snapshot"
-              className="flex h-11 items-center gap-2 rounded-xl border border-ink-800 bg-ink-950 px-4 text-sm font-medium text-white transition hover:bg-ink-800 active:scale-95"
+              className="flex h-11 items-center gap-2 rounded-xl bg-ink-800 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-ink-700 active:scale-95"
             >
               <svg
                 width="16"
@@ -291,7 +291,7 @@ export function FocusModal({ stream, onClose }: Props) {
             <button
               onClick={onClose}
               data-focus-close
-              className="flex h-11 w-11 items-center justify-center rounded-xl border border-ink-800 bg-ink-950 text-white transition hover:bg-ink-800 active:scale-95"
+              className="flex h-11 w-11 items-center justify-center rounded-xl bg-ink-800 text-white shadow-sm transition hover:bg-ink-700 active:scale-95"
               aria-label="Tutup"
             >
               <svg

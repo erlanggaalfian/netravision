@@ -56,7 +56,7 @@ export default function AdminDashboard() {
     diskPct > 90 ? "bg-bad-400" : diskPct > 70 ? "bg-warn-400" : "bg-accent-500";
 
   const tileClass =
-    "group relative block cursor-pointer overflow-hidden rounded-xl border border-ink-700/70 bg-ink-900 p-5 shadow-[0_1px_3px_rgba(15,23,42,0.08)] transition-all duration-150 hover:-translate-y-0.5 hover:border-ink-500 active:translate-y-0 active:scale-[0.98]";
+    "group relative block cursor-pointer overflow-hidden rounded-xl bg-ink-800 p-5 shadow-sm transition-all duration-150 hover:bg-ink-700 active:scale-[0.98]";
   const chev = (
     <span
       aria-hidden
@@ -204,7 +204,7 @@ export default function AdminDashboard() {
               {summary.by_key.slice(0, 6).map((b) => (
                 <li
                   key={b.key_id}
-                  className="flex items-center justify-between border-b border-ink-700/40 py-2.5 text-sm transition-colors last:border-0 hover:bg-ink-800/40"
+                  className="flex items-center justify-between border-b border-ink-800 py-2.5 text-sm transition-colors last:border-0 hover:bg-ink-800"
                 >
                   <span className="text-slate-300">Key #{b.key_id}</span>
                   <span className="font-semibold tabular-nums text-white">

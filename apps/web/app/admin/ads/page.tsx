@@ -400,7 +400,7 @@ export default function AdminAdsPage() {
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
             {/* Seksi 1: Tata Letak & Latar */}
             <div className="nv-panel-modern space-y-4 p-4">
-              <div className="border-b border-slate-200/10 pb-2">
+              <div className="border-b border-ink-800 pb-2">
                 <span className="font-mono text-xs font-semibold uppercase text-accent-400">
                   1. Tata Letak &amp; Latar
                 </span>
@@ -457,7 +457,7 @@ export default function AdminAdsPage() {
 
             {/* Seksi 2: Logo Sponsor & Media */}
             <div className="nv-panel-modern space-y-4 p-4">
-              <div className="border-b border-slate-200/10 pb-2">
+              <div className="border-b border-ink-800 pb-2">
                 <span className="font-mono text-xs font-semibold uppercase text-accent-400">
                   2. Logo Sponsor &amp; Media
                 </span>
@@ -466,7 +466,7 @@ export default function AdminAdsPage() {
                 <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                   Gambar Sponsor (Kiri Iklan)
                 </span>
-                <div className="flex h-16 w-full items-center justify-center overflow-hidden rounded-xl border border-ink-700/60 bg-black/40">
+                <div className="flex h-16 w-full items-center justify-center overflow-hidden rounded-xl bg-black/40">
                   {cfg.image_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -540,7 +540,7 @@ export default function AdminAdsPage() {
 
             {/* Seksi 3: Teks Bergulir & Font */}
             <div className="nv-panel-modern space-y-4 p-4">
-              <div className="border-b border-slate-200/10 pb-2">
+              <div className="border-b border-ink-800 pb-2">
                 <span className="font-mono text-xs font-semibold uppercase text-accent-400">
                   3. Teks Bergulir (Marquee)
                 </span>
@@ -603,7 +603,7 @@ export default function AdminAdsPage() {
 
             {/* Seksi 4: Jenis Tampilan */}
             <div className="nv-panel-modern space-y-4 p-4">
-              <div className="border-b border-slate-200/10 pb-2">
+              <div className="border-b border-ink-800 pb-2">
                 <span className="font-mono text-xs font-semibold uppercase text-accent-400">
                   4. Jenis Tampilan
                 </span>

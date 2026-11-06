@@ -107,7 +107,7 @@ export default function AdminGroupsPage() {
                     <div>{actions}</div>
                   </NBAccordion>
                 </div>
-                <div className="nv-panel-modern hidden items-center justify-between gap-3 px-4 py-3 transition-colors hover:border-accent-500/40 md:flex">
+                <div className="nv-panel-modern hidden items-center justify-between gap-3 px-4 py-3 transition-colors md:flex">
                   {summary}
                   {actions}
                 </div>

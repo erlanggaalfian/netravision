@@ -25,7 +25,7 @@ function LensMark({ className = "" }: { className?: string }) {
 
 /* Input modern: radius 14px, 16px (anti-zoom iOS), focus glow. */
 const inputCls =
-  "w-full rounded-xl border border-slate-200/15 bg-ink-950 px-4 py-3 text-[16px] text-slate-100 placeholder:text-slate-400 outline-none transition-all duration-150 ease-out hover:border-slate-200/25 focus:border-accent-400 focus:ring-4 focus:ring-accent-500/15";
+  "w-full rounded-xl bg-ink-800 px-4 py-3 text-[16px] text-slate-100 placeholder:text-slate-400 shadow-sm outline-none transition-all duration-150 ease-out focus:ring-2 focus:ring-accent-500/30";
 
 export default function LoginPage() {
   const { user, loading, login, loginGuest } = useAuth();
@@ -139,7 +139,7 @@ export default function LoginPage() {
                 type="button"
                 onClick={onGuest}
                 disabled={busy}
-                className="min-h-[48px] w-full cursor-pointer rounded-xl border border-slate-200/15 bg-transparent px-4 text-sm font-semibold text-slate-300 transition-all duration-150 ease-out hover:border-slate-200/30 hover:bg-slate-200/5 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]"
+                className="min-h-[48px] w-full cursor-pointer rounded-xl bg-ink-800 px-4 text-sm font-semibold text-slate-300 shadow-sm transition-all duration-150 ease-out hover:bg-ink-700 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]"
               >
                 Guest login
               </button>

@@ -101,7 +101,7 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
       className={`vk-touch-toggle ${showControls ? "cam-show-controls" : ""} group relative select-none overflow-hidden transition-all duration-300 ${
         fs
           ? "fixed inset-0 z-[70] border-0 bg-black"
-          : "rounded-2xl border border-ink-800 bg-ink-900 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.35)] hover:-translate-y-0.5 hover:border-ink-700 hover:shadow-[0_16px_40px_-12px_rgba(0,0,0,0.5)]"
+          : "rounded-2xl bg-ink-900 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.35)]"
       }`}
     >
       {/* Area video: selalu gelap (nv-stage), di kedua tema. */}
