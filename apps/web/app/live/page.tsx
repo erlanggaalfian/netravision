@@ -184,8 +184,16 @@ export default function LivePage() {
         <div className="nv-panel-modern mb-5 p-4 sm:p-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <h1 className="text-2xl font-extrabold tracking-tight text-white sm:text-[26px]">
+              <h1 className="flex items-center gap-2 text-2xl font-extrabold tracking-tight text-white sm:text-[26px]">
                 Live
+                {/* HP: titik status kecil di samping judul. */}
+                <span
+                  className={`h-2.5 w-2.5 shrink-0 rounded-full md:hidden ${connected ? "bg-ok-400" : "bg-warn-400"}`}
+                  title={connected ? "Terhubung" : "Menghubungkan…"}
+                />
+                <span className="sr-only md:hidden">
+                  {connected ? "Terhubung" : "Menghubungkan…"}
+                </span>
               </h1>
               <p className="mt-1.5 text-sm text-slate-400">
                 {isDesktop
@@ -193,9 +201,10 @@ export default function LivePage() {
                   : `Menampilkan ${visibleStreams.length} dari ${filtered.length} kamera · ${onlineCount} online`}
               </p>
             </div>
-            {/* Status koneksi: di HP cukup titik warna saja. */}
+            {/* Status koneksi: desktop saja (dot + teks); di HP titik
+                kecil sudah menempel di samping judul. */}
             <span
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-ink-800 shadow-sm md:h-11 md:w-auto md:gap-2 md:px-4 md:text-xs md:font-semibold md:text-neutral-300"
+              className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-full bg-ink-800 shadow-sm md:flex md:h-11 md:w-auto md:gap-2 md:px-4 md:text-xs md:font-semibold md:text-neutral-300"
               title={connected ? "WebSocket terhubung" : "Menghubungkan…"}
             >
               <span
