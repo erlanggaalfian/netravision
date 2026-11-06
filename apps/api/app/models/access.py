@@ -18,6 +18,11 @@ class UserStreamAccess(Base, TimestampMixin):
     stream_id: Mapped[int] = mapped_column(ForeignKey("streams.id", ondelete="CASCADE"))
     can_view: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     can_control: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)  # PTZ
+    # Paritas v2.0 (boleh_playback): share stream saja (False) atau
+    # stream + playback (True). Default True agar share lama tidak berubah.
+    can_playback: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
+    )
 
 
 class StreamPermission(Base, TimestampMixin):

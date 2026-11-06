@@ -32,11 +32,12 @@ from app.schemas.stream import (
     ScanPath,
     ScanRequest,
     ScanResult,
+    ShareIn,
+    SharingIn,
     StreamCreate,
     StreamIdsIn,
     StreamOut,
     StreamUpdate,
-    UserIdsIn,
 )
 from app.services import rtsp_discovery
 from app.services.mediamtx import MediaMTXClient, get_mediamtx
@@ -243,28 +244,48 @@ async def admin_delete_stream(
 async def get_sharing(stream_id: int, db: AsyncSession = Depends(get_db)):
     await _get_stream_or_404(db, stream_id)
     result = await db.execute(
-        select(UserStreamAccess.user_id).where(
+        select(UserStreamAccess).where(
             UserStreamAccess.stream_id == stream_id,
             UserStreamAccess.can_view.is_(True),
         )
     )
-    return {"user_ids": list(result.scalars().all())}
+    rows = result.scalars().all()
+    shares = [
+        {"user_id": r.user_id, "can_playback": bool(r.can_playback)} for r in rows
+    ]
+    return {
+        "user_ids": [s["user_id"] for s in shares],
+        "shares": shares,
+    }
 
 
 @router.post("/admin/streams/{stream_id}/sharing")
-async def set_sharing(stream_id: int, data: UserIdsIn, db: AsyncSession = Depends(get_db)):
+async def set_sharing(stream_id: int, data: SharingIn, db: AsyncSession = Depends(get_db)):
     await _get_stream_or_404(db, stream_id)
-    if data.user_ids:
-        result = await db.execute(select(User.id).where(User.id.in_(data.user_ids)))
+    # Normalisasi: bentuk baru (shares) menang; bentuk lama (user_ids)
+    # dianggap can_playback=True.
+    shares = list(data.shares)
+    if not shares and data.user_ids:
+        shares = [ShareIn(user_id=uid) for uid in data.user_ids]
+    user_ids = [s.user_id for s in shares]
+    if user_ids:
+        result = await db.execute(select(User.id).where(User.id.in_(user_ids)))
         found = set(result.scalars().all())
-        missing = set(data.user_ids) - found
+        missing = set(user_ids) - found
         if missing:
             raise HTTPException(status_code=400, detail=f"user tidak ada: {sorted(missing)}")
     await db.execute(delete(UserStreamAccess).where(UserStreamAccess.stream_id == stream_id))
-    for uid in data.user_ids:
-        db.add(UserStreamAccess(user_id=uid, stream_id=stream_id, can_view=True))
+    for s in shares:
+        db.add(
+            UserStreamAccess(
+                user_id=s.user_id,
+                stream_id=stream_id,
+                can_view=True,
+                can_playback=s.can_playback,
+            )
+        )
     await db.commit()
-    return {"ok": True, "user_ids": data.user_ids}
+    return {"ok": True, "user_ids": user_ids}
 
 
 @router.post("/admin/streams/{stream_id}/owner")

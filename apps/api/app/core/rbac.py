@@ -265,6 +265,11 @@ async def _check_camera_access(
         .first()
     )
     if grant is not None:
+        if need_playback and not grant.can_playback:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="tidak punya izin membuka rekaman kamera ini",
+            )
         return user
 
     role_perm = (

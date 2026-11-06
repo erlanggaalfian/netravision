@@ -113,7 +113,21 @@ class ScanResult(BaseModel):
 
 
 class UserIdsIn(BaseModel):
-    user_ids: list[int]
+    user_ids: list[int] = []
+
+
+class ShareIn(BaseModel):
+    """Satu share per user: can_playback False = stream saja."""
+
+    user_id: int
+    can_playback: bool = True
+
+
+class SharingIn(BaseModel):
+    # Bentuk baru (dipakai ShareModal): daftar per user.
+    shares: list[ShareIn] = []
+    # Bentuk lama (kompatibel): hanya user_ids, can_playback default True.
+    user_ids: list[int] = []
 
 
 class StreamIdsIn(BaseModel):
