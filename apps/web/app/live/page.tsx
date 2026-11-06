@@ -193,14 +193,17 @@ export default function LivePage() {
                   : `Menampilkan ${visibleStreams.length} dari ${filtered.length} kamera · ${onlineCount} online`}
               </p>
             </div>
+            {/* Status koneksi: di HP cukup titik warna saja. */}
             <span
-              className="flex h-11 items-center gap-2 rounded-full bg-ink-800 px-4 text-xs font-semibold text-neutral-300 shadow-sm"
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-ink-800 shadow-sm md:h-11 md:w-auto md:gap-2 md:px-4 md:text-xs md:font-semibold md:text-neutral-300"
               title={connected ? "WebSocket terhubung" : "Menghubungkan…"}
             >
               <span
-                className={`h-2 w-2 rounded-full ${connected ? "bg-ok-400 shadow-[0_0_8px_2px_rgba(74,222,128,0.5)]" : "bg-warn-400 shadow-[0_0_8px_2px_rgba(251,191,36,0.5)]"}`}
+                className={`h-2 w-2 rounded-full ${connected ? "bg-ok-400" : "bg-warn-400"}`}
               />
-              {connected ? "Real-time" : "Menghubungkan…"}
+              <span className="sr-only md:not-sr-only">
+                {connected ? "Real-time" : "Menghubungkan…"}
+              </span>
             </span>
           </div>
 
