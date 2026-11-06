@@ -282,15 +282,15 @@ export default function LivePage() {
           <div
             className={`${filterOpen ? "nv-pop block" : "hidden"} mt-4 md:block`}
           >
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex min-w-0 items-center gap-2 max-md:flex-1">
                 {isDesktop && (
                   <span className="text-xs font-semibold text-slate-400">
                     Grid:
                   </span>
                 )}
                 <div
-                  className="flex items-center gap-1 rounded-full bg-ink-800 p-1 shadow-sm"
+                  className="flex min-w-0 items-center gap-1 rounded-full bg-ink-800 p-1 shadow-sm max-md:flex-1"
                   role="tablist"
                   aria-label={
                     isDesktop
@@ -309,7 +309,7 @@ export default function LivePage() {
                           : `Tampilkan ${g.label} kamera`
                       }
                       onClick={() => setGridKey(g.key)}
-                      className={`flex h-10 min-w-[48px] items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-xs font-bold transition-all duration-200 active:scale-95 ${
+                      className={`flex h-10 min-w-[48px] items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-xs font-bold transition-all duration-200 active:scale-95 max-md:flex-1 ${
                         activeOpt.key === g.key
                           ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
                           : "text-neutral-400 hover:bg-ink-700 hover:text-slate-200"
@@ -361,7 +361,7 @@ export default function LivePage() {
                 <span className="hidden min-[420px]:inline">Muat ulang</span>
               </button>
               <div
-                className="flex w-full items-center gap-1 overflow-x-auto rounded-full bg-ink-800 p-1 shadow-sm sm:w-auto"
+                className="nv-scroll-x flex w-full items-center gap-1 overflow-x-auto rounded-full bg-ink-800 p-1 shadow-sm sm:w-auto"
                 role="tablist"
                 aria-label="Filter status kamera"
               >
