@@ -202,9 +202,11 @@ export default function LivePage() {
                 {connected ? "Real-time" : "Menghubungkan…"}
               </span>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-slate-400">
-                  {isDesktop ? "Grid:" : "Tampilkan:"}
-                </span>
+                {isDesktop && (
+                  <span className="text-xs font-semibold text-slate-400">
+                    Grid:
+                  </span>
+                )}
                 <div
                   className="flex items-center gap-1 rounded-full border border-ink-700 bg-ink-950 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
                   role="tablist"
@@ -225,15 +227,32 @@ export default function LivePage() {
                           : `Tampilkan ${g.label} kamera`
                       }
                       onClick={() => setGridKey(g.key)}
-                      className={`flex h-10 min-w-[48px] items-center justify-center whitespace-nowrap rounded-full px-3 text-xs font-bold transition-all duration-200 active:scale-95 ${
+                      className={`flex h-10 min-w-[48px] items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-xs font-bold transition-all duration-200 active:scale-95 ${
                         activeOpt.key === g.key
                           ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
                           : "text-neutral-400 hover:bg-white/5 hover:text-white"
                       }`}
                     >
-                      {/* Angka polos menebak-nebak: tulis satuannya langsung
-                          di tombol HP ("4 kamera"), bukan cuma "4". */}
-                      {isDesktop ? g.label : `${g.label} kamera`}
+                      {/* HP: ikon kamera + angka ("4" + ikon = 4 kamera),
+                          tanpa kata "kamera" dan tanpa label "Tampilkan:",
+                          ringkas tapi tetap jelas artinya. */}
+                      {!isDesktop && (
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden
+                        >
+                          <path d="M23 7l-7 5 7 5V7z" />
+                          <rect x="1" y="5" width="15" height="14" rx="2" />
+                        </svg>
+                      )}
+                      {g.label}
                     </button>
                   ))}
                 </div>
