@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api, clearTokens, getAccessToken, setTokens } from "./api";
+import { api, clearTokens, getAccessToken, getRefreshToken, isGuestSession, setGuestSession, setTokens } from "./api";
 import type { User } from "./types";
 
 /* Peran dengan hak admin penuh di UI (paritas v2.0: super_admin = kuasa penuh). */
@@ -44,13 +44,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!getAccessToken()) {
-      setLoading(false);
-      return;
-    }
-    fetchMe()
-      .then((u) => setUser(u))
-      .finally(() => setLoading(false));
+    // Sesi guest lama (sebelum flag nv_guest ada) ditandai refresh token "null".
+    const wasGuest = () =>
+      isGuestSession() || getRefreshToken() === "null";
+    const boot = async () => {
+      try {
+        if (!getAccessToken()) {
+          // Tanpa token tapi sebelumnya sesi guest: login ulang diam-diam
+          // (guest tanpa autentikasi; jangan lempar ke halaman login).
+          if (wasGuest() && !window.location.pathname.startsWith("/login")) {
+            try {
+              await loginGuest();
+            } catch {
+              /* gagal (mis. guest nonaktif / jaringan mati): biarkan login manual */
+            }
+          }
+          return;
+        }
+        const u = await fetchMe();
+        if (u) {
+          setUser(u);
+        } else if (wasGuest() && !window.location.pathname.startsWith("/login")) {
+          // Token mati/kedaluwarsa tapi sebelumnya sesi guest: pulihkan diam-diam.
+          try {
+            await loginGuest();
+          } catch {
+            /* gagal: biarkan login manual */
+          }
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+    boot();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {
@@ -59,12 +86,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       password,
     });
     setTokens(data.access_token, data.refresh_token);
+    setGuestSession(false);
     setUser(data.user ?? (await fetchMe()));
   }, []);
 
   const loginGuest = useCallback(async () => {
     const data = await api.post<TokenPair & { user: User }>("/auth/guest", {});
     setTokens(data.access_token, data.refresh_token);
+    setGuestSession(true);
     setUser(data.user ?? (await fetchMe()));
   }, []);
 
@@ -75,6 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       /* abaikan */
     }
     clearTokens();
+    setGuestSession(false);
     setUser(null);
   }, []);
 

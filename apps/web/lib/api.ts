@@ -5,6 +5,7 @@ const BASE =
 
 const ACCESS_KEY = "nv_access";
 const REFRESH_KEY = "nv_refresh";
+const GUEST_KEY = "nv_guest";
 
 export function getAccessToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -24,6 +25,20 @@ export function setTokens(access: string, refresh: string) {
 export function clearTokens() {
   localStorage.removeItem(ACCESS_KEY);
   localStorage.removeItem(REFRESH_KEY);
+}
+
+/* Penanda sesi guest: dipakai agar sesi guest yang mati (token kedaluwarsa
+   / network blip / reload) bisa login ulang sendiri tanpa dilempar ke
+   halaman login — guest memang tanpa autentikasi apapun. */
+export function setGuestSession(isGuest: boolean) {
+  if (typeof window === "undefined") return;
+  if (isGuest) localStorage.setItem(GUEST_KEY, "1");
+  else localStorage.removeItem(GUEST_KEY);
+}
+
+export function isGuestSession(): boolean {
+  if (typeof window === "undefined") return false;
+  return localStorage.getItem(GUEST_KEY) === "1";
 }
 
 /* Single-flight: refresh yang sedang berjalan dipakai bersama agar
@@ -80,8 +95,29 @@ export async function apiFetch(
     headers["Content-Type"] = headers["Content-Type"] || "application/json";
   }
   const res = await fetch(`${BASE}${path}`, { ...init, headers });
-  if (res.status === 401 && !retried && (await tryRefresh())) {
-    return apiFetch(path, init, true);
+  if (res.status === 401 && !retried) {
+    // Sesi guest mati (token kedaluwarsa): login ulang diam-diam sebagai
+    // guest lalu ulangi sekali — guest tanpa autentikasi, jangan lempar
+    // pengguna ke halaman login. Sesi guest lama ditandai refresh "null".
+    if (isGuestSession() || getRefreshToken() === "null") {
+      try {
+        const g = await fetch(`${BASE}/auth/guest`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+        if (g.ok) {
+          const data = await g.json();
+          setTokens(data.access_token, data.refresh_token);
+          return apiFetch(path, init, true);
+        }
+      } catch {
+        /* abaikan, lanjut ke refresh biasa */
+      }
+    }
+    if (await tryRefresh()) {
+      return apiFetch(path, init, true);
+    }
   }
   if (
     res.status === 401 &&
