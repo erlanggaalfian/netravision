@@ -626,20 +626,21 @@ export default function AdminUsersPage() {
                 className="overflow-hidden rounded-2xl border border-ink-800 bg-ink-900 shadow-sm"
               >
                 <div className="border-b border-ink-850 px-5 py-3 sm:px-6 md:py-4">
-                  {/* Nama grup di atas (HP): baris sendiri, lebar penuh, tidak terpotong. */}
+                  {/* Nama grup di atas (HP): bertumpuk, baris pertama GRUP + hitungan,
+                      baris kedua nama grup. */}
                   <button
                     onClick={() => toggleGroup(name)}
                     aria-expanded={open}
-                    className="mb-2 flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg text-left transition-colors hover:bg-ink-700/40 md:hidden"
+                    className="mb-2 flex w-full min-w-0 cursor-pointer flex-col items-start gap-0.5 rounded-lg text-left transition-colors hover:bg-ink-700/40 md:hidden"
                   >
-                    <NBBadge tone="info">Grup</NBBadge>
-                    {/* Nama + hitungan menempel (tanpa flex-1) supaya hitungan
-                        tidak terlepas ke ujung kanan. */}
-                    <span className="min-w-0 truncate text-sm font-bold text-white">
-                      {name}
+                    <span className="flex items-center gap-1.5">
+                      <NBBadge tone="info">Grup</NBBadge>
+                      <span className="text-xs text-slate-400">
+                        ({members.length} Anggota)
+                      </span>
                     </span>
-                    <span className="shrink-0 text-xs text-slate-400">
-                      · {members.length} anggota
+                    <span className="w-full truncate text-sm font-bold text-white">
+                      {name}
                     </span>
                   </button>
                   {/* Baris kontrol. */}
