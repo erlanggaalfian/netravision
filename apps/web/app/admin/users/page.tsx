@@ -103,16 +103,18 @@ function IconBtn({
 /* Tombol ghost ala mockup: hanya teks redup, latar muncul saat hover. */
 function GhostBtn({
   onClick,
+  className = "",
   children,
 }: {
   onClick: () => void;
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="shrink-0 cursor-pointer whitespace-nowrap rounded px-1 py-1 text-xs font-medium text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-200 sm:text-sm"
+      className={`shrink-0 cursor-pointer whitespace-nowrap rounded px-1 py-1 text-xs font-medium text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-200 sm:text-sm ${className}`}
     >
       {children}
     </button>
@@ -198,6 +200,17 @@ export default function AdminUsersPage() {
   const [showGroup, setShowGroup] = useState(false);
   /* Grup yang sedang terbuka lipatannya (tertutup dulu). */
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+  // Accordion anggota di HP (ala Stitch): tiap anggota bisa dilipat/dibuka
+  // untuk melihat "Dibuat oleh" + aksinya. Desktop tetap baris datar.
+  const [openMembers, setOpenMembers] = useState<Set<number>>(new Set());
+  function toggleMember(id: number) {
+    setOpenMembers((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   function toggleGroup(name: string) {
     setOpenGroups((prev) => {
@@ -340,7 +353,7 @@ export default function AdminUsersPage() {
   }
 
   function renderUser(u: User) {
-    /* Tata letak bertumpuk ala mockup: nama, lalu baris lencana
+    /* Tata letak bertumpuk ala mockup (desktop): nama, lalu baris lencana
        (peran + Iklan), lalu Dibuat oleh yang kecil dan pudar. */
     const content = (
       <span className="min-w-0 flex-1 space-y-1">
@@ -368,12 +381,35 @@ export default function AdminUsersPage() {
       </div>
     );
     const actions = actionsFor(u);
+    /* HP (ala Stitch): header accordion ringkas (nama + peran saja),
+       panel berisi lencana Iklan + Dibuat oleh + aksi. */
+    const mobileSummary = (
+      <span className="flex min-w-0 items-center gap-2">
+        {checkboxFor(u)}
+        <span className="min-w-0 truncate text-sm font-bold text-white">
+          {u.username}
+        </span>
+        <span className="shrink-0">{roleBadge(u)}</span>
+      </span>
+    );
+    const mobilePanel = (
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-2">
+          <NBBadge tone={u.show_ads ? "ok" : "muted"}>
+            Iklan: {u.show_ads ? "Ya" : "Tidak"}
+          </NBBadge>
+          <span className="min-w-0 truncate text-[11px] text-slate-400">
+            Dibuat oleh:{" "}
+            <span className="text-slate-300">{u.dibuat_oleh ?? "—"}</span>
+          </span>
+        </span>
+        {actions}
+      </div>
+    );
     return (
       <div key={u.id}>
         <div className="md:hidden">
-          <NBAccordion summary={left}>
-            <div className="space-y-3">{actions}</div>
-          </NBAccordion>
+          <NBAccordion summary={mobileSummary}>{mobilePanel}</NBAccordion>
         </div>
         <div className="hidden items-center justify-between gap-4 rounded-2xl border border-ink-800 bg-ink-900 px-5 py-4 shadow-sm transition-colors sm:px-6 md:flex">
           {left}
@@ -387,29 +423,77 @@ export default function AdminUsersPage() {
      peran di barisnya sendiri, Dibuat oleh di bawahnya; pemisah
      sangat halus antar baris, hover lembut. */
   function renderMember(u: User) {
+    const mOpen = openMembers.has(u.id);
     return (
-      <div
-        key={u.id}
-        className="flex items-center justify-between gap-4 px-5 py-3.5 hover:bg-ink-850 sm:px-6"
-      >
-        <div className="flex min-w-0 flex-1 items-start gap-3.5 pl-2 sm:items-center sm:pl-4">
-          {checkboxFor(u)}
-          <span className="min-w-0 flex-1 space-y-1">
-            <span className="block truncate text-sm font-semibold text-white">
-              {u.username}
-            </span>
-            <span className="flex flex-wrap items-center gap-2">
-              {roleBadge(u)}
-            </span>
-            <span className="block text-xs text-slate-400">
-              Dibuat oleh:{" "}
-              <span className="font-medium text-slate-300">
-                {u.dibuat_oleh ?? "—"}
+      <div key={u.id}>
+        {/* HP: accordion (ala Stitch) — header ringkas nama + peran, panel
+            menampilkan Dibuat oleh + aksi. */}
+        <div className="md:hidden">
+          <button
+            type="button"
+            onClick={() => toggleMember(u.id)}
+            aria-expanded={mOpen}
+            className="flex w-full cursor-pointer items-center justify-between gap-3 p-3 pl-4 text-left transition-colors hover:bg-ink-850"
+          >
+            <span className="flex min-w-0 flex-1 items-center gap-2.5">
+              {checkboxFor(u)}
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="truncate text-sm font-bold text-white">
+                  {u.username}
+                </span>
+                {roleBadge(u)}
               </span>
             </span>
-          </span>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden
+              className={`shrink-0 text-slate-400 transition-transform duration-200 ease-out ${mOpen ? "rotate-180" : ""}`}
+            >
+              <path
+                d="M4 6l4 4 4-4"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+          {mOpen && (
+            <div className="flex items-center justify-between gap-2 border-t border-ink-850 bg-ink-850/40 px-4 py-2">
+              <p className="min-w-0 truncate text-[11px] text-slate-400">
+                Dibuat oleh:{" "}
+                <span className="text-slate-300">
+                  {u.dibuat_oleh ?? "—"}
+                </span>
+              </p>
+              {actionsFor(u)}
+            </div>
+          )}
         </div>
-        {actionsFor(u)}
+        {/* Desktop: baris datar (tetap). */}
+        <div className="hidden items-center justify-between gap-4 px-5 py-3.5 hover:bg-ink-850 sm:px-6 md:flex">
+          <div className="flex min-w-0 flex-1 items-start gap-3.5 pl-2 sm:items-center sm:pl-4">
+            {checkboxFor(u)}
+            <span className="min-w-0 flex-1 space-y-1">
+              <span className="block truncate text-sm font-semibold text-white">
+                {u.username}
+              </span>
+              <span className="flex flex-wrap items-center gap-2">
+                {roleBadge(u)}
+              </span>
+              <span className="block text-xs text-slate-400">
+                Dibuat oleh:{" "}
+                <span className="font-medium text-slate-300">
+                  {u.dibuat_oleh ?? "—"}
+                </span>
+              </span>
+            </span>
+          </div>
+          {actionsFor(u)}
+        </div>
       </div>
     );
   }
@@ -445,7 +529,14 @@ export default function AdminUsersPage() {
       <NBTitle
         title="Pengguna"
         desc="Kelola akun dan hak akses kamera"
-        action={<NBButton onClick={() => setShowAdd(true)}>+ Tambah Pengguna</NBButton>}
+        action={
+          <NBButton
+            className="w-full sm:w-auto"
+            onClick={() => setShowAdd(true)}
+          >
+            + Tambah Pengguna
+          </NBButton>
+        }
       />
       {error && (
         <div className="mb-4">
@@ -522,14 +613,18 @@ export default function AdminUsersPage() {
                     >
                       <NBBadge tone="info">Grup</NBBadge>
                       <span className="flex min-w-0 items-baseline gap-1.5">
-                        <span className="truncate text-base font-bold text-white">
+                        <span className="truncate text-sm font-bold text-white sm:text-base">
                           {name}
                         </span>
-                        <span className="shrink-0 text-xs text-slate-400 sm:text-sm">
+                        <span className="shrink-0 text-xs text-slate-400 sm:hidden">
+                          · {members.length}
+                        </span>
+                        <span className="hidden shrink-0 text-xs text-slate-400 sm:inline sm:text-sm">
                           · {members.length} anggota
                         </span>
                       </span>
-                      <span className="shrink-0">
+                      {/* Lencana Iklan: hanya di desktop; di HP pindah ke bar detail. */}
+                      <span className="hidden shrink-0 md:block">
                         <NBBadge tone={allAds ? "ok" : "muted"}>
                           Iklan: {allAds ? "Ya" : "Tidak"}
                         </NBBadge>
@@ -537,13 +632,24 @@ export default function AdminUsersPage() {
                     </button>
                   </div>
                   <div className="flex shrink-0 items-center gap-3 sm:gap-4">
-                    <GhostBtn onClick={() => setGroupEdit({ name, members })}>
+                    {/* Ubah grup + Akses Kamera: hanya di desktop; di HP pindah ke bar detail. */}
+                    <GhostBtn
+                      className="hidden md:block"
+                      onClick={() => setGroupEdit({ name, members })}
+                    >
                       Ubah grup
                     </GhostBtn>
-                    <GhostBtn onClick={() => setGroupAccess({ name, members })}>
-                      <span className="hidden sm:inline">Akses Kamera</span>
-                      <span className="sm:hidden">Akses</span>
-                    </GhostBtn>
+                    {/* Akses grup hanya saat grup terbuka (ala Stitch):
+                        saat tertutup hanya Ubah grup + chevron. */}
+                    {open && (
+                      <GhostBtn
+                        className="hidden md:block"
+                        onClick={() => setGroupAccess({ name, members })}
+                      >
+                        <span className="hidden sm:inline">Akses Kamera</span>
+                        <span className="sm:hidden">Akses</span>
+                      </GhostBtn>
+                    )}
                     <button
                       onClick={() => toggleGroup(name)}
                       aria-expanded={open}
@@ -569,6 +675,23 @@ export default function AdminUsersPage() {
                     </button>
                   </div>
                 </div>
+                {/* Bar detail grup, HP saja (ala Stitch): lencana Iklan + Ubah grup
+                    + Akses Kamera, muncul saat grup terbuka. */}
+                {open && (
+                  <div className="flex items-center justify-between gap-2 border-b border-ink-850 bg-ink-850/40 p-3 sm:px-4 md:hidden">
+                    <NBBadge tone={allAds ? "ok" : "muted"}>
+                      Iklan: {allAds ? "Ya" : "Tidak"}
+                    </NBBadge>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <GhostBtn onClick={() => setGroupEdit({ name, members })}>
+                        Ubah grup
+                      </GhostBtn>
+                      <GhostBtn onClick={() => setGroupAccess({ name, members })}>
+                        Akses Kamera
+                      </GhostBtn>
+                    </div>
+                  </div>
+                )}
                 {open && (
                   <div className="divide-y divide-ink-850">
                     {members.map((u) => renderMember(u))}
