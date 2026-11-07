@@ -638,23 +638,23 @@ export default function AdminUsersPage() {
                     </button>
                   </div>
                   <div className="flex shrink-0 items-center gap-3 sm:gap-4">
-                    {/* Ubah grup + Akses Kamera: hanya di desktop; di HP pindah ke bar detail. */}
-                    <MiniBtn
-                      className="hidden md:block"
-                      onClick={() => setGroupEdit({ name, members })}
-                    >
-                      Ubah grup
-                    </MiniBtn>
+                    {/* Ubah grup + Akses Kamera: hanya di desktop; di HP pindah ke bar detail.
+                        Dibungkus span (bukan class hidden di tombol) karena
+                        display inline-flex MiniBtn mengalahkan hidden. */}
+                    <span className="hidden md:block">
+                      <MiniBtn onClick={() => setGroupEdit({ name, members })}>
+                        Ubah grup
+                      </MiniBtn>
+                    </span>
                     {/* Akses grup hanya saat grup terbuka (ala Stitch):
                         saat tertutup hanya Ubah grup + chevron. */}
                     {open && (
-                      <MiniBtn
-                        className="hidden md:block"
-                        onClick={() => setGroupAccess({ name, members })}
-                      >
-                        <span className="hidden sm:inline">Akses Kamera</span>
-                        <span className="sm:hidden">Akses</span>
-                      </MiniBtn>
+                      <span className="hidden md:block">
+                        <MiniBtn onClick={() => setGroupAccess({ name, members })}>
+                          <span className="hidden sm:inline">Akses Kamera</span>
+                          <span className="sm:hidden">Akses</span>
+                        </MiniBtn>
+                      </span>
                     )}
                     <button
                       onClick={() => toggleGroup(name)}
