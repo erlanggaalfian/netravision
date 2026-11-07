@@ -462,8 +462,8 @@ export default function PlaybackPage() {
         <Card
           className={`mb-5 nv-panel-modern ${filterOpen ? "block" : "hidden md:block"}`}
         >
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:gap-3">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end xl:min-w-0 xl:flex-1">
               {!multi ? (
                 <label className="flex flex-1 flex-col gap-1.5">
                   <span className="text-xs font-semibold text-slate-400">

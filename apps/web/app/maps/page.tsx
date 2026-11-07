@@ -326,6 +326,33 @@ export default function MapsPage() {
         <SectionTitle
           title="Peta Kamera"
           desc="Lokasi semua kamera. Seret marker untuk memindahkan posisi (admin)."
+          action={
+            <div className="relative w-full sm:w-80">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400"
+                aria-hidden
+              >
+                <path
+                  d="M7.5 12.5a5 5 0 100-10 5 5 0 000 10zM11.5 11.5L14 14"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                />
+              </svg>
+              <input
+                type="search"
+                value={mapQuery}
+                onChange={(e) => setMapQuery(e.target.value)}
+                placeholder="Cari CCTV…"
+                aria-label="Cari CCTV"
+                className="h-11 w-full rounded-full bg-ink-800 pl-10 pr-4 text-base text-white shadow-sm placeholder:text-neutral-400 outline-none transition-all duration-150 focus:ring-2 focus:ring-accent-500/30"
+              />
+            </div>
+          }
         />
       </div>
       <div className="flex flex-col gap-4 p-4 md:h-[calc(100dvh-150px)] md:min-h-[420px] md:flex-row md:p-5">
@@ -386,33 +413,6 @@ export default function MapsPage() {
 
         {/* Panel samping */}
         <div className="flex w-full flex-col gap-4 md:w-80 md:shrink-0">
-          {/* Pencarian CCTV */}
-          <div className="relative">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 16 16"
-              fill="none"
-              className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400"
-              aria-hidden
-            >
-              <path
-                d="M7.5 12.5a5 5 0 100-10 5 5 0 000 10zM11.5 11.5L14 14"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-              />
-            </svg>
-            <input
-              type="search"
-              value={mapQuery}
-              onChange={(e) => setMapQuery(e.target.value)}
-              placeholder="Cari CCTV…"
-              aria-label="Cari CCTV"
-              className="h-11 w-full rounded-full bg-ink-800 pl-10 pr-4 text-base text-white shadow-sm placeholder:text-neutral-400 outline-none transition-all duration-150 focus:ring-2 focus:ring-accent-500/30"
-            />
-          </div>
-
           {error && <ErrorBox message={error} />}
           {saveError && <ErrorBox message={saveError} />}
 

@@ -415,7 +415,7 @@ export default function MonitorsPage() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setOpenId(null)}
-                    className="flex h-11 min-w-[44px] items-center justify-center rounded-xl bg-ink-800 px-3 text-base text-neutral-200 shadow-sm transition hover:bg-ink-700 active:scale-95"
+                    className="flex h-11 min-w-[44px] items-center justify-center rounded-full bg-ink-800 px-3 text-base text-neutral-200 shadow-sm transition hover:bg-ink-700 active:scale-95"
                     aria-label="Kembali ke daftar monitor"
                   >
                     ←
@@ -429,7 +429,7 @@ export default function MonitorsPage() {
                   </Button>
                   <button
                     onClick={toggleFullscreen}
-                    className="flex h-11 items-center gap-2 rounded-xl bg-ink-800 px-4 text-sm font-medium text-neutral-200 shadow-sm transition hover:bg-ink-700 active:scale-95"
+                    className="flex h-11 items-center gap-2 rounded-full bg-ink-800 px-4 text-sm font-medium text-neutral-200 shadow-sm transition hover:bg-ink-700 active:scale-95"
                     aria-label="Layar penuh"
                     title="Layar penuh"
                   >
