@@ -381,15 +381,17 @@ export default function AdminUsersPage() {
       </div>
     );
     const actions = actionsFor(u);
-    /* HP (ala Stitch): header accordion ringkas (nama + peran saja),
-       panel berisi lencana Iklan + Dibuat oleh + aksi. */
+    /* HP (ala Stitch): header accordion ringkas — nama di atas, lencana
+       peran kecil di bawahnya (bukan di samping nama). */
     const mobileSummary = (
       <span className="flex min-w-0 items-center gap-2">
         {checkboxFor(u)}
-        <span className="min-w-0 truncate text-sm font-bold text-white">
-          {u.username}
+        <span className="flex min-w-0 flex-col items-start gap-0.5">
+          <span className="min-w-0 truncate text-sm font-bold text-white">
+            {u.username}
+          </span>
+          <span className="shrink-0">{roleBadge(u)}</span>
         </span>
-        <span className="shrink-0">{roleBadge(u)}</span>
       </span>
     );
     const mobilePanel = (
@@ -437,7 +439,8 @@ export default function AdminUsersPage() {
           >
             <span className="flex min-w-0 flex-1 items-center gap-2.5">
               {checkboxFor(u)}
-              <span className="flex min-w-0 items-center gap-1.5">
+              {/* Nama di atas, lencana peran kecil di bawahnya (bukan di samping). */}
+              <span className="flex min-w-0 flex-col items-start gap-0.5">
                 <span className="truncate text-sm font-bold text-white">
                   {u.username}
                 </span>
