@@ -1,10 +1,10 @@
 @import "tailwindcss";
 
-/* NetraVision design tokens — dark-first.
+/* NetraVision design tokens, dark-first.
    Tema via atribut data-theme pada <html>: "dark" (default) atau "light".
    Seluruh token warna dirutekan lewat var(--nv-*) (@theme inline) sehingga
    utilitas Tailwind (bg-ink-900, text-neutral-400, …) bertukar nilai saat
-   tema diganti — tanpa mengubah satu pun class di markup. */
+   tema diganti, tanpa mengubah satu pun class di markup. */
 
 @theme inline {
   --color-ink-950: var(--nv-ink-950);
@@ -77,7 +77,7 @@
 }
 
 /* ---- Tema terang: konsol siang hari.
-   Terang tapi tidak menyilaukan — background aplikasi abu kebiruan lembut
+   Terang tapi tidak menyilaukan, background aplikasi abu kebiruan lembut
    (bukan putih murni), kartu putih, teks navy-ink. Semua warna teks
    memenuhi kontras WCAG AA di atas permukaan terang. Aksen biru digelapkan
    agar tetap terbaca; status ok/warn/bad digeser ke tone-700. */
@@ -116,7 +116,7 @@
 }
 
 /* ---- Panggung video: SELALU gelap di kedua tema.
-   Konten video memang gelap — tile kamera, player fokus, dan pratinjau
+   Konten video memang gelap, tile kamera, player fokus, dan pratinjau
    monitor mempertahankan penampilan ruang kendali malam. Bungkus elemen
    dengan class ini; seluruh token --nv-* di dalamnya kembali ke gelap. */
 .nv-stage {  color-scheme: dark;
