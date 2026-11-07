@@ -129,13 +129,17 @@ export default function AdminUsersPage() {
             );
             const actions = (
               <div className="flex flex-wrap gap-2">
-                <NBButton
-                  variant="secondary"
-                  onClick={() => setAccessFor(u)}
-                  className="px-3"
-                >
-                  Akses Kamera
-                </NBButton>
+                {/* Superadmin selalu mendapat akses ke semua kamera,
+                    jadi tidak ada pengaturan Akses Kamera untuknya. */}
+                {u.role !== "super_admin" && (
+                  <NBButton
+                    variant="secondary"
+                    onClick={() => setAccessFor(u)}
+                    className="px-3"
+                  >
+                    Akses Kamera
+                  </NBButton>
+                )}
                 <NBButton
                   variant="secondary"
                   onClick={() => setEditing(u)}

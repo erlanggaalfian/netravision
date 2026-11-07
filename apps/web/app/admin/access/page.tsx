@@ -64,8 +64,10 @@ export default function AdminAccessPage() {
   }
 
   const ql = q.trim().toLowerCase();
+  /* Superadmin selalu mendapat akses ke semua kamera, jadi tidak
+     ditampilkan di pengaturan akses. */
   const filteredUsers = (users ?? []).filter(
-    (u) => !ql || u.username.toLowerCase().includes(ql),
+    (u) => u.role !== "super_admin" && (!ql || u.username.toLowerCase().includes(ql)),
   );
   const filteredStreams = (streams ?? []).filter(
     (s) => !ql || s.name.toLowerCase().includes(ql),
@@ -430,7 +432,12 @@ function AccessByCameraModal({
               </span>
               <NBBadge tone="muted">Tamu</NBBadge>
             </label>
-            {users.map((u) => (
+            {/* Superadmin tidak ditampilkan: aksesnya otomatis ke semua
+                kamera. Baris aksesnya tetap tersimpan karena `checked`
+                tidak diubah, hanya tampilannya yang difilter. */}
+            {users
+              .filter((u) => u.role !== "super_admin")
+              .map((u) => (
               <label
                 key={u.id}
                 className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-ink-800/50"
