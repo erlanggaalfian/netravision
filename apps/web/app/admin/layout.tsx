@@ -17,7 +17,6 @@ interface NavItem {
 const NAV: NavItem[] = [
   { href: "/admin/streams", label: "Kamera", icon: "M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM2.5 10s3-5.5 7.5-5.5S17.5 10 17.5 10s-3 5.5-7.5 5.5S2.5 10 2.5 10z" },
   { href: "/admin/users", label: "Pengguna", icon: "M10 10a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM3.5 17.5c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6" },
-  { href: "/admin/access", label: "Akses", icon: "M10 2.5l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9v-5l7-3z" },
   { href: "/admin/scanner", label: "Scanner", icon: "M4 8V5.5A1.5 1.5 0 015.5 4H8M12 4h2.5A1.5 1.5 0 0116 5.5V8M16 12v2.5a1.5 1.5 0 01-1.5 1.5H12M8 16H5.5A1.5 1.5 0 014 14.5V12M7 10h6", superAdminOnly: true },
   { href: "/admin/ads", label: "Iklan", icon: "M4 5h16v11H4zM4 16l4-4M20 16l-4-4", superAdminOnly: true },
   { href: "/admin/keys", label: "API Key", icon: "M10 13.5a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM10 2.5v3M10 14.5v3M2.5 10h3M14.5 10h3", superAdminOnly: true },
