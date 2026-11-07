@@ -349,51 +349,58 @@ export default function AdminUsersPage() {
                 key={name}
                 className="overflow-hidden rounded-xl bg-ink-800 shadow-sm"
               >
-                <button
-                  onClick={() => toggleGroup(name)}
-                  aria-expanded={open}
-                  className="flex min-h-[44px] w-full cursor-pointer items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-ink-700/40"
-                >
-                  <NBBadge tone="info">Grup</NBBadge>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium text-white">
-                      {name}
-                    </span>
-                    <span className="mt-0.5 block text-xs text-slate-400">
-                      {members.length} anggota
-                    </span>
-                  </span>
-                  <NBBadge tone={allAds ? "ok" : "muted"}>
-                    Iklan: {allAds ? "Ya" : "Tidak"}
-                  </NBBadge>
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    aria-hidden
-                    className={`shrink-0 text-slate-400 transition-transform duration-200 ease-out ${open ? "rotate-180" : ""}`}
+                <div className="flex items-center gap-2 px-4 py-3">
+                  <button
+                    onClick={() => toggleGroup(name)}
+                    aria-expanded={open}
+                    className="flex min-h-[44px] min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg px-2 py-1 text-left transition-colors hover:bg-ink-700/40"
                   >
-                    <path
-                      d="M4 6l4 4 4-4"
-                      stroke="currentColor"
-                      strokeWidth="1.75"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </button>
+                    <NBBadge tone="info">Grup</NBBadge>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium text-white">
+                        {name}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-slate-400">
+                        {members.length} anggota
+                      </span>
+                    </span>
+                    <NBBadge tone={allAds ? "ok" : "muted"}>
+                      Iklan: {allAds ? "Ya" : "Tidak"}
+                    </NBBadge>
+                  </button>
+                  <NBButton
+                    variant="secondary"
+                    onClick={() => setGroupEdit({ name, members })}
+                    className="shrink-0 px-3"
+                  >
+                    Ubah grup
+                  </NBButton>
+                  <button
+                    onClick={() => toggleGroup(name)}
+                    aria-expanded={open}
+                    aria-label={open ? "Tutup grup" : "Buka grup"}
+                    className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-ink-700/40"
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      aria-hidden
+                      className={`shrink-0 text-slate-400 transition-transform duration-200 ease-out ${open ? "rotate-180" : ""}`}
+                    >
+                      <path
+                        d="M4 6l4 4 4-4"
+                        stroke="currentColor"
+                        strokeWidth="1.75"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                </div>
                 {open && (
                   <div className="border-t border-ink-800 px-4 pb-2">
-                    <div className="flex justify-end pt-3">
-                      <NBButton
-                        variant="secondary"
-                        onClick={() => setGroupEdit({ name, members })}
-                        className="px-3"
-                      >
-                        Ubah grup
-                      </NBButton>
-                    </div>
                     <div className="divide-y divide-ink-800">
                       {members.map((u) => renderMember(u))}
                     </div>
