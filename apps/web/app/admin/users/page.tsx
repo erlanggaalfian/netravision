@@ -854,35 +854,85 @@ function GroupAccessModal({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [checked, setChecked] = useState<Set<number>>(new Set());
-  const [initial, setInitial] = useState<Set<number> | null>(null);
+  /* Kolom Bagikan hanya bila grup berisi anggota admin. */
+  const hasAdmin = members.some((m) => m.role === "admin");
+  const [access, setAccess] = useState<Record<number, GrantFlags>>({});
+  const [initial, setInitial] = useState<Record<number, GrantFlags> | null>(
+    null,
+  );
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all(
-      members.map((m) =>
-        api
-          .get<{ stream_ids: number[] }>(`/admin/users/${m.id}/camera-access`)
-          .then((r) => r.stream_ids)
-          .catch(() => [] as number[]),
+    const adminMembers = members.filter((m) => m.role === "admin");
+    Promise.all([
+      Promise.all(
+        members.map((m) =>
+          api
+            .get<{
+              shares: { stream_id: number; can_playback: boolean }[];
+            }>(`/admin/users/${m.id}/camera-access`)
+            .then((r) => r.shares ?? [])
+            .catch(() => [] as { stream_id: number; can_playback: boolean }[]),
+        ),
       ),
-    )
-      .then((lists) => {
+      Promise.all(
+        adminMembers.map((m) =>
+          api
+            .get<{
+              grants: {
+                stream_id: number;
+                can_view: boolean;
+                can_playback: boolean;
+                can_reshare: boolean;
+              }[];
+            }>(`/admin/admins/${m.id}/camera-grants`)
+            .then((r) => r.grants ?? [])
+            .catch(
+              () =>
+                [] as {
+                  stream_id: number;
+                  can_view: boolean;
+                  can_playback: boolean;
+                  can_reshare: boolean;
+                }[],
+            ),
+        ),
+      ),
+    ])
+      .then(([accessLists, grantLists]) => {
         if (cancelled) return;
-        /* Akses grup = kamera yang dimiliki SEMUA anggota. */
-        const common =
-          lists.length > 0
-            ? lists.reduce<number[]>(
-                (acc, ids) => acc.filter((id) => ids.includes(id)),
-                [...lists[0]],
-              )
-            : [];
-        const set = new Set(common);
-        setChecked(set);
-        setInitial(set);
+        /* Akses grup = yang dimiliki SEMUA anggota; Bagikan = yang
+           dimiliki SEMUA anggota admin. */
+        const map: Record<number, GrantFlags> = {};
+        for (const s of streams) {
+          const live = accessLists.every((list) =>
+            list.some((sh) => sh.stream_id === s.id),
+          );
+          const playback = accessLists.every((list) =>
+            list.some(
+              (sh) => sh.stream_id === s.id && sh.can_playback,
+            ),
+          );
+          const reshare =
+            adminMembers.length > 0 &&
+            grantLists.every((list) =>
+              list.some(
+                (g) => g.stream_id === s.id && g.can_reshare,
+              ),
+            );
+          if (live || playback || reshare) {
+            map[s.id] = {
+              can_view: live,
+              can_playback: playback,
+              can_reshare: reshare,
+            };
+          }
+        }
+        setAccess(map);
+        setInitial(map);
       })
       .catch((e) => {
         setError(e instanceof ApiError ? e.message : "Gagal memuat hak akses");
@@ -896,28 +946,86 @@ function GroupAccessModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [members]);
 
-  function toggle(id: number) {
-    setChecked((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+  function setFlag(
+    id: number,
+    key: "can_view" | "can_playback" | "can_reshare",
+    value: boolean,
+  ) {
+    setAccess((prev) => {
+      const cur = prev[id] ?? {
+        can_view: false,
+        can_playback: false,
+        can_reshare: false,
+      };
+      const next = { ...cur, [key]: value };
+      /* Playback dan Bagikan butuh Live; mematikan Live ikut
+         mematikan keduanya. */
+      if ((key === "can_playback" || key === "can_reshare") && value) {
+        next.can_view = true;
+      }
+      if (key === "can_view" && !value) {
+        next.can_playback = false;
+        next.can_reshare = false;
+      }
+      return { ...prev, [id]: next };
     });
   }
 
   const changed =
     initial !== null &&
-    (checked.size !== initial.size ||
-      [...checked].some((id) => !initial.has(id)));
+    (Object.keys(access).length !== Object.keys(initial).length ||
+      Object.entries(access).some(([sid, a]) => {
+        const b = initial[Number(sid)];
+        return (
+          !b ||
+          b.can_view !== a.can_view ||
+          b.can_playback !== a.can_playback ||
+          b.can_reshare !== a.can_reshare
+        );
+      }));
+
+  const grantedCount = Object.values(access).filter(
+    (a) => a.can_view || a.can_playback || a.can_reshare,
+  ).length;
 
   async function save() {
     setError("");
     setBusy(true);
     try {
+      const selected = Object.entries(access).filter(
+        ([, a]) => a.can_view || a.can_playback || a.can_reshare,
+      );
+      /* Akses tiap anggota diganti dengan pilihan grup. */
       await Promise.all(
         members.map((m) =>
           api.post(`/admin/users/${m.id}/camera-access`, {
-            stream_ids: [...checked],
+            shares: selected.map(([sid, a]) => ({
+              stream_id: Number(sid),
+              can_playback: a.can_playback,
+            })),
+          }),
+        ),
+      );
+      /* Anggota admin: grant-nya ikut diselaraskan per kamera. */
+      const adminMembers = members.filter((m) => m.role === "admin");
+      await Promise.all(
+        adminMembers.flatMap((m) =>
+          streams.map((s) => {
+            const a = access[s.id] ?? {
+              can_view: false,
+              can_playback: false,
+              can_reshare: false,
+            };
+            return api.post(`/admin/streams/${s.id}/grants`, {
+              grants: [
+                {
+                  admin_id: m.id,
+                  can_view: a.can_view,
+                  can_playback: a.can_playback,
+                  can_reshare: a.can_reshare,
+                },
+              ],
+            });
           }),
         ),
       );
@@ -946,19 +1054,34 @@ function GroupAccessModal({
         <div>
           <div className="mb-2 flex items-center justify-between gap-2 px-1">
             <p className="text-xs tabular-nums text-slate-400">
-              {checked.size} dari {streams.length} dipilih
+              {grantedCount} dari {streams.length} dipilih
             </p>
             <div className="flex gap-1">
               <button
                 type="button"
-                onClick={() => setChecked(new Set(streams.map((s) => s.id)))}
+                onClick={() =>
+                  setAccess((prev) => {
+                    const next: Record<number, GrantFlags> = { ...prev };
+                    for (const s of streams) {
+                      next[s.id] = {
+                        ...(next[s.id] ?? {
+                          can_view: false,
+                          can_playback: false,
+                          can_reshare: false,
+                        }),
+                        can_view: true,
+                      };
+                    }
+                    return next;
+                  })
+                }
                 className="min-h-[44px] rounded-md px-2 text-xs font-medium text-accent-300 transition-colors hover:bg-ink-800"
               >
                 Pilih semua
               </button>
               <button
                 type="button"
-                onClick={() => setChecked(new Set())}
+                onClick={() => setAccess({})}
                 className="min-h-[44px] rounded-md px-2 text-xs font-medium text-slate-400 transition-colors hover:bg-ink-800"
               >
                 Bersihkan
@@ -969,22 +1092,70 @@ function GroupAccessModal({
             Yang tercentang = kamera yang dimiliki semua anggota grup.
             Menyimpan akan mengganti akses kamera semua anggota grup
             dengan pilihan ini.
+            {hasAdmin &&
+              " Kolom Bagikan hanya berlaku untuk anggota admin."}
           </p>
+          <div className="mb-1 flex items-center gap-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+            <span className="min-w-0 flex-1">Kamera</span>
+            <span className="w-16 shrink-0 text-center">Live</span>
+            <span className="w-16 shrink-0 text-center">Playback</span>
+            {hasAdmin && (
+              <span className="w-16 shrink-0 text-center">Bagikan</span>
+            )}
+          </div>
           <div className="max-h-64 space-y-1 overflow-y-auto">
-            {streams.map((s) => (
-              <label
-                key={s.id}
-                className="flex min-h-[48px] cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-ink-800"
-              >
-                <input
-                  type="checkbox"
-                  checked={checked.has(s.id)}
-                  onChange={() => toggle(s.id)}
-                  className="h-5 w-5 shrink-0 accent-accent-500"
-                />
-                <span className="text-sm text-slate-200">{s.name}</span>
-              </label>
-            ))}
+            {streams.map((s) => {
+              const a = access[s.id] ?? {
+                can_view: false,
+                can_playback: false,
+                can_reshare: false,
+              };
+              return (
+                <div
+                  key={s.id}
+                  className="flex min-h-[48px] items-center gap-2 rounded-lg px-3 py-2 hover:bg-ink-800"
+                >
+                  <span className="min-w-0 flex-1 truncate text-sm text-slate-200">
+                    {s.name}
+                  </span>
+                  <span className="flex w-16 shrink-0 justify-center">
+                    <input
+                      type="checkbox"
+                      checked={a.can_view}
+                      onChange={(e) =>
+                        setFlag(s.id, "can_view", e.target.checked)
+                      }
+                      className="h-5 w-5 accent-accent-500"
+                      aria-label={`Live ${s.name}`}
+                    />
+                  </span>
+                  <span className="flex w-16 shrink-0 justify-center">
+                    <input
+                      type="checkbox"
+                      checked={a.can_playback}
+                      onChange={(e) =>
+                        setFlag(s.id, "can_playback", e.target.checked)
+                      }
+                      className="h-5 w-5 accent-accent-500"
+                      aria-label={`Playback ${s.name}`}
+                    />
+                  </span>
+                  {hasAdmin && (
+                    <span className="flex w-16 shrink-0 justify-center">
+                      <input
+                        type="checkbox"
+                        checked={a.can_reshare}
+                        onChange={(e) =>
+                          setFlag(s.id, "can_reshare", e.target.checked)
+                        }
+                        className="h-5 w-5 accent-accent-500"
+                        aria-label={`Bagikan ${s.name}`}
+                      />
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -1000,6 +1171,13 @@ function GroupAccessModal({
   );
 }
 
+type AccessFlags = {
+  can_view: boolean;
+  can_playback: boolean;
+};
+
+/* ---------- Modal: akses kamera user/tamu (Live, Playback) ---------- */
+
 function UserAccessModal({
   user,
   streams,
@@ -1009,7 +1187,7 @@ function UserAccessModal({
   streams: Stream[];
   onClose: () => void;
 }) {
-  const [checked, setChecked] = useState<Set<number>>(new Set());
+  const [access, setAccess] = useState<Record<number, AccessFlags>>({});
   const [loaded, setLoaded] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [error, setError] = useState("");
@@ -1017,8 +1195,19 @@ function UserAccessModal({
 
   useEffect(() => {
     api
-      .get<{ stream_ids: number[] }>(`/admin/users/${user.id}/camera-access`)
-      .then((r) => setChecked(new Set(r.stream_ids)))
+      .get<{
+        shares: { stream_id: number; can_playback: boolean }[];
+      }>(`/admin/users/${user.id}/camera-access`)
+      .then((r) => {
+        const map: Record<number, AccessFlags> = {};
+        for (const sh of r.shares ?? []) {
+          map[sh.stream_id] = {
+            can_view: true,
+            can_playback: sh.can_playback,
+          };
+        }
+        setAccess(map);
+      })
       .catch((e) => {
         setLoadFailed(true);
         setError(e instanceof ApiError ? e.message : "Gagal memuat hak akses");
@@ -1026,22 +1215,36 @@ function UserAccessModal({
       .finally(() => setLoaded(true));
   }, [user.id]);
 
-  function toggle(id: number) {
-    setChecked((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+  function setFlag(
+    id: number,
+    key: "can_view" | "can_playback",
+    value: boolean,
+  ) {
+    setAccess((prev) => {
+      const cur = prev[id] ?? { can_view: false, can_playback: false };
+      const next = { ...cur, [key]: value };
+      /* Playback butuh Live; mematikan Live ikut mematikan Playback. */
+      if (key === "can_playback" && value) next.can_view = true;
+      if (key === "can_view" && !value) next.can_playback = false;
+      return { ...prev, [id]: next };
     });
   }
+
+  const grantedCount = Object.values(access).filter(
+    (a) => a.can_view || a.can_playback,
+  ).length;
 
   async function save() {
     setError("");
     setBusy(true);
     try {
-      await api.post(`/admin/users/${user.id}/camera-access`, {
-        stream_ids: [...checked],
-      });
+      const shares = Object.entries(access)
+        .filter(([, a]) => a.can_view || a.can_playback)
+        .map(([sid, a]) => ({
+          stream_id: Number(sid),
+          can_playback: a.can_playback,
+        }));
+      await api.post(`/admin/users/${user.id}/camera-access`, { shares });
       onClose();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Gagal menyimpan");
@@ -1058,47 +1261,92 @@ function UserAccessModal({
         </div>
       )}
       {!loaded ? (
-        <Spinner />
+        <div className="flex justify-center py-8">
+          <Spinner />
+        </div>
       ) : streams.length === 0 ? (
         <NBEmptyState text="Belum ada kamera." />
       ) : (
         <div>
           <div className="mb-2 flex items-center justify-between gap-2 px-1">
             <p className="text-xs tabular-nums text-slate-400">
-              {checked.size} dari {streams.length} dipilih
+              {grantedCount} dari {streams.length} dipilih
             </p>
             <div className="flex gap-1">
               <button
                 type="button"
-                onClick={() => setChecked(new Set(streams.map((s) => s.id)))}
+                onClick={() =>
+                  setAccess((prev) => {
+                    const next: Record<number, AccessFlags> = { ...prev };
+                    for (const s of streams) {
+                      next[s.id] = {
+                        ...(next[s.id] ?? {
+                          can_view: false,
+                          can_playback: false,
+                        }),
+                        can_view: true,
+                      };
+                    }
+                    return next;
+                  })
+                }
                 className="min-h-[44px] rounded-md px-2 text-xs font-medium text-accent-300 transition-colors hover:bg-ink-800"
               >
                 Pilih semua
               </button>
               <button
                 type="button"
-                onClick={() => setChecked(new Set())}
+                onClick={() => setAccess({})}
                 className="min-h-[44px] rounded-md px-2 text-xs font-medium text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-200"
               >
                 Bersihkan
               </button>
             </div>
           </div>
+          <div className="mb-1 flex items-center gap-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+            <span className="min-w-0 flex-1">Kamera</span>
+            <span className="w-16 shrink-0 text-center">Live</span>
+            <span className="w-16 shrink-0 text-center">Playback</span>
+          </div>
           <div className="max-h-64 space-y-1 overflow-y-auto">
-            {streams.map((s) => (
-              <label
-                key={s.id}
-                className="flex min-h-[48px] cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-ink-800"
-              >
-                <input
-                  type="checkbox"
-                  checked={checked.has(s.id)}
-                  onChange={() => toggle(s.id)}
-                  className="h-5 w-5 shrink-0 accent-accent-500"
-                />
-                <span className="text-sm text-slate-200">{s.name}</span>
-              </label>
-            ))}
+            {streams.map((s) => {
+              const a = access[s.id] ?? {
+                can_view: false,
+                can_playback: false,
+              };
+              return (
+                <div
+                  key={s.id}
+                  className="flex min-h-[48px] items-center gap-2 rounded-lg px-3 py-2 hover:bg-ink-800"
+                >
+                  <span className="min-w-0 flex-1 truncate text-sm text-slate-200">
+                    {s.name}
+                  </span>
+                  <span className="flex w-16 shrink-0 justify-center">
+                    <input
+                      type="checkbox"
+                      checked={a.can_view}
+                      onChange={(e) =>
+                        setFlag(s.id, "can_view", e.target.checked)
+                      }
+                      className="h-5 w-5 accent-accent-500"
+                      aria-label={`Live ${s.name}`}
+                    />
+                  </span>
+                  <span className="flex w-16 shrink-0 justify-center">
+                    <input
+                      type="checkbox"
+                      checked={a.can_playback}
+                      onChange={(e) =>
+                        setFlag(s.id, "can_playback", e.target.checked)
+                      }
+                      className="h-5 w-5 accent-accent-500"
+                      aria-label={`Playback ${s.name}`}
+                    />
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -1273,9 +1521,9 @@ function AdminGrantModal({
           </div>
           <div className="mb-1 flex items-center gap-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
             <span className="min-w-0 flex-1">Kamera</span>
-            <span className="w-11 shrink-0 text-center">Live</span>
-            <span className="w-11 shrink-0 text-center">Playback</span>
-            <span className="w-11 shrink-0 text-center">Bagikan</span>
+            <span className="w-16 shrink-0 text-center">Live</span>
+            <span className="w-16 shrink-0 text-center">Playback</span>
+            <span className="w-16 shrink-0 text-center">Bagikan</span>
           </div>
           <div className="max-h-64 space-y-1 overflow-y-auto">
             {streams.map((s) => {
@@ -1288,7 +1536,7 @@ function AdminGrantModal({
                   <span className="min-w-0 flex-1 truncate text-sm text-slate-200">
                     {s.name}
                   </span>
-                  <span className="flex w-11 shrink-0 justify-center">
+                  <span className="flex w-16 shrink-0 justify-center">
                     <input
                       type="checkbox"
                       checked={g.can_view}
@@ -1299,7 +1547,7 @@ function AdminGrantModal({
                       aria-label={`Live ${s.name}`}
                     />
                   </span>
-                  <span className="flex w-11 shrink-0 justify-center">
+                  <span className="flex w-16 shrink-0 justify-center">
                     <input
                       type="checkbox"
                       checked={g.can_playback}
@@ -1310,7 +1558,7 @@ function AdminGrantModal({
                       aria-label={`Playback ${s.name}`}
                     />
                   </span>
-                  <span className="flex w-11 shrink-0 justify-center">
+                  <span className="flex w-16 shrink-0 justify-center">
                     <input
                       type="checkbox"
                       checked={g.can_reshare}

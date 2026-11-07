@@ -50,6 +50,18 @@ class StreamIdsIn(BaseModel):
     stream_ids: list[int]
 
 
+class CameraAccessShareIn(BaseModel):
+    stream_id: int
+    can_playback: bool = True
+
+
+class CameraAccessIn(BaseModel):
+    # Bentuk baru (dipakai modal akses): daftar per kamera.
+    shares: list[CameraAccessShareIn] = []
+    # Bentuk lama (kompatibel): hanya stream_ids, can_playback True.
+    stream_ids: list[int] = []
+
+
 class AdminGrantIn(BaseModel):
     stream_id: int
     can_view: bool = True
@@ -230,40 +242,62 @@ async def get_camera_access(
 ):
     await _get_user_or_404(user_id, db)
     result = await db.execute(
-        select(UserStreamAccess.stream_id).where(
+        select(UserStreamAccess).where(
             UserStreamAccess.user_id == user_id,
             UserStreamAccess.can_view.is_(True),
         )
     )
-    return {"user_id": user_id, "stream_ids": list(result.scalars().all())}
+    rows = result.scalars().all()
+    return {
+        "user_id": user_id,
+        "stream_ids": [r.stream_id for r in rows],
+        "shares": [
+            {"stream_id": r.stream_id, "can_playback": bool(r.can_playback)}
+            for r in rows
+        ],
+    }
 
 
 @router.post("/admin/users/{user_id}/camera-access")
 async def set_camera_access(
     user_id: int,
-    data: StreamIdsIn,
+    data: CameraAccessIn,
     db: AsyncSession = Depends(get_db),
     me: User = Depends(admin_only),
 ):
     """Ganti daftar kamera yang boleh dilihat user (v2.0: camera-access)."""
     await _get_user_or_404(user_id, db)
-    # camera-access selalu memberi stream + playback, jadi admin yang
-    # membagikan wajib punya can_reshare + can_playback atas kameranya.
-    for sid in data.stream_ids:
-        await require_reshare(me, db, sid, need_playback=True)
+    # Normalisasi: bentuk baru (shares) menang; bentuk lama (stream_ids)
+    # dianggap can_playback=True.
+    shares = list(data.shares)
+    if not shares and data.stream_ids:
+        shares = [
+            CameraAccessShareIn(stream_id=sid) for sid in data.stream_ids
+        ]
+    # Admin yang membagikan wajib punya can_reshare atas kameranya;
+    # bila share mencakup playback, wajib punya can_playback juga.
+    for s in shares:
+        await require_reshare(me, db, s.stream_id, need_playback=s.can_playback)
     await db.execute(
         delete(UserStreamAccess).where(UserStreamAccess.user_id == user_id)
     )
-    for sid in data.stream_ids:
-        db.add(UserStreamAccess(user_id=user_id, stream_id=sid, can_view=True))
+    for s in shares:
+        db.add(
+            UserStreamAccess(
+                user_id=user_id,
+                stream_id=s.stream_id,
+                can_view=True,
+                can_playback=s.can_playback,
+            )
+        )
     await db.commit()
-    return {"ok": True, "stream_ids": data.stream_ids}
+    return {"ok": True, "stream_ids": [s.stream_id for s in shares]}
 
 
 @router.post("/admin/users/{user_id}/access")
 async def set_access_legacy(
     user_id: int,
-    data: StreamIdsIn,
+    data: CameraAccessIn,
     db: AsyncSession = Depends(get_db),
     me: User = Depends(admin_only),
 ):

@@ -18,7 +18,7 @@ from app.core.config import get_settings
 from app.core.rate_limit import rate_limited
 from app.core.rbac import get_current_user, mask_rtsp_url, require_reshare, require_roles
 from app.db.session import get_db
-from app.models.access import StreamPermission, UserStreamAccess
+from app.models.access import StreamAdminGrant, StreamPermission, UserStreamAccess
 from app.models.groups import GroupStream, StreamGroup
 from app.models.streams import Stream
 from app.models.users import User
@@ -295,6 +295,91 @@ async def set_sharing(
         )
     await db.commit()
     return {"ok": True, "user_ids": user_ids}
+
+
+@router.get("/admin/streams/{stream_id}/grants")
+async def get_stream_grants(stream_id: int, db: AsyncSession = Depends(get_db)):
+    """Grant admin untuk satu kamera (dipakai modal Bagikan)."""
+    await _get_stream_or_404(db, stream_id)
+    result = await db.execute(
+        select(StreamAdminGrant).where(StreamAdminGrant.stream_id == stream_id)
+    )
+    return {
+        "grants": [
+            {
+                "admin_id": g.admin_id,
+                "can_view": bool(g.can_view),
+                "can_playback": bool(g.can_playback),
+                "can_reshare": bool(g.can_reshare),
+            }
+            for g in result.scalars().all()
+        ]
+    }
+
+
+class StreamGrantIn(BaseModel):
+    admin_id: int
+    can_view: bool = True
+    can_playback: bool = False
+    can_reshare: bool = False
+
+
+class StreamGrantsIn(BaseModel):
+    grants: list[StreamGrantIn] = []
+
+
+@router.post("/admin/streams/{stream_id}/grants")
+async def set_stream_grants(
+    stream_id: int, data: StreamGrantsIn, db: AsyncSession = Depends(get_db)
+):
+    """Upsert grant admin untuk satu kamera (dipakai modal Bagikan).
+
+    Baris yang belum ada dibuat; yang sudah ada hanya diubah flag-nya.
+    can_reshare=True memaksa can_view=True (membagikan butuh live).
+    """
+    await _get_stream_or_404(db, stream_id)
+    for g in data.grants:
+        user = await db.get(User, g.admin_id)
+        if user is None:
+            raise HTTPException(
+                status_code=400, detail=f"user tidak ada: {g.admin_id}"
+            )
+        row = (
+            (
+                await db.execute(
+                    select(StreamAdminGrant).where(
+                        StreamAdminGrant.stream_id == stream_id,
+                        StreamAdminGrant.admin_id == g.admin_id,
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        can_view = g.can_view or g.can_reshare
+        if not can_view and not g.can_playback:
+            # Kamera tanpa live maupun rekaman berarti tidak diberikan
+            # sama sekali (paritas v2.0): hapus barisnya bila ada.
+            if row is not None:
+                await db.delete(row)
+            continue
+        if row is None:
+            db.add(
+                StreamAdminGrant(
+                    admin_id=g.admin_id,
+                    stream_id=stream_id,
+                    can_manage=True,
+                    can_view=can_view,
+                    can_playback=g.can_playback,
+                    can_reshare=g.can_reshare,
+                )
+            )
+        else:
+            row.can_view = can_view
+            row.can_playback = g.can_playback
+            row.can_reshare = g.can_reshare
+    await db.commit()
+    return {"ok": True}
 
 
 @router.post("/admin/streams/{stream_id}/owner")
