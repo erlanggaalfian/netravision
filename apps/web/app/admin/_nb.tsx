@@ -75,9 +75,11 @@ export function NBButton({
 
 export function NBBadge({
   tone,
+  size = "md",
   children,
 }: {
   tone: "ok" | "bad" | "warn" | "info" | "muted";
+  size?: "sm" | "md";
   children: ReactNode;
 }) {
   const styles = {
@@ -87,9 +89,13 @@ export function NBBadge({
     info: "bg-accent-500/15 text-accent-600 ring-1 ring-accent-500/25",
     muted: "bg-ink-800 text-slate-400 ring-1 ring-slate-200/15",
   } as const;
+  const sizes = {
+    sm: "px-2 py-0.5 text-[10px]",
+    md: "px-2.5 py-1 text-[11px]",
+  } as const;
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${styles[tone]}`}
+      className={`inline-flex items-center rounded-full font-bold uppercase tracking-wide ${sizes[size]} ${styles[tone]}`}
     >
       {children}
     </span>

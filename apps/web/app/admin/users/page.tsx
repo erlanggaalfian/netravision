@@ -336,9 +336,10 @@ export default function AdminUsersPage() {
     );
   }
 
-  function roleBadge(u: User) {
+  function roleBadge(u: User, size: "sm" | "md" = "md") {
     return (
       <NBBadge
+        size={size}
         tone={
           u.role === "admin" || u.role === "super_admin"
             ? "info"
@@ -390,7 +391,7 @@ export default function AdminUsersPage() {
           <span className="min-w-0 truncate text-sm font-bold text-white">
             {u.username}
           </span>
-          <span className="shrink-0">{roleBadge(u)}</span>
+          <span className="shrink-0">{roleBadge(u, "sm")}</span>
         </span>
       </span>
     );
@@ -444,7 +445,7 @@ export default function AdminUsersPage() {
                 <span className="truncate text-sm font-bold text-white">
                   {u.username}
                 </span>
-                {roleBadge(u)}
+                {roleBadge(u, "sm")}
               </span>
             </span>
             <svg
