@@ -251,17 +251,27 @@ export default function AdminUsersPage() {
   }
 
   function actionsFor(u: User) {
-    /* Baris guest: tanpa Akses Kamera, Ubah, atau Hapus. Hanya
-       switch Login Guest yang mengaktifkan/menonaktifkan guest. */
+    /* Baris guest: tanpa Ubah atau Hapus, tapi tetap punya Akses Kamera
+       (mengatur kamera yang boleh dilihat guest) dan switch Login Guest. */
     if (u.role === "guest") {
       return (
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="text-sm text-slate-300">Login Guest</span>
-          <Switch
-            checked={u.is_active}
-            onChange={(v) => toggleGuest(u, v)}
-            label="Login Guest"
-          />
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <NBButton
+            variant="secondary"
+            onClick={() => setAccessFor(u)}
+            className="px-3"
+            aria-label={`Akses Kamera ${u.username}`}
+          >
+            Akses Kamera
+          </NBButton>
+          <span className="flex items-center gap-2">
+            <span className="text-sm text-slate-300">Login Guest</span>
+            <Switch
+              checked={u.is_active}
+              onChange={(v) => toggleGuest(u, v)}
+              label="Login Guest"
+            />
+          </span>
         </div>
       );
     }
