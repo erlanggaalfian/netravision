@@ -132,6 +132,10 @@ async def create_user(
         # Admin baru tanpa grup: bila dibiarkan kosong ia tidak akan
         # dapat mengelola akun yang kelak ia buat sendiri.
         grup = f"grup-{data.username}"[:60]
+    if data.role == "super_admin":
+        # Superadmin berdiri sendiri dan punya semua hak: tidak bisa
+        # dimasukkan ke grup.
+        grup = None
     user = User(
         username=data.username,
         password_hash=hash_password(data.password),
@@ -178,7 +182,12 @@ async def update_user(
     if data.show_ads is not None:
         user.show_ads = data.show_ads
     if "admin_group" in data.model_fields_set:
-        user.admin_group = _tentukan_grup(me, data.admin_group)
+        # Superadmin berdiri sendiri: tidak bisa dimasukkan ke grup.
+        user.admin_group = (
+            None
+            if user.role == "super_admin"
+            else _tentukan_grup(me, data.admin_group)
+        )
     await db.commit()
     await db.refresh(user)
     return await _out(user, db)

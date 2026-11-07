@@ -66,6 +66,10 @@ export default function AdminUsersPage() {
     name: string;
     members: User[];
   } | null>(null);
+  const [groupAccess, setGroupAccess] = useState<{
+    name: string;
+    members: User[];
+  } | null>(null);
   /* Pilihan massal ala Kamera: checkbox per baris + bar bulk. */
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [showGroup, setShowGroup] = useState(false);
@@ -91,7 +95,10 @@ export default function AdminUsersPage() {
   }
 
   function toggleSelectAllPage() {
-    const ids = (users ?? []).map((u) => u.id);
+    /* Superadmin tidak bisa masuk grup: tidak ikut dipilih. */
+    const ids = (users ?? [])
+      .filter((u) => u.role !== "super_admin")
+      .map((u) => u.id);
     const allChecked = ids.length > 0 && ids.every((id) => selected.has(id));
     setSelected((prev) => {
       const next = new Set(prev);
@@ -109,7 +116,8 @@ export default function AdminUsersPage() {
     const map = new Map<string, User[]>();
     const free: User[] = [];
     (users ?? []).forEach((u) => {
-      if (!u.admin_group) {
+      /* Superadmin berdiri sendiri: tidak bisa masuk grup. */
+      if (!u.admin_group || u.role === "super_admin") {
         free.push(u);
         return;
       }
@@ -143,7 +151,13 @@ export default function AdminUsersPage() {
         checked={selected.has(u.id)}
         onChange={() => toggleSelect(u.id)}
         onClick={(e) => e.stopPropagation()}
-        className="h-5 w-5 shrink-0 accent-accent-500"
+        disabled={u.role === "super_admin"}
+        title={
+          u.role === "super_admin"
+            ? "Superadmin berdiri sendiri, tidak bisa dimasukkan ke grup"
+            : undefined
+        }
+        className="h-5 w-5 shrink-0 accent-accent-500 disabled:opacity-40"
         aria-label={`Pilih ${u.username}`}
       />
     );
@@ -330,8 +344,11 @@ export default function AdminUsersPage() {
               <input
                 type="checkbox"
                 checked={
-                  (users?.length ?? 0) > 0 &&
-                  (users ?? []).every((u) => selected.has(u.id))
+                  (users ?? []).filter((u) => u.role !== "super_admin")
+                    .length > 0 &&
+                  (users ?? [])
+                    .filter((u) => u.role !== "super_admin")
+                    .every((u) => selected.has(u.id))
                 }
                 onChange={toggleSelectAllPage}
                 className="h-5 w-5 accent-accent-500"
@@ -374,6 +391,14 @@ export default function AdminUsersPage() {
                     className="shrink-0 px-3"
                   >
                     Ubah grup
+                  </NBButton>
+                  <NBButton
+                    variant="secondary"
+                    onClick={() => setGroupAccess({ name, members })}
+                    className="shrink-0 px-3"
+                  >
+                    <span className="hidden sm:inline">Akses Kamera</span>
+                    <span className="sm:hidden">Akses</span>
                   </NBButton>
                   <button
                     onClick={() => toggleGroup(name)}
@@ -449,6 +474,18 @@ export default function AdminUsersPage() {
           }}
         />
       )}
+      {groupAccess && (
+        <GroupAccessModal
+          name={groupAccess.name}
+          members={groupAccess.members}
+          streams={streams}
+          onClose={() => setGroupAccess(null)}
+          onDone={() => {
+            setGroupAccess(null);
+            load();
+          }}
+        />
+      )}
       {showGroup && (
         <BulkGroupModal
           count={selected.size}
@@ -505,6 +542,10 @@ function UserFormModal({
   const [role, setRole] = useState<string>(user?.role ?? "user");
   const [group, setGroup] = useState(user?.admin_group ?? "");
   const [showAds, setShowAds] = useState(user?.show_ads ?? true);
+  /* Superadmin berdiri sendiri dan punya semua hak: tidak bisa
+     dimasukkan ke grup. */
+  const isSuperAdmin = role === "super_admin";
+  const groupEditable = me?.role === "super_admin" && !isSuperAdmin;
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -517,7 +558,7 @@ function UserFormModal({
           username: username.trim(),
           role,
           show_ads: showAds,
-          admin_group: group.trim() || null,
+          admin_group: role === "super_admin" ? null : group.trim() || null,
         };
         if (password) body.password = password;
         await api.put(`/admin/users/${user.id}`, body);
@@ -527,7 +568,7 @@ function UserFormModal({
           password,
           role,
           show_ads: showAds,
-          admin_group: group.trim() || null,
+          admin_group: role === "super_admin" ? null : group.trim() || null,
         });
       }
       onDone();
@@ -573,15 +614,23 @@ function UserFormModal({
         <NBField
           label="Grup"
           hint={
-            me?.role === "super_admin"
-              ? "Kelompok wilayah akun ini (kosong = tanpa grup)"
-              : "Mengikuti grup Anda"
+            isSuperAdmin
+              ? "Superadmin berdiri sendiri dan punya semua hak"
+              : me?.role === "super_admin"
+                ? "Kelompok wilayah akun ini (kosong = tanpa grup)"
+                : "Mengikuti grup Anda"
           }
         >
           <NBInput
-            value={me?.role === "super_admin" ? group : (me?.admin_group ?? "")}
+            value={
+              groupEditable
+                ? group
+                : isSuperAdmin
+                  ? ""
+                  : (me?.admin_group ?? "")
+            }
             onChange={(e) => setGroup(e.target.value)}
-            disabled={me?.role !== "super_admin"}
+            disabled={!groupEditable}
             placeholder="cth. grup-jakarta"
             list="grup-wilayah"
           />
@@ -783,6 +832,167 @@ function GroupEditModal({
         </label>
         <p className="text-xs text-slate-400">{members.length} anggota</p>
         <NBButton onClick={save} disabled={busy || !valid} className="w-full">
+          {busy ? "Menyimpan…" : "Simpan"}
+        </NBButton>
+      </div>
+    </Modal>
+  );
+}
+
+/* ---------- Modal: akses kamera seisi grup ---------- */
+
+function GroupAccessModal({
+  name,
+  members,
+  streams,
+  onClose,
+  onDone,
+}: {
+  name: string;
+  members: User[];
+  streams: Stream[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [checked, setChecked] = useState<Set<number>>(new Set());
+  const [initial, setInitial] = useState<Set<number> | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(
+      members.map((m) =>
+        api
+          .get<{ stream_ids: number[] }>(`/admin/users/${m.id}/camera-access`)
+          .then((r) => r.stream_ids)
+          .catch(() => [] as number[]),
+      ),
+    )
+      .then((lists) => {
+        if (cancelled) return;
+        /* Akses grup = kamera yang dimiliki SEMUA anggota. */
+        const common =
+          lists.length > 0
+            ? lists.reduce<number[]>(
+                (acc, ids) => acc.filter((id) => ids.includes(id)),
+                [...lists[0]],
+              )
+            : [];
+        const set = new Set(common);
+        setChecked(set);
+        setInitial(set);
+      })
+      .catch((e) => {
+        setError(e instanceof ApiError ? e.message : "Gagal memuat hak akses");
+      })
+      .finally(() => {
+        if (!cancelled) setLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [members]);
+
+  function toggle(id: number) {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const changed =
+    initial !== null &&
+    (checked.size !== initial.size ||
+      [...checked].some((id) => !initial.has(id)));
+
+  async function save() {
+    setError("");
+    setBusy(true);
+    try {
+      await Promise.all(
+        members.map((m) =>
+          api.post(`/admin/users/${m.id}/camera-access`, {
+            stream_ids: [...checked],
+          }),
+        ),
+      );
+      onDone();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Gagal menyimpan");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title={`Akses kamera — ${name}`} onClose={onClose} wide>
+      {error && (
+        <div className="mb-4">
+          <ErrorBox message={error} />
+        </div>
+      )}
+      {!loaded ? (
+        <div className="flex justify-center py-8">
+          <Spinner />
+        </div>
+      ) : streams.length === 0 ? (
+        <NBEmptyState text="Belum ada kamera." />
+      ) : (
+        <div>
+          <div className="mb-2 flex items-center justify-between gap-2 px-1">
+            <p className="text-xs tabular-nums text-slate-400">
+              {checked.size} dari {streams.length} dipilih
+            </p>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => setChecked(new Set(streams.map((s) => s.id)))}
+                className="min-h-[44px] rounded-md px-2 text-xs font-medium text-accent-300 transition-colors hover:bg-ink-800"
+              >
+                Pilih semua
+              </button>
+              <button
+                type="button"
+                onClick={() => setChecked(new Set())}
+                className="min-h-[44px] rounded-md px-2 text-xs font-medium text-slate-400 transition-colors hover:bg-ink-800"
+              >
+                Bersihkan
+              </button>
+            </div>
+          </div>
+          <p className="mb-3 text-xs leading-relaxed text-slate-400">
+            Yang tercentang = kamera yang dimiliki semua anggota grup.
+            Menyimpan akan mengganti akses kamera semua anggota grup
+            dengan pilihan ini.
+          </p>
+          <div className="max-h-64 space-y-1 overflow-y-auto">
+            {streams.map((s) => (
+              <label
+                key={s.id}
+                className="flex min-h-[48px] cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-ink-800"
+              >
+                <input
+                  type="checkbox"
+                  checked={checked.has(s.id)}
+                  onChange={() => toggle(s.id)}
+                  className="h-5 w-5 shrink-0 accent-accent-500"
+                />
+                <span className="text-sm text-slate-200">{s.name}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="mt-5 flex justify-end gap-2">
+        <NBButton variant="secondary" onClick={onClose}>
+          Batal
+        </NBButton>
+        <NBButton onClick={save} disabled={busy || !loaded || !changed}>
           {busy ? "Menyimpan…" : "Simpan"}
         </NBButton>
       </div>
