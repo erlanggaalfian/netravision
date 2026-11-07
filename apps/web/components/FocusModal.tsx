@@ -324,9 +324,6 @@ export function FocusModal({ stream, onClose }: Props) {
           style={vRatio ? { aspectRatio: vRatio } : undefined}
         >
           <div className="nv-rot-inner relative h-full w-full">
-          {ad?.is_active && (
-            <AdBanner config={ad} hovered={stageHovered} clickTick={adClickTick} />
-          )}
           {failed || !stream.is_online ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
               <svg
@@ -451,6 +448,16 @@ export function FocusModal({ stream, onClose }: Props) {
           )}
           </div>
         </div>
+
+        {/* Iklan di bawah video (di luar area 16:9), bukan overlay. */}
+        {ad?.is_active && (
+          <AdBanner
+            config={ad}
+            hovered={stageHovered}
+            clickTick={adClickTick}
+            placement="below"
+          />
+        )}
 
         {/* Footer */}
         <div className="flex items-center justify-between px-4 py-2.5 sm:px-5">

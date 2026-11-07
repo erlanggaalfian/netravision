@@ -87,21 +87,15 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
           : "flex-start",
     minHeight: cfg.banner_height > 0 ? cfg.banner_height : 30,
     height: cfg.banner_height > 0 ? cfg.banner_height : undefined,
+    /* Strip di bawah video (bukan overlay): lebar + margin, bukan left/right. */
+    width: `${Math.min(100, Math.max(10, cfg.box_width))}%`,
+    margin:
+      cfg.text_align === "center"
+        ? "0 auto"
+        : cfg.text_align === "right"
+          ? "0 0 0 auto"
+          : undefined,
   };
-  if (cfg.box_width >= 100) {
-    bannerStyle.left = 0;
-    bannerStyle.right = 0;
-  } else {
-    bannerStyle.width = `${cfg.box_width}%`;
-    if (cfg.text_align === "left") bannerStyle.left = 10;
-    else if (cfg.text_align === "right") bannerStyle.right = 10;
-    else {
-      bannerStyle.left = "50%";
-      bannerStyle.transform = "translateX(-50%)";
-    }
-  }
-  const bannerPos = cfg.position === "top" ? "top-0" : "bottom-0";
-  const bannerBorder = cfg.position === "top" ? "border-b" : "border-t";
   // Samakan AdBanner: tinggi gambar tidak boleh melebihi tinggi banner
   // dikurangi padding (py-1.5 = 12px) agar tidak terpotong overflow-hidden.
   const previewImgH =
@@ -153,11 +147,12 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
         <div className="absolute bottom-3 right-3 select-none rounded-md border border-white/10 bg-black/70 px-2 py-0.5 font-mono text-[10px] text-slate-300">
           {now}
         </div>
-        {/* Banner overlay (posisi ikut pengaturan) */}
-        <div
-          className={`absolute ${bannerPos} flex items-center gap-2 overflow-hidden border-white/10 px-2.5 py-1.5 ${bannerBorder}`}
-          style={bannerStyle}
-        >
+      </div>
+      {/* Banner di bawah video (di luar area 16:9), bukan overlay. */}
+      <div
+        className="relative flex items-center gap-2 overflow-hidden border-t border-white/10 px-2.5 py-1.5"
+        style={bannerStyle}
+      >
           {cfg.image_url && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -192,7 +187,6 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
             </div>
           </div>
         </div>
-      </div>
     </div>
   );
 }

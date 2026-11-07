@@ -132,7 +132,6 @@ function EmbedPlayer({
   return (
     <div className="nv-stage nv-panel-modern overflow-hidden">
       <div className="relative aspect-video bg-black">
-        {ad?.is_active && <AdBanner config={ad} />}
         {/* Video SELALU terpasang — start() membaca videoRef saat tombol
             ditekan, saat itu playing masih false. */}
         <video
@@ -199,6 +198,9 @@ function EmbedPlayer({
           </div>
         )}
       </div>
+
+      {/* Iklan di bawah video (di luar area 16:9), bukan overlay. */}
+      {ad?.is_active && <AdBanner config={ad} placement="below" />}
 
       <div className="flex items-center justify-between gap-3 px-4 py-3.5">
         <span className="flex min-w-0 items-center gap-2">

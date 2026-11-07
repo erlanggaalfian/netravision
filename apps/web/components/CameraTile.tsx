@@ -191,9 +191,6 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
       )}
 
       {/* Overlay kontrol: hanya tombol aksi (nama + status ada di footer kartu) */}
-      {ad?.is_active && (
-        <AdBanner config={ad} hovered={tileHovered} clickTick={adClickTick} />
-      )}
       <div className="cam-controls absolute inset-x-0 bottom-0 flex items-center justify-end gap-2 bg-gradient-to-t from-black/85 via-black/40 to-transparent px-3 pb-3 pt-8">
         <div className="flex shrink-0 items-center gap-2">
           {fs && (
@@ -267,6 +264,16 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
       </div>
       </div>
       </div>
+      {/* Iklan di bawah video (di luar area 16:9), bukan overlay, supaya
+          tidak menutupi tombol. Disembunyikan saat layar penuh. */}
+      {!fs && ad?.is_active && (
+        <AdBanner
+          config={ad}
+          hovered={tileHovered}
+          clickTick={adClickTick}
+          placement="below"
+        />
+      )}
       {/* Footer kartu: titik status kecil + nama kamera saja (tanpa chip). */}
       {!fs && (
         <div className="flex items-center gap-2 border-t border-ink-800/60 px-3.5 py-3">

@@ -11,6 +11,11 @@ interface Props {
      clickTick = bertambah tiap tile diklik. Dipakai perilaku hover/click. */
   hovered?: boolean;
   clickTick?: number;
+  /* placement: "overlay" = menempel di atas video (posisi bawah/atas
+     mengikuti config.position); "below" = strip di bawah video, di luar
+     area 16:9, tidak menutupi video maupun tombol. Mode berkala yang
+     sedang sembunyi tetap mengambil ruang supaya tinggi tile stabil. */
+  placement?: "overlay" | "below";
 }
 
 /* Banner iklan fleksibel (2026-11-06):
@@ -27,6 +32,7 @@ export function AdBanner({
   className = "",
   hovered = false,
   clickTick = 0,
+  placement = "overlay",
 }: Props) {
   const [visible, setVisible] = useState(true);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -208,7 +214,10 @@ export function AdBanner({
     </div>
   );
 
-  const wrapCls = `absolute inset-x-0 ${position} z-20 ${timedCls} ${className}`;
+  const wrapCls =
+    placement === "below"
+      ? `relative w-full ${timedCls} ${className}`
+      : `absolute inset-x-0 ${position} z-20 ${timedCls} ${className}`;
 
   return (
     <div className={wrapCls}>
