@@ -100,9 +100,9 @@ function IconBtn({
   );
 }
 
-/* Tombol kecil ber-border (Ubah grup, Akses Kamera). Dulu gaya ghost
-   tanpa border, tapi di HP (tanpa hover) teksnya tidak terlihat seperti
-   tombol, jadi diberi border + latar supaya jelas bisa diketuk. */
+/* Tombol kecil (Ubah grup, Akses Kamera), selaras dengan NBButton
+   secondary di menu lain: latar solid bg-ink-800 tanpa border,
+   rounded-xl, teks semibold. Tetap ringkas supaya muat di baris aksi. */
 function MiniBtn({
   onClick,
   className = "",
@@ -116,7 +116,7 @@ function MiniBtn({
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex shrink-0 cursor-pointer items-center whitespace-nowrap rounded-md border border-ink-700 bg-ink-800 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:border-ink-700 hover:bg-ink-700 hover:text-slate-200 sm:text-sm ${className}`}
+      className={`inline-flex shrink-0 cursor-pointer items-center whitespace-nowrap rounded-xl bg-ink-800 px-2.5 py-1.5 text-xs font-semibold text-slate-200 transition-all duration-150 ease-out hover:bg-ink-700 active:scale-[0.98] sm:text-sm ${className}`}
     >
       {children}
     </button>
