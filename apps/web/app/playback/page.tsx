@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "../../components/AppShell";
-import { Button, Card, ErrorBox, SectionTitle, Spinner } from "../../components/ui";
+import { Button, Card, ErrorBox, GridIcon, SectionTitle, Spinner } from "../../components/ui";
 import { api, apiFetch, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import type { Stream } from "../../lib/types";
@@ -538,6 +538,8 @@ export default function PlaybackPage() {
                       key={g.cols}
                       role="tab"
                       aria-selected={gridCols === g.cols}
+                      aria-label={`Grid ${g.label}`}
+                      title={`Grid ${g.label}`}
                       onClick={() => setGridCols(g.cols)}
                       className={`flex h-10 min-w-[52px] items-center justify-center rounded-full px-3 text-xs font-bold transition-all duration-200 active:scale-95 ${
                         gridCols === g.cols
@@ -545,7 +547,7 @@ export default function PlaybackPage() {
                           : "text-slate-400 hover:bg-ink-700 hover:text-slate-200"
                       }`}
                     >
-                      {g.label}
+                      <GridIcon cols={g.cols} />
                     </button>
                   ))}
                 </div>

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "../../components/AppShell";
 import { CameraTile } from "../../components/CameraTile";
 import { FocusModal } from "../../components/FocusModal";
-import { Button, Spinner } from "../../components/ui";
+import { Button, GridIcon, Spinner } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { useCameraStatus } from "../../hooks/useCameraStatus";
@@ -303,6 +303,11 @@ export default function LivePage() {
                       key={g.key}
                       role="tab"
                       aria-selected={activeOpt.key === g.key}
+                      aria-label={
+                        isDesktop
+                          ? `Grid ${g.label}`
+                          : `Tampilkan ${g.label} kamera`
+                      }
                       title={
                         isDesktop
                           ? `Grid ${g.label} (${g.cols} kolom)`
@@ -315,23 +320,27 @@ export default function LivePage() {
                           : "text-neutral-400 hover:bg-ink-700 hover:text-slate-200"
                       }`}
                     >
-                      {!isDesktop && (
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden
-                        >
-                          <path d="M23 7l-7 5 7 5V7z" />
-                          <rect x="1" y="5" width="15" height="14" rx="2" />
-                        </svg>
+                      {isDesktop ? (
+                        <GridIcon cols={g.cols ?? 1} />
+                      ) : (
+                        <>
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden
+                          >
+                            <path d="M23 7l-7 5 7 5V7z" />
+                            <rect x="1" y="5" width="15" height="14" rx="2" />
+                          </svg>
+                          {g.label}
+                        </>
                       )}
-                      {g.label}
                     </button>
                   ))}
                 </div>
