@@ -132,21 +132,23 @@ async def test_create_guest_role_rejected(app_client):
         assert r.status_code == 400, r.text
 
 
-async def test_update_guest_only_is_active(app_client):
-    """Guest hanya bisa diaktifkan/dinonaktifkan; field lain ditolak."""
+async def test_update_guest_only_login_and_ads(app_client):
+    """Guest hanya bisa diubah login dan iklannya; field lain ditolak."""
     app, _, db = app_client
     su, guest = await _seed_super_admin_and_guest(db)
     auth_as(app, su)
     async with _client(app) as c:
-        r = await c.put(f"/api/admin/users/{guest.id}", json={"show_ads": False})
-        assert r.status_code == 400, r.text
         r = await c.put(f"/api/admin/users/{guest.id}", json={"role": "user"})
         assert r.status_code == 400, r.text
         r = await c.put(f"/api/admin/users/{guest.id}", json={"username": "tamu"})
         assert r.status_code == 400, r.text
-        r = await c.put(f"/api/admin/users/{guest.id}", json={"is_active": False})
+        r = await c.put(
+            f"/api/admin/users/{guest.id}",
+            json={"is_active": False, "show_ads": False},
+        )
         assert r.status_code == 200, r.text
         assert r.json()["is_active"] is False
+        assert r.json()["show_ads"] is False
 
 
 async def test_update_role_to_guest_rejected(app_client):

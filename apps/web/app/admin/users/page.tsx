@@ -237,22 +237,9 @@ export default function AdminUsersPage() {
     });
   }
 
-  /* Guest dikelola sistem: satu-satunya aksi adalah mengaktifkan
-     atau menonaktifkan login guest (is_active di baris guest). */
-  async function toggleGuest(u: User, v: boolean) {
-    try {
-      await api.put(`/admin/users/${u.id}`, { is_active: v });
-      load();
-    } catch (e) {
-      setError(
-        e instanceof ApiError ? e.message : "Gagal mengubah status guest",
-      );
-    }
-  }
-
   function actionsFor(u: User) {
-    /* Baris guest: tanpa Ubah atau Hapus, tapi tetap punya Akses Kamera
-       (mengatur kamera yang boleh dilihat guest) dan switch Login Guest. */
+    /* Baris guest: Akses Kamera dan Ubah saja, tanpa Hapus. Switch
+       Login Guest dan Iklan ada di dalam popup Ubah, bukan di baris. */
     if (u.role === "guest") {
       return (
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
@@ -264,14 +251,14 @@ export default function AdminUsersPage() {
           >
             Akses Kamera
           </NBButton>
-          <span className="flex items-center gap-2">
-            <span className="text-sm text-slate-300">Login Guest</span>
-            <Switch
-              checked={u.is_active}
-              onChange={(v) => toggleGuest(u, v)}
-              label="Login Guest"
-            />
-          </span>
+          <NBButton
+            variant="secondary"
+            onClick={() => setEditing(u)}
+            className="px-3"
+            aria-label={`Ubah ${u.username}`}
+          >
+            Ubah
+          </NBButton>
         </div>
       );
     }
@@ -828,6 +815,9 @@ function UserFormModal({
   const [role, setRole] = useState<string>(user?.role ?? "user");
   const [group, setGroup] = useState(user?.admin_group ?? "");
   const [showAds, setShowAds] = useState(user?.show_ads ?? true);
+  /* Guest hanya punya dua pengaturan: login aktif atau tidak, dan
+     iklan tampil atau tidak. Keduanya berupa switch di popup ini. */
+  const [guestActive, setGuestActive] = useState(user?.is_active ?? false);
   /* Superadmin berdiri sendiri dan punya semua hak: tidak bisa
      dimasukkan ke grup. */
   const isSuperAdmin = role === "super_admin";
@@ -853,14 +843,22 @@ function UserFormModal({
     setBusy(true);
     try {
       if (user) {
-        const body: Record<string, unknown> = {
-          username: username.trim(),
-          role,
-          admin_group: role === "super_admin" ? null : group.trim() || null,
-        };
-        if (!inGroup) body.show_ads = showAds;
-        if (password) body.password = password;
-        await api.put(`/admin/users/${user.id}`, body);
+        if (user.role === "guest") {
+          /* Guest hanya boleh diubah login dan iklannya. */
+          await api.put(`/admin/users/${user.id}`, {
+            is_active: guestActive,
+            show_ads: showAds,
+          });
+        } else {
+          const body: Record<string, unknown> = {
+            username: username.trim(),
+            role,
+            admin_group: role === "super_admin" ? null : group.trim() || null,
+          };
+          if (!inGroup) body.show_ads = showAds;
+          if (password) body.password = password;
+          await api.put(`/admin/users/${user.id}`, body);
+        }
       } else {
         await api.post("/admin/users", {
           username: username.trim(),
@@ -879,92 +877,136 @@ function UserFormModal({
   }
 
   return (
-    <Modal title={user ? "Ubah Pengguna" : "Tambah Pengguna"} onClose={onClose}>
+    <Modal
+      title={
+        user
+          ? user.role === "guest"
+            ? "Ubah Guest"
+            : "Ubah Pengguna"
+          : "Tambah Pengguna"
+      }
+      onClose={onClose}
+    >
       {error && (
         <div className="mb-4">
           <ErrorBox message={error} />
         </div>
       )}
       <div className="space-y-4">
-        <NBField label="Nama pengguna">
-          <NBInput
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-          />
-        </NBField>
-        <NBField
-          label={user ? "Kata sandi baru (kosongkan bila tidak diubah)" : "Kata sandi"}
-          hint={!user ? "Minimal 8 karakter" : undefined}
-        >
-          <NBInput
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </NBField>
-        <NBField label="Peran">
-          <NBSelect value={role} onChange={(e) => setRole(e.target.value)}>
-            <option value="user">Pengguna</option>
-            <option value="admin">Admin</option>
-            {/* Guest tidak bisa dibuat manual: akun guest dibuat
-                otomatis oleh sistem dan hanya bisa diaktifkan atau
-                dinonaktifkan lewat switch di barisnya. */}
-            {/* Super Admin hanya bisa dibuat super_admin lain; admin
-                biasa tidak ditawari pilihan ini (backend juga menolak
-                dengan 403). Opsi tetap tampil bila targetnya memang
-                sudah super_admin agar pilihannya tidak kosong. */}
-            {(me?.role === "super_admin" || role === "super_admin") && (
-              <option value="super_admin">Super Admin</option>
+        {user?.role === "guest" ? (
+          <>
+            <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 rounded-xl bg-ink-800 shadow-sm px-4 py-3">
+              <span>
+                <span className="block text-sm font-medium text-white">
+                  Login Guest
+                </span>
+                <span className="block text-xs text-slate-400">
+                  Pengunjung bisa masuk tanpa kata sandi
+                </span>
+              </span>
+              <Switch
+                checked={guestActive}
+                onChange={setGuestActive}
+                label="Login Guest"
+              />
+            </label>
+            <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 rounded-xl bg-ink-800 shadow-sm px-4 py-3">
+              <span>
+                <span className="block text-sm font-medium text-white">
+                  Tampilkan Iklan
+                </span>
+                <span className="block text-xs text-slate-400">
+                  Banner iklan tampil untuk akun ini
+                </span>
+              </span>
+              <Switch
+                checked={showAds}
+                onChange={setShowAds}
+                label="Tampilkan Iklan"
+              />
+            </label>
+          </>
+        ) : (
+          <>
+            <NBField label="Nama pengguna">
+              <NBInput
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+              />
+            </NBField>
+            <NBField
+              label={user ? "Kata sandi baru (kosongkan bila tidak diubah)" : "Kata sandi"}
+              hint={!user ? "Minimal 8 karakter" : undefined}
+            >
+              <NBInput
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </NBField>
+            <NBField label="Peran">
+              <NBSelect value={role} onChange={(e) => setRole(e.target.value)}>
+                <option value="user">Pengguna</option>
+                <option value="admin">Admin</option>
+                {/* Guest tidak bisa dibuat manual: akun guest dibuat
+                    otomatis oleh sistem dan hanya bisa diubah lewat
+                    popup Ubah Guest (login dan iklan). */}
+                {/* Super Admin hanya bisa dibuat super_admin lain; admin
+                    biasa tidak ditawari pilihan ini (backend juga menolak
+                    dengan 403). Opsi tetap tampil bila targetnya memang
+                    sudah super_admin agar pilihannya tidak kosong. */}
+                {(me?.role === "super_admin" || role === "super_admin") && (
+                  <option value="super_admin">Super Admin</option>
+                )}
+              </NBSelect>
+            </NBField>
+            <NBField
+              label="Grup"
+              hint={
+                isSuperAdmin
+                  ? "Superadmin berdiri sendiri dan punya semua hak"
+                  : me?.role === "super_admin"
+                    ? "Kelompok wilayah akun ini (kosong = tanpa grup)"
+                    : "Mengikuti grup Anda"
+              }
+            >
+              <NBInput
+                value={
+                  groupEditable
+                    ? group
+                    : isSuperAdmin
+                      ? ""
+                      : (me?.admin_group ?? "")
+                }
+                onChange={(e) => setGroup(e.target.value)}
+                disabled={!groupEditable}
+                placeholder="cth. grup-jakarta"
+                list="grup-wilayah"
+              />
+              <datalist id="grup-wilayah">
+                {groups.map((g) => (
+                  <option key={g} value={g} />
+                ))}
+              </datalist>
+            </NBField>
+            {!inGroup && (
+              <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 rounded-xl bg-ink-800 shadow-sm px-4 py-3">
+                <span>
+                  <span className="block text-sm font-medium text-white">
+                    Tampilkan Iklan
+                  </span>
+                  <span className="block text-xs text-slate-400">
+                    Banner iklan tampil untuk akun ini
+                  </span>
+                </span>
+                <Switch
+                  checked={showAds}
+                  onChange={setShowAds}
+                  label="Tampilkan Iklan"
+                />
+              </label>
             )}
-          </NBSelect>
-        </NBField>
-        <NBField
-          label="Grup"
-          hint={
-            isSuperAdmin
-              ? "Superadmin berdiri sendiri dan punya semua hak"
-              : me?.role === "super_admin"
-                ? "Kelompok wilayah akun ini (kosong = tanpa grup)"
-                : "Mengikuti grup Anda"
-          }
-        >
-          <NBInput
-            value={
-              groupEditable
-                ? group
-                : isSuperAdmin
-                  ? ""
-                  : (me?.admin_group ?? "")
-            }
-            onChange={(e) => setGroup(e.target.value)}
-            disabled={!groupEditable}
-            placeholder="cth. grup-jakarta"
-            list="grup-wilayah"
-          />
-          <datalist id="grup-wilayah">
-            {groups.map((g) => (
-              <option key={g} value={g} />
-            ))}
-          </datalist>
-        </NBField>
-        {!inGroup && (
-          <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 rounded-xl bg-ink-800 shadow-sm px-4 py-3">
-            <span>
-              <span className="block text-sm font-medium text-white">
-                Tampilkan Iklan
-              </span>
-              <span className="block text-xs text-slate-400">
-                Banner iklan tampil untuk akun ini
-              </span>
-            </span>
-            <input
-              type="checkbox"
-              checked={showAds}
-              onChange={(e) => setShowAds(e.target.checked)}
-              className="h-5 w-5 shrink-0 accent-accent-500"
-              aria-label="Tampilkan Iklan"
-            />
-          </label>
+          </>
         )}
         <NBButton
           onClick={save}

@@ -188,11 +188,12 @@ async def update_user(
 ):
     user = await _get_user_or_404(user_id, db)
     if user.role == "guest":
-        # Guest dikelola sistem: satu-satunya yang boleh diubah adalah
-        # is_active (mengaktifkan/menonaktifkan login guest). Nama,
-        # kata sandi, peran, grup, dan iklan tidak boleh diubah.
-        if set(data.model_fields_set) - {"is_active"}:
-            raise HTTPException(400, "akun guest hanya bisa diaktifkan/dinonaktifkan")
+        # Guest dikelola sistem: yang boleh diubah hanya is_active
+        # (mengaktifkan/menonaktifkan login guest) dan show_ads
+        # (menampilkan iklan untuk guest). Nama, kata sandi, peran,
+        # dan grup tidak boleh diubah.
+        if set(data.model_fields_set) - {"is_active", "show_ads"}:
+            raise HTTPException(400, "akun guest hanya bisa diubah login dan iklannya")
     if data.role == "guest":
         raise HTTPException(400, "role guest tidak bisa diberikan manual")
     if not can_manage_user(me, user):
