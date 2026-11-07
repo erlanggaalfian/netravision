@@ -274,8 +274,9 @@ export default function AdminUsersPage() {
   }
 
   function renderUser(u: User) {
-    /* Nama + lencana satu garis horizontal dengan checkbox (items-center),
-       keterangan sekunder di bawahnya sejajar nama (pl-8). */
+    /* Baris nama: checkbox + nama + lencana Iklan di sampingnya.
+       Lencana peran di bawah nama (sejajar pl-8), bersama keterangan
+       sekunder Dibuat oleh. */
     const summary = (
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-3">
@@ -283,15 +284,17 @@ export default function AdminUsersPage() {
           <span className="min-w-0 flex-1 truncate font-semibold text-white">
             {u.username}
           </span>
-          <span className="flex shrink-0 flex-wrap items-center gap-1">
-            {roleBadge(u)}
+          <span className="shrink-0">
             <NBBadge tone={u.show_ads ? "ok" : "muted"}>
               Iklan: {u.show_ads ? "Ya" : "Tidak"}
             </NBBadge>
           </span>
         </span>
-        <span className="mt-1 block pl-8 text-xs text-slate-400">
-          Dibuat oleh: {u.dibuat_oleh ?? "—"}
+        <span className="mt-1 flex items-center gap-2 pl-8">
+          {roleBadge(u)}
+          <span className="text-xs text-slate-400">
+            Dibuat oleh: {u.dibuat_oleh ?? "—"}
+          </span>
         </span>
       </span>
     );
@@ -324,12 +327,12 @@ export default function AdminUsersPage() {
               <span className="min-w-0 flex-1 truncate font-semibold text-white">
                 {u.username}
               </span>
-              <span className="flex shrink-0 flex-wrap items-center gap-1">
-                {roleBadge(u)}
-              </span>
             </span>
-            <span className="mt-1 block pl-8 text-xs text-slate-400">
-              Dibuat oleh: {u.dibuat_oleh ?? "—"}
+            <span className="mt-1 flex items-center gap-2 pl-8">
+              {roleBadge(u)}
+              <span className="text-xs text-slate-400">
+                Dibuat oleh: {u.dibuat_oleh ?? "—"}
+              </span>
             </span>
           </span>
           <div className="pl-8 md:contents">{actionsFor(u)}</div>
