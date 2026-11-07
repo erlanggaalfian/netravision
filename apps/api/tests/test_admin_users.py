@@ -2,6 +2,7 @@
 
 from httpx import ASGITransport, AsyncClient
 
+from app.models.access import StreamAdminGrant
 from app.models.streams import Stream
 from tests.conftest import auth_as, make_user
 
@@ -54,6 +55,9 @@ async def test_camera_access(app_client):
             main_url="rtsp://cam/1", is_active=True,
         )
     )
+    await db.commit()
+    # Admin yang membagikan wajib punya grant can_reshare atas kameranya.
+    db.add(StreamAdminGrant(admin_id=admin.id, stream_id=1))
     await db.commit()
     auth_as(app, admin)
     async with _client(app) as c:

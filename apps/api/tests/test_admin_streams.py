@@ -2,6 +2,7 @@
 
 from httpx import ASGITransport, AsyncClient
 
+from app.models.access import StreamAdminGrant
 from app.models.streams import Stream
 from tests.conftest import auth_as, make_user
 
@@ -145,29 +146,70 @@ async def test_sharing_crud(app_client):
     app, _, db = app_client
     admin, op = await _seed(db)
     await _seed_stream(db)
+    # Admin yang membagikan wajib punya grant can_reshare atas kameranya.
+    db.add(StreamAdminGrant(admin_id=admin.id, stream_id=1))
+    await db.commit()
     auth_as(app, admin)
     async with _client(app) as c:
         r = await c.get("/api/admin/streams/1/sharing")
-        assert r.status_code == 200 and r.json() == {"user_ids": []}
+        assert r.status_code == 200 and r.json()["user_ids"] == []
 
         r = await c.post("/api/admin/streams/1/sharing", json={"user_ids": [op.id]})
         assert r.status_code == 200, r.text
         assert r.json()["user_ids"] == [op.id]
 
         r = await c.get("/api/admin/streams/1/sharing")
-        assert r.json() == {"user_ids": [op.id]}
+        assert r.json()["user_ids"] == [op.id]
 
         # Cabut akses.
         r = await c.post("/api/admin/streams/1/sharing", json={"user_ids": []})
         assert r.status_code == 200
         r = await c.get("/api/admin/streams/1/sharing")
-        assert r.json() == {"user_ids": []}
+        assert r.json()["user_ids"] == []
 
         # Stream tidak ada / user tidak ada.
         r = await c.get("/api/admin/streams/99/sharing")
         assert r.status_code == 404
         r = await c.post("/api/admin/streams/1/sharing", json={"user_ids": [999]})
         assert r.status_code == 400
+
+
+async def test_sharing_reshare_ditolak(app_client):
+    """Admin tanpa grant can_reshare tidak bisa membagikan kamera;
+    grant live saja tidak boleh membagikan playback."""
+    app, _, db = app_client
+    admin, op = await _seed(db)
+    await _seed_stream(db)
+    auth_as(app, admin)
+    async with _client(app) as c:
+        # Tanpa grant sama sekali.
+        r = await c.post(
+            "/api/admin/streams/1/sharing",
+            json={"shares": [{"user_id": op.id, "can_playback": False}]},
+        )
+        assert r.status_code == 403
+
+        # Grant live + reshare, tanpa playback.
+        db.add(
+            StreamAdminGrant(
+                admin_id=admin.id,
+                stream_id=1,
+                can_view=True,
+                can_playback=False,
+                can_reshare=True,
+            )
+        )
+        await db.commit()
+        r = await c.post(
+            "/api/admin/streams/1/sharing",
+            json={"shares": [{"user_id": op.id, "can_playback": True}]},
+        )
+        assert r.status_code == 403
+        r = await c.post(
+            "/api/admin/streams/1/sharing",
+            json={"shares": [{"user_id": op.id, "can_playback": False}]},
+        )
+        assert r.status_code == 200
 
 
 async def test_sharing_grants_view_access(app_client):
@@ -178,6 +220,9 @@ async def test_sharing_grants_view_access(app_client):
                   main_url="rtsp://cam/1", is_active=True))
     db.add(Stream(id=2, name="Cam 2", rtsp_url="rtsp://cam/2",
                   main_url="rtsp://cam/2", is_active=True))
+    await db.commit()
+    # Admin yang membagikan wajib punya grant can_reshare atas kameranya.
+    db.add(StreamAdminGrant(admin_id=admin.id, stream_id=1))
     await db.commit()
 
     auth_as(app, op)

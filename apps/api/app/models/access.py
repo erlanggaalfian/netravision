@@ -46,7 +46,14 @@ class StreamPermission(Base, TimestampMixin):
 
 
 class StreamAdminGrant(Base, TimestampMixin):
-    """Grant admin per kamera (admin dapat mengelola kamera tertentu saja)."""
+    """Grant admin per kamera (admin dapat mengelola kamera tertentu saja).
+
+    Paritas v2.0 (StreamAdminGrantModel): can_view dan can_playback
+    dipisah persis seperti pemberian kepada User; can_reshare
+    mengizinkan Admin meneruskan kamera itu kepada bawahannya.
+    can_manage sudah tidak dipakai di v2.0, dipertahankan agar data
+    lama tidak hilang.
+    """
 
     __tablename__ = "stream_admin_grants"
     __table_args__ = (UniqueConstraint("stream_id", "admin_id"),)
@@ -55,6 +62,15 @@ class StreamAdminGrant(Base, TimestampMixin):
     stream_id: Mapped[int] = mapped_column(ForeignKey("streams.id", ondelete="CASCADE"))
     admin_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     can_manage: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    can_view: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
+    )
+    can_playback: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
+    )
+    can_reshare: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
+    )
     # Admin yang memberikan grant ini (paritas v2.0: granted_by —
     # admin hanya boleh menyentuh pemberian yang ia buat sendiri).
     granted_by: Mapped[int | None] = mapped_column(

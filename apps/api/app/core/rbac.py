@@ -115,7 +115,7 @@ async def mask_rtsp_url(stream, user: User, db: AsyncSession) -> str:
 
     Paritas v2.0 (saring_rtsp/boleh_lihat_rtsp): super_admin melihat semua;
     admin hanya melihat kamera yang ia pasang sendiri (created_by, jatuh ke
-    owner_id bila belum tercatat) atau yang ia terima via grant can_manage.
+    owner_id bila belum tercatat) atau yang ia terima via grant can_view.
     """
     raw = getattr(stream, "rtsp_url", "") or ""
     if is_super_admin(user):
@@ -133,7 +133,7 @@ async def mask_rtsp_url(stream, user: User, db: AsyncSession) -> str:
                 select(StreamAdminGrant).where(
                     StreamAdminGrant.stream_id == stream.id,
                     StreamAdminGrant.admin_id == user.id,
-                    StreamAdminGrant.can_manage.is_(True),
+                    StreamAdminGrant.can_view.is_(True),
                 )
             )
         )
@@ -193,6 +193,38 @@ async def require_camera_access_token_qp(
     return await _check_camera_access(stream_id, user, db)
 
 
+async def require_reshare(
+    me: User, db: AsyncSession, stream_id: int, need_playback: bool
+) -> None:
+    """Admin yang membagikan kamera ke bawahannya wajib punya grant
+    can_reshare (+ can_view; can_playback bila yang dibagikan mencakup
+    rekaman). Super_admin bebas (paritas v2.0: can_reshare)."""
+    if is_super_admin(me):
+        return
+    grant = (
+        (
+            await db.execute(
+                select(StreamAdminGrant).where(
+                    StreamAdminGrant.stream_id == stream_id,
+                    StreamAdminGrant.admin_id == me.id,
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if grant is None or not grant.can_view or not grant.can_reshare:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="tidak punya izin membagikan kamera ini",
+        )
+    if need_playback and not grant.can_playback:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="tidak punya izin membagikan rekaman kamera ini",
+        )
+
+
 async def _check_camera_access(
     stream_id: int, user: User, db: AsyncSession, need_playback: bool = False
 ) -> User:
@@ -219,7 +251,7 @@ async def _check_camera_access(
         if not need_playback:
             return user  # perilaku lama dipertahankan
         # Paritas v2.0 boleh_playback untuk admin: kamera miliknya
-        # (dipasang/dimiliki) atau via grant kelola.
+        # (dipasang/dimiliki) atau via grant can_playback.
         stream = (
             (await db.execute(select(Stream).where(Stream.id == stream_id)))
             .scalars()
@@ -237,7 +269,7 @@ async def _check_camera_access(
                     select(StreamAdminGrant).where(
                         StreamAdminGrant.stream_id == stream_id,
                         StreamAdminGrant.admin_id == user.id,
-                        StreamAdminGrant.can_manage.is_(True),
+                        StreamAdminGrant.can_playback.is_(True),
                     )
                 )
             )

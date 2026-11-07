@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.rate_limit import rate_limited
-from app.core.rbac import get_current_user, mask_rtsp_url, require_roles
+from app.core.rbac import get_current_user, mask_rtsp_url, require_reshare, require_roles
 from app.db.session import get_db
 from app.models.access import StreamPermission, UserStreamAccess
 from app.models.groups import GroupStream, StreamGroup
@@ -260,13 +260,22 @@ async def get_sharing(stream_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/admin/streams/{stream_id}/sharing")
-async def set_sharing(stream_id: int, data: SharingIn, db: AsyncSession = Depends(get_db)):
+async def set_sharing(
+    stream_id: int,
+    data: SharingIn,
+    db: AsyncSession = Depends(get_db),
+    me: User = Depends(get_current_user),
+):
     await _get_stream_or_404(db, stream_id)
     # Normalisasi: bentuk baru (shares) menang; bentuk lama (user_ids)
     # dianggap can_playback=True.
     shares = list(data.shares)
     if not shares and data.user_ids:
         shares = [ShareIn(user_id=uid) for uid in data.user_ids]
+    # Admin yang membagikan wajib punya can_reshare atas kameranya;
+    # bila share mencakup playback, wajib punya can_playback juga.
+    for s in shares:
+        await require_reshare(me, db, stream_id, need_playback=s.can_playback)
     user_ids = [s.user_id for s in shares]
     if user_ids:
         result = await db.execute(select(User.id).where(User.id.in_(user_ids)))

@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.rbac import can_manage_user, is_super_admin, require_roles
+from app.core.rbac import can_manage_user, is_super_admin, require_roles, require_reshare
 from app.core.security import hash_password
 from app.db.session import get_db
 from app.models.access import StreamAdminGrant, UserStreamAccess
@@ -48,6 +48,19 @@ class UserUpdate(BaseModel):
 
 class StreamIdsIn(BaseModel):
     stream_ids: list[int]
+
+
+class AdminGrantIn(BaseModel):
+    stream_id: int
+    can_view: bool = True
+    can_playback: bool = True
+    can_reshare: bool = True
+
+
+class AdminGrantsIn(BaseModel):
+    grants: list[AdminGrantIn] = []
+    # Bentuk lama (kompatibel): hanya stream_ids, semua flag True.
+    stream_ids: list[int] = []
 
 
 async def _out(u: User, db: AsyncSession) -> UserOut:
@@ -230,10 +243,14 @@ async def set_camera_access(
     user_id: int,
     data: StreamIdsIn,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(admin_only),
+    me: User = Depends(admin_only),
 ):
     """Ganti daftar kamera yang boleh dilihat user (v2.0: camera-access)."""
     await _get_user_or_404(user_id, db)
+    # camera-access selalu memberi stream + playback, jadi admin yang
+    # membagikan wajib punya can_reshare + can_playback atas kameranya.
+    for sid in data.stream_ids:
+        await require_reshare(me, db, sid, need_playback=True)
     await db.execute(
         delete(UserStreamAccess).where(UserStreamAccess.user_id == user_id)
     )
@@ -262,34 +279,59 @@ async def get_admin_grants(
 ):
     await _get_user_or_404(admin_id, db)
     result = await db.execute(
-        select(StreamAdminGrant.stream_id).where(
-            StreamAdminGrant.admin_id == admin_id,
-            StreamAdminGrant.can_manage.is_(True),
-        )
+        select(StreamAdminGrant).where(StreamAdminGrant.admin_id == admin_id)
     )
-    return {"admin_id": admin_id, "stream_ids": list(result.scalars().all())}
+    rows = result.scalars().all()
+    grants = [
+        {
+            "stream_id": g.stream_id,
+            "can_view": bool(g.can_view),
+            "can_playback": bool(g.can_playback),
+            "can_reshare": bool(g.can_reshare),
+            "can_manage": bool(g.can_manage),
+        }
+        for g in rows
+    ]
+    return {
+        "admin_id": admin_id,
+        "grants": grants,
+        "stream_ids": [g["stream_id"] for g in grants if g["can_view"]],
+    }
 
 
 @router.post("/admin/admins/{admin_id}/camera-grants")
 async def set_admin_grants(
     admin_id: int,
-    data: StreamIdsIn,
+    data: AdminGrantsIn,
     db: AsyncSession = Depends(get_db),
     me: User = Depends(admin_only),
 ):
     await _get_user_or_404(admin_id, db)
+    # Bentuk baru (grants) menang; bentuk lama (stream_ids) dianggap
+    # semua flag True.
+    grants = list(data.grants)
+    if not grants and data.stream_ids:
+        grants = [AdminGrantIn(stream_id=sid) for sid in data.stream_ids]
+    # Kamera tanpa live maupun rekaman berarti tidak diberikan sama
+    # sekali (paritas v2.0).
+    grants = [g for g in grants if g.can_view or g.can_playback]
     await db.execute(
         delete(StreamAdminGrant).where(StreamAdminGrant.admin_id == admin_id)
     )
-    for sid in data.stream_ids:
+    for g in grants:
         db.add(
             StreamAdminGrant(
-                admin_id=admin_id, stream_id=sid, can_manage=True,
+                admin_id=admin_id,
+                stream_id=g.stream_id,
+                can_manage=True,
+                can_view=g.can_view,
+                can_playback=g.can_playback,
+                can_reshare=g.can_reshare,
                 granted_by=me.id,
             )
         )
     await db.commit()
-    return {"ok": True, "stream_ids": data.stream_ids}
+    return {"ok": True, "stream_ids": [g.stream_id for g in grants]}
 
 
 @router.get("/admin/access-overview")
