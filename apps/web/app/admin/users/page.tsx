@@ -646,21 +646,14 @@ export default function AdminUsersPage() {
                   {/* Baris kontrol. */}
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex min-w-0 flex-1 items-center gap-3">
-                      {/* Label "Pilih grup" (HP saja) supaya baris kontrol
-                          tidak kosong melompong; klik teks ikut mencentang. */}
-                      <label className="flex cursor-pointer items-center gap-2">
-                        <NBCheckbox
-                          checked={
-                            members.length > 0 &&
-                            members.every((m) => selected.has(m.id))
-                          }
-                          onChange={() => toggleSelectGroup(members)}
-                          ariaLabel={`Pilih semua anggota ${name}`}
-                        />
-                        <span className="text-xs text-slate-400 md:hidden">
-                          Pilih grup
-                        </span>
-                      </label>
+                      <NBCheckbox
+                        checked={
+                          members.length > 0 &&
+                          members.every((m) => selected.has(m.id))
+                        }
+                        onChange={() => toggleSelectGroup(members)}
+                        ariaLabel={`Pilih semua anggota ${name}`}
+                      />
                       {/* Toggle desktop (sembunyi di HP karena nama sudah di atas). */}
                       <button
                         onClick={() => toggleGroup(name)}
