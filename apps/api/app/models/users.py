@@ -39,6 +39,14 @@ class User(Base, TimestampMixin):
         ForeignKey("users.id"), nullable=True, default=None
     )
 
+    # Kelompok wilayah akun (paritas v2.0). Akun dengan nama grup yang
+    # sama saling mengelola; lintas grup tertutup. Kosong = belum
+    # berkelompok, hanya Super Admin yang menjangkaunya. Tidak ada
+    # hubungannya dengan group_name kamera.
+    admin_group: Mapped[str | None] = mapped_column(
+        String(60), nullable=True, index=True, default=None
+    )
+
     # SHA-256 dari refresh token aktif. Dibersihkan saat logout, dirotasi
     # setiap refresh dipakai.
     refresh_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)

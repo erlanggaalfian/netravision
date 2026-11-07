@@ -48,6 +48,7 @@ export interface User {
   is_active: boolean;
   show_ads: boolean;
   dibuat_oleh?: string | null;
+  admin_group: string | null;
 }
 
 export interface AdConfig {

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
+import { useAuth } from "../../../lib/auth";
 import type { Stream, User } from "../../../lib/types";
 import { ErrorBox, Modal, Spinner } from "../../../components/ui";
 import {
@@ -46,6 +47,7 @@ function UserIcon({ className = "" }: { className?: string }) {
 
 
 export default function AdminUsersPage() {
+  const { user: me } = useAuth();
   const [users, setUsers] = useState<User[] | null>(null);
   const [streams, setStreams] = useState<Stream[]>([]);
   const [error, setError] = useState("");
@@ -53,6 +55,13 @@ export default function AdminUsersPage() {
   const [editing, setEditing] = useState<User | null>(null);
   const [accessFor, setAccessFor] = useState<User | null>(null);
   const [deleting, setDeleting] = useState<User | null>(null);
+
+  /* Daftar grup yang sudah ada (untuk pilihan di form). */
+  const groups = useMemo(
+    () =>
+      [...new Set((users ?? []).map((u) => u.admin_group).filter((g): g is string => !!g))].sort(),
+    [users],
+  );
 
   const load = () =>
     api
@@ -120,6 +129,9 @@ export default function AdminUsersPage() {
                     <NBBadge tone={u.show_ads ? "ok" : "muted"}>
                       Iklan: {u.show_ads ? "Ya" : "Tidak"}
                     </NBBadge>
+                    {u.admin_group && (
+                      <NBBadge tone="muted">Grup: {u.admin_group}</NBBadge>
+                    )}
                   </span>
                   <span className="mt-1 block text-xs text-slate-400">
                     Dibuat oleh: {u.dibuat_oleh ?? "—"}
@@ -175,6 +187,8 @@ export default function AdminUsersPage() {
 
       {showAdd && (
         <UserFormModal
+          me={me}
+          groups={groups}
           onClose={() => setShowAdd(false)}
           onDone={() => {
             setShowAdd(false);
@@ -185,6 +199,8 @@ export default function AdminUsersPage() {
       {editing && (
         <UserFormModal
           user={editing}
+          me={me}
+          groups={groups}
           onClose={() => setEditing(null)}
           onDone={() => {
             setEditing(null);
@@ -213,16 +229,21 @@ export default function AdminUsersPage() {
 
 function UserFormModal({
   user,
+  me,
+  groups,
   onClose,
   onDone,
 }: {
   user?: User;
+  me: User | null;
+  groups: string[];
   onClose: () => void;
   onDone: () => void;
 }) {
   const [username, setUsername] = useState(user?.username ?? "");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<string>(user?.role ?? "user");
+  const [group, setGroup] = useState(user?.admin_group ?? "");
   const [showAds, setShowAds] = useState(user?.show_ads ?? true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -236,6 +257,7 @@ function UserFormModal({
           username: username.trim(),
           role,
           show_ads: showAds,
+          admin_group: group.trim() || null,
         };
         if (password) body.password = password;
         await api.put(`/admin/users/${user.id}`, body);
@@ -245,6 +267,7 @@ function UserFormModal({
           password,
           role,
           show_ads: showAds,
+          admin_group: group.trim() || null,
         });
       }
       onDone();
@@ -286,6 +309,27 @@ function UserFormModal({
             <option value="guest">Tamu</option>
             <option value="super_admin">Super Admin</option>
           </NBSelect>
+        </NBField>
+        <NBField
+          label="Grup"
+          hint={
+            me?.role === "super_admin"
+              ? "Kelompok wilayah akun ini (kosong = tanpa grup)"
+              : "Mengikuti grup Anda"
+          }
+        >
+          <NBInput
+            value={me?.role === "super_admin" ? group : (me?.admin_group ?? "")}
+            onChange={(e) => setGroup(e.target.value)}
+            disabled={me?.role !== "super_admin"}
+            placeholder="cth. grup-jakarta"
+            list="grup-wilayah"
+          />
+          <datalist id="grup-wilayah">
+            {groups.map((g) => (
+              <option key={g} value={g} />
+            ))}
+          </datalist>
         </NBField>
         <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 rounded-xl bg-ink-800 shadow-sm px-4 py-3">
           <span>

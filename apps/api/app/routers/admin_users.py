@@ -26,6 +26,7 @@ class UserOut(BaseModel):
     show_ads: bool
     parent_admin_id: int | None = None
     dibuat_oleh: str | None = None
+    admin_group: str | None = None
 
 
 class UserCreate(BaseModel):
@@ -33,6 +34,7 @@ class UserCreate(BaseModel):
     password: str
     role: str = "user"
     show_ads: bool = True
+    admin_group: str | None = None
 
 
 class UserUpdate(BaseModel):
@@ -41,6 +43,7 @@ class UserUpdate(BaseModel):
     role: str | None = None
     is_active: bool | None = None
     show_ads: bool | None = None
+    admin_group: str | None = None
 
 
 class StreamIdsIn(BaseModel):
@@ -64,7 +67,24 @@ async def _out(u: User, db: AsyncSession) -> UserOut:
         show_ads=u.show_ads,
         parent_admin_id=u.parent_admin_id,
         dibuat_oleh=dibuat_oleh,
+        admin_group=u.admin_group,
     )
+
+
+def _tentukan_grup(pengelola: User, diminta: str | None, bawaan: str | None = None) -> str | None:
+    """Grup mana yang berlaku untuk akun yang sedang dibuat atau diubah.
+
+    Admin tidak dapat menaruh akun di luar grupnya sendiri. Kirimannya
+    diabaikan diam-diam alih-alih ditolak: layar tidak pernah menawarkan
+    pilihan itu kepadanya, jadi kiriman menyimpang hanya datang dari
+    pemanggil yang mengarang sendiri. (Paritas v2.0.)
+    """
+    if not is_super_admin(pengelola):
+        return pengelola.admin_group
+    if diminta is None:
+        return bawaan
+    bersih = (diminta or "").strip()[:60]
+    return bersih or None
 
 
 async def _get_user_or_404(user_id: int, db: AsyncSession) -> User:
@@ -107,12 +127,18 @@ async def create_user(
     )
     if exists.scalars().first() is not None:
         raise HTTPException(409, "username sudah dipakai")
+    grup = _tentukan_grup(me, data.admin_group)
+    if not grup and data.role == "admin":
+        # Admin baru tanpa grup: bila dibiarkan kosong ia tidak akan
+        # dapat mengelola akun yang kelak ia buat sendiri.
+        grup = f"grup-{data.username}"[:60]
     user = User(
         username=data.username,
         password_hash=hash_password(data.password),
         role=data.role,
         show_ads=data.show_ads,
         parent_admin_id=me.id,
+        admin_group=grup,
     )
     db.add(user)
     await db.commit()
@@ -151,6 +177,8 @@ async def update_user(
         user.is_active = data.is_active
     if data.show_ads is not None:
         user.show_ads = data.show_ads
+    if "admin_group" in data.model_fields_set:
+        user.admin_group = _tentukan_grup(me, data.admin_group)
     await db.commit()
     await db.refresh(user)
     return await _out(user, db)
