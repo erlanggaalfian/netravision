@@ -417,9 +417,11 @@ export function Spinner() {
    pilihan, dibagi rata menjadi 1 / 2x2 / 3x3 / 4x4 sel persegi panjang
    (rasio ~4:3, seperti tile video) yang persis sama besar. SVG dipakai
    supaya sel pecahan piksel tetap terbagi rata (grid CSS membulatkan
-   tiap sel dan membuat ukurannya tidak sama). Dipakai tombol pemilih
+   tiap sel dan membuat ukurannya tidak sama). Ukuran 32px: sel 4x4
+   jadi tepat 7x5px, jadi benar-benar sama; di 18px sel 4x4 hanya
+   ~4px dan tidak bisa dirender sama rata. Dipakai tombol pemilih
    grid di Live dan Putar Ulang (PC). */
-export function GridIcon({ cols, size = 18 }: { cols: number; size?: number }) {
+export function GridIcon({ cols, size = 32 }: { cols: number; size?: number }) {
   const W = 24;
   const H = 18;
   const g = 1;
