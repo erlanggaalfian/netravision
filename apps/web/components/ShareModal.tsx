@@ -124,7 +124,7 @@ export function ShareModal({
   const loading = users === null || shares === null;
 
   return (
-    <Modal title={`Bagikan — ${streamName}`} onClose={onClose} wide>
+    <Modal title={`Bagikan: ${streamName}`} onClose={onClose} wide>
       {error && (
         <div className="mb-4">
           <ErrorBox message={error} />
@@ -143,7 +143,7 @@ export function ShareModal({
           <div className="max-h-[50vh] space-y-1 overflow-y-auto">
             {(users ?? []).map((u) => {
               // Superadmin otomatis punya akses semua kamera (bypass di
-              // backend) — selalu tercantum, tidak bisa dihapus dari share.
+              // backend), selalu tercantum, tidak bisa dihapus dari share.
               const isSuper = u.role === "super_admin";
               const shared = isSuper || (shares ?? new Map()).has(u.id);
               const playback = isSuper || ((shares ?? new Map()).get(u.id) ?? true);
@@ -181,8 +181,8 @@ export function ShareModal({
                         isSuper
                           ? "Superadmin otomatis Stream + Playback di semua kamera"
                           : playback
-                            ? "Boleh membuka rekaman — ketuk untuk stream saja"
-                            : "Stream saja — ketuk untuk izinkan playback"
+                            ? "Boleh membuka rekaman, ketuk untuk stream saja"
+                            : "Stream saja, ketuk untuk izinkan playback"
                       }
                     >
                       {playback ? "Stream + Playback" : "Stream saja"}

@@ -1,4 +1,4 @@
-/* Pemutar WHEP (WebRTC) — dipakai untuk live stream dari MediaMTX. */
+/* Pemutar WHEP (WebRTC), dipakai untuk live stream dari MediaMTX. */
 
 /* Batas tunggu koneksi media (ICE) setelah sinyal WHEP sukses. Tanpa ini
    tile tampak "terhubung" tapi hitam selamanya bila UDP media tak sampai. */
@@ -63,7 +63,7 @@ export async function playWhep(
   // Sudah tersambung: abort tidak lagi memutus koneksi yang sedang tampil.
   signal?.removeEventListener("abort", abort);
 
-  // Putus di tengah jalan (jaringan/kamera) — beri tahu pemanggil.
+  // Putus di tengah jalan (jaringan/kamera), beri tahu pemanggil.
   pc.addEventListener("connectionstatechange", () => {
     if (pc.connectionState === "failed") onFail?.();
   });
@@ -71,7 +71,7 @@ export async function playWhep(
   try {
     await video.play();
   } catch {
-    /* Autoplay bersuara ditolak browser — putar tanpa suara; pengguna
+    /* Autoplay bersuara ditolak browser, putar tanpa suara; pengguna
        bisa menyalakan suara lewat kontrol video. */
     video.muted = true;
     await video.play().catch(() => {});

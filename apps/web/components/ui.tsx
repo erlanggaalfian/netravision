@@ -2,8 +2,8 @@
 
 import { useState, type ReactNode } from "react";
 
-/* Komponen UI bersama — "ruang kendali siaran": permukaan bertingkat,
-   hairline white/8, radius 12–16px, satu aksen biru. API tidak berubah. */
+/* Komponen UI bersama, "ruang kendali siaran": permukaan bertingkat,
+   hairline white/8, radius 12-16px, satu aksen biru. API tidak berubah. */
 
 function XIcon({ className = "" }: { className?: string }) {
   return (
@@ -238,7 +238,7 @@ export function Badge({
   );
 }
 
-/* Segmented control bersama — gantikan 6 varian tab/pill custom di
+/* Segmented control bersama, gantikan 6 varian tab/pill custom di
    halaman (live, playback, monitors, streams, access). Memakai radiogroup
    yang benar untuk aksesibilitas keyboard. */
 export function SegmentedControl<T extends string | number>({

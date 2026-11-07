@@ -146,7 +146,7 @@ export default function AdminScannerPage() {
             <NBBadge tone={st.tone}>{st.label}</NBBadge>
           </NBTd>
           <NBTd className="max-w-[280px] truncate font-mono text-xs">
-            {h.best_main ?? "—"}
+            {h.best_main ?? "-"}
           </NBTd>
           <NBTd className="text-xs">{mainInfo(h)}</NBTd>
         </NBTr>

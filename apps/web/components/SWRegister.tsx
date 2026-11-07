@@ -7,7 +7,7 @@ export function SWRegister() {
   useEffect(() => {
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js").catch(() => {
-        /* abaikan — PWA opsional */
+        /* abaikan, PWA opsional */
       });
     }
   }, []);

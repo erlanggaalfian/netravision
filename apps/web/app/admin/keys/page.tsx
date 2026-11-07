@@ -170,15 +170,15 @@ export default function AdminKeysPage() {
   }
 
   const streamName = (id: number | null) =>
-    streams.find((s) => s.id === id)?.name ?? (id != null ? `#${id}` : "—");
+    streams.find((s) => s.id === id)?.name ?? (id != null ? `#${id}` : "-");
   const keyName = (id: number | null) =>
-    keys?.find((k) => k.id === id)?.name ?? (id != null ? `#${id}` : "—");
+    keys?.find((k) => k.id === id)?.name ?? (id != null ? `#${id}` : "-");
 
   return (
     <div>
       <NBTitle
         title="API Key"
-        desc="Kunci embed untuk pihak ketiga — key penuh hanya tampil sekali saat dibuat"
+        desc="Kunci embed untuk pihak ketiga, key penuh hanya tampil sekali saat dibuat"
         action={
           <div className="flex flex-wrap gap-2">
             <NBButton variant="secondary" onClick={() => setShowGuide(true)}>
@@ -389,7 +389,7 @@ export default function AdminKeysPage() {
                       <NBTd>
                         {l.accessed_at
                           ? new Date(l.accessed_at).toLocaleString("id-ID")
-                          : "—"}
+                          : "-"}
                       </NBTd>
                       <NBTd className="text-slate-400">
                         {keyName(l.key_id)}
@@ -399,11 +399,11 @@ export default function AdminKeysPage() {
                       </NBTd>
                       <NBTd>
                         <NBBadge tone={denied ? "bad" : "ok"}>
-                          {denied ? "Ditolak" : (l.action ?? "—")}
+                          {denied ? "Ditolak" : (l.action ?? "-")}
                         </NBBadge>
                       </NBTd>
                       <NBTd className="font-mono text-xs text-slate-400">
-                        {l.ip ?? "—"}
+                        {l.ip ?? "-"}
                       </NBTd>
                     </NBTr>
                   );
@@ -440,7 +440,7 @@ export default function AdminKeysPage() {
       )}
       {created && (
         <Modal title="API key dibuat" onClose={() => setCreated(null)}>
-          <ErrorBox message="Salin key ini sekarang — tidak akan ditampilkan lagi." />
+          <ErrorBox message="Salin key ini sekarang, tidak akan ditampilkan lagi." />
           <p className="mt-3 break-all rounded-lg bg-ink-950 p-3 font-mono text-sm text-accent-300">
             {created.key}
           </p>
@@ -590,19 +590,19 @@ function IntegrationGuideModal({
   const methods = [
     {
       id: "iframe",
-      title: "Metode 1 — Kode iframe",
+      title: "Metode 1: Kode iframe",
       desc: "Tempel di halaman web/HTML Anda.",
       code: `<iframe src="${origin}/embed?key=${key}" width="640" height="360" frameborder="0" allowfullscreen></iframe>`,
     },
     {
       id: "rest",
-      title: "Metode 2 — URL REST API",
+      title: "Metode 2: URL REST API",
       desc: "Ambil daftar kamera & URL stream sebagai JSON.",
       code: `${origin}/api/external/cameras?key=${key}`,
     },
     {
       id: "player",
-      title: "Metode 3 — URL pemutar langsung",
+      title: "Metode 3: URL pemutar langsung",
       desc: "Tautan langsung ke halaman pemutar embed.",
       code: `${origin}/embed?key=${key}`,
     },
@@ -635,7 +635,7 @@ function IntegrationGuideModal({
             <p className="text-sm font-semibold text-white">{m.title}</p>
             <p className="mt-0.5 text-xs text-slate-400">{m.desc}</p>
             <p className="mt-2 break-all rounded-lg bg-ink-950 p-3 font-mono text-xs text-accent-300">
-              {key ? m.code : "— isi API key dulu —"}
+              {key ? m.code : "- isi API key dulu -"}
             </p>
             <NBButton
               variant="secondary"

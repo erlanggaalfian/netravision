@@ -307,7 +307,7 @@ export default function AdminUsersPage() {
         <span className="block text-xs text-slate-400">
           Dibuat oleh:{" "}
           <span className="font-medium text-slate-300">
-            {u.dibuat_oleh ?? "—"}
+            {u.dibuat_oleh ?? "-"}
           </span>
         </span>
       </span>
@@ -319,7 +319,7 @@ export default function AdminUsersPage() {
       </div>
     );
     const actions = actionsFor(u);
-    /* HP (ala Stitch): header accordion ringkas — nama di atas, lencana
+    /* HP (ala Stitch): header accordion ringkas, nama di atas, lencana
        peran kecil di bawahnya (bukan di samping nama). */
     const mobileSummary = (
       <span className="flex min-w-0 items-center gap-2">
@@ -343,7 +343,7 @@ export default function AdminUsersPage() {
           </span>
           <span className="min-w-0 truncate text-[11px] text-slate-400">
             Dibuat oleh:{" "}
-            <span className="text-slate-300">{u.dibuat_oleh ?? "—"}</span>
+            <span className="text-slate-300">{u.dibuat_oleh ?? "-"}</span>
           </span>
         </span>
         {actions}
@@ -369,7 +369,7 @@ export default function AdminUsersPage() {
     const mOpen = openMembers.has(u.id);
     return (
       <div key={u.id}>
-        {/* HP: accordion (ala Stitch) — header ringkas nama + peran, panel
+        {/* HP: accordion (ala Stitch), header ringkas nama + peran, panel
             menampilkan Dibuat oleh + aksi. */}
         <div className="md:hidden">
           <button
@@ -410,7 +410,7 @@ export default function AdminUsersPage() {
               <p className="min-w-0 truncate text-[11px] text-slate-400">
                 Dibuat oleh:{" "}
                 <span className="text-slate-300">
-                  {u.dibuat_oleh ?? "—"}
+                  {u.dibuat_oleh ?? "-"}
                 </span>
               </p>
               {actionsFor(u)}
@@ -431,7 +431,7 @@ export default function AdminUsersPage() {
               <span className="block text-xs text-slate-400">
                 Dibuat oleh:{" "}
                 <span className="font-medium text-slate-300">
-                  {u.dibuat_oleh ?? "—"}
+                  {u.dibuat_oleh ?? "-"}
                 </span>
               </span>
             </span>
@@ -1057,7 +1057,7 @@ function GroupEditModal({
   }
 
   return (
-    <Modal title={`Ubah grup — ${name}`} onClose={onClose}>
+    <Modal title={`Ubah grup: ${name}`} onClose={onClose}>
       {error && (
         <div className="mb-4">
           <ErrorBox message={error} />
@@ -1303,7 +1303,7 @@ function GroupAccessModal({
   }
 
   return (
-    <Modal title={`Akses kamera — ${name}`} onClose={onClose} wide>
+    <Modal title={`Akses kamera: ${name}`} onClose={onClose} wide>
       {error && (
         <div className="mb-4">
           <ErrorBox message={error} />
@@ -1519,7 +1519,7 @@ function UserAccessModal({
   }
 
   return (
-    <Modal title={`Akses kamera — ${user.username}`} onClose={onClose} wide>
+    <Modal title={`Akses kamera: ${user.username}`} onClose={onClose} wide>
       {error && (
         <div className="mb-4">
           <ErrorBox message={error} />
@@ -1737,7 +1737,7 @@ function AdminGrantModal({
   }
 
   return (
-    <Modal title={`Akses kamera — ${user.username}`} onClose={onClose} wide>
+    <Modal title={`Akses kamera: ${user.username}`} onClose={onClose} wide>
       {error && (
         <div className="mb-4">
           <ErrorBox message={error} />

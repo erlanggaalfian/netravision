@@ -32,12 +32,14 @@ type Phase = "idle" | "loading" | "ready" | "not-implemented" | "error";
 const DAY_MS = 86_400_000;
 
 const GRID_OPTS = [
+  { cols: 1, label: "1×1" },
   { cols: 2, label: "2×2" },
   { cols: 3, label: "3×3" },
   { cols: 4, label: "4×4" },
 ];
 
 const GRID_CLASS: Record<number, string> = {
+  1: "sm:grid-cols-1",
   2: "sm:grid-cols-2",
   3: "sm:grid-cols-2 lg:grid-cols-3",
   4: "sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4",
@@ -53,10 +55,11 @@ function fmtTime(iso: string): string {
   return d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
 }
 
-/* Kartu kosong: panel modern, ikon gradient + glow. */
-function EmptyCard({ title, desc }: { title: string; desc: string }) {
+/* Kartu kosong: panel modern, ikon gradient + glow. Pakai nested=true bila
+   sudah berada di dalam panel, supaya tidak ada panel ganda. */
+function EmptyCard({ title, desc, nested = false }: { title: string; desc: string; nested?: boolean }) {
   return (
-    <div className="nv-panel-modern px-6 py-12 text-center">
+    <div className={`${nested ? "" : "nv-panel-modern "}px-6 py-12 text-center`}>
       <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-b from-accent-500 to-accent-600 text-onaccent shadow-[0_8px_24px_-8px_var(--nv-accent-500)]">
         <svg
           width="28"
@@ -86,11 +89,13 @@ function EmptyCard({ title, desc }: { title: string; desc: string }) {
 function PlaybackPanel({
   streamId,
   streamName,
+  isOnline,
   date,
   ad,
 }: {
   streamId: number;
   streamName: string;
+  isOnline: boolean;
   date: string;
   ad: AdConfig | null;
 }) {
@@ -101,7 +106,8 @@ function PlaybackPanel({
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
-  /* Sinyal iklan: hover panel + tiap klik panel (perilaku marquee hover/click). */
+  /* Sinyal iklan: hover panel + klik/fokus pada area video saja (bukan
+     tombol, segmen, atau unduhan). */
   const [panelHovered, setPanelHovered] = useState(false);
   const [adClickTick, setAdClickTick] = useState(0);
 
@@ -163,7 +169,7 @@ function PlaybackPanel({
       a.href = url;
       a.download = `rekaman-${streamId}-${active.start.replace(/[:.]/g, "-")}.mp4`;
       a.click();
-      /* Revoke setelah unduhan sempat mulai — revoke langsung bisa
+      /* Revoke setelah unduhan sempat mulai, revoke langsung bisa
          membatalkan unduhan di sebagian browser. */
       setTimeout(() => URL.revokeObjectURL(url), 30_000);
     } catch (e) {
@@ -187,15 +193,19 @@ function PlaybackPanel({
       className="nv-panel-modern min-w-0 overflow-hidden"
       onMouseEnter={() => setPanelHovered(true)}
       onMouseLeave={() => setPanelHovered(false)}
-      onClick={() => setAdClickTick((t) => t + 1)}
     >
-      {/* Header panel: nama kamera + Muat ulang, di dalam panel */}
+      {/* Header panel: dot status + nama kamera + Muat ulang, di dalam panel */}
       <div className="flex items-center justify-between gap-2 border-b border-ink-800 px-4 py-3">
-        <span className="truncate text-base font-extrabold tracking-tight text-slate-100">
+        <span
+          className={`h-2 w-2 shrink-0 rounded-full ${isOnline ? "bg-ok-400" : "bg-bad-400"}`}
+          aria-label={isOnline ? "Online" : "Offline"}
+        />
+        <span className="min-w-0 flex-1 truncate text-base font-extrabold tracking-tight text-slate-100">
           {streamName}
         </span>
         <Button
           variant="subtle"
+          className="shrink-0"
           onClick={load}
           disabled={phase === "loading"}
         >
@@ -228,6 +238,7 @@ function PlaybackPanel({
       {phase === "idle" && (
         <div className="p-4">
           <EmptyCard
+            nested
             title="Menyiapkan linimasa…"
             desc="Sebentar ya, kami sedang mengambil jadwal rekaman kamera ini."
           />
@@ -244,6 +255,7 @@ function PlaybackPanel({
       {phase === "not-implemented" && (
         <div className="p-4">
           <EmptyCard
+            nested
             title="Linimasa belum tersedia"
             desc="Linimasa rekaman tersedia mulai Fase 3. Coba lagi nanti."
           />
@@ -253,6 +265,7 @@ function PlaybackPanel({
       {phase === "error" && !error && (
         <div className="p-4">
           <EmptyCard
+            nested
             title="Terjadi kesalahan"
             desc="Gagal memuat linimasa. Coba muat ulang."
           />
@@ -287,16 +300,16 @@ function PlaybackPanel({
                   <button
                     key={i}
                     onClick={() => playEntry(e)}
-                    title={`${fmtTime(e.start)} – ${fmtTime(e.end)}${e.has_event ? " · ada event" : ""}`}
+                    title={`${fmtTime(e.start)} - ${fmtTime(e.end)}${e.has_event ? " · ada event" : ""}`}
                     aria-label={`Putar segmen ${fmtTime(e.start)}`}
-                    className={`absolute top-0.5 h-11 rounded-full transition ${
+                    className={`absolute top-0.5 h-11 rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
                       isActive
                         ? "bg-gradient-to-r from-accent-600 to-accent-500 shadow-[0_2px_12px_-2px_var(--nv-accent-600)]"
                         : e.has_event
                           ? "bg-warn-400/80 hover:bg-warn-400"
                           : "bg-accent-600/60 hover:bg-accent-500"
                     }`}
-                    style={{ left: `${left}%`, width: `${width}%`, minWidth: "12px" }}
+                    style={{ left: `${left}%`, width: `${width}%`, minWidth: "24px" }}
                   />
                 );
               })}
@@ -306,19 +319,41 @@ function PlaybackPanel({
                 </div>
               )}
             </div>
+            {/* Label jam pada tick utama (tiap 3 jam). */}
+            <div className="relative mt-1.5 h-3.5" aria-hidden>
+              {[0, 3, 6, 9, 12, 15, 18, 21].map((h) => (
+                <span
+                  key={h}
+                  className="absolute -translate-x-1/2 text-[10px] font-medium tabular-nums text-slate-400"
+                  style={{ left: `${(h / 24) * 100}%` }}
+                >
+                  {String(h).padStart(2, "0")}
+                </span>
+              ))}
+            </div>
           </div>
 
           {/* Pratinjau */}
           <div>
             <div className="flex items-center justify-between gap-2 border-b border-ink-800 px-4 py-3">
-              <span className="text-[15px] font-extrabold tracking-tight text-slate-100">Pratinjau</span>
+              <span className="shrink-0 text-[15px] font-extrabold tracking-tight text-slate-100">Pratinjau</span>
               {active && (
-                <span className="truncate text-xs font-medium text-slate-400">
-                  {fmtTime(active.start)} – {fmtTime(active.end)}
+                <span className="min-w-0 flex-1 truncate text-right text-xs font-medium text-slate-400">
+                  {fmtTime(active.start)} - {fmtTime(active.end)}
                 </span>
               )}
             </div>
-            <div className="nv-stage">
+            {/* Area video: klik atau fokus keyboard di sini menaikkan
+                sinyal klik iklan, klik tombol/segmen/unduh tidak. */}
+            <div
+              className="nv-stage"
+              onClick={() => setAdClickTick((t) => t + 1)}
+              onFocus={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                  setAdClickTick((t) => t + 1);
+                }
+              }}
+            >
               {videoSrc ? (
                 <video
                   ref={videoRef}
@@ -354,18 +389,9 @@ function PlaybackPanel({
                 </div>
               )}
             </div>
-            {/* Iklan di bawah video (di luar area 16:9), bukan overlay. */}
-            {ad?.is_active && (
-              <AdBanner
-                config={ad}
-                hovered={panelHovered}
-                clickTick={adClickTick}
-                placement="below"
-              />
-            )}
             {active && (
               <div className="flex items-center justify-between gap-2 border-t border-ink-800 px-4 py-3">
-                <span className="truncate text-xs text-slate-400">
+                <span className="min-w-0 flex-1 truncate text-xs text-slate-400">
                   {active.has_event && (
                     <span className="mr-2 rounded-full bg-warn-400/15 px-2 py-0.5 text-[10px] font-semibold text-warn-400">
                       Event
@@ -375,6 +401,7 @@ function PlaybackPanel({
                 </span>
                 <Button
                   variant="primary"
+                  className="shrink-0"
                   onClick={downloadActive}
                   disabled={downloading}
                 >
@@ -384,6 +411,17 @@ function PlaybackPanel({
             )}
           </div>
         </>
+      )}
+
+      {/* Iklan di bawah panel (di luar area 16:9), bukan overlay: tampil di
+          semua fase panel supaya tinggi panel stabil. */}
+      {ad?.is_active && (
+        <AdBanner
+          config={ad}
+          hovered={panelHovered}
+          clickTick={adClickTick}
+          placement="below"
+        />
       )}
     </div>
   );
@@ -451,6 +489,9 @@ export default function PlaybackPage() {
 
   const byId = useMemo(() => new Map(streams.map((s) => [s.id, s])), [streams]);
 
+  /* Filter tanggal aktif bila tanggal bukan hari ini. */
+  const filterActive = date !== todayStr();
+
   if (loading || (!user && !loading)) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-ink-950">
@@ -501,13 +542,16 @@ export default function PlaybackPage() {
                   <line x1="9" y1="8" x2="15" y2="8" />
                   <line x1="17" y1="16" x2="23" y2="16" />
                 </svg>
+                {filterActive && (
+                  <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-accent-500" />
+                )}
               </button>
               <Button
                 variant={multi ? "primary" : "subtle"}
                 onClick={() => setMulti((v) => !v)}
                 aria-pressed={multi}
               >
-                {multi ? "Multi aktif" : "Multi kamera"}
+                Multi kamera
               </Button>
             </div>
           }
@@ -515,9 +559,9 @@ export default function PlaybackPage() {
 
         {/* Kontrol: dilipat di HP, tampil di desktop */}
         <Card
-          className={`mb-5 nv-panel-modern ${filterOpen ? "block" : "hidden md:block"}`}
+          className={`mb-5 ${filterOpen ? "block" : "hidden md:block"}`}
         >
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:gap-3">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:gap-3">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end xl:min-w-0 xl:flex-1">
               {!multi ? (
                 <label className="flex flex-1 flex-col gap-1.5">
@@ -549,16 +593,16 @@ export default function PlaybackPage() {
                           key={s.id}
                           onClick={() => toggleMultiId(s.id)}
                           aria-pressed={on}
-                          className={`flex h-11 items-center gap-2 rounded-full px-3.5 text-xs font-medium transition active:scale-95 ${
+                          className={`flex h-11 min-w-0 items-center gap-2 rounded-full px-3.5 text-xs font-medium transition active:scale-95 ${
                             on
                               ? "bg-gradient-to-r from-accent-600 to-accent-500 font-semibold text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
                               : "bg-ink-800 text-slate-300 shadow-sm hover:bg-ink-700 hover:text-slate-200"
                           }`}
                         >
                           <span
-                            className={`h-1.5 w-1.5 rounded-full ${s.is_online ? "bg-ok-400" : "bg-bad-400"}`}
+                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${s.is_online ? "bg-ok-400" : "bg-bad-400"}`}
                           />
-                          {s.name}
+                          <span className="min-w-0 truncate">{s.name}</span>
                         </button>
                       );
                     })}
@@ -579,7 +623,7 @@ export default function PlaybackPage() {
               </label>
             </div>
             {multi && (
-              <div className="flex items-center gap-2">
+              <div className="hidden items-center gap-2 md:flex">
                 <span className="text-xs font-semibold text-slate-400">
                   Grid:
                 </span>
@@ -623,13 +667,14 @@ export default function PlaybackPage() {
           />
         ) : (
           <div
-            className={`grid grid-cols-1 gap-4 ${multi ? (GRID_CLASS[gridCols] ?? GRID_CLASS[2]) : "mx-auto max-w-5xl"}`}
+            className={`mx-auto grid w-full max-w-5xl grid-cols-1 gap-4 ${multi ? (GRID_CLASS[gridCols] ?? GRID_CLASS[2]) : ""}`}
           >
             {selectedStreams.map((s) => (
               <PlaybackPanel
                 key={s.id}
                 streamId={s.id}
                 streamName={s.name}
+                isOnline={s.is_online}
                 date={date}
                 ad={ad}
               />

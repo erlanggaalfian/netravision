@@ -40,10 +40,10 @@ interface GDriveConn {
 }
 
 /* Halaman admin: Tautan Folder Google Drive (mode folder-link + rclone).
-   Bisa menampung BANYAK tautan — tiap folder punya mount rclone sendiri.
+   Bisa menampung BANYAK tautan, tiap folder punya mount rclone sendiri.
    Kamera memilih folder tujuan di modal kamera (mode Drive/Keduanya).
    Tombol "Hubungkan Google Drive": tempel token dari `rclone authorize`,
-   tanpa SSH, tanpa Cloud Console — upload otomatis via rclone copyto. */
+   tanpa SSH, tanpa Cloud Console, upload otomatis via rclone copyto. */
 
 export default function AdminStoragePage() {
   const [data, setData] = useState<GDriveList | null>(null);
@@ -174,7 +174,7 @@ export default function AdminStoragePage() {
             <p className="mt-1 text-sm text-slate-400">
               {conn?.connected ? (
                 <>
-                  Terhubung{conn.email && conn.email !== "terhubung" ? ` sebagai ${conn.email}` : ""} — rekaman ter-upload otomatis.
+                  Terhubung{conn.email && conn.email !== "terhubung" ? ` sebagai ${conn.email}` : ""}, rekaman ter-upload otomatis.
                 </>
               ) : (
                 "Belum terhubung. Hubungkan sekali, lalu rekaman ter-upload otomatis tanpa SSH."
@@ -182,7 +182,7 @@ export default function AdminStoragePage() {
             </p>
             {conn && !conn.rclone_found && (
               <p className="mt-1 text-sm text-warn-400">
-                rclone belum terinstal di server — hubungi admin server.
+                rclone belum terinstal di server, hubungi admin server.
               </p>
             )}
           </div>
@@ -229,7 +229,7 @@ export default function AdminStoragePage() {
                 <div className="space-y-1.5 px-4 pb-4 text-xs text-slate-400">
                   <p className="break-all font-mono">ID: {f.folder_id}</p>
                   <p className="break-all">
-                    Mount: {f.local_path || "—"}
+                    Mount: {f.local_path || "-"}
                     {!f.local_path_custom && data.staging_default && (
                       <span> (default)</span>
                     )}
@@ -325,7 +325,7 @@ export default function AdminStoragePage() {
       {showConnect && (
         <Modal title="Hubungkan Google Drive" onClose={() => setShowConnect(false)}>
           <p className="text-sm text-slate-400">
-            Sekali saja — tanpa SSH, tanpa Cloud Console.
+            Sekali saja, tanpa SSH, tanpa Cloud Console.
           </p>
           <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-400">
             <li>

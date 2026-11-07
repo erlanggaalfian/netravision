@@ -1,4 +1,4 @@
-/* Tipe bersama — cerminan kontrak packages/contracts/openapi.yaml */
+/* Tipe bersama, cerminan kontrak packages/contracts/openapi.yaml */
 
 export interface Stream {
   id: number;

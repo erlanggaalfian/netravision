@@ -80,14 +80,15 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
   const toggleControls = () => setShowControls((v) => !v);
 
   const online = stream.is_online && !failed;
+  /* Kontrol terlihat saat tap-toggle aktif, hover mouse, atau fokus keyboard
+     masuk (tiga pemicu yang sama dengan CSS .cam-controls di globals.css);
+     saat ketiganya mati, kontrol juga disembunyikan dari keyboard
+     (invisible), bukan cuma opacity 0. */
+  const controlsVisible = showControls || tileHovered;
 
   return (
     <div
       ref={boxRef}
-      onClick={() => {
-        toggleControls();
-        setAdClickTick((t) => t + 1);
-      }}
       onMouseEnter={() => setTileHovered(true)}
       onMouseLeave={() => setTileHovered(false)}
       /* Fallback keyboard untuk :focus-within (I1): tampilkan kontrol saat
@@ -104,8 +105,14 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
           : "rounded-2xl bg-ink-900 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.35)]"
       }`}
     >
-      {/* Area video: selalu gelap (nv-stage), di kedua tema. */}
+      {/* Area video: selalu gelap (nv-stage), di kedua tema. Klik di sini
+          saja yang toggle kontrol dan memberi sinyal klik iklan; klik pada
+          footer atau banner iklan di bawah tidak ikut. */}
       <div
+        onClick={() => {
+          toggleControls();
+          setAdClickTick((t) => t + 1);
+        }}
         className={`nv-stage relative bg-black ${cssRotate ? "nv-rot" : ""} ${fs ? "h-full" : "aspect-video"}`}
       >
       <div className="nv-rot-inner relative h-full w-full">
@@ -191,7 +198,7 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
       )}
 
       {/* Overlay kontrol: hanya tombol aksi (nama + status ada di footer kartu) */}
-      <div className="cam-controls absolute inset-x-0 bottom-0 flex items-center justify-end gap-2 bg-gradient-to-t from-black/85 via-black/40 to-transparent px-3 pb-3 pt-8">
+      <div className={`cam-controls absolute inset-x-0 bottom-0 flex items-center justify-end gap-2 bg-gradient-to-t from-black/85 via-black/40 to-transparent px-3 pb-3 pt-8 ${controlsVisible ? "visible" : "invisible"}`}>
         <div className="flex shrink-0 items-center gap-2">
           {fs && (
             <button
@@ -250,6 +257,7 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
             }}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white shadow-[0_4px_12px_rgba(0,0,0,0.3)] transition-all duration-200 hover:bg-white/25 hover:shadow-[0_6px_16px_rgba(0,0,0,0.4)] active:scale-95"
           aria-label={`Perbesar ${stream.name}`}
+          title="Perbesar"
         >
           <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
             <path
@@ -281,7 +289,7 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
             className={`h-2 w-2 shrink-0 rounded-full ${online ? "bg-ok-400" : "bg-bad-400"}`}
             aria-label={online ? "Online" : "Offline"}
           />
-          <span className="truncate text-sm font-semibold tracking-tight text-white">
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight text-white">
             {stream.name}
           </span>
         </div>

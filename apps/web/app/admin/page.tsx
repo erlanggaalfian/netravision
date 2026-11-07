@@ -76,7 +76,7 @@ export default function AdminDashboard() {
       />
       {offlineCount !== null && offlineCount > 0 && (
         <p className="-mt-2 mb-4 text-sm text-warn-400">
-          {offlineCount} kamera offline —{" "}
+          {offlineCount} kamera offline,{" "}
           <Link href="/admin/streams" className="font-medium underline underline-offset-2 hover:text-warn-300">
             periksa di halaman Kamera
           </Link>

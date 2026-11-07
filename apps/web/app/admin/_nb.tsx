@@ -1,6 +1,6 @@
 "use client";
 
-/* Primitif UI bahasa desain modern — KHUSUS halaman admin.
+/* Primitif UI bahasa desain modern, KHUSUS halaman admin.
    Selaras dengan components/ui.tsx: gradient buttons + glow, panel modern
    (nv-panel-modern), heading besar/bold. Permukaan SOLID (tanpa blur),
    memakai token tema (ink/accent/slate) sehingga mode gelap/terang benar. */

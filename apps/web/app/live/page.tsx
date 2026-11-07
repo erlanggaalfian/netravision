@@ -40,11 +40,14 @@ const GRID_OPTS_MOBILE: GridOpt[] = [
   { key: "9", label: "9", count: 9 },
 ];
 
+/* Breakpoint grid mengikuti useIsDesktop (md, 768px): jumlah kolom CSS
+   baru berubah di 768px, sama seperti logika gridCols di bawah, supaya
+   tampilan tidak tertinggal satu breakpoint dari pilihan. */
 const GRID_CLASS: Record<number, string> = {
   1: "grid-cols-1",
-  2: "grid-cols-1 sm:grid-cols-2",
-  3: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3",
-  4: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4",
+  2: "grid-cols-1 md:grid-cols-2",
+  3: "grid-cols-1 md:grid-cols-3",
+  4: "grid-cols-1 md:grid-cols-4",
 };
 
 /* Desktop = sidebar tampil (md, 768px), sama seperti AppShell. */
@@ -64,10 +67,11 @@ function useIsDesktop() {
   return isDesktop;
 }
 
-function SkeletonGrid() {
+/* Skeleton mengikuti grid terpilih (kolom + jumlah), bukan selalu 4 kolom. */
+function SkeletonGrid({ cols, count }: { cols: number; count: number }) {
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-      {Array.from({ length: 8 }).map((_, i) => (
+    <div className={`grid gap-4 ${GRID_CLASS[cols] ?? GRID_CLASS[2]}`}>
+      {Array.from({ length: count }).map((_, i) => (
         <div
           key={i}
           className="aspect-video animate-pulse rounded-2xl bg-ink-800 motion-reduce:animate-none"
@@ -94,8 +98,27 @@ export default function LivePage() {
   /* Panel kontrol dilipat di HP (tombol filter), selalu tampil di desktop. */
   const [filterOpen, setFilterOpen] = useState(false);
   const gridOpts = isDesktop ? GRID_OPTS_PC : GRID_OPTS_MOBILE;
-  /* Kunci dari perangkat lain tidak cocok: pakai default perangkat ini. */
-  const activeOpt = gridOpts.find((g) => g.key === gridKey) ?? gridOpts[1];
+  /* Pindah perangkat/rotasi: kunci dari perangkat lain dipetakan ke pilihan
+     yang setara (jumlah kamera HP ke kolom PC dan sebaliknya), bukan direset
+     ke default. Hanya kunci yang tidak dikenal sama sekali pakai default. */
+  const activeOpt = useMemo(() => {
+    const exact = gridOpts.find((g) => g.key === gridKey);
+    if (exact) return exact;
+    const pcToMobile: Record<string, string> = {
+      "1x1": "2",
+      "2x2": "4",
+      "3x3": "6",
+      "4x4": "9",
+    };
+    const mobileToPc: Record<string, string> = {
+      "2": "1x1",
+      "4": "2x2",
+      "6": "3x3",
+      "9": "4x4",
+    };
+    const mapped = isDesktop ? mobileToPc[gridKey] : pcToMobile[gridKey];
+    return gridOpts.find((g) => g.key === mapped) ?? gridOpts[1];
+  }, [gridOpts, gridKey, isDesktop]);
   const [focus, setFocus] = useState<Stream | null>(null);
 
   const load = useCallback(async () => {
@@ -370,7 +393,7 @@ export default function LivePage() {
                     strokeLinejoin="round"
                   />
                 </svg>
-                <span className="hidden min-[420px]:inline">Muat ulang</span>
+                <span>Muat ulang</span>
               </Button>
               <div
                 className="nv-scroll-x flex w-full items-center gap-1 overflow-x-auto rounded-full bg-ink-800 p-1 shadow-sm sm:w-auto"
@@ -383,7 +406,7 @@ export default function LivePage() {
                     role="tab"
                     aria-selected={filter === f.id}
                     onClick={() => setFilter(f.id)}
-                    className={`flex h-10 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm font-semibold transition-all duration-200 active:scale-95 sm:px-5 lg:flex-none ${
+                    className={`flex h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm font-semibold transition-all duration-200 active:scale-95 sm:px-5 lg:flex-none ${
                       filter === f.id
                         ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
                         : "text-neutral-400 hover:bg-ink-700 hover:text-slate-200"
@@ -409,7 +432,10 @@ export default function LivePage() {
 
         {/* Konten */}
         {fetching ? (
-          <SkeletonGrid />
+          <SkeletonGrid
+            cols={gridCols}
+            count={isDesktop ? gridCols * 2 : (activeOpt.count ?? 4)}
+          />
         ) : error ? (
           <div className="nv-panel-modern flex flex-col items-center gap-4 px-6 py-16 text-center">
             <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-bad-500/10">
@@ -479,7 +505,7 @@ export default function LivePage() {
         )}
       </div>
 
-      <FocusModal stream={focus} onClose={() => setFocus(null)} />
+      <FocusModal stream={focus} onClose={() => setFocus(null)} ad={ad} />
     </AppShell>
   );
 }

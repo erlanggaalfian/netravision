@@ -1,4 +1,4 @@
-/* Klien API — fetch wrapper dengan auto refresh token. */
+/* Klien API, fetch wrapper dengan auto refresh token. */
 
 const BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
@@ -29,7 +29,7 @@ export function clearTokens() {
 
 /* Penanda sesi guest: dipakai agar sesi guest yang mati (token kedaluwarsa
    / network blip / reload) bisa login ulang sendiri tanpa dilempar ke
-   halaman login — guest memang tanpa autentikasi apapun. */
+   halaman login, guest memang tanpa autentikasi apapun. */
 export function setGuestSession(isGuest: boolean) {
   if (typeof window === "undefined") return;
   if (isGuest) localStorage.setItem(GUEST_KEY, "1");
@@ -97,7 +97,7 @@ export async function apiFetch(
   const res = await fetch(`${BASE}${path}`, { ...init, headers });
   if (res.status === 401 && !retried) {
     // Sesi guest mati (token kedaluwarsa): login ulang diam-diam sebagai
-    // guest lalu ulangi sekali — guest tanpa autentikasi, jangan lempar
+    // guest lalu ulangi sekali, guest tanpa autentikasi, jangan lempar
     // pengguna ke halaman login. Sesi guest lama ditandai refresh "null".
     if (isGuestSession() || getRefreshToken() === "null") {
       try {

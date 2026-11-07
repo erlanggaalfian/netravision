@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { playWhep, stopWhep } from "../lib/whep";
-import { api, withToken } from "../lib/api";
+import { withToken } from "../lib/api";
 import { AdBanner } from "./AdBanner";
 import { Badge, Button } from "./ui";
 import { useFullscreen } from "../hooks/useFullscreen";
@@ -11,15 +11,18 @@ import type { Stream, AdConfig } from "../lib/types";
 interface Props {
   stream: Stream | null;
   onClose: () => void;
+  /* Config iklan dari halaman Live (sudah diambil sekali per halaman),
+     bukan fetch sendiri di sini. */
+  ad?: AdConfig | null;
 }
 
-/* Modal fokus — pola v2 (openCameraPopup): SUB dulu agar langsung tampil,
+/* Modal fokus, pola v2 (openCameraPopup): SUB dulu agar langsung tampil,
    lalu MAIN (HD) disambung di latar dan ditukar mulus begitu frame pertama
-   main siap. Main gagal -> tetap di SUB. Tombol LQ/HQ untuk ganti manual.
-   Banner iklan (bila aktif & diizinkan untuk akun ini) tampil lower-third,
-   seperti popup guest v2.0.
-   Visual: header rapi (status + nama + info stream), kontrol jelas ≥44px. */
-export function FocusModal({ stream, onClose }: Props) {
+   main siap. Main gagal, tetap di SUB. Tombol LQ/HQ untuk ganti manual.
+   Banner iklan (bila aktif dan diizinkan untuk akun ini) tampil di bawah
+   video (placement below), bukan overlay.
+   Visual: header rapi (status + nama + info stream), kontrol jelas 44px. */
+export function FocusModal({ stream, onClose, ad }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -33,7 +36,6 @@ export function FocusModal({ stream, onClose }: Props) {
     window.matchMedia("(min-width: 768px)").matches &&
     window.matchMedia("(pointer: fine)").matches;
   const [want, setWant] = useState<"LQ" | "HQ">(() => (isDesktop() ? "HQ" : "LQ"));
-  const [ad, setAd] = useState<AdConfig | null>(null);
   /* Sinyal iklan: hover stage + tiap klik stage (perilaku marquee hover/click). */
   const [stageHovered, setStageHovered] = useState(false);
   const [adClickTick, setAdClickTick] = useState(0);
@@ -42,23 +44,6 @@ export function FocusModal({ stream, onClose }: Props) {
     stageRef,
     videoRef,
   );
-
-  /* Config iklan: backend menonaktifkan otomatis bila show_ads=False. */
-  useEffect(() => {
-    if (!stream) return;
-    let cancelled = false;
-    api
-      .get<AdConfig>("/ad-config")
-      .then((c) => {
-        if (!cancelled) setAd(c);
-      })
-      .catch(() => {
-        /* iklan opsional; abaikan bila gagal */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [stream]);
 
   /* Default seperti v2: desktop (>=768px) HQ, HP LQ. Tombol LQ/HQ bisa
      mengganti di keduanya. Kamera berganti -> kembali ke default. */
@@ -223,7 +208,7 @@ export function FocusModal({ stream, onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-3 sm:p-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/70 p-3 sm:p-6"
       onClick={onClose}
     >
       <div
@@ -261,7 +246,11 @@ export function FocusModal({ stream, onClose }: Props) {
                 if (url && switchRef.current) switchRef.current(url, target);
               }}
               aria-label={quality === "HQ" ? "Ganti ke sub stream (LQ)" : "Ganti ke main stream (HD)"}
-              title={quality === "HQ" ? "Ganti ke sub stream (LQ)" : "Ganti ke main stream (HD)"}
+              title={
+                quality === "HQ"
+                  ? "Kualitas tinggi (main stream, HD). Klik untuk ganti ke kualitas rendah (sub stream, LQ)"
+                  : "Kualitas rendah (sub stream, LQ). Klik untuk ganti ke kualitas tinggi (main stream, HD)"
+              }
               className="h-11 min-w-11 px-3 text-xs font-bold tracking-wide"
             >
               {quality}
@@ -288,7 +277,7 @@ export function FocusModal({ stream, onClose }: Props) {
                   strokeLinejoin="round"
                 />
               </svg>
-              <span className="hidden min-[420px]:inline">Snapshot</span>
+              <span>Snapshot</span>
             </Button>
             <button
               onClick={onClose}

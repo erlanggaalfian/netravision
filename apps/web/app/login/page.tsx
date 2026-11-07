@@ -6,7 +6,7 @@ import { ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { ErrorBox } from "../../components/ui";
 
-/* Marka lensa — digambar murni SVG. */
+/* Marka lensa, digambar murni SVG. */
 function LensMark({ className = "" }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>

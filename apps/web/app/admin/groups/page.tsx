@@ -249,7 +249,7 @@ function GrantsModal({
   }
 
   return (
-    <Modal title={`Kamera grup — ${group.name}`} onClose={onClose} wide>
+    <Modal title={`Kamera grup: ${group.name}`} onClose={onClose} wide>
       {error && (
         <div className="mb-4">
           <ErrorBox message={error} />

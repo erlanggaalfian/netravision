@@ -33,8 +33,15 @@ interface MonitorLayout {
 const COLS_CLASS: Record<number, string> = {
   1: "grid-cols-1",
   2: "grid-cols-1 sm:grid-cols-2",
-  3: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3",
-  4: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4",
+  3: "grid-cols-1 sm:grid-cols-2 md:grid-cols-3",
+  4: "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4",
+};
+
+const MINI_COLS_CLASS: Record<number, string> = {
+  1: "grid-cols-1",
+  2: "grid-cols-2",
+  3: "grid-cols-3",
+  4: "grid-cols-4",
 };
 
 function loadLayouts(): MonitorLayout[] {
@@ -69,7 +76,8 @@ function Chevron({ open }: { open: boolean }) {
   );
 }
 
-/* Pratinjau mini isi layout: sel kecil per kamera + status, sisa diringkas +N. */
+/* Pratinjau mini isi layout: sel kecil per kamera + status, sisa diringkas +N.
+   Jumlah kolom mengikuti cols layout; tidak ada sel kosong. */
 function MiniPreview({
   layout,
   byId,
@@ -77,32 +85,44 @@ function MiniPreview({
   layout: MonitorLayout;
   byId: Map<number, Stream>;
 }) {
-  const cells = layout.streamIds.slice(0, 3);
-  const rest = layout.streamIds.length - cells.length;
+  const total = layout.streamIds.length;
+  const maxCells = layout.cols;
+  const shownCount = total > maxCells ? maxCells - 1 : total;
+  const cells = layout.streamIds.slice(0, shownCount);
+  const rest = total - cells.length;
+  const names = layout.streamIds
+    .map((id) => byId.get(id)?.name ?? "Tanpa nama")
+    .join(", ");
   return (
-    <div className="nv-stage mt-3 grid grid-cols-4 gap-1.5" aria-hidden>
+    <div
+      className={`nv-stage mt-3 grid gap-1.5 ${MINI_COLS_CLASS[layout.cols] ?? MINI_COLS_CLASS[2]}`}
+      aria-hidden
+      title={`${layout.name}: ${total} kamera${names ? `, ${names}` : ""}`}
+    >
       {cells.map((id) => {
         const s = byId.get(id);
         return (
           <div
             key={id}
+            title={s?.name ?? "Tanpa nama"}
             className="relative aspect-video overflow-hidden rounded-lg bg-ink-800"
           >
             <span
               className={`absolute left-1.5 top-1.5 h-1.5 w-1.5 rounded-full ${s?.is_online ? "bg-ok-400" : "bg-bad-400"}`}
             />
-            <span className="absolute inset-x-1.5 bottom-1 truncate text-[9px] text-neutral-400">
-              {s?.name ?? "—"}
+            <span className="absolute inset-x-1.5 bottom-1 truncate text-xs text-neutral-400">
+              {s?.name ?? "Tanpa nama"}
             </span>
           </div>
         );
       })}
-      {rest > 0 ? (
-        <div className="flex aspect-video items-center justify-center rounded-lg bg-ink-800 text-[11px] font-semibold text-neutral-300">
+      {rest > 0 && (
+        <div
+          title={`+${rest} kamera lagi`}
+          className="flex aspect-video items-center justify-center rounded-lg bg-ink-800 text-sm font-semibold text-neutral-300"
+        >
           +{rest}
         </div>
-      ) : (
-        <div className="aspect-video rounded-lg border border-dashed border-ink-700" />
       )}
     </div>
   );
@@ -119,6 +139,7 @@ function GroupSections({
   layoutIds,
   colsClass,
   onExpand,
+  onRetry,
   ad,
 }: {
   groups: { id: number; name: string; stream_ids: number[] }[] | null;
@@ -128,8 +149,18 @@ function GroupSections({
   layoutIds: number[];
   colsClass: string;
   onExpand: (s: Stream) => void;
+  onRetry: () => void;
   ad?: AdConfig | null;
 }) {
+  const [openSections, setOpenSections] = useState<Set<number>>(new Set());
+  const toggleSection = (id: number) => {
+    setOpenSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
   if (loading || groups === null) {
     return (
       <div className="flex items-center justify-center gap-2 py-16 text-sm text-neutral-400">
@@ -140,17 +171,21 @@ function GroupSections({
   }
   if (error) {
     return (
-      <div className="nv-panel-modern px-6 py-10 text-center text-sm text-neutral-400">
-        {error}
-        <p className="mt-1 text-xs text-neutral-400">
+      <div className="nv-panel-modern flex flex-col items-center gap-3 px-6 py-10 text-center text-sm text-neutral-400">
+        <p>{error}</p>
+        <p className="text-xs text-neutral-400">
           Mode grup membutuhkan akses admin.
         </p>
+        <Button variant="subtle" onClick={onRetry}>
+          Coba lagi
+        </Button>
       </div>
     );
   }
   const inLayout = new Set(layoutIds);
   const sections = groups
     .map((g) => ({
+      id: g.id,
       name: g.name,
       streams: g.stream_ids
         .filter((id) => inLayout.has(id))
@@ -163,7 +198,8 @@ function GroupSections({
     .filter((id) => !grouped.has(id))
     .map((id) => byId.get(id))
     .filter((s): s is Stream => !!s);
-  if (rest.length > 0) sections.push({ name: "Tanpa grup", streams: rest });
+  if (rest.length > 0)
+    sections.push({ id: 0, name: "Tanpa grup", streams: rest });
 
   if (sections.length === 0) {
     return (
@@ -174,22 +210,35 @@ function GroupSections({
   }
   return (
     <div className="flex flex-col gap-6">
-      {sections.map((sec) => (
-        <section key={sec.name}>
-          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
-            <span className="h-2 w-2 rounded-full bg-accent-400" />
-            {sec.name}
-            <span className="text-xs font-normal text-neutral-400">
-              {sec.streams.length} kamera
-            </span>
-          </h2>
-          <div className={`grid gap-4 ${colsClass}`}>
-            {sec.streams.map((s) => (
-              <CameraTile key={s.id} stream={s} onExpand={onExpand} ad={ad} />
-            ))}
-          </div>
-        </section>
-      ))}
+      {sections.map((sec) => {
+        const open = openSections.has(sec.id);
+        return (
+          <section key={sec.id}>
+            <button
+              type="button"
+              onClick={() => toggleSection(sec.id)}
+              aria-expanded={open}
+              className="mb-3 flex min-h-[44px] w-full cursor-pointer items-center gap-2 text-left active:scale-[0.99]"
+            >
+              <span className="h-2 w-2 shrink-0 rounded-full bg-accent-400" />
+              <span className="min-w-0 flex-1 truncate text-sm font-semibold text-white">
+                {sec.name}
+              </span>
+              <span className="shrink-0 text-xs font-normal text-neutral-400">
+                {sec.streams.length} kamera
+              </span>
+              <Chevron open={open} />
+            </button>
+            {open && (
+              <div className={`grid gap-4 ${colsClass}`}>
+                {sec.streams.map((s) => (
+                  <CameraTile key={s.id} stream={s} onExpand={onExpand} ad={ad} />
+                ))}
+              </div>
+            )}
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -213,12 +262,14 @@ export default function MonitorsPage() {
   const [groupsError, setGroupsError] = useState<string | null>(null);
   const [groupsLoading, setGroupsLoading] = useState(false);
   const [deleting, setDeleting] = useState<MonitorLayout | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const gridWrapRef = useRef<HTMLDivElement>(null);
 
   // form state
   const [formName, setFormName] = useState("");
   const [formCols, setFormCols] = useState(2);
   const [formIds, setFormIds] = useState<number[]>([]);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setFetching(true);
@@ -284,6 +335,7 @@ export default function MonitorsPage() {
     setFormName("");
     setFormCols(2);
     setFormIds([]);
+    setFormError(null);
     setEditing({ id: "", name: "", streamIds: [], cols: 2 });
   };
 
@@ -291,10 +343,14 @@ export default function MonitorsPage() {
     setFormName(l.name);
     setFormCols(l.cols);
     setFormIds([...l.streamIds]);
+    setFormError(null);
     setEditing(l);
   };
 
-  const cancelEdit = () => setEditing(null);
+  const cancelEdit = () => {
+    setEditing(null);
+    setFormError(null);
+  };
 
   const toggleId = (id: number) => {
     setFormIds((prev) =>
@@ -316,7 +372,19 @@ export default function MonitorsPage() {
 
   const saveForm = () => {
     const name = formName.trim();
-    if (!name || formIds.length === 0) return;
+    if (!name && formIds.length === 0) {
+      setFormError("Isi nama monitor dan pilih minimal satu kamera.");
+      return;
+    }
+    if (!name) {
+      setFormError("Isi nama monitor.");
+      return;
+    }
+    if (formIds.length === 0) {
+      setFormError("Pilih minimal satu kamera.");
+      return;
+    }
+    setFormError(null);
     const cols = Math.min(4, Math.max(1, formCols));
     if (editing && editing.id) {
       persist(
@@ -359,7 +427,7 @@ export default function MonitorsPage() {
       setGroupsError(
         e instanceof ApiError ? e.message : "Gagal memuat grup kamera",
       );
-      setGroups([]);
+      /* groups tetap null supaya gagal bisa coba lagi (toggle / tombol). */
     } finally {
       setGroupsLoading(false);
     }
@@ -381,6 +449,16 @@ export default function MonitorsPage() {
       el.requestFullscreen?.().catch(() => {});
     }
   };
+
+  /* Status layar penuh: label tombol mengikuti keadaan, termasuk bila
+     pengguna keluar lewat Esc atau tombol browser. */
+  useEffect(() => {
+    const onChange = () => {
+      setIsFullscreen(document.fullscreenElement === gridWrapRef.current);
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
 
   const openLayout = layouts.find((l) => l.id === openId) ?? null;
   const openStreams = openLayout
@@ -411,12 +489,12 @@ export default function MonitorsPage() {
           <div>
             <SectionTitle
               title={openLayout.name}
-              desc={`${openStreams.length} kamera · ${openLayout.cols} kolom${groupMode ? " · mode grup" : ""}`}
+              desc={`${openStreams.length} kamera · ${openLayout.cols} kolom${groupMode ? " · Mode grup" : ""}`}
               action={
-                <div className="flex items-center gap-2">
-                  <button
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="subtle"
                     onClick={() => setOpenId(null)}
-                    className="flex h-11 min-w-[44px] items-center justify-center rounded-full bg-ink-800 px-3 text-base text-neutral-200 shadow-sm transition hover:bg-ink-700 active:scale-95"
                     aria-label="Kembali ke daftar monitor"
                   >
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
@@ -428,19 +506,30 @@ export default function MonitorsPage() {
                         strokeLinejoin="round"
                       />
                     </svg>
-                  </button>
+                    Kembali
+                  </Button>
+                  <Button
+                    variant="subtle"
+                    onClick={() => {
+                      const l = openLayout;
+                      setOpenId(null);
+                      startEdit(l);
+                    }}
+                  >
+                    Ubah
+                  </Button>
                   <Button
                     variant={groupMode ? "primary" : "subtle"}
                     onClick={toggleGroupMode}
                     aria-pressed={groupMode}
                   >
-                    Grup
+                    Mode grup
                   </Button>
-                  <button
+                  <Button
+                    variant="subtle"
                     onClick={toggleFullscreen}
-                    className="flex h-11 items-center gap-2 rounded-full bg-ink-800 px-4 text-sm font-medium text-neutral-200 shadow-sm transition hover:bg-ink-700 active:scale-95"
-                    aria-label="Layar penuh"
-                    title="Layar penuh"
+                    aria-label={isFullscreen ? "Keluar layar penuh" : "Layar penuh"}
+                    title={isFullscreen ? "Keluar layar penuh" : "Layar penuh"}
                   >
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
                       <path
@@ -451,15 +540,29 @@ export default function MonitorsPage() {
                         strokeLinejoin="round"
                       />
                     </svg>
-                    <span className="hidden sm:inline">Layar penuh</span>
-                  </button>
+                    {isFullscreen ? "Keluar layar penuh" : "Layar penuh"}
+                  </Button>
                 </div>
               }
             />
-            <div ref={gridWrapRef} className="bg-ink-950">
+            <div
+              ref={gridWrapRef}
+              className="relative bg-transparent fullscreen:bg-ink-950"
+            >
+              {isFullscreen && (
+                <div className="absolute right-3 top-3 z-10">
+                  <Button variant="subtle" onClick={toggleFullscreen}>
+                    Keluar layar penuh
+                  </Button>
+                </div>
+              )}
               {fetching ? (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  {Array.from({ length: 4 }).map((_, i) => (
+                <div
+                  className={`grid gap-4 ${COLS_CLASS[openLayout.cols] ?? COLS_CLASS[2]}`}
+                >
+                  {Array.from({
+                    length: Math.min(Math.max(openLayout.streamIds.length, 1), 8),
+                  }).map((_, i) => (
                     <div
                       key={i}
                       className="aspect-video animate-pulse rounded-2xl bg-ink-800 motion-reduce:animate-none"
@@ -468,7 +571,7 @@ export default function MonitorsPage() {
                 </div>
               ) : openStreams.length === 0 ? (
                 <div className="nv-panel-modern p-8 text-center text-sm text-neutral-400">
-                  Tidak ada kamera yang cocok — mungkin kamera sudah dihapus.
+                  Tidak ada kamera yang cocok, mungkin kamera sudah dihapus.
                 </div>
               ) : groupMode ? (
                 <GroupSections
@@ -479,6 +582,7 @@ export default function MonitorsPage() {
                   layoutIds={openLayout.streamIds}
                   colsClass={COLS_CLASS[openLayout.cols] ?? COLS_CLASS[2]}
                   onExpand={setFocus}
+                  onRetry={loadGroups}
                   ad={ad}
                 />
               ) : (
@@ -509,17 +613,17 @@ export default function MonitorsPage() {
                 className="mb-5 h-11 w-full rounded-xl bg-ink-800 px-3.5 text-base text-white shadow-sm outline-none placeholder:text-neutral-400 focus:ring-2 focus:ring-accent-500/30"
               />
 
-              <div className="mb-1.5 text-sm font-medium text-neutral-300">
-                Jumlah kolom
-              </div>
-              <div className="mb-5 flex gap-2">
+              <div className="mb-5 flex flex-wrap items-center gap-2">
+                <span className="flex min-h-11 items-center text-sm font-medium text-neutral-300">
+                  Kolom:
+                </span>
                 {[1, 2, 3, 4].map((c) => (
                   <button
                     key={c}
                     onClick={() => setFormCols(c)}
                     aria-pressed={formCols === c}
-                    aria-label={`Grid ${c}x${c}`}
-                    title={`Grid ${c}x${c} (${c} kolom)`}
+                    aria-label={`${c} kolom`}
+                    title={`${c} kolom`}
                     className={`flex h-11 min-w-[52px] items-center justify-center rounded-full text-sm font-semibold transition active:scale-95 ${
                       formCols === c
                         ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
@@ -531,64 +635,65 @@ export default function MonitorsPage() {
                 ))}
               </div>
 
-              <div className="mb-1.5 flex items-center justify-between">
-                <span className="flex items-center gap-2">
+              <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                <span className="flex flex-wrap items-center gap-2">
                   <span className="text-sm font-medium text-neutral-300">
                     Pilih kamera ({formIds.length})
                   </span>
-                  <button
+                  <Button
                     type="button"
+                    variant="subtle"
                     onClick={() => setFormIds(streams.map((s) => s.id))}
-                    className="flex min-h-11 items-center rounded-xl bg-ink-800 px-3 text-xs font-semibold text-slate-200 transition hover:bg-ink-700 active:scale-[0.98]"
+                    disabled={streams.length === 0 || formIds.length === streams.length}
+                    className="min-h-11 px-3 text-xs"
                   >
                     Pilih semua
-                  </button>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="subtle"
+                    onClick={() => setFormIds([])}
+                    disabled={formIds.length === 0}
+                    className="min-h-11 px-3 text-xs"
+                  >
+                    Bersihkan
+                  </Button>
                 </span>
                 <span className="text-[11px] text-neutral-400">
                   Urutan bisa digeser
                 </span>
               </div>
               <div className="mb-5 flex max-h-72 flex-col gap-1.5 overflow-y-auto rounded-xl bg-ink-800 p-2 shadow-sm">
-                {[...streams]
-                  .sort((a, b) => {
-                    const ia = formIds.indexOf(a.id);
-                    const ib = formIds.indexOf(b.id);
-                    if (ia >= 0 && ib >= 0) return ia - ib;
-                    if (ia >= 0) return -1;
-                    if (ib >= 0) return 1;
-                    return a.name.localeCompare(b.name);
-                  })
-                  .map((s) => {
+                {streams.map((s) => {
                   const checked = formIds.includes(s.id);
                   return (
-                    <label
+                    <div
                       key={s.id}
-                      className={`flex cursor-pointer items-center gap-3 rounded-xl px-3.5 py-3 transition active:scale-[0.99] ${
+                      className={`flex items-center gap-3 rounded-xl px-3.5 py-3 transition active:scale-[0.99] ${
                         checked
                           ? "bg-accent-600/15"
                           : "hover:bg-ink-700"
                       }`}
                     >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleId(s.id)}
-                        className="h-5 w-5 shrink-0 accent-accent-500"
-                      />
-                      <span
-                        className={`h-2 w-2 shrink-0 rounded-full ${s.is_online ? "bg-ok-400" : "bg-bad-400"}`}
-                      />
-                      <span className="min-w-0 flex-1 truncate text-sm text-neutral-200">
-                        {s.name}
-                      </span>
+                      <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleId(s.id)}
+                          className="h-5 w-5 shrink-0 accent-accent-500"
+                        />
+                        <span
+                          className={`h-2 w-2 shrink-0 rounded-full ${s.is_online ? "bg-ok-400" : "bg-bad-400"}`}
+                        />
+                        <span className="min-w-0 flex-1 truncate text-sm text-neutral-200">
+                          {s.name}
+                        </span>
+                      </label>
                       {checked && (
                         <span className="flex shrink-0 items-center gap-1">
                           <button
                             type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              moveId(s.id, -1);
-                            }}
+                            onClick={() => moveId(s.id, -1)}
                             disabled={formIds.indexOf(s.id) === 0}
                             className="flex h-11 w-11 items-center justify-center rounded-lg bg-ink-700 text-neutral-300 transition hover:bg-ink-600 active:scale-95 disabled:opacity-30"
                             aria-label={`Geser ${s.name} ke atas`}
@@ -605,10 +710,7 @@ export default function MonitorsPage() {
                           </button>
                           <button
                             type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              moveId(s.id, 1);
-                            }}
+                            onClick={() => moveId(s.id, 1)}
                             disabled={formIds.indexOf(s.id) === formIds.length - 1}
                             className="flex h-11 w-11 items-center justify-center rounded-lg bg-ink-700 text-neutral-300 transition hover:bg-ink-600 active:scale-95 disabled:opacity-30"
                             aria-label={`Geser ${s.name} ke bawah`}
@@ -625,7 +727,7 @@ export default function MonitorsPage() {
                           </button>
                         </span>
                       )}
-                    </label>
+                    </div>
                   );
                 })}
                 {streams.length === 0 && !fetching && (
@@ -635,15 +737,16 @@ export default function MonitorsPage() {
                 )}
               </div>
 
+              {formError && (
+                <div className="mb-4">
+                  <ErrorBox message={formError} />
+                </div>
+              )}
               <div className="flex gap-2">
                 <Button variant="subtle" onClick={cancelEdit} className="flex-1">
                   Batal
                 </Button>
-                <Button
-                  onClick={saveForm}
-                  disabled={!formName.trim() || formIds.length === 0}
-                  className="flex-1"
-                >
+                <Button onClick={saveForm} className="flex-1">
                   Simpan
                 </Button>
               </div>
@@ -659,7 +762,7 @@ export default function MonitorsPage() {
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
                     <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
                   </svg>
-                  Baru
+                  Monitor baru
                 </Button>
               }
             />
@@ -694,25 +797,28 @@ export default function MonitorsPage() {
                   Belum ada monitor tersimpan
                 </div>
                 <p className="max-w-xs text-xs leading-relaxed text-neutral-400">
-                  Buat tata letak kisi kamera favoritmu — tersimpan di perangkat
+                  Buat tata letak kisi kamera favoritmu, tersimpan di perangkat
                   ini.
                 </p>
                 <Button onClick={startCreate} className="mt-1">
-                  Buat monitor pertama
+                  Monitor baru
                 </Button>
               </div>
             ) : (
               <div className="flex flex-col gap-3">
                 {layouts.map((l) => {
                   const expanded = expandedId === l.id;
-                  const count = l.streamIds.length;
-                  const onlineN = l.streamIds.filter((id) => byId.get(id)?.is_online).length;
+                  const existing = l.streamIds
+                    .map((id) => byId.get(id))
+                    .filter((s): s is Stream => !!s);
+                  const count = existing.length;
+                  const onlineN = existing.filter((s) => s.is_online).length;
                   return (
                     <div
                       key={l.id}
                       className="nv-panel-modern overflow-hidden"
                     >
-                      {/* Baris ringkasan + pratinjau — collapsed-first di mobile */}
+                      {/* Baris ringkasan + pratinjau, collapsed-first di mobile */}
                       <button
                         onClick={() => setExpandedId(expanded ? null : l.id)}
                         aria-expanded={expanded}
@@ -733,7 +839,7 @@ export default function MonitorsPage() {
                         </div>
                         <MiniPreview layout={l} byId={byId} />
                       </button>
-                      {/* Aksi — hanya setelah expand */}
+                      {/* Aksi, hanya setelah expand */}
                       {expanded && (
                         <div className="flex gap-2 border-t border-ink-800 px-4 py-3 sm:px-5">
                           <Button onClick={() => setOpenId(l.id)} className="flex-1">
@@ -756,7 +862,7 @@ export default function MonitorsPage() {
         )}
       </div>
 
-      <FocusModal stream={focus} onClose={() => setFocus(null)} />
+      <FocusModal stream={focus} onClose={() => setFocus(null)} ad={ad} />
 
       {deleting && (
         <ConfirmModal

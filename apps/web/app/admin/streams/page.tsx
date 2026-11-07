@@ -153,11 +153,11 @@ function StreamRow({
       <dt className="text-slate-400">Penyimpanan</dt>
       <dd className="text-right font-medium text-slate-200">{STORAGE_LABEL[s.storage_mode] ?? s.storage_mode}</dd>
       <dt className="text-slate-400">Grup</dt>
-      <dd className="text-right font-medium text-slate-200">{groups.length > 0 ? groups.join(", ") : "—"}</dd>
+      <dd className="text-right font-medium text-slate-200">{groups.length > 0 ? groups.join(", ") : "-"}</dd>
       <dt className="text-slate-400">Rekaman</dt>
       <dd className="text-right font-medium text-slate-200">{s.recording_enabled ? "Aktif" : "Mati"}</dd>
       <dt className="text-slate-400">Terakhir terlihat</dt>
-      <dd className="text-right font-medium text-slate-200">{s.last_seen_at ? new Date(s.last_seen_at).toLocaleString("id-ID") : "—"}</dd>
+      <dd className="text-right font-medium text-slate-200">{s.last_seen_at ? new Date(s.last_seen_at).toLocaleString("id-ID") : "-"}</dd>
     </dl>
   );
   return (
@@ -238,7 +238,7 @@ export default function AdminStreamsPage() {
 
   useEffect(() => {
     load();
-    /* Akun Drive opsional — sembunyikan field bila gagal dimuat. */
+    /* Akun Drive opsional, sembunyikan field bila gagal dimuat. */
     api.get<{ folders: DriveFolder[] }>("/admin/storage/google-drive").then((d) => setDriveFolders(d.folders ?? [])).catch(() => {});
     loadGroups();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -972,7 +972,7 @@ function AddStreamModal({
             Simpan rekaman ke disk
           </label>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <NBField label="Retensi (hari)" hint="1–365">
+            <NBField label="Retensi (hari)" hint="1-365">
               <NBInput
                 inputMode="numeric"
                 value={retentionDays}
@@ -1010,7 +1010,7 @@ function AddStreamModal({
         {results && (
           <div className="space-y-2">
             <p className="text-sm font-medium text-slate-300">
-              Path RTSP — pilih satu untuk dijadikan main:
+              Path RTSP, pilih satu untuk dijadikan main:
             </p>
             <div className="max-h-72 space-y-1.5 overflow-y-auto">
               {[
@@ -1163,7 +1163,7 @@ function EditStreamModal({
             Simpan rekaman ke disk
           </label>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <NBField label="Retensi (hari)" hint="1–365">
+            <NBField label="Retensi (hari)" hint="1-365">
               <NBInput
                 inputMode="numeric"
                 value={retentionDays}

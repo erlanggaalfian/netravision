@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { createRoot } from "react-dom/client";
 import "leaflet/dist/leaflet.css";
@@ -13,43 +14,126 @@ import { isAdminRole, useAuth } from "../../lib/auth";
 import { useCameraStatus } from "../../hooks/useCameraStatus";
 import type { Stream } from "../../lib/types";
 
-/* Peta kamera (Leaflet, client-only — aman untuk static export).
+/* Peta kamera (Leaflet, client-only, aman untuk static export).
    Marker: hijau = online, merah = offline.
    Admin bisa drag marker → PUT /api/admin/streams/{id} {latitude, longitude}. */
 
 const DEFAULT_CENTER: [number, number] = [-2.5, 118];
 const DEFAULT_ZOOM = 5;
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
 function markerIcon(L: typeof LType, online: boolean): LType.DivIcon {
   const color = online ? "var(--nv-ok-400)" : "var(--nv-bad-400)";
   const size = L.Browser.touch ? 28 : 20; // lebih besar di layar sentuh
-  const half = size / 2;
+  const hit = 44; // area sentuh minimum 44px, titik visual tetap di tengah
+  const half = hit / 2;
   return L.divIcon({
     className: "nv-marker",
-    html: `<span style="display:block;width:${size}px;height:${size}px;border-radius:9999px;background:${color};border:3px solid var(--nv-ink-950);box-shadow:0 0 0 2px ${color}, 0 2px 8px rgba(0,0,0,.55)"></span>`,
-    iconSize: [size, size],
+    html: `<span style="display:flex;width:${hit}px;height:${hit}px;align-items:center;justify-content:center"><span style="display:block;width:${size}px;height:${size}px;border-radius:9999px;background:${color};border:3px solid var(--nv-ink-950);box-shadow:0 0 0 2px ${color}, 0 2px 8px rgba(0,0,0,.55)"></span></span>`,
+    iconSize: [hit, hit],
     iconAnchor: [half, half],
     popupAnchor: [0, -half - 1],
   });
 }
 
-function popupHtml(s: Stream): string {
-  const sub = s.brand ? escapeHtml(s.brand) : "";
-  return `
-    <div style="min-width:170px">
-      <div style="font-weight:700;font-size:14px;color:var(--nv-white);margin-bottom:2px">${escapeHtml(s.name)}</div>
-      ${sub ? `<div style="font-size:11px;color:var(--nv-neutral-400,#a3a3a3);margin-bottom:6px">${sub}</div>` : `<div style="margin-bottom:6px"></div>`}
-      <div style="font-size:11px;font-weight:600;margin-bottom:10px;color:${s.is_online ? "var(--nv-ok-400)" : "var(--nv-bad-400)"}">${s.is_online ? "● Online" : "● Offline"}</div>
+/* Isi popup marker sebagai React (bukan template string HTML). */
+function MarkerPopup({
+  s,
+  onClose,
+  onLive,
+}: {
+  s: Stream;
+  onClose: () => void;
+  onLive: () => void;
+}) {
+  const coords =
+    s.latitude != null && s.longitude != null
+      ? `${s.latitude.toFixed(5)}, ${s.longitude.toFixed(5)}`
+      : null;
+  return (
+    <div className="min-w-[170px]">
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-bold text-white">{s.name}</div>
+          {s.brand ? (
+            <div className="mt-0.5 truncate text-xs text-neutral-400">{s.brand}</div>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Tutup popup"
+          className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-neutral-400 transition-colors hover:bg-ink-800 hover:text-white"
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+            <path
+              d="M2 2l10 10M12 2L2 12"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+      </div>
+      <div
+        className={`mb-2.5 text-xs font-semibold ${s.is_online ? "text-ok-400" : "text-bad-400"}`}
+      >
+        {s.is_online ? "● Online" : "● Offline"}
+      </div>
+      {coords ? (
+        <div className="mb-3 text-xs text-neutral-400">{coords}</div>
+      ) : null}
+      <Button variant="primary" className="w-full" onClick={onLive}>
+        Lihat live
+      </Button>
     </div>
-  `;
+  );
+}
+
+/* Panel samping: akordion collapsed-first di HP, selalu terbuka di desktop. */
+function SideAccordion({
+  title,
+  count,
+  children,
+}: {
+  title: string;
+  count: number;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Card className="!rounded-xl !p-4 nv-panel-modern">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex min-h-[44px] w-full cursor-pointer items-center justify-between gap-3 text-left md:cursor-default"
+      >
+        <h2 className="text-[15px] font-extrabold tracking-tight text-white">{title}</h2>
+        <span className="flex shrink-0 items-center gap-2">
+          <span className="rounded-full bg-ink-800 px-2.5 py-0.5 text-xs font-medium text-neutral-400 shadow-sm">
+            {count}
+          </span>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden
+            className={`shrink-0 text-neutral-400 transition-transform duration-200 md:hidden ${open ? "rotate-180" : ""}`}
+          >
+            <path
+              d="M4 6l4 4 4-4"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </span>
+      </button>
+      <div className={`${open ? "mt-3 block" : "hidden"} md:mt-3 md:block`}>{children}</div>
+    </Card>
+  );
 }
 
 export default function MapsPage() {
@@ -110,7 +194,7 @@ export default function MapsPage() {
       const map = L.map(containerRef.current, {
         center: DEFAULT_CENTER,
         zoom: DEFAULT_ZOOM,
-        zoomControl: true,
+        zoomControl: false, // kontrol zoom React sendiri (44px) di wadah kiri atas
       });
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution:
@@ -177,21 +261,16 @@ export default function MapsPage() {
       });
 
       const el = document.createElement("div");
-      el.innerHTML = popupHtml(s);
-      const btnHost = document.createElement("div");
-      el.appendChild(btnHost);
-      const popupRoot = createRoot(btnHost);
+      const popupRoot = createRoot(el);
       popupRoot.render(
-        <Button
-          variant="primary"
-          className="w-full"
-          onClick={() => {
+        <MarkerPopup
+          s={s}
+          onClose={() => map.closePopup()}
+          onLive={() => {
             map.closePopup();
             focusRef.current(s);
           }}
-        >
-          Lihat live
-        </Button>,
+        />,
       );
       popupRoots.push(popupRoot);
       marker.bindPopup(el, { closeButton: false });
@@ -310,8 +389,8 @@ export default function MapsPage() {
         setLocating(false);
         flashLocate(
           err.code === err.PERMISSION_DENIED
-            ? "Izin lokasi ditolak — aktifkan izin lokasi untuk situs ini"
-            : "Posisi tidak ditemukan — coba lagi",
+            ? "Izin lokasi ditolak, aktifkan izin lokasi untuk situs ini"
+            : "Posisi tidak ditemukan, coba lagi",
         );
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
@@ -325,20 +404,16 @@ export default function MapsPage() {
         .leaflet-popup-content-wrapper { background: var(--nv-ink-900); color: var(--nv-white); border-radius: 16px; border: 1px solid var(--nv-ink-700); box-shadow: 0 12px 32px -8px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06); }
         .leaflet-popup-content { margin: 14px 16px; line-height: 1.4; }
         .leaflet-popup-tip { background: var(--nv-ink-900); }
-        .leaflet-bar { border: 1px solid var(--nv-ink-700) !important; border-radius: 999px !important; overflow: hidden; background: var(--nv-ink-900) !important; box-shadow: 0 4px 16px -4px rgba(2,6,23,0.4), inset 0 1px 0 rgba(255,255,255,0.06) !important; }
-        .leaflet-bar a { width: 28px !important; height: 28px !important; line-height: 28px !important; font-size: 15px !important; background: transparent !important; color: var(--nv-white) !important; border-bottom: 1px solid var(--nv-ink-700) !important; }
-        .leaflet-bar a:last-child { border-bottom: 0 !important; }
-        .leaflet-bar a:hover { background: var(--nv-ink-800) !important; }
-        [data-theme="light"] .leaflet-bar { border-color: var(--nv-ink-700) !important; background: var(--nv-ink-900) !important; box-shadow: 0 4px 16px -4px rgba(30,50,90,0.18), inset 0 1px 0 rgba(255,255,255,0.8) !important; }
-        [data-theme="light"] .leaflet-bar a { border-bottom-color: var(--nv-ink-700) !important; }
-        [data-theme="light"] .leaflet-bar a:hover { background: var(--nv-ink-800) !important; }
         [data-theme="light"] .leaflet-popup-content-wrapper { box-shadow: 0 12px 32px -12px rgba(15,23,42,0.25), inset 0 1px 0 rgba(255,255,255,0.8); }
-        @media (max-width: 767px) { .leaflet-top .leaflet-control-zoom { margin-top: 54px !important; } }
       `}</style>
       <div className="px-4 pt-5 md:px-5 md:pt-7">
         <SectionTitle
           title="Peta Kamera"
-          desc="Lokasi semua kamera. Seret marker untuk memindahkan posisi (admin)."
+          desc={
+            isAdmin
+              ? "Lokasi semua kamera. Seret marker untuk memindahkan posisi (admin)."
+              : "Lokasi semua kamera."
+          }
           action={
             <div className="relative w-full sm:w-80">
               <svg
@@ -385,35 +460,64 @@ export default function MapsPage() {
               Seret marker untuk memindahkan posisi kamera
             </div>
           )}
-          <button
-            type="button"
-            onClick={locateMe}
-            disabled={locating}
-            aria-label="Tunjukkan lokasi saya"
-            title="Lokasi saya"
-            className="nv-frost absolute left-2.5 top-[120px] z-10 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full text-neutral-200 transition-transform duration-150 active:scale-95 disabled:opacity-70 md:top-[76px]"
+          {/* Kontrol peta kiri atas: zoom, lokasi saya, dan pesan hasil
+              dalam satu wadah bertumpuk (tanpa angka posisi tetap).
+              Di HP untuk admin wadah turun sedikit supaya tidak menutupi
+              pil petunjuk "Seret marker" di tengah atas. */}
+          <div
+            className={`absolute left-2.5 z-10 flex flex-col items-start gap-2.5 ${isAdmin ? "top-14 md:top-2.5" : "top-2.5"}`}
           >
-            {locating ? (
-              <svg className="animate-spin" width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-                <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.5" opacity="0.25" />
-                <path d="M21 12a9 9 0 00-9-9" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-              </svg>
-            ) : (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-                <circle cx="12" cy="12" r="6.5" />
-                <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
-                <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
-              </svg>
-            )}
-          </button>
-          {locateMsg && (
-            <div className="nv-frost absolute left-2.5 top-[172px] z-10 max-w-[240px] rounded-2xl px-3 py-2 text-[11px] leading-snug text-neutral-200 md:top-[128px]">
-              {locateMsg}
+            <div className="nv-frost flex flex-col overflow-hidden rounded-full">
+              <button
+                type="button"
+                onClick={() => mapRef.current?.zoomIn()}
+                aria-label="Perbesar peta"
+                title="Perbesar"
+                className="flex h-11 w-11 cursor-pointer items-center justify-center text-lg font-bold text-white transition-colors hover:bg-ink-800"
+              >
+                +
+              </button>
+              <span className="h-px bg-ink-700" aria-hidden />
+              <button
+                type="button"
+                onClick={() => mapRef.current?.zoomOut()}
+                aria-label="Perkecil peta"
+                title="Perkecil"
+                className="flex h-11 w-11 cursor-pointer items-center justify-center text-lg font-bold text-white transition-colors hover:bg-ink-800"
+              >
+                -
+              </button>
             </div>
-          )}
+            <button
+              type="button"
+              onClick={locateMe}
+              disabled={locating}
+              aria-label="Tunjukkan lokasi saya"
+              title="Lokasi saya"
+              className="nv-frost flex h-11 w-11 cursor-pointer items-center justify-center rounded-full text-neutral-200 transition-transform duration-150 active:scale-95 disabled:opacity-70"
+            >
+              {locating ? (
+                <svg className="animate-spin" width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.5" opacity="0.25" />
+                  <path d="M21 12a9 9 0 00-9-9" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                  <circle cx="12" cy="12" r="6.5" />
+                  <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+                  <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+                </svg>
+              )}
+            </button>
+            {locateMsg && (
+              <div className="nv-frost max-w-[240px] rounded-2xl px-3 py-2 text-xs leading-snug text-neutral-200">
+                {locateMsg}
+              </div>
+            )}
+          </div>
           <div className="nv-frost absolute bottom-3 left-3 z-10 rounded-xl px-4 py-3">
             <div className="mb-2 text-xs font-bold text-white">Legenda</div>
-            <div className="flex items-center gap-3 text-[11px] font-medium text-neutral-300">
+            <div className="flex items-center gap-3 text-xs font-medium text-neutral-300">
               <span className="flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full bg-ok-400" /> Online
               </span>
@@ -429,15 +533,7 @@ export default function MapsPage() {
           {error && <ErrorBox message={error} />}
           {saveError && <ErrorBox message={saveError} />}
 
-          <Card className="!rounded-xl !p-4 nv-panel-modern">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-[15px] font-extrabold tracking-tight text-white">
-                Belum dipetakan
-              </h2>
-              <span className="rounded-full bg-ink-800 px-2.5 py-0.5 text-[11px] font-medium text-neutral-400 shadow-sm">
-                {unmappedShown.length}
-              </span>
-            </div>
+          <SideAccordion title="Belum dipetakan" count={unmappedShown.length}>
             {unmappedShown.length === 0 ? (
               <div className="rounded-xl bg-ink-800 px-4 py-6 text-center text-xs leading-relaxed text-neutral-400 shadow-sm">
                 {q ? "Tidak ada yang cocok." : "Semua kamera sudah punya posisi."}
@@ -449,11 +545,11 @@ export default function MapsPage() {
                     key={s.id}
                     className="flex min-h-[44px] items-center justify-between gap-2 rounded-xl bg-ink-800 px-4 py-2 shadow-sm"
                   >
-                    <div className="flex min-w-0 items-center gap-2.5">
+                    <div className="flex min-w-0 flex-1 items-center gap-2.5">
                       <span
                         className={`h-2 w-2 shrink-0 rounded-full ${s.is_online ? "bg-ok-400" : "bg-bad-400"}`}
                       />
-                      <span className="truncate text-sm text-neutral-200">
+                      <span className="min-w-0 flex-1 truncate text-sm text-neutral-200">
                         {s.name}
                       </span>
                     </div>
@@ -472,19 +568,13 @@ export default function MapsPage() {
               </ul>
             )}
             {isAdmin && unmappedShown.length > 0 && (
-              <p className="mt-3 text-[11px] leading-relaxed text-neutral-400">
+              <p className="mt-3 text-xs leading-relaxed text-neutral-400">
                 Geser peta ke lokasi kamera, lalu tekan “Tengah peta”.
               </p>
             )}
-          </Card>
+          </SideAccordion>
 
-          <Card className="!rounded-xl !p-4 nv-panel-modern">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-[15px] font-extrabold tracking-tight text-white">Di peta</h2>
-              <span className="rounded-full bg-ink-800 px-2.5 py-0.5 text-[11px] font-medium text-neutral-400 shadow-sm">
-                {mappedShown.length}
-              </span>
-            </div>
+          <SideAccordion title="Di peta" count={mappedShown.length}>
             {mappedShown.length === 0 ? (
               <div className="rounded-xl bg-ink-800 px-4 py-6 text-center text-xs leading-relaxed text-neutral-400 shadow-sm">
                 {q ? "Tidak ada yang cocok." : "Belum ada kamera yang dipetakan."}
@@ -530,7 +620,7 @@ export default function MapsPage() {
                 ))}
               </ul>
             )}
-          </Card>
+          </SideAccordion>
         </div>
       </div>
 
