@@ -428,7 +428,7 @@ export function GridIcon({ cols, size = 16 }: { cols: number; size?: number }) {
       aria-hidden
     >
       {Array.from({ length: cols * cols }).map((_, i) => (
-        <span key={i} className="rounded-[1px] bg-currentColor" />
+        <span key={i} className="rounded-[1px] bg-current" />
       ))}
     </span>
   );
