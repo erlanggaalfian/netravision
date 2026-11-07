@@ -100,8 +100,10 @@ function IconBtn({
   );
 }
 
-/* Tombol ghost ala mockup: hanya teks redup, latar muncul saat hover. */
-function GhostBtn({
+/* Tombol kecil ber-border (Ubah grup, Akses Kamera). Dulu gaya ghost
+   tanpa border, tapi di HP (tanpa hover) teksnya tidak terlihat seperti
+   tombol, jadi diberi border + latar supaya jelas bisa diketuk. */
+function MiniBtn({
   onClick,
   className = "",
   children,
@@ -114,7 +116,7 @@ function GhostBtn({
     <button
       type="button"
       onClick={onClick}
-      className={`shrink-0 cursor-pointer whitespace-nowrap rounded px-1 py-1 text-xs font-medium text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-200 sm:text-sm ${className}`}
+      className={`inline-flex shrink-0 cursor-pointer items-center whitespace-nowrap rounded-md border border-ink-700 bg-ink-800 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:border-ink-700 hover:bg-ink-700 hover:text-slate-200 sm:text-sm ${className}`}
     >
       {children}
     </button>
@@ -322,7 +324,7 @@ export default function AdminUsersPage() {
         {/* Superadmin selalu mendapat akses ke semua kamera,
             jadi tidak ada pengaturan Akses Kamera untuknya. */}
         {u.role !== "super_admin" && (
-          <GhostBtn onClick={() => setAccessFor(u)}>Akses Kamera</GhostBtn>
+          <MiniBtn onClick={() => setAccessFor(u)}>Akses Kamera</MiniBtn>
         )}
         <span className="flex items-center gap-1.5">
           <IconBtn label="Ubah" onClick={() => setEditing(u)}>
@@ -637,22 +639,22 @@ export default function AdminUsersPage() {
                   </div>
                   <div className="flex shrink-0 items-center gap-3 sm:gap-4">
                     {/* Ubah grup + Akses Kamera: hanya di desktop; di HP pindah ke bar detail. */}
-                    <GhostBtn
+                    <MiniBtn
                       className="hidden md:block"
                       onClick={() => setGroupEdit({ name, members })}
                     >
                       Ubah grup
-                    </GhostBtn>
+                    </MiniBtn>
                     {/* Akses grup hanya saat grup terbuka (ala Stitch):
                         saat tertutup hanya Ubah grup + chevron. */}
                     {open && (
-                      <GhostBtn
+                      <MiniBtn
                         className="hidden md:block"
                         onClick={() => setGroupAccess({ name, members })}
                       >
                         <span className="hidden sm:inline">Akses Kamera</span>
                         <span className="sm:hidden">Akses</span>
-                      </GhostBtn>
+                      </MiniBtn>
                     )}
                     <button
                       onClick={() => toggleGroup(name)}
@@ -687,12 +689,12 @@ export default function AdminUsersPage() {
                       Iklan: {allAds ? "Ya" : "Tidak"}
                     </NBBadge>
                     <div className="flex shrink-0 items-center gap-1">
-                      <GhostBtn onClick={() => setGroupEdit({ name, members })}>
+                      <MiniBtn onClick={() => setGroupEdit({ name, members })}>
                         Ubah grup
-                      </GhostBtn>
-                      <GhostBtn onClick={() => setGroupAccess({ name, members })}>
+                      </MiniBtn>
+                      <MiniBtn onClick={() => setGroupAccess({ name, members })}>
                         Akses Kamera
-                      </GhostBtn>
+                      </MiniBtn>
                     </div>
                   </div>
                 )}
