@@ -413,24 +413,42 @@ export function Spinner() {
   );
 }
 
-/* Ikon grid mini: persegi panjang (rasio 4:3, seperti tile video) sesuai
-   jumlah kolom (1×1, 2×2, 3×3, 4×4) dengan jarak rapat dan sudut
-   tajam. Dipakai tombol pemilih grid di Live dan Putar Ulang (PC). */
+/* Ikon grid mini (SVG): satu kotak luar 24x18 yang tetap untuk semua
+   pilihan, dibagi rata menjadi 1 / 2x2 / 3x3 / 4x4 sel persegi panjang
+   (rasio ~4:3, seperti tile video) yang persis sama besar. SVG dipakai
+   supaya sel pecahan piksel tetap terbagi rata (grid CSS membulatkan
+   tiap sel dan membuat ukurannya tidak sama). Dipakai tombol pemilih
+   grid di Live dan Putar Ulang (PC). */
 export function GridIcon({ cols, size = 18 }: { cols: number; size?: number }) {
+  const W = 24;
+  const H = 18;
+  const g = 1;
+  const cw = (W - (cols - 1) * g) / cols;
+  const ch = (H - (cols - 1) * g) / cols;
+  const cells = [];
+  for (let r = 0; r < cols; r++) {
+    for (let c = 0; c < cols; c++) {
+      cells.push(
+        <rect
+          key={`${r}-${c}`}
+          x={c * (cw + g)}
+          y={r * (ch + g)}
+          width={cw}
+          height={ch}
+          fill="currentColor"
+        />,
+      );
+    }
+  }
   return (
-    <span
-      className="grid shrink-0"
-      style={{
-        gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-        gap: cols === 1 ? 0 : 1,
-        width: size,
-      }}
+    <svg
+      width={size}
+      height={(size * H) / W}
+      viewBox={`0 0 ${W} ${H}`}
       aria-hidden
     >
-      {Array.from({ length: cols * cols }).map((_, i) => (
-        <span key={i} className="aspect-[4/3] bg-current" />
-      ))}
-    </span>
+      {cells}
+    </svg>
   );
 }
 
