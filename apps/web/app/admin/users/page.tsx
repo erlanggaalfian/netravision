@@ -165,7 +165,9 @@ export default function AdminUsersPage() {
 
   function actionsFor(u: User) {
     return (
-      <div className="flex flex-wrap gap-2">
+      /* Kolom aksi selebar tetap di desktop agar sejajar lurus dengan
+         baris grup dan baris lepas lainnya (tepi kanan sama). */
+      <div className="flex flex-wrap gap-2 md:w-[300px] md:flex-nowrap md:justify-end">
         {/* Superadmin selalu mendapat akses ke semua kamera,
             jadi tidak ada pengaturan Akses Kamera untuknya. */}
         {u.role !== "super_admin" && (
@@ -212,22 +214,24 @@ export default function AdminUsersPage() {
   }
 
   function renderUser(u: User) {
+    /* Nama + lencana satu garis horizontal dengan checkbox (items-center),
+       keterangan sekunder di bawahnya sejajar nama (pl-8). */
     const summary = (
-      <span className="flex min-w-0 flex-1 items-center gap-3">
-        {checkboxFor(u)}
-        <span className="min-w-0 flex-1">
-          <span className="block truncate font-medium text-white">
+      <span className="min-w-0 flex-1">
+        <span className="flex min-w-0 items-center gap-3">
+          {checkboxFor(u)}
+          <span className="min-w-0 flex-1 truncate font-semibold text-white">
             {u.username}
           </span>
-          <span className="mt-0.5 flex flex-wrap gap-1">
+          <span className="flex shrink-0 flex-wrap items-center gap-1">
             {roleBadge(u)}
             <NBBadge tone={u.show_ads ? "ok" : "muted"}>
               Iklan: {u.show_ads ? "Ya" : "Tidak"}
             </NBBadge>
           </span>
-          <span className="mt-1 block text-xs text-slate-400">
-            Dibuat oleh: {u.dibuat_oleh ?? "—"}
-          </span>
+        </span>
+        <span className="mt-1 block pl-8 text-xs text-slate-400">
+          Dibuat oleh: {u.dibuat_oleh ?? "—"}
         </span>
       </span>
     );
@@ -247,28 +251,32 @@ export default function AdminUsersPage() {
     );
   }
 
-  /* Anggota grup: baris datar di dalam kartu grupnya (tanpa kartu
-     bersarang), dipisah garis halus; aksi tampil langsung, HP menumpuk
-     di bawah nama, desktop sejajar kanan seperti baris lepas. */
+  /* Anggota grup: kartu sendiri (bg-ink-900: putih di tema terang)
+     di dalam kartu grupnya, bukan baris datar di latar yang sama;
+     aksi tampil langsung, HP menumpuk di bawah nama, desktop sejajar
+     kanan seperti baris lepas. */
   function renderMember(u: User) {
     return (
-      <div key={u.id} className="py-3">
+      <div
+        key={u.id}
+        className="rounded-xl bg-ink-900 px-4 py-3 shadow-sm"
+      >
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            {checkboxFor(u)}
-            <span className="min-w-0">
-              <span className="block truncate font-medium text-white">
+          <span className="min-w-0 flex-1">
+            <span className="flex min-w-0 items-center gap-3">
+              {checkboxFor(u)}
+              <span className="min-w-0 flex-1 truncate font-semibold text-white">
                 {u.username}
               </span>
-              <span className="mt-0.5 flex flex-wrap gap-1">{roleBadge(u)}</span>
-              <span className="mt-1 block text-xs text-slate-400">
-                Dibuat oleh: {u.dibuat_oleh ?? "—"}
+              <span className="flex shrink-0 flex-wrap items-center gap-1">
+                {roleBadge(u)}
               </span>
             </span>
-          </div>
-          <div className="flex flex-wrap gap-2 pl-8 md:pl-0">
-            {actionsFor(u)}
-          </div>
+            <span className="mt-1 block pl-8 text-xs text-slate-400">
+              Dibuat oleh: {u.dibuat_oleh ?? "—"}
+            </span>
+          </span>
+          <div className="pl-8 md:contents">{actionsFor(u)}</div>
         </div>
       </div>
     );
@@ -374,7 +382,7 @@ export default function AdminUsersPage() {
                   >
                     <NBBadge tone="info">Grup</NBBadge>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium text-white">
+                      <span className="block truncate font-semibold text-white">
                         {name}
                       </span>
                       <span className="mt-0.5 block text-xs text-slate-400">
@@ -385,50 +393,51 @@ export default function AdminUsersPage() {
                       Iklan: {allAds ? "Ya" : "Tidak"}
                     </NBBadge>
                   </button>
-                  <NBButton
-                    variant="secondary"
-                    onClick={() => setGroupEdit({ name, members })}
-                    className="shrink-0 px-3"
-                  >
-                    Ubah grup
-                  </NBButton>
-                  <NBButton
-                    variant="secondary"
-                    onClick={() => setGroupAccess({ name, members })}
-                    className="shrink-0 px-3"
-                  >
-                    <span className="hidden sm:inline">Akses Kamera</span>
-                    <span className="sm:hidden">Akses</span>
-                  </NBButton>
-                  <button
-                    onClick={() => toggleGroup(name)}
-                    aria-expanded={open}
-                    aria-label={open ? "Tutup grup" : "Buka grup"}
-                    className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-ink-700/40"
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 16 16"
-                      fill="none"
-                      aria-hidden
-                      className={`shrink-0 text-slate-400 transition-transform duration-200 ease-out ${open ? "rotate-180" : ""}`}
+                  {/* Kolom aksi selebar tetap seperti baris anggota. */}
+                  <div className="flex shrink-0 items-center gap-2 md:w-[300px] md:justify-end">
+                    <NBButton
+                      variant="secondary"
+                      onClick={() => setGroupEdit({ name, members })}
+                      className="shrink-0 px-3"
                     >
-                      <path
-                        d="M4 6l4 4 4-4"
-                        stroke="currentColor"
-                        strokeWidth="1.75"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </button>
+                      Ubah grup
+                    </NBButton>
+                    <NBButton
+                      variant="secondary"
+                      onClick={() => setGroupAccess({ name, members })}
+                      className="shrink-0 px-3"
+                    >
+                      <span className="hidden sm:inline">Akses Kamera</span>
+                      <span className="sm:hidden">Akses</span>
+                    </NBButton>
+                    <button
+                      onClick={() => toggleGroup(name)}
+                      aria-expanded={open}
+                      aria-label={open ? "Tutup grup" : "Buka grup"}
+                      className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-ink-700/40"
+                    >
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        aria-hidden
+                        className={`shrink-0 text-slate-400 transition-transform duration-200 ease-out ${open ? "rotate-180" : ""}`}
+                      >
+                        <path
+                          d="M4 6l4 4 4-4"
+                          stroke="currentColor"
+                          strokeWidth="1.75"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
                 {open && (
-                  <div className="border-t border-ink-800 px-4 pb-2">
-                    <div className="divide-y divide-ink-800">
-                      {members.map((u) => renderMember(u))}
-                    </div>
+                  <div className="space-y-2 px-4 pb-3 pt-3">
+                    {members.map((u) => renderMember(u))}
                   </div>
                 )}
               </div>
