@@ -100,6 +100,25 @@ function IconBtn({
   );
 }
 
+/* Tombol ghost: hanya teks redup, latar muncul saat hover. */
+function GhostBtn({
+  onClick,
+  children,
+}: {
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="shrink-0 cursor-pointer whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-200"
+    >
+      {children}
+    </button>
+  );
+}
+
 function PencilIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -282,23 +301,16 @@ export default function AdminUsersPage() {
 
   function actionsFor(u: User) {
     return (
-      /* Kolom aksi selebar tetap di desktop agar sejajar lurus dengan
-         baris grup dan baris lepas lainnya (tepi kanan sama). Setiap
-         tombol punya lebar tetap seperti kolom tabel: Akses Kamera
-         w-32, Ubah dan Hapus ikon 44px, dan slot chevron w-11 di
-         ujung kanan (kosong di baris ini) agar tombol sejajar tegak
-         lurus dengan baris grup di atasnya. */
-      <div className="flex flex-wrap items-center gap-2 md:w-[300px] md:flex-nowrap md:justify-end">
+      /* Kolom aksi selebar tetap (w-72) di desktop, rata kanan,
+         gap-3, agar semua aksi membentuk kolom lurus ke bawah.
+         Akses Kamera ghost (tanpa border); Ubah dan Hapus ikon
+         44px; slot chevron w-11 di ujung kanan (kosong di baris
+         ini) agar tombol sejajar tegak lurus dengan baris grup. */
+      <div className="flex flex-wrap items-center gap-3 md:w-72 md:flex-nowrap md:justify-end">
         {/* Superadmin selalu mendapat akses ke semua kamera,
             jadi tidak ada pengaturan Akses Kamera untuknya. */}
         {u.role !== "super_admin" && (
-          <NBButton
-            variant="outline"
-            onClick={() => setAccessFor(u)}
-            className="shrink-0 whitespace-nowrap px-3 md:w-32"
-          >
-            Akses Kamera
-          </NBButton>
+          <GhostBtn onClick={() => setAccessFor(u)}>Akses Kamera</GhostBtn>
         )}
         <IconBtn label="Ubah" onClick={() => setEditing(u)}>
           <PencilIcon />
@@ -328,9 +340,9 @@ export default function AdminUsersPage() {
   }
 
   function renderUser(u: User) {
-    /* Baris nama: checkbox + nama + lencana Iklan di sampingnya.
-       Lencana peran di bawah nama (sejajar pl-8), bersama keterangan
-       sekunder Dibuat oleh. */
+    /* Baris nama: checkbox + nama + semua lencana (peran, Iklan)
+       dalam satu baris, tepat di samping nama; area tengah kartu
+       dikosongkan. Baris bawah murni detail sekunder kecil. */
     const summary = (
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-2">
@@ -338,17 +350,15 @@ export default function AdminUsersPage() {
           <span className="min-w-0 truncate font-semibold text-white">
             {u.username}
           </span>
-          <span className="shrink-0">
+          <span className="flex shrink-0 items-center gap-2">
+            {roleBadge(u)}
             <NBBadge tone={u.show_ads ? "ok" : "muted"}>
               Iklan: {u.show_ads ? "Ya" : "Tidak"}
             </NBBadge>
           </span>
         </span>
-        <span className="mt-1 flex items-center gap-2 pl-8">
-          {roleBadge(u)}
-          <span className="text-xs text-slate-400">
-            Dibuat oleh: {u.dibuat_oleh ?? "—"}
-          </span>
+        <span className="mt-1 block pl-8 text-xs text-slate-400">
+          Dibuat oleh: {u.dibuat_oleh ?? "—"}
         </span>
       </span>
     );
@@ -360,7 +370,7 @@ export default function AdminUsersPage() {
             <div className="space-y-3">{actions}</div>
           </NBAccordion>
         </div>
-        <div className="hidden items-center justify-between gap-3 rounded-xl bg-ink-900 shadow-sm px-4 py-3 transition-colors md:flex">
+        <div className="hidden items-center justify-between gap-3 rounded-xl border border-ink-800 bg-ink-900 shadow-sm px-4 py-3 transition-colors md:flex">
           {summary}
           {actions}
         </div>
@@ -373,20 +383,20 @@ export default function AdminUsersPage() {
      persis sama dengan pengguna mandiri. */
   function renderMember(u: User) {
     return (
-      <div key={u.id} className="py-3">
+      <div key={u.id} className="py-4">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <span className="min-w-0 flex-1">
-            <span className="flex min-w-0 items-center gap-3">
+            <span className="flex min-w-0 items-center gap-2">
               {checkboxFor(u)}
-              <span className="min-w-0 flex-1 truncate font-semibold text-white">
+              <span className="min-w-0 truncate font-semibold text-white">
                 {u.username}
               </span>
-            </span>
-            <span className="mt-1 flex items-center gap-2 pl-8">
-              {roleBadge(u)}
-              <span className="text-xs text-slate-400">
-                Dibuat oleh: {u.dibuat_oleh ?? "—"}
+              <span className="flex shrink-0 items-center gap-2">
+                {roleBadge(u)}
               </span>
+            </span>
+            <span className="mt-1 block pl-8 text-xs text-slate-400">
+              Dibuat oleh: {u.dibuat_oleh ?? "—"}
             </span>
           </span>
           <div className="pl-8 md:contents">{actionsFor(u)}</div>
@@ -484,7 +494,7 @@ export default function AdminUsersPage() {
             return (
               <div
                 key={name}
-                className="overflow-hidden rounded-xl bg-ink-900 shadow-sm"
+                className="overflow-hidden rounded-xl border border-ink-800 bg-ink-900 shadow-sm"
               >
                 <div className="flex items-center gap-2 px-4 py-3">
                   <NBCheckbox
@@ -515,22 +525,14 @@ export default function AdminUsersPage() {
                     </span>
                   </button>
                   {/* Kolom aksi selebar tetap seperti baris anggota. */}
-                  <div className="flex shrink-0 items-center gap-2 md:w-[300px] md:justify-end">
-                    <NBButton
-                      variant="outline"
-                      onClick={() => setGroupEdit({ name, members })}
-                      className="shrink-0 whitespace-nowrap px-3 md:w-24"
-                    >
+                  <div className="flex shrink-0 items-center gap-3 md:w-72 md:justify-end">
+                    <GhostBtn onClick={() => setGroupEdit({ name, members })}>
                       Ubah grup
-                    </NBButton>
-                    <NBButton
-                      variant="outline"
-                      onClick={() => setGroupAccess({ name, members })}
-                      className="shrink-0 whitespace-nowrap px-3 md:w-32"
-                    >
+                    </GhostBtn>
+                    <GhostBtn onClick={() => setGroupAccess({ name, members })}>
                       <span className="hidden sm:inline">Akses Kamera</span>
                       <span className="sm:hidden">Akses</span>
-                    </NBButton>
+                    </GhostBtn>
                     <button
                       onClick={() => toggleGroup(name)}
                       aria-expanded={open}
@@ -557,7 +559,7 @@ export default function AdminUsersPage() {
                   </div>
                 </div>
                 {open && (
-                  <div className="divide-y divide-ink-800 border-t border-ink-800 pb-2 pl-12 pr-4">
+                  <div className="pb-2 pl-12 pr-4">
                     {members.map((u) => renderMember(u))}
                   </div>
                 )}
