@@ -625,58 +625,56 @@ export default function AdminUsersPage() {
                 key={name}
                 className="overflow-hidden rounded-2xl border border-ink-800 bg-ink-900 shadow-sm"
               >
-                <div className="border-b border-ink-850 px-5 py-3 sm:px-6 md:py-4">
-                  {/* Nama grup di atas (HP): bertumpuk, baris pertama GRUP + hitungan,
-                      baris kedua nama grup. */}
-                  <button
-                    onClick={() => toggleGroup(name)}
-                    aria-expanded={open}
-                    className="mb-2 flex w-full min-w-0 cursor-pointer flex-col items-start gap-0.5 rounded-lg text-left transition-colors hover:bg-ink-700/40 md:hidden"
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <NBBadge tone="info">Grup</NBBadge>
-                      <span className="text-xs text-slate-400">
-                        ({members.length} Anggota)
-                      </span>
-                    </span>
-                    <span className="w-full truncate text-sm font-bold text-white">
-                      {name}
-                    </span>
-                  </button>
-                  {/* Baris kontrol. */}
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex min-w-0 flex-1 items-center gap-3">
-                      <NBCheckbox
-                        checked={
-                          members.length > 0 &&
-                          members.every((m) => selected.has(m.id))
-                        }
-                        onChange={() => toggleSelectGroup(members)}
-                        ariaLabel={`Pilih semua anggota ${name}`}
-                      />
-                      {/* Toggle desktop (sembunyi di HP karena nama sudah di atas). */}
-                      <button
-                        onClick={() => toggleGroup(name)}
-                        aria-expanded={open}
-                        className="hidden min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg px-2 py-1 text-left transition-colors hover:bg-ink-700/40 md:flex"
-                      >
+                <div className="flex items-center justify-between gap-4 border-b border-ink-850 px-5 py-3 sm:px-6 md:py-4">
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <NBCheckbox
+                      checked={
+                        members.length > 0 &&
+                        members.every((m) => selected.has(m.id))
+                      }
+                      onChange={() => toggleSelectGroup(members)}
+                      ariaLabel={`Pilih semua anggota ${name}`}
+                    />
+                    {/* Nama grup bertumpuk (HP): GRUP(3 Anggota) di atas, nama di bawah.
+                        Centang tetap di samping nama (tengah vertikal), bukan di bawahnya. */}
+                    <button
+                      onClick={() => toggleGroup(name)}
+                      aria-expanded={open}
+                      className="flex min-w-0 flex-1 cursor-pointer flex-col items-start gap-0.5 rounded-lg text-left transition-colors hover:bg-ink-700/40 md:hidden"
+                    >
+                      <span className="flex items-center gap-1.5">
                         <NBBadge tone="info">Grup</NBBadge>
-                        <span className="flex min-w-0 items-baseline gap-1.5">
-                          <span className="truncate text-base font-bold text-white">
-                            {name}
-                          </span>
-                          <span className="shrink-0 text-xs text-slate-400 sm:text-sm">
-                            · {members.length} anggota
-                          </span>
+                        <span className="text-xs text-slate-400">
+                          ({members.length} Anggota)
                         </span>
-                        <span className="shrink-0">
-                          <NBBadge tone={allAds ? "ok" : "muted"}>
-                            Iklan: {allAds ? "Ya" : "Tidak"}
-                          </NBBadge>
+                      </span>
+                      <span className="w-full truncate text-sm font-bold text-white">
+                        {name}
+                      </span>
+                    </button>
+                    {/* Toggle desktop (sembunyi di HP). */}
+                    <button
+                      onClick={() => toggleGroup(name)}
+                      aria-expanded={open}
+                      className="hidden min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg px-2 py-1 text-left transition-colors hover:bg-ink-700/40 md:flex"
+                    >
+                      <NBBadge tone="info">Grup</NBBadge>
+                      <span className="flex min-w-0 items-baseline gap-1.5">
+                        <span className="truncate text-base font-bold text-white">
+                          {name}
                         </span>
-                      </button>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-3 sm:gap-4">
+                        <span className="shrink-0 text-xs text-slate-400 sm:text-sm">
+                          · {members.length} anggota
+                        </span>
+                      </span>
+                      <span className="shrink-0">
+                        <NBBadge tone={allAds ? "ok" : "muted"}>
+                          Iklan: {allAds ? "Ya" : "Tidak"}
+                        </NBBadge>
+                      </span>
+                    </button>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3 sm:gap-4">
                       {/* Ubah grup + Akses Kamera: hanya di desktop; di HP pindah ke bar detail.
                           Dibungkus span (bukan class hidden di tombol) karena
                           display inline-flex MiniBtn mengalahkan hidden. */}
@@ -719,7 +717,6 @@ export default function AdminUsersPage() {
                         </svg>
                       </button>
                     </div>
-                  </div>
                 </div>
                 {/* Bar detail grup, HP saja (ala Stitch): lencana Iklan + Ubah grup
                     + Akses Kamera, muncul saat grup terbuka. */}
