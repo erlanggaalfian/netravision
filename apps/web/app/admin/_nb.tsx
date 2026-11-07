@@ -47,7 +47,7 @@ export function NBTitle({
   );
 }
 
-type NBBtnVariant = "primary" | "secondary" | "danger";
+type NBBtnVariant = "primary" | "secondary" | "danger" | "outline";
 
 export function NBButton({
   children,
@@ -65,6 +65,8 @@ export function NBButton({
     secondary: "bg-ink-800 text-slate-200 hover:bg-ink-700",
     danger:
       "bg-bad-400/15 text-bad-400 hover:bg-bad-400/25 hover:shadow-[0_4px_16px_-6px_var(--nv-bad-400)]",
+    outline:
+      "border border-ink-700 bg-transparent text-slate-200 hover:bg-ink-800",
   };
   return (
     <button className={`${base} ${styles[variant]} ${className}`} {...rest}>

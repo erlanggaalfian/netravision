@@ -71,6 +71,63 @@ function NBCheckbox({
   );
 }
 
+/* Tombol ikon 44px (pensil/sampah) untuk aksi baris pengguna. */
+function IconBtn({
+  label,
+  onClick,
+  danger,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className={`inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl transition-colors ${
+        danger
+          ? "text-bad-400 hover:bg-bad-400/15"
+          : "text-slate-300 hover:bg-ink-800"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function UserIcon({ className = "" }: { className?: string }) {
   return (
     <svg
@@ -226,33 +283,30 @@ export default function AdminUsersPage() {
   function actionsFor(u: User) {
     return (
       /* Kolom aksi selebar tetap di desktop agar sejajar lurus dengan
-         baris grup dan baris lepas lainnya (tepi kanan sama). */
-      <div className="flex flex-wrap gap-2 md:w-[300px] md:flex-nowrap md:justify-end">
+         baris grup dan baris lepas lainnya (tepi kanan sama). Setiap
+         tombol punya lebar tetap seperti kolom tabel: Akses Kamera
+         w-32, Ubah dan Hapus ikon 44px, dan slot chevron w-11 di
+         ujung kanan (kosong di baris ini) agar tombol sejajar tegak
+         lurus dengan baris grup di atasnya. */
+      <div className="flex flex-wrap items-center gap-2 md:w-[300px] md:flex-nowrap md:justify-end">
         {/* Superadmin selalu mendapat akses ke semua kamera,
             jadi tidak ada pengaturan Akses Kamera untuknya. */}
         {u.role !== "super_admin" && (
           <NBButton
-            variant="secondary"
+            variant="outline"
             onClick={() => setAccessFor(u)}
-            className="px-3"
+            className="shrink-0 whitespace-nowrap px-3 md:w-32"
           >
             Akses Kamera
           </NBButton>
         )}
-        <NBButton
-          variant="secondary"
-          onClick={() => setEditing(u)}
-          className="px-3"
-        >
-          Ubah
-        </NBButton>
-        <NBButton
-          variant="danger"
-          onClick={() => setDeleting(u)}
-          className="px-3"
-        >
-          Hapus
-        </NBButton>
+        <IconBtn label="Ubah" onClick={() => setEditing(u)}>
+          <PencilIcon />
+        </IconBtn>
+        <IconBtn label="Hapus" danger onClick={() => setDeleting(u)}>
+          <TrashIcon />
+        </IconBtn>
+        <span className="hidden w-11 shrink-0 md:block" aria-hidden />
       </div>
     );
   }
@@ -279,9 +333,9 @@ export default function AdminUsersPage() {
        sekunder Dibuat oleh. */
     const summary = (
       <span className="min-w-0 flex-1">
-        <span className="flex min-w-0 items-center gap-3">
+        <span className="flex min-w-0 items-center gap-2">
           {checkboxFor(u)}
-          <span className="min-w-0 flex-1 truncate font-semibold text-white">
+          <span className="min-w-0 truncate font-semibold text-white">
             {u.username}
           </span>
           <span className="shrink-0">
@@ -447,30 +501,32 @@ export default function AdminUsersPage() {
                     className="flex min-h-[44px] min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg px-2 py-1 text-left transition-colors hover:bg-ink-700/40"
                   >
                     <NBBadge tone="info">Grup</NBBadge>
-                    <span className="min-w-0 flex-1 truncate">
+                    <span className="min-w-0 truncate">
                       <span className="font-semibold text-white">{name}</span>
                       <span className="text-xs text-slate-400">
                         {" "}
                         · {members.length} anggota
                       </span>
                     </span>
-                    <NBBadge tone={allAds ? "ok" : "muted"}>
-                      Iklan: {allAds ? "Ya" : "Tidak"}
-                    </NBBadge>
+                    <span className="shrink-0">
+                      <NBBadge tone={allAds ? "ok" : "muted"}>
+                        Iklan: {allAds ? "Ya" : "Tidak"}
+                      </NBBadge>
+                    </span>
                   </button>
                   {/* Kolom aksi selebar tetap seperti baris anggota. */}
                   <div className="flex shrink-0 items-center gap-2 md:w-[300px] md:justify-end">
                     <NBButton
-                      variant="secondary"
+                      variant="outline"
                       onClick={() => setGroupEdit({ name, members })}
-                      className="shrink-0 px-3"
+                      className="shrink-0 whitespace-nowrap px-3 md:w-24"
                     >
                       Ubah grup
                     </NBButton>
                     <NBButton
-                      variant="secondary"
+                      variant="outline"
                       onClick={() => setGroupAccess({ name, members })}
-                      className="shrink-0 px-3"
+                      className="shrink-0 whitespace-nowrap px-3 md:w-32"
                     >
                       <span className="hidden sm:inline">Akses Kamera</span>
                       <span className="sm:hidden">Akses</span>
