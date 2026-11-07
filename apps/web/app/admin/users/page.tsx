@@ -123,31 +123,6 @@ function MiniBtn({
   );
 }
 
-/* Indikator iklan ringkas (HP): ikon megaphone + warna saja, tanpa teks.
-   Hijau = iklan tampil, abu-abu = tidak tampil. Desktop tetap pakai
-   lencana teks. */
-function AdsIcon({ on }: { on: boolean }) {
-  return (
-    <span
-      title={on ? "Iklan: Ya" : "Iklan: Tidak"}
-      aria-label={on ? "Iklan: Ya" : "Iklan: Tidak"}
-      className={`inline-flex shrink-0 items-center justify-center rounded-full p-1.5 ${
-        on ? "bg-ok-400/15 text-ok-400" : "bg-ink-800 text-slate-400"
-      }`}
-    >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-        <path
-          d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 110-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 01-1.44-4.282m3.102.069a18.03 18.03 0 01-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 018.835 2.535M10.34 6.66a23.847 23.847 0 008.835-2.535m0 0A23.74 23.74 0 0018.795 3.14c.383-.21.87-.05 1.07.338.196.38.09.885-.274 1.15a23.73 23.73 0 01-1.796 1.255m0 0A23.74 23.74 0 0018.795 8.14c.383.21.87.05 1.07-.338.196-.38.09-.885-.274-1.15a23.73 23.73 0 01-1.796-1.255"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    </span>
-  );
-}
-
 function PencilIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -424,8 +399,13 @@ export default function AdminUsersPage() {
     );
     const mobilePanel = (
       <div className="flex items-center justify-between gap-2">
-        <span className="flex min-w-0 items-center gap-2">
-          <AdsIcon on={u.show_ads} />
+        {/* Saat akordion terbuka boleh detail: Iklan + Dibuat oleh bertumpuk dua baris. */}
+        <span className="flex min-w-0 flex-col items-start gap-0.5">
+          <span
+            className={`text-[11px] font-medium ${u.show_ads ? "text-ok-400" : "text-slate-400"}`}
+          >
+            Iklan: {u.show_ads ? "Ya" : "Tidak"}
+          </span>
           <span className="min-w-0 truncate text-[11px] text-slate-400">
             Dibuat oleh:{" "}
             <span className="text-slate-300">{u.dibuat_oleh ?? "—"}</span>
@@ -722,7 +702,11 @@ export default function AdminUsersPage() {
                     + Akses Kamera, muncul saat grup terbuka. */}
                 {open && (
                   <div className="flex items-center justify-between gap-2 border-b border-ink-850 bg-ink-850/40 p-3 sm:px-4 md:hidden">
-                    <AdsIcon on={allAds} />
+                    <span
+                      className={`min-w-0 text-xs font-medium leading-relaxed ${allAds ? "text-ok-400" : "text-slate-400"}`}
+                    >
+                      Iklan: {allAds ? "Ya" : "Tidak"}
+                    </span>
                     <div className="flex shrink-0 items-center gap-1">
                       <MiniBtn onClick={() => setGroupEdit({ name, members })}>
                         Ubah grup
