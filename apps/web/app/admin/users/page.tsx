@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { ApiError, api } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import type { Stream, User } from "../../../lib/types";
@@ -23,6 +24,52 @@ const ROLE_LABEL: Record<string, string> = {
   guest: "Tamu",
   super_admin: "Super Admin",
 };
+
+/* Checkbox kecil (16px) dengan border tipis dan centang putih saat aktif. */
+function NBCheckbox({
+  checked,
+  onChange,
+  disabled,
+  title,
+  ariaLabel,
+  onClick,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  disabled?: boolean;
+  title?: string;
+  ariaLabel?: string;
+  onClick?: (e: ReactMouseEvent) => void;
+}) {
+  return (
+    <span className="relative inline-flex h-4 w-4 shrink-0">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        onClick={onClick}
+        disabled={disabled}
+        title={title}
+        aria-label={ariaLabel}
+        className="peer h-4 w-4 cursor-pointer appearance-none rounded border border-ink-700 bg-transparent transition-colors checked:border-accent-500 checked:bg-accent-500 disabled:cursor-not-allowed disabled:opacity-40"
+      />
+      <svg
+        className="pointer-events-none absolute inset-0 m-auto hidden h-3 w-3 text-white peer-checked:block"
+        viewBox="0 0 12 12"
+        fill="none"
+        aria-hidden
+      >
+        <path
+          d="M2 6.5l2.5 2.5L10 3.5"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </span>
+  );
+}
 
 function UserIcon({ className = "" }: { className?: string }) {
   return (
@@ -146,8 +193,7 @@ export default function AdminUsersPage() {
   /* Checkbox dan aksi dipakai baris lepas maupun anggota grup. */
   function checkboxFor(u: User) {
     return (
-      <input
-        type="checkbox"
+      <NBCheckbox
         checked={selected.has(u.id)}
         onChange={() => toggleSelect(u.id)}
         onClick={(e) => e.stopPropagation()}
@@ -157,10 +203,24 @@ export default function AdminUsersPage() {
             ? "Superadmin berdiri sendiri, tidak bisa dimasukkan ke grup"
             : undefined
         }
-        className="h-5 w-5 shrink-0 accent-accent-500 disabled:opacity-40"
-        aria-label={`Pilih ${u.username}`}
+        ariaLabel={`Pilih ${u.username}`}
       />
     );
+  }
+
+  /* Pilih / batalkan semua anggota satu grup sekaligus. */
+  function toggleSelectGroup(members: User[]) {
+    const ids = members
+      .filter((m) => m.role !== "super_admin")
+      .map((m) => m.id);
+    const allSelected =
+      ids.length > 0 && ids.every((id) => selected.has(id));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allSelected) ids.forEach((id) => next.delete(id));
+      else ids.forEach((id) => next.add(id));
+      return next;
+    });
   }
 
   function actionsFor(u: User) {
@@ -243,7 +303,7 @@ export default function AdminUsersPage() {
             <div className="space-y-3">{actions}</div>
           </NBAccordion>
         </div>
-        <div className="hidden items-center justify-between gap-3 rounded-xl bg-ink-800 shadow-sm px-4 py-3 transition-colors md:flex">
+        <div className="hidden items-center justify-between gap-3 rounded-xl bg-ink-900 shadow-sm px-4 py-3 transition-colors md:flex">
           {summary}
           {actions}
         </div>
@@ -251,16 +311,12 @@ export default function AdminUsersPage() {
     );
   }
 
-  /* Anggota grup: kartu sendiri (bg-ink-900: putih di tema terang)
-     di dalam kartu grupnya, bukan baris datar di latar yang sama;
-     aksi tampil langsung, HP menumpuk di bawah nama, desktop sejajar
-     kanan seperti baris lepas. */
+  /* Anggota grup: baris datar menjorok ke dalam (pl-12 di wadah),
+     dipisah garis halus; tanpa kartu bersarang agar kolom aksinya
+     persis sama dengan pengguna mandiri. */
   function renderMember(u: User) {
     return (
-      <div
-        key={u.id}
-        className="rounded-xl bg-ink-900 px-4 py-3 shadow-sm"
-      >
+      <div key={u.id} className="py-3">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <span className="min-w-0 flex-1">
             <span className="flex min-w-0 items-center gap-3">
@@ -349,8 +405,7 @@ export default function AdminUsersPage() {
           )}
           <div className="mb-2 flex items-center gap-3 px-1">
             <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-400">
-              <input
-                type="checkbox"
+              <NBCheckbox
                 checked={
                   (users ?? []).filter((u) => u.role !== "super_admin")
                     .length > 0 &&
@@ -359,7 +414,7 @@ export default function AdminUsersPage() {
                     .every((u) => selected.has(u.id))
                 }
                 onChange={toggleSelectAllPage}
-                className="h-5 w-5 accent-accent-500"
+                ariaLabel="Pilih semua di halaman ini"
               />
               Pilih semua di halaman ini
             </label>
@@ -372,21 +427,28 @@ export default function AdminUsersPage() {
             return (
               <div
                 key={name}
-                className="overflow-hidden rounded-xl bg-ink-800 shadow-sm"
+                className="overflow-hidden rounded-xl bg-ink-900 shadow-sm"
               >
                 <div className="flex items-center gap-2 px-4 py-3">
+                  <NBCheckbox
+                    checked={
+                      members.length > 0 &&
+                      members.every((m) => selected.has(m.id))
+                    }
+                    onChange={() => toggleSelectGroup(members)}
+                    ariaLabel={`Pilih semua anggota ${name}`}
+                  />
                   <button
                     onClick={() => toggleGroup(name)}
                     aria-expanded={open}
                     className="flex min-h-[44px] min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg px-2 py-1 text-left transition-colors hover:bg-ink-700/40"
                   >
                     <NBBadge tone="info">Grup</NBBadge>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-semibold text-white">
-                        {name}
-                      </span>
-                      <span className="mt-0.5 block text-xs text-slate-400">
-                        {members.length} anggota
+                    <span className="min-w-0 flex-1 truncate">
+                      <span className="font-semibold text-white">{name}</span>
+                      <span className="text-xs text-slate-400">
+                        {" "}
+                        · {members.length} anggota
                       </span>
                     </span>
                     <NBBadge tone={allAds ? "ok" : "muted"}>
@@ -436,7 +498,7 @@ export default function AdminUsersPage() {
                   </div>
                 </div>
                 {open && (
-                  <div className="space-y-2 px-4 pb-3 pt-3">
+                  <div className="divide-y divide-ink-800 border-t border-ink-800 pb-2 pl-12 pr-4">
                     {members.map((u) => renderMember(u))}
                   </div>
                 )}
@@ -555,6 +617,19 @@ function UserFormModal({
      dimasukkan ke grup. */
   const isSuperAdmin = role === "super_admin";
   const groupEditable = me?.role === "super_admin" && !isSuperAdmin;
+  /* Grup efektif akun ini: yang diketik (superadmin yang mengatur),
+     grup akun yang diubah, atau grup pembuatnya (admin biasa yang
+     menambah akun baru mengikuti grupnya). */
+  const effectiveGroup = isSuperAdmin
+    ? ""
+    : groupEditable
+      ? group.trim()
+      : user
+        ? (user.admin_group ?? "").trim()
+        : (me?.admin_group ?? "").trim();
+  /* Iklan diatur di grup bila akun ini masuk grup; pengaturan per
+     akun disembunyikan agar tidak bertabrakan dengan setting grup. */
+  const inGroup = effectiveGroup !== "";
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -566,9 +641,9 @@ function UserFormModal({
         const body: Record<string, unknown> = {
           username: username.trim(),
           role,
-          show_ads: showAds,
           admin_group: role === "super_admin" ? null : group.trim() || null,
         };
+        if (!inGroup) body.show_ads = showAds;
         if (password) body.password = password;
         await api.put(`/admin/users/${user.id}`, body);
       } else {
@@ -576,7 +651,7 @@ function UserFormModal({
           username: username.trim(),
           password,
           role,
-          show_ads: showAds,
+          ...(inGroup ? {} : { show_ads: showAds }),
           admin_group: role === "super_admin" ? null : group.trim() || null,
         });
       }
@@ -649,23 +724,25 @@ function UserFormModal({
             ))}
           </datalist>
         </NBField>
-        <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 rounded-xl bg-ink-800 shadow-sm px-4 py-3">
-          <span>
-            <span className="block text-sm font-medium text-white">
-              Tampilkan Iklan
+        {!inGroup && (
+          <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 rounded-xl bg-ink-800 shadow-sm px-4 py-3">
+            <span>
+              <span className="block text-sm font-medium text-white">
+                Tampilkan Iklan
+              </span>
+              <span className="block text-xs text-slate-400">
+                Banner iklan tampil untuk akun ini
+              </span>
             </span>
-            <span className="block text-xs text-slate-400">
-              Banner iklan tampil untuk akun ini
-            </span>
-          </span>
-          <input
-            type="checkbox"
-            checked={showAds}
-            onChange={(e) => setShowAds(e.target.checked)}
-            className="h-5 w-5 shrink-0 accent-accent-500"
-            aria-label="Tampilkan Iklan"
-          />
-        </label>
+            <input
+              type="checkbox"
+              checked={showAds}
+              onChange={(e) => setShowAds(e.target.checked)}
+              className="h-5 w-5 shrink-0 accent-accent-500"
+              aria-label="Tampilkan Iklan"
+            />
+          </label>
+        )}
         <NBButton
           onClick={save}
           disabled={busy || !username.trim() || (!user && !password)}
