@@ -6,7 +6,8 @@ import { AppShell } from "../../components/AppShell";
 import { Button, Card, ErrorBox, GridIcon, SectionTitle, Spinner } from "../../components/ui";
 import { api, apiFetch, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
-import type { Stream } from "../../lib/types";
+import type { AdConfig, Stream } from "../../lib/types";
+import { AdBanner } from "../../components/AdBanner";
 
 /* Kontrak Fase 3 (packages/contracts/openapi.yaml):
    GET /recordings/{id}/timeline?date=YYYY-MM-DD → { date, entries: [{start, end, has_event?}] }
@@ -86,10 +87,12 @@ function PlaybackPanel({
   streamId,
   streamName,
   date,
+  ad,
 }: {
   streamId: number;
   streamName: string;
   date: string;
+  ad: AdConfig | null;
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -98,6 +101,9 @@ function PlaybackPanel({
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  /* Sinyal iklan: hover panel + tiap klik panel (perilaku marquee hover/click). */
+  const [panelHovered, setPanelHovered] = useState(false);
+  const [adClickTick, setAdClickTick] = useState(0);
 
   const load = useCallback(async () => {
     setPhase("loading");
@@ -177,7 +183,12 @@ function PlaybackPanel({
   );
 
   return (
-    <div className="nv-panel-modern min-w-0 overflow-hidden">
+    <div
+      className="nv-panel-modern min-w-0 overflow-hidden"
+      onMouseEnter={() => setPanelHovered(true)}
+      onMouseLeave={() => setPanelHovered(false)}
+      onClick={() => setAdClickTick((t) => t + 1)}
+    >
       {/* Header panel: nama kamera + Muat ulang, di dalam panel */}
       <div className="flex items-center justify-between gap-2 border-b border-ink-800 px-4 py-3">
         <span className="truncate text-base font-extrabold tracking-tight text-slate-100">
@@ -343,6 +354,15 @@ function PlaybackPanel({
                 </div>
               )}
             </div>
+            {/* Iklan di bawah video (di luar area 16:9), bukan overlay. */}
+            {ad?.is_active && (
+              <AdBanner
+                config={ad}
+                hovered={panelHovered}
+                clickTick={adClickTick}
+                placement="below"
+              />
+            )}
             {active && (
               <div className="flex items-center justify-between gap-2 border-t border-ink-800 px-4 py-3">
                 <span className="truncate text-xs text-slate-400">
@@ -382,6 +402,8 @@ export default function PlaybackPage() {
   /* Panel kontrol dilipat di HP (tombol filter), selalu tampil di desktop. */
   const [filterOpen, setFilterOpen] = useState(false);
   const [date, setDate] = useState(todayStr());
+  /* Config iklan: sekali per halaman, dipakai semua panel. */
+  const [ad, setAd] = useState<AdConfig | null>(null);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -403,6 +425,23 @@ export default function PlaybackPage() {
         });
     }
   }, [loading, user, router]);
+
+  /* Config iklan: sekali per halaman, dipakai semua panel. */
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    api
+      .get<AdConfig>("/ad-config")
+      .then((c) => {
+        if (!cancelled) setAd(c);
+      })
+      .catch(() => {
+        /* iklan opsional; abaikan bila gagal */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   const toggleMultiId = (id: number) => {
     setMultiIds((prev) =>
@@ -592,6 +631,7 @@ export default function PlaybackPage() {
                 streamId={s.id}
                 streamName={s.name}
                 date={date}
+                ad={ad}
               />
             ))}
           </div>
