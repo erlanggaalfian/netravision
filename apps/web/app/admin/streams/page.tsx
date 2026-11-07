@@ -182,6 +182,7 @@ export default function AdminStreamsPage() {
   const [shareFor, setShareFor] = useState<Stream | null>(null);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [showCoords, setShowCoords] = useState(false);
+  const [showGroup, setShowGroup] = useState(false);
 
   /* Filter */
   const [q, setQ] = useState("");
@@ -201,11 +202,8 @@ export default function AdminStreamsPage() {
         setStreams([]);
       });
 
-  useEffect(() => {
-    load();
-    /* Akun Drive opsional — sembunyikan field bila gagal dimuat. */
-    api.get<{ folders: DriveFolder[] }>("/admin/storage/google-drive").then((d) => setDriveFolders(d.folders ?? [])).catch(() => {});
-    /* Grup untuk filter. */
+  /* Grup untuk filter (dipakai ulang setelah set grup massal). */
+  const loadGroups = () =>
     api
       .get<Group[]>("/admin/groups")
       .then(async (gs) => {
@@ -228,6 +226,12 @@ export default function AdminStreamsPage() {
         setGroupMap(m);
       })
       .catch(() => {});
+
+  useEffect(() => {
+    load();
+    /* Akun Drive opsional — sembunyikan field bila gagal dimuat. */
+    api.get<{ folders: DriveFolder[] }>("/admin/storage/google-drive").then((d) => setDriveFolders(d.folders ?? [])).catch(() => {});
+    loadGroups();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -377,6 +381,12 @@ export default function AdminStreamsPage() {
            
           >
             Set koordinat ({selected.size})
+          </NBButton>
+          <NBButton
+            variant="secondary"
+            onClick={() => setShowGroup(true)}
+          >
+            Set grup ({selected.size})
           </NBButton>
           <NBButton
             variant="danger"
@@ -554,6 +564,51 @@ export default function AdminStreamsPage() {
           }}
         />
       )}
+      {showGroup && (
+        <BulkGroupModal
+          count={selected.size}
+          groups={groups}
+          onClose={() => setShowGroup(false)}
+          onDone={async (groupName) => {
+            setError("");
+            try {
+              /* Buat grup dulu bila belum ada. */
+              if (!groups.some((g) => g.name === groupName)) {
+                await api.put(`/admin/groups/${encodeURIComponent(groupName)}`, {
+                  name: groupName,
+                  description: null,
+                });
+              }
+              /* POST camera-grants mengganti seluruh anggota grup, jadi
+                 gabung dulu dengan anggota yang sudah ada supaya tidak
+                 ada kamera yang terhapus dari grup. */
+              let current: number[] = [];
+              try {
+                const r = await api.get<{ stream_ids: number[] }>(
+                  `/admin/groups/${encodeURIComponent(groupName)}/camera-grants`,
+                );
+                current = r.stream_ids;
+              } catch {
+                /* grup baru: mulai dari kosong */
+              }
+              const merged = [...new Set([...current, ...selected])];
+              await api.post(
+                `/admin/groups/${encodeURIComponent(groupName)}/camera-grants`,
+                { stream_ids: merged },
+              );
+              setShowGroup(false);
+              setSelected(new Set());
+              load();
+              loadGroups();
+            } catch (e) {
+              const msg =
+                e instanceof ApiError ? e.message : "Gagal menyimpan grup";
+              setError(msg);
+              throw e;
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -623,6 +678,77 @@ function BulkCoordsModal({
         }}
       >
         {busy ? "Menyimpan…" : "Terapkan ke semua terpilih"}
+      </NBButton>
+    </Modal>
+  );
+}
+
+function BulkGroupModal({
+  count,
+  groups,
+  onClose,
+  onDone,
+}: {
+  count: number;
+  groups: Group[];
+  onClose: () => void;
+  onDone: (groupName: string) => Promise<void>;
+}) {
+  const NEW = "__baru__";
+  const [picked, setPicked] = useState(groups[0]?.name ?? NEW);
+  const [newName, setNewName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const name = picked === NEW ? newName.trim() : picked;
+  const valid = name !== "";
+
+  return (
+    <Modal title={`Set grup (${count} kamera)`} onClose={onClose}>
+      {error && (
+        <div className="mb-4">
+          <ErrorBox message={error} />
+        </div>
+      )}
+      <NBField label="Grup">
+        <NBSelect value={picked} onChange={(e) => setPicked(e.target.value)}>
+          {groups.map((g) => (
+            <option key={g.id} value={g.name}>
+              {g.name}
+            </option>
+          ))}
+          <option value={NEW}>+ Grup baru…</option>
+        </NBSelect>
+      </NBField>
+      {picked === NEW && (
+        <div className="mt-3">
+          <NBField label="Nama grup baru">
+            <NBInput
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="cth. Lantai 1"
+            />
+          </NBField>
+        </div>
+      )}
+      <p className="mt-3 text-xs leading-relaxed text-slate-400">
+        Kamera terpilih ditambahkan ke grup. Kamera yang sudah ada di grup
+        tetap dipertahankan.
+      </p>
+      <NBButton
+        className="mt-4 w-full"
+        disabled={!valid || busy}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            await onDone(name);
+          } catch (e) {
+            setError(e instanceof ApiError ? e.message : "Gagal menyimpan");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? "Menyimpan…" : "Tambahkan ke grup"}
       </NBButton>
     </Modal>
   );
