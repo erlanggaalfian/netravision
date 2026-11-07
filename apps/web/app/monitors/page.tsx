@@ -9,6 +9,7 @@ import {
   Button,
   ConfirmModal,
   ErrorBox,
+  GridIcon,
   SectionTitle,
   Spinner,
 } from "../../components/ui";
@@ -509,13 +510,15 @@ export default function MonitorsPage() {
                     key={c}
                     onClick={() => setFormCols(c)}
                     aria-pressed={formCols === c}
+                    aria-label={`Grid ${c}x${c}`}
+                    title={`Grid ${c}x${c} (${c} kolom)`}
                     className={`flex h-11 min-w-[52px] items-center justify-center rounded-full text-sm font-semibold transition active:scale-95 ${
                       formCols === c
                         ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
                         : "bg-ink-800 text-neutral-300 shadow-sm hover:bg-ink-700"
                     }`}
                   >
-                    {c}
+                    <GridIcon cols={c} />
                   </button>
                 ))}
               </div>
