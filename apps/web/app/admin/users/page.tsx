@@ -632,20 +632,22 @@ export default function AdminUsersPage() {
                         {name}
                       </span>
                     </button>
-                    {/* Toggle desktop (sembunyi di HP). */}
+                    {/* Toggle desktop (sembunyi di HP): 3 baris bertumpuk,
+                        GRUP(3 Anggota) / nama / Iklan. Centang tetap di
+                        tengah vertikal (items-center di wadah kiri). */}
                     <button
                       onClick={() => toggleGroup(name)}
                       aria-expanded={open}
-                      className="hidden min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg px-2 py-1 text-left transition-colors hover:bg-ink-700/40 md:flex"
+                      className="hidden min-w-0 flex-1 cursor-pointer flex-col items-start gap-0.5 rounded-lg px-2 py-1 text-left transition-colors hover:bg-ink-700/40 md:flex"
                     >
-                      <NBBadge tone="info">Grup</NBBadge>
-                      <span className="flex min-w-0 items-baseline gap-1.5">
-                        <span className="truncate text-base font-bold text-white">
-                          {name}
+                      <span className="flex items-center gap-1.5">
+                        <NBBadge tone="info">Grup</NBBadge>
+                        <span className="text-xs text-slate-400">
+                          ({members.length} Anggota)
                         </span>
-                        <span className="shrink-0 text-xs text-slate-400 sm:text-sm">
-                          · {members.length} anggota
-                        </span>
+                      </span>
+                      <span className="w-full truncate text-base font-bold text-white">
+                        {name}
                       </span>
                       <span className="shrink-0">
                         <NBBadge tone={allAds ? "ok" : "muted"}>
