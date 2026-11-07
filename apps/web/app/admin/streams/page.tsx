@@ -87,6 +87,7 @@ function CameraIcon({ className = "" }: { className?: string }) {
 function StreamRow({
   s,
   online,
+  groups,
   selected,
   onToggleSelect,
   onEdit,
@@ -95,6 +96,7 @@ function StreamRow({
 }: {
   s: Stream;
   online: boolean;
+  groups: string[];
   selected: boolean;
   onToggleSelect: () => void;
   onEdit: () => void;
@@ -116,8 +118,13 @@ function StreamRow({
       {checkbox}
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[15px] font-bold tracking-tight text-slate-100">{s.name}</span>
-        <span className="mt-1 block">
+        <span className="mt-1 flex flex-wrap items-center gap-1.5">
           <NBBadge tone={online ? "ok" : "bad"}>{online ? "Online" : "Offline"}</NBBadge>
+          {groups.map((g) => (
+            <NBBadge key={g} tone="info">
+              {g}
+            </NBBadge>
+          ))}
         </span>
       </span>
     </span>
@@ -145,6 +152,8 @@ function StreamRow({
       )}
       <dt className="text-slate-400">Penyimpanan</dt>
       <dd className="text-right font-medium text-slate-200">{STORAGE_LABEL[s.storage_mode] ?? s.storage_mode}</dd>
+      <dt className="text-slate-400">Grup</dt>
+      <dd className="text-right font-medium text-slate-200">{groups.length > 0 ? groups.join(", ") : "—"}</dd>
       <dt className="text-slate-400">Rekaman</dt>
       <dd className="text-right font-medium text-slate-200">{s.recording_enabled ? "Aktif" : "Mati"}</dd>
       <dt className="text-slate-400">Terakhir terlihat</dt>
@@ -438,6 +447,7 @@ export default function AdminStreamsPage() {
                 key={s.id}
                 s={s}
                 online={status.get(s.id) ?? s.is_online}
+                groups={groupMap[s.id] ?? []}
                 selected={selected.has(s.id)}
                 onToggleSelect={() => toggleSelect(s.id)}
                 onEdit={() => setEditing(s)}
