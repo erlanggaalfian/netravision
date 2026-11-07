@@ -692,7 +692,13 @@ function UserFormModal({
             <option value="user">Pengguna</option>
             <option value="admin">Admin</option>
             <option value="guest">Tamu</option>
-            <option value="super_admin">Super Admin</option>
+            {/* Super Admin hanya bisa dibuat super_admin lain; admin
+                biasa tidak ditawari pilihan ini (backend juga menolak
+                dengan 403). Opsi tetap tampil bila targetnya memang
+                sudah super_admin agar pilihannya tidak kosong. */}
+            {(me?.role === "super_admin" || role === "super_admin") && (
+              <option value="super_admin">Super Admin</option>
+            )}
           </NBSelect>
         </NBField>
         <NBField
