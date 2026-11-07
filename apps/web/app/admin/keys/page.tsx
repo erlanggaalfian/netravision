@@ -806,7 +806,15 @@ function KeyFormModal({
                     className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-slate-400 hover:bg-ink-700 hover:text-slate-200 disabled:opacity-30"
                     aria-label={`Naikkan ${nameOf(id)}`}
                   >
-                    ↑
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+                      <path
+                        d="M8 13V3M4 7l4-4 4 4"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
                   </button>
                   <button
                     type="button"
@@ -815,7 +823,15 @@ function KeyFormModal({
                     className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-slate-400 hover:bg-ink-700 hover:text-slate-200 disabled:opacity-30"
                     aria-label={`Turunkan ${nameOf(id)}`}
                   >
-                    ↓
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+                      <path
+                        d="M8 3v10M4 9l4 4 4-4"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
                   </button>
                 </div>
               ))}

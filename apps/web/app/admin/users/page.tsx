@@ -71,85 +71,6 @@ function NBCheckbox({
   );
 }
 
-/* Tombol ikon ringkas ala mockup (p-1.5, ikon 16px). */
-function IconBtn({
-  label,
-  onClick,
-  danger,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  danger?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={label}
-      aria-label={label}
-      className={`inline-flex shrink-0 cursor-pointer items-center justify-center rounded-lg p-1.5 transition-colors ${
-        danger
-          ? "text-bad-400 hover:bg-bad-400/10 hover:text-bad-300"
-          : "text-slate-400 hover:bg-ink-800 hover:text-slate-200"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-/* Tombol kecil (Ubah grup, Akses Kamera), selaras dengan NBButton
-   secondary di menu lain: latar solid bg-ink-800 tanpa border,
-   rounded-xl, teks semibold. Tetap ringkas supaya muat di baris aksi. */
-function MiniBtn({
-  onClick,
-  className = "",
-  children,
-}: {
-  onClick: () => void;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`inline-flex shrink-0 cursor-pointer items-center whitespace-nowrap rounded-xl bg-ink-800 px-2.5 py-1.5 text-xs font-semibold text-slate-200 transition-all duration-150 ease-out hover:bg-ink-700 active:scale-[0.98] sm:text-sm ${className}`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function PencilIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
 
 function UserIcon({ className = "" }: { className?: string }) {
   return (
@@ -316,24 +237,38 @@ export default function AdminUsersPage() {
 
   function actionsFor(u: User) {
     return (
-      /* Sisi kanan ala mockup: rata kanan, Akses Kamera ghost,
-         lalu kelompok ikon pensil + tempat sampah (gap-1.5).
-         Tanpa lebar tetap dan tanpa slot chevron; ikon sejajar
-         karena semuanya menempel ke tepi kanan. */
-      <div className="flex shrink-0 items-center gap-3 sm:gap-4">
+      /* Sisi kanan ala mockup: rata kanan, tombol teks Akses Kamera,
+         Ubah, dan Hapus. Tanpa lebar tetap dan tanpa slot chevron;
+         tombol sejajar karena semuanya menempel ke tepi kanan. */
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
         {/* Superadmin selalu mendapat akses ke semua kamera,
             jadi tidak ada pengaturan Akses Kamera untuknya. */}
         {u.role !== "super_admin" && (
-          <MiniBtn onClick={() => setAccessFor(u)}>Akses Kamera</MiniBtn>
+          <NBButton
+            variant="secondary"
+            onClick={() => setAccessFor(u)}
+            className="px-3"
+            aria-label={`Akses Kamera ${u.username}`}
+          >
+            Akses Kamera
+          </NBButton>
         )}
-        <span className="flex items-center gap-1.5">
-          <IconBtn label="Ubah" onClick={() => setEditing(u)}>
-            <PencilIcon />
-          </IconBtn>
-          <IconBtn label="Hapus" danger onClick={() => setDeleting(u)}>
-            <TrashIcon />
-          </IconBtn>
-        </span>
+        <NBButton
+          variant="secondary"
+          onClick={() => setEditing(u)}
+          className="px-3"
+          aria-label={`Ubah ${u.username}`}
+        >
+          Ubah
+        </NBButton>
+        <NBButton
+          variant="danger"
+          onClick={() => setDeleting(u)}
+          className="px-3"
+          aria-label={`Hapus ${u.username}`}
+        >
+          Hapus
+        </NBButton>
       </div>
     );
   }
@@ -659,20 +594,28 @@ export default function AdminUsersPage() {
                   <div className="flex shrink-0 items-center gap-3 sm:gap-4">
                       {/* Ubah grup + Akses Kamera: hanya di desktop; di HP pindah ke bar detail.
                           Dibungkus span (bukan class hidden di tombol) karena
-                          display inline-flex MiniBtn mengalahkan hidden. */}
+                          base class NBButton inline-flex mengalahkan hidden. */}
                       <span className="hidden md:block">
-                        <MiniBtn onClick={() => setGroupEdit({ name, members })}>
+                        <NBButton
+                          variant="secondary"
+                          onClick={() => setGroupEdit({ name, members })}
+                          className="px-3"
+                        >
                           Ubah grup
-                        </MiniBtn>
+                        </NBButton>
                       </span>
                       {/* Akses grup hanya saat grup terbuka (ala Stitch):
                           saat tertutup hanya Ubah grup + chevron. */}
                       {open && (
                         <span className="hidden md:block">
-                          <MiniBtn onClick={() => setGroupAccess({ name, members })}>
+                          <NBButton
+                            variant="secondary"
+                            onClick={() => setGroupAccess({ name, members })}
+                            className="px-3"
+                          >
                             <span className="hidden sm:inline">Akses Kamera</span>
                             <span className="sm:hidden">Akses</span>
-                          </MiniBtn>
+                          </NBButton>
                         </span>
                       )}
                       <button
@@ -709,13 +652,21 @@ export default function AdminUsersPage() {
                     >
                       Iklan: {allAds ? "Ya" : "Tidak"}
                     </span>
-                    <div className="flex shrink-0 items-center gap-1">
-                      <MiniBtn onClick={() => setGroupEdit({ name, members })}>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <NBButton
+                        variant="secondary"
+                        onClick={() => setGroupEdit({ name, members })}
+                        className="px-3"
+                      >
                         Ubah grup
-                      </MiniBtn>
-                      <MiniBtn onClick={() => setGroupAccess({ name, members })}>
+                      </NBButton>
+                      <NBButton
+                        variant="secondary"
+                        onClick={() => setGroupAccess({ name, members })}
+                        className="px-3"
+                      >
                         Akses Kamera
-                      </MiniBtn>
+                      </NBButton>
                     </div>
                   </div>
                 )}
@@ -1370,8 +1321,9 @@ function GroupAccessModal({
             <p className="text-xs tabular-nums text-slate-400">
               {grantedCount} dari {streams.length} dipilih
             </p>
-            <div className="flex gap-1">
-              <MiniBtn
+            <div className="flex gap-2">
+              <NBButton
+                variant="secondary"
                 onClick={() =>
                   setAccess((prev) => {
                     const next: Record<number, GrantFlags> = { ...prev };
@@ -1388,16 +1340,17 @@ function GroupAccessModal({
                     return next;
                   })
                 }
-                className="min-h-[44px]"
+                className="px-3"
               >
                 Pilih semua
-              </MiniBtn>
-              <MiniBtn
+              </NBButton>
+              <NBButton
+                variant="secondary"
                 onClick={() => setAccess({})}
-                className="min-h-[44px]"
+                className="px-3"
               >
                 Bersihkan
-              </MiniBtn>
+              </NBButton>
             </div>
           </div>
           <p className="mb-3 text-xs leading-relaxed text-slate-400">
@@ -1584,8 +1537,9 @@ function UserAccessModal({
             <p className="text-xs tabular-nums text-slate-400">
               {grantedCount} dari {streams.length} dipilih
             </p>
-            <div className="flex gap-1">
-              <MiniBtn
+            <div className="flex gap-2">
+              <NBButton
+                variant="secondary"
                 onClick={() =>
                   setAccess((prev) => {
                     const next: Record<number, AccessFlags> = { ...prev };
@@ -1601,16 +1555,17 @@ function UserAccessModal({
                     return next;
                   })
                 }
-                className="min-h-[44px]"
+                className="px-3"
               >
                 Pilih semua
-              </MiniBtn>
-              <MiniBtn
+              </NBButton>
+              <NBButton
+                variant="secondary"
                 onClick={() => setAccess({})}
-                className="min-h-[44px]"
+                className="px-3"
               >
                 Bersihkan
-              </MiniBtn>
+              </NBButton>
             </div>
           </div>
           <div className="mb-1 flex items-center gap-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
@@ -1801,9 +1756,9 @@ function AdminGrantModal({
               Bagikan yang dicentang berarti admin ini bisa meneruskan kamera
               ke user di grupnya.
             </p>
-            <div className="flex shrink-0 gap-1">
-              <button
-                type="button"
+            <div className="flex shrink-0 gap-2">
+              <NBButton
+                variant="secondary"
                 onClick={() =>
                   setGrants((prev) => {
                     const next: Record<number, GrantFlags> = { ...prev };
@@ -1816,17 +1771,17 @@ function AdminGrantModal({
                     return next;
                   })
                 }
-                className="min-h-[44px] rounded-md px-2 text-xs font-medium text-accent-300 transition-colors hover:bg-ink-800"
+                className="px-3"
               >
                 Pilih semua
-              </button>
-              <button
-                type="button"
+              </NBButton>
+              <NBButton
+                variant="secondary"
                 onClick={() => setGrants({})}
-                className="min-h-[44px] rounded-md px-2 text-xs font-medium text-slate-400 transition-colors hover:bg-ink-800"
+                className="px-3"
               >
                 Bersihkan
-              </button>
+              </NBButton>
             </div>
           </div>
           <div className="mb-1 flex items-center gap-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">

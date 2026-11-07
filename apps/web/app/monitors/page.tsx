@@ -419,7 +419,15 @@ export default function MonitorsPage() {
                     className="flex h-11 min-w-[44px] items-center justify-center rounded-full bg-ink-800 px-3 text-base text-neutral-200 shadow-sm transition hover:bg-ink-700 active:scale-95"
                     aria-label="Kembali ke daftar monitor"
                   >
-                    ←
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+                      <path
+                        d="M10 3L5 8l5 5"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
                   </button>
                   <Button
                     variant={groupMode ? "primary" : "subtle"}
@@ -443,7 +451,7 @@ export default function MonitorsPage() {
                         strokeLinejoin="round"
                       />
                     </svg>
-                    <span className="hidden sm:inline">Penuh</span>
+                    <span className="hidden sm:inline">Layar penuh</span>
                   </button>
                 </div>
               }
@@ -531,7 +539,7 @@ export default function MonitorsPage() {
                   <button
                     type="button"
                     onClick={() => setFormIds(streams.map((s) => s.id))}
-                    className="rounded-xl bg-ink-800 px-2.5 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-ink-700 active:scale-[0.98]"
+                    className="flex min-h-11 items-center rounded-xl bg-ink-800 px-3 text-xs font-semibold text-slate-200 transition hover:bg-ink-700 active:scale-[0.98]"
                   >
                     Pilih semua
                   </button>
@@ -585,7 +593,15 @@ export default function MonitorsPage() {
                             className="flex h-11 w-11 items-center justify-center rounded-lg bg-ink-700 text-neutral-300 transition hover:bg-ink-600 active:scale-95 disabled:opacity-30"
                             aria-label={`Geser ${s.name} ke atas`}
                           >
-                            ↑
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+                              <path
+                                d="M8 13V3M4 7l4-4 4 4"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
                           </button>
                           <button
                             type="button"
@@ -597,7 +613,15 @@ export default function MonitorsPage() {
                             className="flex h-11 w-11 items-center justify-center rounded-lg bg-ink-700 text-neutral-300 transition hover:bg-ink-600 active:scale-95 disabled:opacity-30"
                             aria-label={`Geser ${s.name} ke bawah`}
                           >
-                            ↓
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+                              <path
+                                d="M8 3v10M4 9l4 4 4-4"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
                           </button>
                         </span>
                       )}

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { playWhep, stopWhep } from "../lib/whep";
 import { api, withToken } from "../lib/api";
 import { AdBanner } from "./AdBanner";
-import { Badge } from "./ui";
+import { Badge, Button } from "./ui";
 import { useFullscreen } from "../hooks/useFullscreen";
 import type { Stream, AdConfig } from "../lib/types";
 
@@ -251,7 +251,8 @@ export function FocusModal({ stream, onClose }: Props) {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <button
+            <Button
+              variant={quality === "HQ" ? "primary" : "subtle"}
               onClick={() => {
                 const target = quality === "HQ" ? "LQ" : "HQ";
                 const url = target === "HQ" ? stream?.whep_main_url : stream?.whep_sub_url;
@@ -261,15 +262,16 @@ export function FocusModal({ stream, onClose }: Props) {
               }}
               aria-label={quality === "HQ" ? "Ganti ke sub stream (LQ)" : "Ganti ke main stream (HD)"}
               title={quality === "HQ" ? "Ganti ke sub stream (LQ)" : "Ganti ke main stream (HD)"}
-              className={`flex h-11 min-w-11 items-center justify-center rounded-xl px-3 text-xs font-bold tracking-wide transition active:scale-95 ${quality === "HQ" ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]" : "bg-ink-800 text-neutral-300 shadow-sm hover:bg-ink-700 hover:text-slate-200"}`}
+              className="h-11 min-w-11 px-3 text-xs font-bold tracking-wide"
             >
               {quality}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="subtle"
               onClick={snapshot}
               aria-label="Ambil snapshot"
               title="Ambil snapshot"
-              className="flex h-11 items-center gap-2 rounded-xl bg-ink-800 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-ink-700 active:scale-95"
+              className="h-11"
             >
               <svg
                 width="16"
@@ -287,11 +289,11 @@ export function FocusModal({ stream, onClose }: Props) {
                 />
               </svg>
               <span className="hidden min-[420px]:inline">Snapshot</span>
-            </button>
+            </Button>
             <button
               onClick={onClose}
               data-focus-close
-              className="flex h-11 w-11 items-center justify-center rounded-xl bg-ink-800 text-white shadow-sm transition hover:bg-ink-700 active:scale-95"
+              className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-xl text-slate-400 transition-colors duration-150 hover:bg-ink-700 hover:text-slate-200"
               aria-label="Tutup"
             >
               <svg
@@ -403,7 +405,7 @@ export function FocusModal({ stream, onClose }: Props) {
                 {fs && (
                   <button
                     onClick={rotate}
-                    className={`flex h-11 w-11 items-center justify-center rounded-xl text-white transition active:scale-95 ${rotated ? "bg-accent-400/40 hover:bg-accent-400/50" : "bg-black/50 hover:bg-black/70"}`}
+                    className={`flex h-11 w-11 items-center justify-center rounded-xl text-white transition active:scale-95 ${rotated ? "bg-accent-400/30 hover:bg-accent-400/40" : "bg-white/10 hover:bg-white/25"}`}
                     aria-label={rotated ? "Ikuti rotasi HP" : "Putar ke landscape"}
                     aria-pressed={rotated}
                     title={rotated ? "Ikuti rotasi HP" : "Putar ke landscape"}
@@ -430,7 +432,7 @@ export function FocusModal({ stream, onClose }: Props) {
                 )}
                 <button
                   onClick={toggleFs}
-                  className="flex h-11 w-11 items-center justify-center rounded-xl bg-black/70 text-white transition hover:bg-black/70 active:scale-95"
+                  className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/25 active:scale-95"
                   aria-label={fs ? "Keluar layar penuh" : "Layar penuh"}
                   title={fs ? "Keluar layar penuh" : "Layar penuh"}
                 >

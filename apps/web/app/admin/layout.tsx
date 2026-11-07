@@ -16,6 +16,7 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { href: "/admin/streams", label: "Kamera", icon: "M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM2.5 10s3-5.5 7.5-5.5S17.5 10 17.5 10s-3 5.5-7.5 5.5S2.5 10 2.5 10z" },
+  { href: "/admin/groups", label: "Grup Kamera", icon: "M7 8a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM2.5 14.5c0-2.8 2-4.5 4.5-4.5s4.5 1.7 4.5 4.5M13.5 8a2.5 2.5 0 100-5M14 10.2c2.3.3 3.5 1.9 3.5 4.3" },
   { href: "/admin/users", label: "Pengguna", icon: "M10 10a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM3.5 17.5c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6" },
   { href: "/admin/scanner", label: "Scanner", icon: "M4 8V5.5A1.5 1.5 0 015.5 4H8M12 4h2.5A1.5 1.5 0 0116 5.5V8M16 12v2.5a1.5 1.5 0 01-1.5 1.5H12M8 16H5.5A1.5 1.5 0 014 14.5V12M7 10h6", superAdminOnly: true },
   { href: "/admin/ads", label: "Iklan", icon: "M4 5h16v11H4zM4 16l4-4M20 16l-4-4", superAdminOnly: true },
@@ -64,12 +65,15 @@ export default function AdminLayout({
                     key={n.href}
                     href={n.href}
                     aria-current={active ? "page" : undefined}
-                    className={`flex min-h-[42px] shrink-0 cursor-pointer items-center whitespace-nowrap rounded-full px-4 text-sm transition-all duration-150 active:scale-[0.97] ${
+                    className={`flex min-h-[42px] shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap rounded-full px-4 text-sm transition-all duration-150 active:scale-[0.97] ${
                       active
                         ? "bg-gradient-to-r from-accent-600 to-accent-500 font-semibold text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
                         : "bg-ink-800/60 font-medium text-slate-300 shadow-[0_1px_3px_rgba(0,0,0,0.2)] hover:bg-ink-800 hover:text-slate-200"
                     }`}
                   >
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden className="shrink-0">
+                      <path d={n.icon} stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
                     {n.label}
                   </Link>
                 );

@@ -47,6 +47,15 @@ export function NBTitle({
   );
 }
 
+/* Varian tombol "secondary": ALIAS dari Button "subtle"
+   (components/ui.tsx). Keduanya SENGAJA identik, class yang sama persis:
+   "bg-ink-800 text-slate-200 hover:bg-ink-700".
+   Kapan memakai yang mana: NBButton variant="secondary" untuk menu admin,
+   Button variant="subtle" untuk menu utama. Jangan menulis class
+   varian ini secara manual di tempat lain, pakai salah satu varian di atas.
+   Kalau tampilannya perlu berubah, ubah KEDUA definisi sekaligus supaya
+   tetap identik; cek dengan:
+   grep -h 'bg-ink-800 text-slate-200 hover:bg-ink-700' components/ui.tsx app/admin/_nb.tsx */
 type NBBtnVariant = "primary" | "secondary" | "danger";
 
 export function NBButton({

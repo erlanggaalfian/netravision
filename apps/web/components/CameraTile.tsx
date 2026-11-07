@@ -202,7 +202,7 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
                 e.stopPropagation();
                 rotate();
               }}
-              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white transition active:scale-95 ${rotated ? "bg-accent-400/30 hover:bg-accent-400/40" : "bg-white/10 hover:bg-white/20"}`}
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white transition active:scale-95 ${rotated ? "bg-accent-400/30 hover:bg-accent-400/40" : "bg-white/10 hover:bg-white/25"}`}
               aria-label={rotated ? "Ikuti rotasi HP" : "Putar ke landscape"}
               aria-pressed={rotated}
               title={rotated ? "Ikuti rotasi HP" : "Putar ke landscape"}

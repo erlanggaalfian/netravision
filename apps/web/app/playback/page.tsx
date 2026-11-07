@@ -178,17 +178,33 @@ function PlaybackPanel({
 
   return (
     <div className="nv-panel-modern min-w-0 overflow-hidden">
-      {/* Header panel: nama kamera + Muat, di dalam panel */}
+      {/* Header panel: nama kamera + Muat ulang, di dalam panel */}
       <div className="flex items-center justify-between gap-2 border-b border-ink-800 px-4 py-3">
         <span className="truncate text-base font-extrabold tracking-tight text-slate-100">
           {streamName}
         </span>
         <Button
-          variant="primary"
+          variant="subtle"
           onClick={load}
           disabled={phase === "loading"}
         >
-          {phase === "loading" ? "Memuat…" : "Muat"}
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 16 16"
+            fill="none"
+            className={phase === "loading" ? "animate-spin motion-reduce:animate-none" : ""}
+            aria-hidden
+          >
+            <path
+              d="M13.5 8a5.5 5.5 0 11-1.6-3.9M13.5 1.5v3h-3"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          {phase === "loading" ? "Memuat…" : "Muat ulang"}
         </Button>
       </div>
 
@@ -541,7 +557,7 @@ export default function PlaybackPage() {
                       aria-label={`Grid ${g.label}`}
                       title={`Grid ${g.label}`}
                       onClick={() => setGridCols(g.cols)}
-                      className={`flex h-10 min-w-[52px] items-center justify-center rounded-full px-3 text-xs font-bold transition-all duration-200 active:scale-95 ${
+                      className={`flex h-11 min-w-[52px] items-center justify-center rounded-full px-3 text-xs font-bold transition-all duration-200 active:scale-95 ${
                         gridCols === g.cols
                           ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
                           : "text-slate-400 hover:bg-ink-700 hover:text-slate-200"

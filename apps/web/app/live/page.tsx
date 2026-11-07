@@ -316,7 +316,7 @@ export default function LivePage() {
                           : `Tampilkan ${g.label} kamera`
                       }
                       onClick={() => setGridKey(g.key)}
-                      className={`flex h-10 min-w-[48px] items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-xs font-bold transition-all duration-200 active:scale-95 max-md:flex-1 ${
+                      className={`flex h-11 min-w-[52px] items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-xs font-bold transition-all duration-200 active:scale-95 max-md:flex-1 ${
                         activeOpt.key === g.key
                           ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
                           : "text-neutral-400 hover:bg-ink-700 hover:text-slate-200"
@@ -347,11 +347,12 @@ export default function LivePage() {
                   ))}
                 </div>
               </div>
-              <button
+              <Button
+                variant="subtle"
                 onClick={load}
                 disabled={fetching}
                 aria-label="Muat ulang"
-                className="flex h-11 items-center gap-2 rounded-full bg-ink-800 px-4 text-sm font-semibold text-neutral-200 shadow-sm transition-all duration-200 hover:bg-ink-700 active:scale-95 disabled:opacity-50"
+                className="rounded-full"
               >
                 <svg
                   width="15"
@@ -370,7 +371,7 @@ export default function LivePage() {
                   />
                 </svg>
                 <span className="hidden min-[420px]:inline">Muat ulang</span>
-              </button>
+              </Button>
               <div
                 className="nv-scroll-x flex w-full items-center gap-1 overflow-x-auto rounded-full bg-ink-800 p-1 shadow-sm sm:w-auto"
                 role="tablist"

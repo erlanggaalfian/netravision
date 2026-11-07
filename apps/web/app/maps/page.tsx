@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { createRoot } from "react-dom/client";
 import "leaflet/dist/leaflet.css";
 import type * as LType from "leaflet";
 import { AppShell } from "../../components/AppShell";
@@ -164,6 +165,7 @@ export default function MapsPage() {
     if (!L || !map || !layer) return;
     layer.clearLayers();
     const bounds: LType.LatLngExpression[] = [];
+    const popupRoots: ReturnType<typeof createRoot>[] = [];
 
     for (const s of mapped) {
       const lat = s.latitude as number;
@@ -176,15 +178,22 @@ export default function MapsPage() {
 
       const el = document.createElement("div");
       el.innerHTML = popupHtml(s);
-      const btn = document.createElement("button");
-      btn.textContent = "Lihat live";
-      btn.style.cssText =
-        "width:100%;padding:10px 12px;border-radius:12px;background:linear-gradient(90deg,var(--nv-accent-600),var(--nv-accent-500));color:#fff;font-size:13px;font-weight:700;border:none;cursor:pointer;min-height:44px;box-shadow:0 4px 16px -4px var(--nv-accent-600)";
-      btn.onclick = () => {
-        map.closePopup();
-        focusRef.current(s);
-      };
-      el.appendChild(btn);
+      const btnHost = document.createElement("div");
+      el.appendChild(btnHost);
+      const popupRoot = createRoot(btnHost);
+      popupRoot.render(
+        <Button
+          variant="primary"
+          className="w-full"
+          onClick={() => {
+            map.closePopup();
+            focusRef.current(s);
+          }}
+        >
+          Lihat live
+        </Button>,
+      );
+      popupRoots.push(popupRoot);
       marker.bindPopup(el, { closeButton: false });
 
       if (isAdmin) {
@@ -223,6 +232,10 @@ export default function MapsPage() {
       map.fitBounds(L.latLngBounds(bounds).pad(0.25));
       fittedRef.current = true;
     }
+
+    return () => {
+      popupRoots.forEach((r) => r.unmount());
+    };
   }, [mapped, isAdmin]);
 
   /* Admin: tandai kamera belum-dipetakan di tengah peta. */
@@ -378,7 +391,7 @@ export default function MapsPage() {
             disabled={locating}
             aria-label="Tunjukkan lokasi saya"
             title="Lokasi saya"
-            className="nv-frost absolute left-2.5 top-[120px] z-10 flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-full text-neutral-200 transition-transform duration-150 active:scale-95 disabled:opacity-70 md:top-[76px]"
+            className="nv-frost absolute left-2.5 top-[120px] z-10 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full text-neutral-200 transition-transform duration-150 active:scale-95 disabled:opacity-70 md:top-[76px]"
           >
             {locating ? (
               <svg className="animate-spin" width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -394,7 +407,7 @@ export default function MapsPage() {
             )}
           </button>
           {locateMsg && (
-            <div className="nv-frost absolute left-2.5 top-[156px] z-10 max-w-[240px] rounded-2xl px-3 py-2 text-[11px] leading-snug text-neutral-200 md:top-[112px]">
+            <div className="nv-frost absolute left-2.5 top-[172px] z-10 max-w-[240px] rounded-2xl px-3 py-2 text-[11px] leading-snug text-neutral-200 md:top-[128px]">
               {locateMsg}
             </div>
           )}
