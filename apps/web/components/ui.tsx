@@ -416,7 +416,7 @@ export function Spinner() {
 /* Ikon grid mini: kotak-kotak besar sesuai jumlah kolom (1×1, 2×2, 3×3,
    4×4) dengan jarak rapat dan sudut tajam. Dipakai tombol pemilih
    grid di Live dan Putar Ulang (PC). */
-export function GridIcon({ cols, size = 18 }: { cols: number; size?: number }) {
+export function GridIcon({ cols, size = 26 }: { cols: number; size?: number }) {
   return (
     <span
       className="grid shrink-0"
