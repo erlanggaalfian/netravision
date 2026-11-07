@@ -406,7 +406,7 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-dashed border-ink-700 bg-ink-900/50 px-4 py-12 text-center text-sm text-slate-400">
+    <div className="rounded-2xl border border-dashed border-ink-700 bg-ink-900 px-4 py-12 text-center text-sm text-slate-400">
       {icon && <div className="mb-3 flex justify-center">{icon}</div>}
       <p>{text}</p>
       {action && <div className="mt-4 flex justify-center">{action}</div>}

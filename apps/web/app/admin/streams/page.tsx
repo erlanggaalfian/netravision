@@ -170,7 +170,7 @@ function StreamRow({
           </div>
         </NBAccordion>
       </div>
-      <div className="hidden items-center justify-between gap-3 rounded-xl bg-ink-800 shadow-sm px-4 py-3 transition-colors md:flex">
+      <div className="hidden items-center justify-between gap-3 rounded-xl bg-ink-900 shadow-sm px-4 py-3 transition-colors md:flex">
         {summary}
         {actions}
       </div>
@@ -380,7 +380,7 @@ export default function AdminStreamsPage() {
 
       {/* Bulk bar */}
       {selected.size > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl bg-ink-800 shadow-sm px-4 py-3">
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl bg-ink-900 shadow-sm px-4 py-3">
           <span className="text-sm text-slate-300">
             {selected.size} dipilih
           </span>

@@ -123,7 +123,7 @@ export default function AdminScannerPage() {
     return (
       <>
         {/* Mobile: kartu */}
-        <li className="flex items-center gap-3 rounded-xl bg-ink-800 shadow-sm p-3 md:hidden">
+        <li className="flex items-center gap-3 rounded-xl bg-ink-900 shadow-sm p-3 md:hidden">
           {checkbox}
           <div className="min-w-0 flex-1">
             <p className="truncate font-mono text-sm text-white">

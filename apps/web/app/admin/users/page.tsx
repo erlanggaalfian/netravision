@@ -495,7 +495,7 @@ export default function AdminUsersPage() {
         <>
           {/* Bar bulk ala Kamera */}
           {selected.size > 0 && (
-            <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl bg-ink-800 shadow-sm px-4 py-3">
+            <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl bg-ink-900 shadow-sm px-4 py-3">
               <span className="text-sm text-slate-300">
                 {selected.size} dipilih
               </span>
