@@ -71,7 +71,7 @@ function NBCheckbox({
   );
 }
 
-/* Tombol ikon 44px (pensil/sampah) untuk aksi baris pengguna. */
+/* Tombol ikon ringkas ala mockup (p-1.5, ikon 16px). */
 function IconBtn({
   label,
   onClick,
@@ -89,10 +89,10 @@ function IconBtn({
       onClick={onClick}
       title={label}
       aria-label={label}
-      className={`inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl transition-colors ${
+      className={`inline-flex shrink-0 cursor-pointer items-center justify-center rounded-lg p-1.5 transition-colors ${
         danger
-          ? "text-bad-400 hover:bg-bad-400/15"
-          : "text-slate-300 hover:bg-ink-800"
+          ? "text-bad-400 hover:bg-bad-400/10 hover:text-bad-300"
+          : "text-slate-400 hover:bg-ink-800 hover:text-slate-200"
       }`}
     >
       {children}
@@ -100,7 +100,7 @@ function IconBtn({
   );
 }
 
-/* Tombol ghost: hanya teks redup, latar muncul saat hover. */
+/* Tombol ghost ala mockup: hanya teks redup, latar muncul saat hover. */
 function GhostBtn({
   onClick,
   children,
@@ -112,7 +112,7 @@ function GhostBtn({
     <button
       type="button"
       onClick={onClick}
-      className="shrink-0 cursor-pointer whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-200"
+      className="shrink-0 cursor-pointer whitespace-nowrap rounded px-1 py-1 text-xs font-medium text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-200 sm:text-sm"
     >
       {children}
     </button>
@@ -121,7 +121,7 @@ function GhostBtn({
 
 function PencilIcon() {
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
         d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"
         stroke="currentColor"
@@ -135,7 +135,7 @@ function PencilIcon() {
 
 function TrashIcon() {
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
         d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"
         stroke="currentColor"
@@ -301,24 +301,24 @@ export default function AdminUsersPage() {
 
   function actionsFor(u: User) {
     return (
-      /* Kolom aksi selebar tetap (w-72) di desktop, rata kanan,
-         gap-3, agar semua aksi membentuk kolom lurus ke bawah.
-         Akses Kamera ghost (tanpa border); Ubah dan Hapus ikon
-         44px; slot chevron w-11 di ujung kanan (kosong di baris
-         ini) agar tombol sejajar tegak lurus dengan baris grup. */
-      <div className="flex flex-wrap items-center gap-3 md:w-72 md:flex-nowrap md:justify-end">
+      /* Sisi kanan ala mockup: rata kanan, Akses Kamera ghost,
+         lalu kelompok ikon pensil + tempat sampah (gap-1.5).
+         Tanpa lebar tetap dan tanpa slot chevron; ikon sejajar
+         karena semuanya menempel ke tepi kanan. */
+      <div className="flex shrink-0 items-center gap-3 sm:gap-4">
         {/* Superadmin selalu mendapat akses ke semua kamera,
             jadi tidak ada pengaturan Akses Kamera untuknya. */}
         {u.role !== "super_admin" && (
           <GhostBtn onClick={() => setAccessFor(u)}>Akses Kamera</GhostBtn>
         )}
-        <IconBtn label="Ubah" onClick={() => setEditing(u)}>
-          <PencilIcon />
-        </IconBtn>
-        <IconBtn label="Hapus" danger onClick={() => setDeleting(u)}>
-          <TrashIcon />
-        </IconBtn>
-        <span className="hidden w-11 shrink-0 md:block" aria-hidden />
+        <span className="flex items-center gap-1.5">
+          <IconBtn label="Ubah" onClick={() => setEditing(u)}>
+            <PencilIcon />
+          </IconBtn>
+          <IconBtn label="Hapus" danger onClick={() => setDeleting(u)}>
+            <TrashIcon />
+          </IconBtn>
+        </span>
       </div>
     );
   }
@@ -340,67 +340,76 @@ export default function AdminUsersPage() {
   }
 
   function renderUser(u: User) {
-    /* Baris nama: checkbox + nama + semua lencana (peran, Iklan)
-       dalam satu baris, tepat di samping nama; area tengah kartu
-       dikosongkan. Baris bawah murni detail sekunder kecil. */
-    const summary = (
-      <span className="min-w-0 flex-1">
-        <span className="flex min-w-0 items-center gap-2">
-          {checkboxFor(u)}
-          <span className="min-w-0 truncate font-semibold text-white">
-            {u.username}
-          </span>
-          <span className="flex shrink-0 items-center gap-2">
-            {roleBadge(u)}
-            <NBBadge tone={u.show_ads ? "ok" : "muted"}>
-              Iklan: {u.show_ads ? "Ya" : "Tidak"}
-            </NBBadge>
-          </span>
+    /* Tata letak bertumpuk ala mockup: nama, lalu baris lencana
+       (peran + Iklan), lalu Dibuat oleh yang kecil dan pudar. */
+    const content = (
+      <span className="min-w-0 flex-1 space-y-1">
+        <span className="block truncate text-base font-bold text-white">
+          {u.username}
         </span>
-        <span className="mt-1 block pl-8 text-xs text-slate-400">
-          Dibuat oleh: {u.dibuat_oleh ?? "—"}
+        <span className="flex flex-wrap items-center gap-2">
+          {roleBadge(u)}
+          <NBBadge tone={u.show_ads ? "ok" : "muted"}>
+            Iklan: {u.show_ads ? "Ya" : "Tidak"}
+          </NBBadge>
+        </span>
+        <span className="block text-xs text-slate-400">
+          Dibuat oleh:{" "}
+          <span className="font-medium text-slate-300">
+            {u.dibuat_oleh ?? "—"}
+          </span>
         </span>
       </span>
+    );
+    const left = (
+      <div className="flex min-w-0 flex-1 items-start gap-3.5 sm:items-center">
+        {checkboxFor(u)}
+        {content}
+      </div>
     );
     const actions = actionsFor(u);
     return (
       <div key={u.id}>
         <div className="md:hidden">
-          <NBAccordion summary={summary}>
+          <NBAccordion summary={left}>
             <div className="space-y-3">{actions}</div>
           </NBAccordion>
         </div>
-        <div className="hidden items-center justify-between gap-3 rounded-xl border border-ink-800 bg-ink-900 shadow-sm px-4 py-3 transition-colors md:flex">
-          {summary}
+        <div className="hidden items-center justify-between gap-4 rounded-2xl border border-ink-800 bg-ink-900 px-5 py-4 shadow-sm transition-colors sm:px-6 md:flex">
+          {left}
           {actions}
         </div>
       </div>
     );
   }
 
-  /* Anggota grup: baris datar menjorok ke dalam (pl-12 di wadah),
-     dipisah garis halus; tanpa kartu bersarang agar kolom aksinya
-     persis sama dengan pengguna mandiri. */
+  /* Anggota grup ala mockup: satu baris, nama text-sm, lencana
+     peran di barisnya sendiri, Dibuat oleh di bawahnya; pemisah
+     sangat halus antar baris, hover lembut. */
   function renderMember(u: User) {
     return (
-      <div key={u.id} className="py-4">
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <span className="min-w-0 flex-1">
-            <span className="flex min-w-0 items-center gap-2">
-              {checkboxFor(u)}
-              <span className="min-w-0 truncate font-semibold text-white">
-                {u.username}
-              </span>
-              <span className="flex shrink-0 items-center gap-2">
-                {roleBadge(u)}
-              </span>
+      <div
+        key={u.id}
+        className="flex items-center justify-between gap-4 px-5 py-3.5 hover:bg-ink-850 sm:px-6"
+      >
+        <div className="flex min-w-0 flex-1 items-start gap-3.5 pl-2 sm:items-center sm:pl-4">
+          {checkboxFor(u)}
+          <span className="min-w-0 flex-1 space-y-1">
+            <span className="block truncate text-sm font-semibold text-white">
+              {u.username}
             </span>
-            <span className="mt-1 block pl-8 text-xs text-slate-400">
-              Dibuat oleh: {u.dibuat_oleh ?? "—"}
+            <span className="flex flex-wrap items-center gap-2">
+              {roleBadge(u)}
+            </span>
+            <span className="block text-xs text-slate-400">
+              Dibuat oleh:{" "}
+              <span className="font-medium text-slate-300">
+                {u.dibuat_oleh ?? "—"}
+              </span>
             </span>
           </span>
-          <div className="pl-8 md:contents">{actionsFor(u)}</div>
         </div>
+        {actionsFor(u)}
       </div>
     );
   }
@@ -494,38 +503,40 @@ export default function AdminUsersPage() {
             return (
               <div
                 key={name}
-                className="overflow-hidden rounded-xl border border-ink-800 bg-ink-900 shadow-sm"
+                className="overflow-hidden rounded-2xl border border-ink-800 bg-ink-900 shadow-sm"
               >
-                <div className="flex items-center gap-2 px-4 py-3">
-                  <NBCheckbox
-                    checked={
-                      members.length > 0 &&
-                      members.every((m) => selected.has(m.id))
-                    }
-                    onChange={() => toggleSelectGroup(members)}
-                    ariaLabel={`Pilih semua anggota ${name}`}
-                  />
-                  <button
-                    onClick={() => toggleGroup(name)}
-                    aria-expanded={open}
-                    className="flex min-h-[44px] min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg px-2 py-1 text-left transition-colors hover:bg-ink-700/40"
-                  >
-                    <NBBadge tone="info">Grup</NBBadge>
-                    <span className="min-w-0 truncate">
-                      <span className="font-semibold text-white">{name}</span>
-                      <span className="text-xs text-slate-400">
-                        {" "}
-                        · {members.length} anggota
+                <div className="flex items-center justify-between gap-4 border-b border-ink-850 px-5 py-4 sm:px-6">
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <NBCheckbox
+                      checked={
+                        members.length > 0 &&
+                        members.every((m) => selected.has(m.id))
+                      }
+                      onChange={() => toggleSelectGroup(members)}
+                      ariaLabel={`Pilih semua anggota ${name}`}
+                    />
+                    <button
+                      onClick={() => toggleGroup(name)}
+                      aria-expanded={open}
+                      className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg px-2 py-1 text-left transition-colors hover:bg-ink-700/40"
+                    >
+                      <NBBadge tone="info">Grup</NBBadge>
+                      <span className="flex min-w-0 items-baseline gap-1.5">
+                        <span className="truncate text-base font-bold text-white">
+                          {name}
+                        </span>
+                        <span className="shrink-0 text-xs text-slate-400 sm:text-sm">
+                          · {members.length} anggota
+                        </span>
                       </span>
-                    </span>
-                    <span className="shrink-0">
-                      <NBBadge tone={allAds ? "ok" : "muted"}>
-                        Iklan: {allAds ? "Ya" : "Tidak"}
-                      </NBBadge>
-                    </span>
-                  </button>
-                  {/* Kolom aksi selebar tetap seperti baris anggota. */}
-                  <div className="flex shrink-0 items-center gap-3 md:w-72 md:justify-end">
+                      <span className="shrink-0">
+                        <NBBadge tone={allAds ? "ok" : "muted"}>
+                          Iklan: {allAds ? "Ya" : "Tidak"}
+                        </NBBadge>
+                      </span>
+                    </button>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3 sm:gap-4">
                     <GhostBtn onClick={() => setGroupEdit({ name, members })}>
                       Ubah grup
                     </GhostBtn>
@@ -537,11 +548,11 @@ export default function AdminUsersPage() {
                       onClick={() => toggleGroup(name)}
                       aria-expanded={open}
                       aria-label={open ? "Tutup grup" : "Buka grup"}
-                      className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-ink-700/40"
+                      className="shrink-0 cursor-pointer rounded p-1 text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-200"
                     >
                       <svg
-                        width="16"
-                        height="16"
+                        width="20"
+                        height="20"
                         viewBox="0 0 16 16"
                         fill="none"
                         aria-hidden
@@ -559,7 +570,7 @@ export default function AdminUsersPage() {
                   </div>
                 </div>
                 {open && (
-                  <div className="pb-2 pl-12 pr-4">
+                  <div className="divide-y divide-ink-850">
                     {members.map((u) => renderMember(u))}
                   </div>
                 )}
