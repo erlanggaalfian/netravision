@@ -633,7 +633,9 @@ export default function AdminUsersPage() {
                     className="mb-2 flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg text-left transition-colors hover:bg-ink-700/40 md:hidden"
                   >
                     <NBBadge tone="info">Grup</NBBadge>
-                    <span className="min-w-0 flex-1 truncate text-sm font-bold text-white">
+                    {/* Nama + hitungan menempel (tanpa flex-1) supaya hitungan
+                        tidak terlepas ke ujung kanan. */}
+                    <span className="min-w-0 truncate text-sm font-bold text-white">
                       {name}
                     </span>
                     <span className="shrink-0 text-xs text-slate-400">
@@ -643,14 +645,21 @@ export default function AdminUsersPage() {
                   {/* Baris kontrol. */}
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex min-w-0 flex-1 items-center gap-3">
-                      <NBCheckbox
-                        checked={
-                          members.length > 0 &&
-                          members.every((m) => selected.has(m.id))
-                        }
-                        onChange={() => toggleSelectGroup(members)}
-                        ariaLabel={`Pilih semua anggota ${name}`}
-                      />
+                      {/* Label "Pilih grup" (HP saja) supaya baris kontrol
+                          tidak kosong melompong; klik teks ikut mencentang. */}
+                      <label className="flex cursor-pointer items-center gap-2">
+                        <NBCheckbox
+                          checked={
+                            members.length > 0 &&
+                            members.every((m) => selected.has(m.id))
+                          }
+                          onChange={() => toggleSelectGroup(members)}
+                          ariaLabel={`Pilih semua anggota ${name}`}
+                        />
+                        <span className="text-xs text-slate-400 md:hidden">
+                          Pilih grup
+                        </span>
+                      </label>
                       {/* Toggle desktop (sembunyi di HP karena nama sudah di atas). */}
                       <button
                         onClick={() => toggleGroup(name)}
