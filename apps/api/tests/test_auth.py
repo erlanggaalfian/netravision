@@ -160,3 +160,40 @@ async def test_guest_enabled_no_password(app, monkeypatch):
     body = r.json()
     assert body["access_token"]
     assert body["refresh_token"] is None  # tamu tanpa refresh
+
+
+async def test_guest_db_row_disabled_wins_over_env(app, monkeypatch):
+    """Baris guest is_active=False menang atas env GUEST_ENABLED=True."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "guest_enabled", True)
+    guest = _make_user(id=9, username="guest", role="guest", is_active=False)
+    c, _ = _client(app, guest)
+    async with c:
+        r = await c.post("/api/auth/guest", json={})
+    assert r.status_code == 403
+
+
+async def test_guest_db_row_enabled_wins_over_env(app):
+    """Baris guest is_active=True menang atas env default False."""
+    guest = _make_user(id=9, username="guest", role="guest", is_active=True)
+    c, _ = _client(app, guest)
+    async with c:
+        r = await c.post("/api/auth/guest", json={})
+    assert r.status_code == 200, r.text
+
+
+async def test_guest_enabled_endpoint(app):
+    """GET /auth/guest-enabled mengembalikan nilai efektif dari baris guest."""
+    guest = _make_user(id=9, username="guest", role="guest", is_active=False)
+    c, _ = _client(app, guest)
+    async with c:
+        r = await c.get("/api/auth/guest-enabled")
+    assert r.status_code == 200
+    assert r.json() == {"enabled": False}
+
+    guest2 = _make_user(id=9, username="guest", role="guest", is_active=True)
+    c2, _ = _client(app, guest2)
+    async with c2:
+        r = await c2.get("/api/auth/guest-enabled")
+    assert r.status_code == 200
+    assert r.json() == {"enabled": True}

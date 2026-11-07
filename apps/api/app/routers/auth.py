@@ -105,19 +105,41 @@ async def logout(
     return {"ok": True}
 
 
+@router.get("/auth/guest-enabled")
+async def guest_enabled(db: AsyncSession = Depends(get_db)) -> dict:
+    """Apakah login guest sedang aktif (dipakai halaman login untuk
+    menampilkan atau menyembunyikan tombol Guest)."""
+    return {"enabled": await _guest_login_enabled(db)}
+
+
+async def _guest_login_enabled(db: AsyncSession) -> bool:
+    """Login guest aktif bila baris guest di DB aktif.
+
+    Bila baris guest belum ada (DB lama sebelum migrasi 0011),
+    pakai env GUEST_ENABLED sebagai cadangan.
+    """
+    result = await db.execute(select(User).where(User.username == "guest"))
+    row = result.scalars().first()
+    if row is not None:
+        return bool(row.is_active)
+    return get_settings().guest_enabled
+
+
 @router.post(
     "/auth/guest",
     response_model=TokenOut,
     dependencies=[Depends(rate_limited(5, 60))],
 )
-async def guest(data: GuestIn) -> TokenOut:
+async def guest(data: GuestIn, db: AsyncSession = Depends(get_db)) -> TokenOut:
     """Login tamu untuk semua pengunjung — tanpa password, tanpa
-    autentikasi apapun (2026-11-06). Nonaktif bila GUEST_ENABLED false."""
-    settings = get_settings()
-    if not settings.guest_enabled:
+    autentikasi apapun (2026-11-06). Nonaktif bila baris guest di DB
+    is_active False (diatur superadmin lewat web); bila baris belum
+    ada, nonaktif bila GUEST_ENABLED false."""
+    if not await _guest_login_enabled(db):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="login tamu nonaktif"
         )
+    settings = get_settings()
     access = create_access_token("guest", "guest", "guest", settings, expires_minutes=60)
     return TokenOut(access_token=access, refresh_token=None, expires_in=3600)
 

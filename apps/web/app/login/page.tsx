@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ApiError } from "../../lib/api";
+import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { ErrorBox } from "../../components/ui";
 
@@ -34,6 +34,25 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  /* Tombol Guest tampil bila login guest aktif. null = belum tahu,
+     tampilkan dulu (perilaku lama) sampai jawaban API datang. */
+  const [guestEnabled, setGuestEnabled] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .get<{ enabled: boolean }>("/auth/guest-enabled")
+      .then((d) => {
+        if (alive) setGuestEnabled(d.enabled);
+      })
+      .catch(() => {
+        /* gagal baca: biarkan tombol tampil, percobaan login yang
+           akan memberi tahu bila guest memang nonaktif. */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   /* Jangan memanggil router saat render (side effect di body render). */
   useEffect(() => {
@@ -135,14 +154,17 @@ export default function LoginPage() {
               >
                 {busy ? "Memeriksa…" : "Masuk"}
               </button>
-              <button
-                type="button"
-                onClick={onGuest}
-                disabled={busy}
-                className="min-h-[48px] w-full cursor-pointer rounded-xl bg-ink-800 px-4 text-sm font-semibold text-slate-300 shadow-sm transition-all duration-150 ease-out hover:bg-ink-700 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]"
-              >
-                Guest login
-              </button>
+              {/* Tombol Guest hanya bila login guest aktif. */}
+              {guestEnabled !== false && (
+                <button
+                  type="button"
+                  onClick={onGuest}
+                  disabled={busy}
+                  className="min-h-[48px] w-full cursor-pointer rounded-xl bg-ink-800 px-4 text-sm font-semibold text-slate-300 shadow-sm transition-all duration-150 ease-out hover:bg-ink-700 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]"
+                >
+                  Guest login
+                </button>
+              )}
             </div>
           </form>
         </div>

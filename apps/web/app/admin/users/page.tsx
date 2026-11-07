@@ -5,7 +5,7 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 import { ApiError, api } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import type { Stream, User } from "../../../lib/types";
-import { ErrorBox, Modal, Spinner } from "../../../components/ui";
+import { ErrorBox, Modal, Spinner, Switch } from "../../../components/ui";
 import {
   NBAccordion,
   NBBadge,
@@ -154,9 +154,9 @@ export default function AdminUsersPage() {
   }
 
   function toggleSelectAllPage() {
-    /* Superadmin tidak bisa masuk grup: tidak ikut dipilih. */
+    /* Superadmin dan guest tidak bisa masuk grup: tidak ikut dipilih. */
     const ids = (users ?? [])
-      .filter((u) => u.role !== "super_admin")
+      .filter((u) => u.role !== "super_admin" && u.role !== "guest")
       .map((u) => u.id);
     const allChecked = ids.length > 0 && ids.every((id) => selected.has(id));
     setSelected((prev) => {
@@ -209,11 +209,13 @@ export default function AdminUsersPage() {
         checked={selected.has(u.id)}
         onChange={() => toggleSelect(u.id)}
         onClick={(e) => e.stopPropagation()}
-        disabled={u.role === "super_admin"}
+        disabled={u.role === "super_admin" || u.role === "guest"}
         title={
           u.role === "super_admin"
             ? "Superadmin berdiri sendiri, tidak bisa dimasukkan ke grup"
-            : undefined
+            : u.role === "guest"
+              ? "Guest dikelola sistem, tidak bisa dimasukkan ke grup"
+              : undefined
         }
         ariaLabel={`Pilih ${u.username}`}
       />
@@ -223,7 +225,7 @@ export default function AdminUsersPage() {
   /* Pilih / batalkan semua anggota satu grup sekaligus. */
   function toggleSelectGroup(members: User[]) {
     const ids = members
-      .filter((m) => m.role !== "super_admin")
+      .filter((m) => m.role !== "super_admin" && m.role !== "guest")
       .map((m) => m.id);
     const allSelected =
       ids.length > 0 && ids.every((id) => selected.has(id));
@@ -235,7 +237,34 @@ export default function AdminUsersPage() {
     });
   }
 
+  /* Guest dikelola sistem: satu-satunya aksi adalah mengaktifkan
+     atau menonaktifkan login guest (is_active di baris guest). */
+  async function toggleGuest(u: User, v: boolean) {
+    try {
+      await api.put(`/admin/users/${u.id}`, { is_active: v });
+      load();
+    } catch (e) {
+      setError(
+        e instanceof ApiError ? e.message : "Gagal mengubah status guest",
+      );
+    }
+  }
+
   function actionsFor(u: User) {
+    /* Baris guest: tanpa Akses Kamera, Ubah, atau Hapus. Hanya
+       switch Login Guest yang mengaktifkan/menonaktifkan guest. */
+    if (u.role === "guest") {
+      return (
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="text-sm text-slate-300">Login Guest</span>
+          <Switch
+            checked={u.is_active}
+            onChange={(v) => toggleGuest(u, v)}
+            label="Login Guest"
+          />
+        </div>
+      );
+    }
     return (
       /* Sisi kanan ala mockup: rata kanan, tombol teks Akses Kamera,
          Ubah, dan Hapus. Tanpa lebar tetap dan tanpa slot chevron;
@@ -518,10 +547,13 @@ export default function AdminUsersPage() {
             <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-400">
               <NBCheckbox
                 checked={
-                  (users ?? []).filter((u) => u.role !== "super_admin")
-                    .length > 0 &&
+                  (users ?? []).filter(
+                    (u) => u.role !== "super_admin" && u.role !== "guest",
+                  ).length > 0 &&
                   (users ?? [])
-                    .filter((u) => u.role !== "super_admin")
+                    .filter(
+                      (u) => u.role !== "super_admin" && u.role !== "guest",
+                    )
                     .every((u) => selected.has(u.id))
                 }
                 onChange={toggleSelectAllPage}
@@ -864,7 +896,9 @@ function UserFormModal({
           <NBSelect value={role} onChange={(e) => setRole(e.target.value)}>
             <option value="user">Pengguna</option>
             <option value="admin">Admin</option>
-            <option value="guest">Tamu</option>
+            {/* Guest tidak bisa dibuat manual: akun guest dibuat
+                otomatis oleh sistem dan hanya bisa diaktifkan atau
+                dinonaktifkan lewat switch di barisnya. */}
             {/* Super Admin hanya bisa dibuat super_admin lain; admin
                 biasa tidak ditawari pilihan ini (backend juga menolak
                 dengan 403). Opsi tetap tampil bila targetnya memang

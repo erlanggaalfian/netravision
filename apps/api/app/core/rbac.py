@@ -31,13 +31,19 @@ async def _user_from_token(raw: str, db: AsyncSession) -> User:
 
     # Guest: pakai baris user 'guest' dari DB bila ada (migrasi 0011),
     # agar show_ads-nya bisa diatur superadmin di menu Pengguna.
-    # Fallback ke user sintetis bila baris belum ada (DB lama).
+    # Bila baris ada tapi nonaktif, token guest lama ditolak (401):
+    # menonaktifkan guest harus langsung mematikan sesi guest yang
+    # sudah berjalan. Fallback ke user sintetis hanya bila baris
+    # belum ada sama sekali (DB lama).
     if payload.get("sub") == "guest":
-        result = await db.execute(
-            select(User).where(User.username == "guest", User.is_active.is_(True))
-        )
+        result = await db.execute(select(User).where(User.username == "guest"))
         guest = result.scalars().first()
         if guest is not None:
+            if not guest.is_active:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="login tamu nonaktif",
+                )
             return guest
         return User(id=0, username="guest", password_hash="", role="guest",
                     is_active=True, show_ads=True)

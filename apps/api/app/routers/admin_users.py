@@ -144,6 +144,10 @@ async def create_user(
 ):
     if data.role not in VALID_ROLES:
         raise HTTPException(400, "role tidak valid")
+    if data.role == "guest":
+        # Guest dibuat otomatis oleh sistem (migrasi 0011/0016),
+        # tidak bisa dibuat manual.
+        raise HTTPException(400, "role guest tidak bisa dibuat manual")
     if data.role == "super_admin" and not is_super_admin(me):
         # v2.0: admin tidak bisa membuat super_admin.
         raise HTTPException(403, "hanya super_admin yang bisa membuat super_admin")
@@ -183,6 +187,14 @@ async def update_user(
     me: User = Depends(admin_only),
 ):
     user = await _get_user_or_404(user_id, db)
+    if user.role == "guest":
+        # Guest dikelola sistem: satu-satunya yang boleh diubah adalah
+        # is_active (mengaktifkan/menonaktifkan login guest). Nama,
+        # kata sandi, peran, grup, dan iklan tidak boleh diubah.
+        if set(data.model_fields_set) - {"is_active"}:
+            raise HTTPException(400, "akun guest hanya bisa diaktifkan/dinonaktifkan")
+    if data.role == "guest":
+        raise HTTPException(400, "role guest tidak bisa diberikan manual")
     if not can_manage_user(me, user):
         raise HTTPException(403, "tidak boleh mengelola akun ini")
     if data.username is not None and data.username != user.username:
@@ -227,6 +239,8 @@ async def delete_user(
     if user_id == me.id:
         raise HTTPException(400, "tidak bisa menghapus akun sendiri")
     user = await _get_user_or_404(user_id, db)
+    if user.role == "guest":
+        raise HTTPException(400, "akun guest tidak bisa dihapus")
     if not can_manage_user(me, user):
         raise HTTPException(403, "tidak boleh menghapus akun ini")
     await db.delete(user)
