@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ApiError, api } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import type { User } from "../lib/types";
 import {
   Badge,
@@ -48,11 +49,24 @@ export function ShareModal({
   streamName: string;
   onClose: () => void;
 }) {
+  const { user: me } = useAuth();
   const [users, setUsers] = useState<User[] | null>(null);
   // Map user_id -> can_playback (hanya untuk user yang di-share).
   const [shares, setShares] = useState<Map<number, boolean> | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const isSuperAdmin = me?.role === "super_admin";
+  /* Cakupan Bagikan: superadmin melihat semua akun. Admin biasa hanya
+     melihat user/guest di grupnya sendiri, bukan dirinya sendiri;
+     admin dikelola oleh superadmin (lewat grant), bukan lewat Bagikan. */
+  const visibleUsers = (users ?? []).filter((u) => {
+    if (isSuperAdmin) return true;
+    if (u.id === me?.id) return false;
+    if (u.role !== "user" && u.role !== "guest") return false;
+    const grup = (me?.admin_group ?? "").trim();
+    if (!grup) return false;
+    return (u.admin_group ?? "").trim() === grup;
+  });
 
   useEffect(() => {
     Promise.all([
@@ -102,10 +116,17 @@ export function ShareModal({
     setBusy(true);
     try {
       // Superadmin selalu ikut (otomatis, Stream + Playback) agar baris
-      // share-nya tidak terhapus saat admin lain menyimpan.
-      const all = new Map(shares);
-      for (const u of users ?? []) {
-        if (u.role === "super_admin") all.set(u.id, true);
+      // share-nya tidak terhapus saat admin lain menyimpan. Admin biasa
+      // hanya mengirim akun yang ia kelola; baris superadmin, admin
+      // lain, dan user grup lain dipertahankan oleh backend.
+      const entries = [...shares.entries()].filter(([uid]) =>
+        isSuperAdmin ? true : visibleUsers.some((u) => u.id === uid),
+      );
+      const all = new Map(entries);
+      if (isSuperAdmin) {
+        for (const u of users ?? []) {
+          if (u.role === "super_admin") all.set(u.id, true);
+        }
       }
       await api.post(`/admin/streams/${streamId}/sharing`, {
         shares: [...all.entries()].map(([user_id, can_playback]) => ({
@@ -140,8 +161,13 @@ export function ShareModal({
             Pilih akun yang boleh melihat kamera ini, lalu atur apakah mereka
             juga boleh membuka rekaman (playback).
           </p>
-          <div className="max-h-[50vh] space-y-1 overflow-y-auto">
-            {(users ?? []).map((u) => {
+          {visibleUsers.length === 0 ? (
+            <p className="py-6 text-center text-sm text-slate-400">
+              Tidak ada user di grup Anda yang bisa dibagikan kamera ini.
+            </p>
+          ) : (
+            <div className="max-h-[50vh] space-y-1 overflow-y-auto">
+              {visibleUsers.map((u) => {
               // Superadmin otomatis punya akses semua kamera (bypass di
               // backend), selalu tercantum, tidak bisa dihapus dari share.
               const isSuper = u.role === "super_admin";
@@ -190,8 +216,9 @@ export function ShareModal({
                   )}
                 </div>
               );
-            })}
-          </div>
+              })}
+            </div>
+          )}
           <div className="mt-5 flex justify-end gap-2">
             <Button variant="subtle" onClick={onClose}>
               Batal

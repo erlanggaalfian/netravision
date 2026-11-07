@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
+import { useAuth } from "../../../lib/auth";
 import { useCameraStatus } from "../../../hooks/useCameraStatus";
 import type { DriveFolder, Group, ScanPath, ScanResult, Stream } from "../../../lib/types";
 import { ShareModal } from "../../../components/ShareModal";
@@ -93,6 +94,8 @@ function StreamRow({
   onEdit,
   onDelete,
   onShare,
+  canShare,
+  isSuperAdmin,
 }: {
   s: Stream;
   online: boolean;
@@ -102,6 +105,10 @@ function StreamRow({
   onEdit: () => void;
   onDelete: () => void;
   onShare: () => void;
+  /* Admin biasa hanya boleh membagikan kamera yang diizinkan
+     superadmin (can_reshare); tambah/ubah/hapus hanya superadmin. */
+  canShare: boolean;
+  isSuperAdmin: boolean;
 }) {
   const checkbox = (
     <input
@@ -115,7 +122,7 @@ function StreamRow({
   );
   const summary = (
     <span className="flex min-w-0 flex-1 items-center gap-3">
-      {checkbox}
+      {isSuperAdmin && checkbox}
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[15px] font-bold tracking-tight text-slate-100">{s.name}</span>
         <span className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -131,15 +138,21 @@ function StreamRow({
   );
   const actions = (
     <div className="flex flex-wrap gap-2">
-      <NBButton variant="secondary" onClick={onShare} className="px-3">
-        Bagikan
-      </NBButton>
-      <NBButton variant="secondary" onClick={onEdit} className="px-3">
-        Ubah
-      </NBButton>
-      <NBButton variant="danger" onClick={onDelete} className="px-3">
-        Hapus
-      </NBButton>
+      {canShare && (
+        <NBButton variant="secondary" onClick={onShare} className="px-3">
+          Bagikan
+        </NBButton>
+      )}
+      {isSuperAdmin && (
+        <>
+          <NBButton variant="secondary" onClick={onEdit} className="px-3">
+            Ubah
+          </NBButton>
+          <NBButton variant="danger" onClick={onDelete} className="px-3">
+            Hapus
+          </NBButton>
+        </>
+      )}
     </div>
   );
   const details = (
@@ -179,11 +192,16 @@ function StreamRow({
 }
 
 export default function AdminStreamsPage() {
+  const { user: me } = useAuth();
+  const isSuperAdmin = me?.role === "super_admin";
   const { status } = useCameraStatus();
   const [streams, setStreams] = useState<Stream[] | null>(null);
   const [groups, setGroups] = useState<Group[]>([]);
   const [groupMap, setGroupMap] = useState<Record<number, string[]>>({});
   const [driveFolders, setDriveFolders] = useState<DriveFolder[]>([]);
+  /* Kamera yang boleh dibagikan admin biasa (can_reshare dari
+     superadmin). Superadmin boleh membagikan semua kamera. */
+  const [reshareIds, setReshareIds] = useState<Set<number>>(new Set());
   const [error, setError] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Stream | null>(null);
@@ -241,8 +259,26 @@ export default function AdminStreamsPage() {
     /* Akun Drive opsional, sembunyikan field bila gagal dimuat. */
     api.get<{ folders: DriveFolder[] }>("/admin/storage/google-drive").then((d) => setDriveFolders(d.folders ?? [])).catch(() => {});
     loadGroups();
+    /* Admin biasa: muat grant can_reshare agar tombol Bagikan hanya
+       tampil di kamera yang diizinkan superadmin untuk dibagikan. */
+    if (me && !isSuperAdmin) {
+      api
+        .get<{ grants: { stream_id: number; can_reshare: boolean }[] }>(
+          `/admin/admins/${me.id}/camera-grants`,
+        )
+        .then((d) =>
+          setReshareIds(
+            new Set(
+              (d.grants ?? [])
+                .filter((g) => g.can_reshare)
+                .map((g) => g.stream_id),
+            ),
+          ),
+        )
+        .catch(() => {});
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [me?.id]);
 
   const filtered = useMemo(() => {
     if (!streams) return [];
@@ -312,7 +348,9 @@ export default function AdminStreamsPage() {
         title="Kamera"
         desc="Kelola stream CCTV dan koneksinya"
         action={
-          <NBButton onClick={() => setShowAdd(true)}>+ Tambah Kamera</NBButton>
+          isSuperAdmin ? (
+            <NBButton onClick={() => setShowAdd(true)}>+ Tambah Kamera</NBButton>
+          ) : undefined
         }
       />
       {error && (
@@ -378,8 +416,8 @@ export default function AdminStreamsPage() {
         </div>
       </NBCard>
 
-      {/* Bulk bar */}
-      {selected.size > 0 && (
+      {/* Bulk bar: hanya superadmin (tambah/ubah/hapus massal kamera). */}
+      {isSuperAdmin && selected.size > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl bg-ink-900 shadow-sm px-4 py-3">
           <span className="text-sm text-slate-300">
             {selected.size} dipilih
@@ -427,20 +465,22 @@ export default function AdminStreamsPage() {
         />
       ) : (
         <>
-          <div className="mb-2 flex items-center gap-3 px-1">
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-400">
-              <input
-                type="checkbox"
-                checked={
-                  pageItems.length > 0 &&
-                  pageItems.every((s) => selected.has(s.id))
-                }
-                onChange={toggleSelectAllPage}
-                className="h-5 w-5 accent-accent-500"
-              />
-              Pilih semua di halaman ini
-            </label>
-          </div>
+          {isSuperAdmin && (
+            <div className="mb-2 flex items-center gap-3 px-1">
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-400">
+                <input
+                  type="checkbox"
+                  checked={
+                    pageItems.length > 0 &&
+                    pageItems.every((s) => selected.has(s.id))
+                  }
+                  onChange={toggleSelectAllPage}
+                  className="h-5 w-5 accent-accent-500"
+                />
+                Pilih semua di halaman ini
+              </label>
+            </div>
+          )}
           <div className="space-y-2">
             {pageItems.map((s) => (
               <StreamRow
@@ -453,6 +493,8 @@ export default function AdminStreamsPage() {
                 onEdit={() => setEditing(s)}
                 onDelete={() => setDeleting(s)}
                 onShare={() => setShareFor(s)}
+                canShare={isSuperAdmin || reshareIds.has(s.id)}
+                isSuperAdmin={isSuperAdmin}
               />
             ))}
           </div>

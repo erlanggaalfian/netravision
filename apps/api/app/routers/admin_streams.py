@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.rate_limit import rate_limited
-from app.core.rbac import get_current_user, mask_rtsp_url, require_reshare, require_roles
+from app.core.rbac import get_current_user, is_super_admin, mask_rtsp_url, require_reshare, require_roles
 from app.db.session import get_db
 from app.models.access import StreamAdminGrant, StreamPermission, UserStreamAccess
 from app.models.groups import GroupStream, StreamGroup
@@ -45,6 +45,11 @@ from app.services.stream_resolver import StreamResolution, resolve_stream
 
 router = APIRouter(tags=["admin-streams"], dependencies=[Depends(require_roles("admin"))])
 log = logging.getLogger("netravision.admin_streams")
+
+# Tambah/ubah/hapus kamera dan pengaturannya hanya superadmin. Admin
+# biasa hanya boleh membagikan kamera yang diizinkan (can_reshare)
+# ke user di grupnya, lewat endpoint sharing.
+super_admin_only = require_roles("super_admin")
 
 # Brand yang dicoba saat scan "auto" (semua terdaftar di app/services/brands.py).
 _AUTO_BRANDS = ["hikvision", "dahua", "uniview_ipc", "tplink_vigi", "reolink"]
@@ -86,7 +91,7 @@ async def admin_list_streams(
     return out
 
 
-@router.post("/admin/streams", response_model=StreamOut, status_code=201)
+@router.post("/admin/streams", response_model=StreamOut, status_code=201, dependencies=[Depends(super_admin_only)])
 async def admin_create_stream(
     data: StreamCreate,
     db: AsyncSession = Depends(get_db),
@@ -170,7 +175,7 @@ async def admin_create_stream(
     return out_dict
 
 
-@router.put("/admin/streams/{stream_id}", response_model=StreamOut)
+@router.put("/admin/streams/{stream_id}", response_model=StreamOut, dependencies=[Depends(super_admin_only)])
 async def admin_update_stream(
     stream_id: int, data: StreamUpdate,
     db: AsyncSession = Depends(get_db),
@@ -223,7 +228,7 @@ async def admin_update_stream(
     return stream_to_out(stream, get_settings())
 
 
-@router.delete("/admin/streams/{stream_id}")
+@router.delete("/admin/streams/{stream_id}", dependencies=[Depends(super_admin_only)])
 async def admin_delete_stream(
     stream_id: int,
     db: AsyncSession = Depends(get_db),
@@ -283,7 +288,39 @@ async def set_sharing(
         missing = set(user_ids) - found
         if missing:
             raise HTTPException(status_code=400, detail=f"user tidak ada: {sorted(missing)}")
-    await db.execute(delete(UserStreamAccess).where(UserStreamAccess.stream_id == stream_id))
+    # Cakupan admin biasa: hanya boleh membagikan ke user/guest di
+    # grupnya sendiri, bukan ke diri sendiri. Admin dikelola oleh
+    # superadmin (lewat grant), bukan lewat Bagikan. Superadmin boleh
+    # ke semua dan tetap mengganti semua baris (perilaku lama).
+    if is_super_admin(me):
+        await db.execute(delete(UserStreamAccess).where(UserStreamAccess.stream_id == stream_id))
+    else:
+        grup = (me.admin_group or "").strip()
+        manageable: set[int] = set()
+        if grup:
+            result = await db.execute(
+                select(User.id).where(
+                    User.admin_group == grup,
+                    User.role.in_(["user", "guest"]),
+                    User.id != me.id,
+                )
+            )
+            manageable = set(result.scalars().all())
+        for s in shares:
+            if s.user_id not in manageable:
+                raise HTTPException(
+                    status_code=400,
+                    detail="hanya boleh membagikan ke user di grup Anda",
+                )
+        # Hapus hanya baris yang boleh dikelola actor; baris superadmin,
+        # admin lain, user grup lain, dan diri sendiri dipertahankan.
+        if manageable:
+            await db.execute(
+                delete(UserStreamAccess).where(
+                    UserStreamAccess.stream_id == stream_id,
+                    UserStreamAccess.user_id.in_(manageable),
+                )
+            )
     for s in shares:
         db.add(
             UserStreamAccess(
@@ -328,7 +365,7 @@ class StreamGrantsIn(BaseModel):
     grants: list[StreamGrantIn] = []
 
 
-@router.post("/admin/streams/{stream_id}/grants")
+@router.post("/admin/streams/{stream_id}/grants", dependencies=[Depends(super_admin_only)])
 async def set_stream_grants(
     stream_id: int, data: StreamGrantsIn, db: AsyncSession = Depends(get_db)
 ):
@@ -382,7 +419,7 @@ async def set_stream_grants(
     return {"ok": True}
 
 
-@router.post("/admin/streams/{stream_id}/owner")
+@router.post("/admin/streams/{stream_id}/owner", dependencies=[Depends(super_admin_only)])
 async def set_owner(stream_id: int, data: OwnerIn, db: AsyncSession = Depends(get_db)):
     stream = await _get_stream_or_404(db, stream_id)
     user = await db.get(User, data.user_id)
@@ -399,7 +436,7 @@ class RoleAccessIn(BaseModel):
     can_playback: bool = True
 
 
-@router.put("/admin/streams/{stream_id}/role-access")
+@router.put("/admin/streams/{stream_id}/role-access", dependencies=[Depends(super_admin_only)])
 async def set_role_access(stream_id: int, data: RoleAccessIn, db: AsyncSession = Depends(get_db)):
     """Kelola akses per peran (mis. role 'guest') untuk satu kamera.
 
@@ -465,7 +502,7 @@ async def list_groups(db: AsyncSession = Depends(get_db)):
     ]
 
 
-@router.put("/admin/groups/{nama_grup}", response_model=GroupOut)
+@router.put("/admin/groups/{nama_grup}", response_model=GroupOut, dependencies=[Depends(super_admin_only)])
 async def upsert_group(nama_grup: str, data: GroupCreate, db: AsyncSession = Depends(get_db)):
     name = data.name or nama_grup
     result = await db.execute(select(StreamGroup).where(StreamGroup.name == name))
@@ -489,7 +526,7 @@ async def get_group_grants(nama_grup: str, db: AsyncSession = Depends(get_db)):
     return {"stream_ids": list(result.scalars().all())}
 
 
-@router.post("/admin/groups/{nama_grup}/camera-grants")
+@router.post("/admin/groups/{nama_grup}/camera-grants", dependencies=[Depends(super_admin_only)])
 async def set_group_grants(nama_grup: str, data: StreamIdsIn, db: AsyncSession = Depends(get_db)):
     group = await _get_group_or_404(db, nama_grup)
     if data.stream_ids:

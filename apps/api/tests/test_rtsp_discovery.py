@@ -21,7 +21,7 @@ def _client(app):
 
 async def _login_admin(app_client):
     app, _, db = app_client
-    admin = make_user()
+    admin = make_user(role="super_admin")
     db.add(admin)
     await db.commit()
     auth_as(app, admin)
@@ -223,7 +223,7 @@ async def test_create_stream_otomatis_pakai_discovery(app_client, monkeypatch):
     monkeypatch.setattr(rtsp_discovery, "probe_path", fake_probe)
     monkeypatch.setattr(rtsp_discovery, "_run_ffprobe", fake_ffprobe)
     app, _, db = app_client
-    admin = make_user()
+    admin = make_user(role="super_admin")
     db.add(admin)
     await db.commit()
     auth_as(app, admin)

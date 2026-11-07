@@ -8,11 +8,21 @@ from tests.conftest import auth_as, make_user
 
 
 async def _seed(db):
-    admin = make_user()
-    op = make_user(id=2, username="op", role="user")
+    # Admin di produksi selalu punya grup (ditentukan _tentukan_grup);
+    # op satu grup dengan admin agar Bagikan diizinkan.
+    admin = make_user(admin_group="grup-jakarta")
+    op = make_user(id=2, username="op", role="user", admin_group="grup-jakarta")
     db.add_all([admin, op])
     await db.commit()
     return admin, op
+
+
+async def _seed_super(db):
+    """Superadmin untuk operasi kamera (tambah/ubah/hapus/owner/grup)."""
+    su = make_user(id=9, username="super", role="super_admin")
+    db.add(su)
+    await db.commit()
+    return su
 
 
 def _client(app):
@@ -21,11 +31,13 @@ def _client(app):
 
 async def test_group_crud(app_client):
     app, _, db = app_client
-    admin, _ = await _seed(db)
+    await _seed(db)
+    su = await _seed_super(db)
     s = Stream(id=1, name="Cam 1", rtsp_url="rtsp://cam/1", main_url="rtsp://cam/1", is_active=True)
     db.add(s)
     await db.commit()
-    auth_as(app, admin)
+    # Grup kamera hanya diatur superadmin.
+    auth_as(app, su)
     async with _client(app) as c:
         r = await c.put(
             "/api/admin/groups/Gedung-A",
@@ -95,8 +107,9 @@ async def test_scan_preview(app_client):
 
 async def test_create_stream_registers_mediamtx(app_client):
     app, fake, db = app_client
-    admin, _ = await _seed(db)
-    auth_as(app, admin)
+    await _seed(db)
+    su = await _seed_super(db)
+    auth_as(app, su)
     async with _client(app) as c:
         r = await c.post("/api/admin/streams", json={
             "name": "Cam Baru", "rtsp_url": "rtsp://h:554/h264Preview_01_main",
@@ -110,17 +123,47 @@ async def test_create_stream_registers_mediamtx(app_client):
 
 async def test_set_owner(app_client):
     app, _, db = app_client
-    admin, op = await _seed(db)
+    _, op = await _seed(db)
+    su = await _seed_super(db)
     s = Stream(id=1, name="Cam 1", rtsp_url="rtsp://cam/1", main_url="rtsp://cam/1", is_active=True)
     db.add(s)
     await db.commit()
-    auth_as(app, admin)
+    auth_as(app, su)
     async with _client(app) as c:
         r = await c.post("/api/admin/streams/1/owner", json={"user_id": 2})
         assert r.status_code == 200, r.text
         assert r.json() == {"ok": True, "owner_id": 2}
         r = await c.post("/api/admin/streams/1/owner", json={"user_id": 99})
         assert r.status_code == 404
+
+
+async def test_stream_crud_hanya_superadmin(app_client):
+    """Admin biasa tidak boleh tambah/ubah/hapus kamera; hanya
+    superadmin. Admin hanya boleh membagikan (lewat sharing)."""
+    app, _, db = app_client
+    admin, _ = await _seed(db)
+    s = Stream(id=1, name="Cam 1", rtsp_url="rtsp://cam/1", main_url="rtsp://cam/1", is_active=True)
+    db.add(s)
+    await db.commit()
+    auth_as(app, admin)
+    async with _client(app) as c:
+        r = await c.post("/api/admin/streams", json={"name": "Cam Baru", "rtsp_url": "rtsp://cam/1"})
+        assert r.status_code == 403, r.text
+        r = await c.put("/api/admin/streams/1", json={"name": "Cam Ubah"})
+        assert r.status_code == 403, r.text
+        r = await c.delete("/api/admin/streams/1")
+        assert r.status_code == 403, r.text
+        r = await c.post("/api/admin/streams/1/owner", json={"user_id": 2})
+        assert r.status_code == 403, r.text
+        r = await c.put("/api/admin/groups/Gedung-A", json={"name": "Gedung-A"})
+        assert r.status_code == 403, r.text
+    # Superadmin tetap boleh.
+    su = await _seed_super(db)
+    auth_as(app, su)
+    async with _client(app) as c:
+        r = await c.put("/api/admin/streams/1", json={"name": "Cam Ubah"})
+        assert r.status_code == 200, r.text
+        assert r.json()["name"] == "Cam Ubah"
 
 
 async def test_disks(app_client):
@@ -212,6 +255,64 @@ async def test_sharing_reshare_ditolak(app_client):
         assert r.status_code == 200
 
 
+async def test_sharing_cakupan_admin_grup(app_client):
+    """Admin biasa hanya boleh membagikan ke user/guest di grupnya
+    sendiri, bukan ke diri sendiri atau ke admin lain. Baris di luar
+    cakupannya (superadmin, user grup lain) dipertahankan saat ia
+    menyimpan. Superadmin tetap boleh ke semua."""
+    app, _, db = app_client
+    su = make_user(id=1, username="super", role="super_admin")
+    admin_a = make_user(id=2, username="adminkota", role="admin", admin_group="grup-jakarta")
+    user_jkt = make_user(id=3, username="petugas1", role="user", admin_group="grup-jakarta")
+    user_bdg = make_user(id=4, username="petugas2", role="user", admin_group="grup-bandung")
+    admin_b = make_user(id=5, username="adminlain", role="admin", admin_group="grup-jakarta")
+    db.add_all([su, admin_a, user_jkt, user_bdg, admin_b])
+    await _seed_stream(db)
+    db.add(StreamAdminGrant(admin_id=admin_a.id, stream_id=1))
+    await db.commit()
+
+    # Superadmin membagikan dulu ke user grup lain (baris ini harus
+    # dipertahankan saat admin_a menyimpan).
+    auth_as(app, su)
+    async with _client(app) as c:
+        r = await c.post("/api/admin/streams/1/sharing", json={"user_ids": [user_bdg.id]})
+        assert r.status_code == 200, r.text
+
+    auth_as(app, admin_a)
+    async with _client(app) as c:
+        # Ke diri sendiri ditolak.
+        r = await c.post("/api/admin/streams/1/sharing", json={"user_ids": [admin_a.id]})
+        assert r.status_code == 400, r.text
+        # Ke user grup lain ditolak.
+        r = await c.post("/api/admin/streams/1/sharing", json={"user_ids": [user_bdg.id]})
+        assert r.status_code == 400, r.text
+        # Ke admin lain (satu grup sekalipun) ditolak: admin dikelola superadmin.
+        r = await c.post("/api/admin/streams/1/sharing", json={"user_ids": [admin_b.id]})
+        assert r.status_code == 400, r.text
+        # Ke user grup sendiri boleh.
+        r = await c.post("/api/admin/streams/1/sharing", json={"user_ids": [user_jkt.id]})
+        assert r.status_code == 200, r.text
+        # Baris user grup lain tetap ada (dipertahankan).
+        r = await c.get("/api/admin/streams/1/sharing")
+        assert sorted(r.json()["user_ids"]) == sorted([user_jkt.id, user_bdg.id])
+        # Simpan kosong tidak menghapus baris di luar cakupan.
+        r = await c.post("/api/admin/streams/1/sharing", json={"user_ids": []})
+        assert r.status_code == 200, r.text
+        r = await c.get("/api/admin/streams/1/sharing")
+        assert r.json()["user_ids"] == [user_bdg.id]
+
+    # Superadmin tetap boleh membagikan ke siapa saja dan mengganti semua.
+    auth_as(app, su)
+    async with _client(app) as c:
+        r = await c.post(
+            "/api/admin/streams/1/sharing",
+            json={"user_ids": [admin_a.id, user_jkt.id]},
+        )
+        assert r.status_code == 200, r.text
+        r = await c.get("/api/admin/streams/1/sharing")
+        assert sorted(r.json()["user_ids"]) == sorted([admin_a.id, user_jkt.id])
+
+
 async def test_sharing_grants_view_access(app_client):
     """User biasa hanya melihat kamera yang di-sharing kepadanya."""
     app, _, db = app_client
@@ -245,7 +346,7 @@ async def test_sharing_grants_view_access(app_client):
 async def test_update_toggle_record_patch_mediamtx(app_client):
     """PUT recording_enabled mem-patch record path main (sub tidak direkam)."""
     app, fake, db = app_client
-    admin = make_user()
+    admin = make_user(role="super_admin")
     s = Stream(id=1, name="Cam 1", rtsp_url="rtsp://u:p@cam/1",
                main_url="rtsp://u:p@cam/1", sub_url="rtsp://u:p@cam/1_sub")
     db.add_all([admin, s])

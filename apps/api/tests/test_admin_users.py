@@ -12,8 +12,10 @@ def _client(app):
 
 
 async def _seed(db):
-    admin = make_user()
-    op = make_user(id=2, username="op", role="user")
+    # Admin di produksi selalu punya grup; op satu grup dengan admin
+    # agar Akses Kamera diizinkan (cakupan grup).
+    admin = make_user(admin_group="grup-jakarta")
+    op = make_user(id=2, username="op", role="user", admin_group="grup-jakarta")
     db.add_all([admin, op])
     await db.commit()
     return admin, op
@@ -76,9 +78,13 @@ async def test_camera_access(app_client):
         assert r.json()["stream_ids"] == []
 
 
-async def test_admin_grants_and_overview(app_client):
+async def test_camera_access_cakupan_grup(app_client):
+    """Admin biasa hanya boleh mengatur akses kamera user di grupnya
+    sendiri. Superadmin boleh ke semua."""
     app, _, db = app_client
-    admin, _ = await _seed(db)
+    admin, op = await _seed(db)
+    luar = make_user(id=3, username="luar", role="user", admin_group="grup-bandung")
+    db.add(luar)
     db.add(
         Stream(
             id=1, name="Cam 1", rtsp_url="rtsp://cam/1",
@@ -86,7 +92,43 @@ async def test_admin_grants_and_overview(app_client):
         )
     )
     await db.commit()
+    db.add(StreamAdminGrant(admin_id=admin.id, stream_id=1))
+    await db.commit()
     auth_as(app, admin)
+    async with _client(app) as c:
+        # Ke user grup lain ditolak.
+        r = await c.post(
+            "/api/admin/users/3/camera-access", json={"stream_ids": [1]}
+        )
+        assert r.status_code == 403, r.text
+        # Ke user grup sendiri boleh.
+        r = await c.post(
+            "/api/admin/users/2/camera-access", json={"stream_ids": [1]}
+        )
+        assert r.status_code == 200, r.text
+
+
+async def test_admin_grants_and_overview(app_client):
+    """Hanya superadmin yang boleh mengatur grant admin."""
+    app, _, db = app_client
+    su = make_user(id=9, username="super", role="super_admin")
+    admin, _ = await _seed(db)
+    db.add(su)
+    db.add(
+        Stream(
+            id=1, name="Cam 1", rtsp_url="rtsp://cam/1",
+            main_url="rtsp://cam/1", is_active=True,
+        )
+    )
+    await db.commit()
+    # Admin biasa tidak boleh mengatur grant admin lain.
+    auth_as(app, admin)
+    async with _client(app) as c:
+        r = await c.post(
+            "/api/admin/admins/1/camera-grants", json={"stream_ids": [1]}
+        )
+        assert r.status_code == 403, r.text
+    auth_as(app, su)
     async with _client(app) as c:
         r = await c.post(
             "/api/admin/admins/1/camera-grants", json={"stream_ids": [1]}

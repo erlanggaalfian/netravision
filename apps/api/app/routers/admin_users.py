@@ -14,6 +14,8 @@ from app.models.users import User
 
 router = APIRouter()
 admin_only = require_roles("admin")
+# Grant admin (izin kamera + izin bagikan) hanya diatur superadmin.
+super_admin_only = require_roles("super_admin")
 
 VALID_ROLES = ("super_admin", "admin", "user", "guest")
 
@@ -281,7 +283,16 @@ async def set_camera_access(
     me: User = Depends(admin_only),
 ):
     """Ganti daftar kamera yang boleh dilihat user (v2.0: camera-access)."""
-    await _get_user_or_404(user_id, db)
+    target = await _get_user_or_404(user_id, db)
+    # Admin biasa hanya boleh mengatur akses kamera user di grupnya
+    # sendiri. Superadmin boleh ke semua.
+    if not is_super_admin(me):
+        grup = (me.admin_group or "").strip()
+        if not grup or (target.admin_group or "").strip() != grup:
+            raise HTTPException(
+                status_code=403,
+                detail="hanya boleh mengatur akses kamera user di grup Anda",
+            )
     # Normalisasi: bentuk baru (shares) menang; bentuk lama (stream_ids)
     # dianggap can_playback=True.
     shares = list(data.shares)
@@ -353,7 +364,7 @@ async def set_admin_grants(
     admin_id: int,
     data: AdminGrantsIn,
     db: AsyncSession = Depends(get_db),
-    me: User = Depends(admin_only),
+    me: User = Depends(super_admin_only),
 ):
     await _get_user_or_404(admin_id, db)
     # Bentuk baru (grants) menang; bentuk lama (stream_ids) dianggap

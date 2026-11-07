@@ -96,8 +96,15 @@ function UserIcon({ className = "" }: { className?: string }) {
 
 export default function AdminUsersPage() {
   const { user: me } = useAuth();
+  const isSuperAdmin = me?.role === "super_admin";
   const [users, setUsers] = useState<User[] | null>(null);
   const [streams, setStreams] = useState<Stream[]>([]);
+  /* Kamera yang boleh dibagikan admin biasa (can_reshare dari
+     superadmin). Superadmin boleh membagikan semua kamera. */
+  const [reshareIds, setReshareIds] = useState<Set<number>>(new Set());
+  const visibleStreams = isSuperAdmin
+    ? streams
+    : streams.filter((s) => reshareIds.has(s.id));
   const [error, setError] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
@@ -268,17 +275,19 @@ export default function AdminUsersPage() {
          tombol sejajar karena semuanya menempel ke tepi kanan. */
       <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
         {/* Superadmin selalu mendapat akses ke semua kamera,
-            jadi tidak ada pengaturan Akses Kamera untuknya. */}
-        {u.role !== "super_admin" && (
-          <NBButton
-            variant="secondary"
-            onClick={() => setAccessFor(u)}
-            className="px-3"
-            aria-label={`Akses Kamera ${u.username}`}
-          >
-            Akses Kamera
-          </NBButton>
-        )}
+            jadi tidak ada pengaturan Akses Kamera untuknya.
+            Admin diatur oleh superadmin, jadi admin biasa tidak
+            melihat tombol ini untuk target admin. */}
+        {u.role !== "super_admin" && (isSuperAdmin || u.role === "user") && (
+            <NBButton
+              variant="secondary"
+              onClick={() => setAccessFor(u)}
+              className="px-3"
+              aria-label={`Akses Kamera ${u.username}`}
+            >
+              Akses Kamera
+            </NBButton>
+          )}
         <NBButton
           variant="secondary"
           onClick={() => setEditing(u)}
@@ -480,8 +489,27 @@ export default function AdminUsersPage() {
   useEffect(() => {
     load();
     api.get<Stream[]>("/admin/streams").then((d) => setStreams(d ?? [])).catch(() => {});
+    /* Admin biasa: muat grant can_reshare agar modal Akses Kamera
+       hanya menampilkan kamera yang diizinkan superadmin untuk
+       dibagikan. */
+    if (me && !isSuperAdmin) {
+      api
+        .get<{ grants: { stream_id: number; can_reshare: boolean }[] }>(
+          `/admin/admins/${me.id}/camera-grants`,
+        )
+        .then((d) =>
+          setReshareIds(
+            new Set(
+              (d.grants ?? [])
+                .filter((g) => g.can_reshare)
+                .map((g) => g.stream_id),
+            ),
+          ),
+        )
+        .catch(() => {});
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [me?.id]);
 
   async function doDelete() {
     if (!deleting) return;
@@ -751,7 +779,7 @@ export default function AdminUsersPage() {
         <GroupAccessModal
           name={groupAccess.name}
           members={groupAccess.members}
-          streams={streams}
+          streams={visibleStreams}
           onClose={() => setGroupAccess(null)}
           onDone={() => {
             setGroupAccess(null);
@@ -781,7 +809,7 @@ export default function AdminUsersPage() {
       {accessFor && (
         <AccessModal
           user={accessFor}
-          streams={streams}
+          streams={visibleStreams}
           onClose={() => setAccessFor(null)}
         />
       )}
@@ -1205,8 +1233,12 @@ function GroupAccessModal({
   onClose: () => void;
   onDone: () => void;
 }) {
-  /* Kolom Bagikan hanya bila grup berisi anggota admin. */
+  /* Kolom Bagikan hanya bila grup berisi anggota admin DAN yang
+     mengatur adalah superadmin (admin diatur oleh superadmin). */
+  const { user: me } = useAuth();
+  const isSuperAdmin = me?.role === "super_admin";
   const hasAdmin = members.some((m) => m.role === "admin");
+  const showBagikan = hasAdmin && isSuperAdmin;
   const [access, setAccess] = useState<Record<number, GrantFlags>>({});
   const [initial, setInitial] = useState<Record<number, GrantFlags> | null>(
     null,
@@ -1357,29 +1389,32 @@ function GroupAccessModal({
           }),
         ),
       );
-      /* Anggota admin: grant-nya ikut diselaraskan per kamera. */
-      const adminMembers = members.filter((m) => m.role === "admin");
-      await Promise.all(
-        adminMembers.flatMap((m) =>
-          streams.map((s) => {
-            const a = access[s.id] ?? {
-              can_view: false,
-              can_playback: false,
-              can_reshare: false,
-            };
-            return api.post(`/admin/streams/${s.id}/grants`, {
-              grants: [
-                {
-                  admin_id: m.id,
-                  can_view: a.can_view,
-                  can_playback: a.can_playback,
-                  can_reshare: a.can_reshare,
-                },
-              ],
-            });
-          }),
-        ),
-      );
+      /* Anggota admin: grant-nya ikut diselaraskan per kamera.
+         Hanya superadmin yang boleh mengatur grant admin. */
+      if (isSuperAdmin) {
+        const adminMembers = members.filter((m) => m.role === "admin");
+        await Promise.all(
+          adminMembers.flatMap((m) =>
+            streams.map((s) => {
+              const a = access[s.id] ?? {
+                can_view: false,
+                can_playback: false,
+                can_reshare: false,
+              };
+              return api.post(`/admin/streams/${s.id}/grants`, {
+                grants: [
+                  {
+                    admin_id: m.id,
+                    can_view: a.can_view,
+                    can_playback: a.can_playback,
+                    can_reshare: a.can_reshare,
+                  },
+                ],
+              });
+            }),
+          ),
+        );
+      }
       onDone();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Gagal menyimpan");
@@ -1443,14 +1478,14 @@ function GroupAccessModal({
             Yang tercentang = kamera yang dimiliki semua anggota grup.
             Menyimpan akan mengganti akses kamera semua anggota grup
             dengan pilihan ini.
-            {hasAdmin &&
+            {showBagikan &&
               " Kolom Bagikan hanya berlaku untuk anggota admin."}
           </p>
           <div className="mb-1 flex items-center gap-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
             <span className="min-w-0 flex-1">Kamera</span>
             <span className="w-16 shrink-0 text-center">Live</span>
             <span className="w-16 shrink-0 text-center">Playback</span>
-            {hasAdmin && (
+            {showBagikan && (
               <span className="w-16 shrink-0 text-center">Bagikan</span>
             )}
           </div>
@@ -1491,7 +1526,7 @@ function GroupAccessModal({
                       aria-label={`Playback ${s.name}`}
                     />
                   </span>
-                  {hasAdmin && (
+                  {showBagikan && (
                     <span className="flex w-16 shrink-0 justify-center">
                       <input
                         type="checkbox"

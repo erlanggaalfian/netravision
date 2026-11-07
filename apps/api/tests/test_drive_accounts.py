@@ -101,7 +101,7 @@ async def test_fernet_no_key(monkeypatch):
 async def test_create_account_returns_oauth_url(app_client, drive_env):
     app, _, db = app_client
     app.state.audit_session_factory = _audit_factory_for(db)
-    auth_as(app, make_user())
+    auth_as(app, make_user(role="super_admin"))
     async with _client(app) as c:
         r = await c.post("/api/admin/drive-accounts", json={"name": "Akun A"})
     assert r.status_code == 201, r.text
@@ -268,7 +268,7 @@ async def test_update_stream_drive_account(app_client, db_session):
     s = await _mk_stream(db_session)
     app, _, db = app_client
     app.state.audit_session_factory = _audit_factory_for(db)
-    auth_as(app, make_user())
+    auth_as(app, make_user(role="super_admin"))
     async with _client(app) as c:
         r = await c.put(f"/api/admin/streams/{s.id}",
                         json={"drive_account_id": str(acc.id)})
