@@ -193,7 +193,7 @@ export function ShareModal({
             })}
           </div>
           <div className="mt-5 flex justify-end gap-2">
-            <Button variant="ghost" onClick={onClose}>
+            <Button variant="subtle" onClick={onClose}>
               Batal
             </Button>
             <Button onClick={save} disabled={busy}>

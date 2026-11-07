@@ -338,7 +338,7 @@ export function ConfirmModal({
     <Modal title={title} onClose={onCancel}>
       <p className="text-[15px] leading-relaxed text-slate-300">{message}</p>
       <div className="mt-6 grid gap-2.5 sm:flex sm:justify-end">
-        <Button variant="ghost" onClick={onCancel} className="min-h-[48px] w-full sm:w-auto">
+        <Button variant="subtle" onClick={onCancel} className="min-h-[48px] w-full sm:w-auto">
           Batal
         </Button>
         <Button variant="danger" onClick={onConfirm} className="min-h-[48px] w-full sm:w-auto">

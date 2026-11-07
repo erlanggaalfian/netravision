@@ -5,6 +5,7 @@ import { ApiError, api } from "../../../lib/api";
 import type { AdConfig, ApiKey, Stream } from "../../../lib/types";
 import { ErrorBox, Modal, Spinner } from "../../../components/ui";
 import {
+  NBAccordion,
   NBBadge,
   NBButton,
   NBCard,
@@ -200,54 +201,115 @@ export default function AdminKeysPage() {
       ) : (
         <div className="space-y-2">
           {keys.map((k) => (
-            <NBCard key={k.id} className="p-4 transition-colors">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-white">{k.name}</p>
-                  <p className="mt-1 flex flex-wrap gap-1.5">
-                    <NBBadge tone={k.is_active ? "ok" : "muted"}>
-                      {k.is_active ? "Aktif" : "Nonaktif"}
-                    </NBBadge>
-                    <NBBadge tone="muted">{k.stream_ids.length} kamera</NBBadge>
-                    {k.domain_lock && (
-                      <NBBadge tone="info">{k.domain_lock}</NBBadge>
-                    )}
-                    {!k.include_playback && (
-                      <NBBadge tone="muted">Tanpa playback</NBBadge>
-                    )}
-                  </p>
-                  {k.custom_camera_name && (
-                    <p className="mt-1 text-xs text-slate-400">
-                      Nama kustom: {k.custom_camera_name}
+            <div key={k.id}>
+              <div className="md:hidden">
+                <NBAccordion
+                  summary={
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium text-white">
+                        {k.name}
+                      </span>
+                      <span className="mt-1 flex flex-wrap gap-1.5">
+                        <NBBadge tone={k.is_active ? "ok" : "muted"}>
+                          {k.is_active ? "Aktif" : "Nonaktif"}
+                        </NBBadge>
+                      </span>
+                    </span>
+                  }
+                >
+                  <div className="space-y-3">
+                    <p className="flex flex-wrap gap-1.5">
+                      <NBBadge tone="muted">{k.stream_ids.length} kamera</NBBadge>
+                      {k.domain_lock && (
+                        <NBBadge tone="info">{k.domain_lock}</NBBadge>
+                      )}
+                      {!k.include_playback && (
+                        <NBBadge tone="muted">Tanpa playback</NBBadge>
+                      )}
                     </p>
-                  )}
-                  <p className="mt-1 text-xs text-slate-400">
-                    Terakhir dipakai: {k.last_used_at ?? "belum pernah"}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <NBButton
-                    variant="secondary"
-                    onClick={() => toggleActive(k)}
-                    disabled={togglingId === k.id}
-                    className="px-3"
-                  >
-                    {togglingId === k.id
-                      ? "Memproses…"
-                      : k.is_active
-                        ? "Nonaktifkan"
-                        : "Aktifkan"}
-                  </NBButton>
-                  <NBButton
-                    variant="danger"
-                    onClick={() => setDeleting(k)}
-                    className="px-3"
-                  >
-                    Hapus
-                  </NBButton>
-                </div>
+                    {k.custom_camera_name && (
+                      <p className="text-xs text-slate-400">
+                        Nama kustom: {k.custom_camera_name}
+                      </p>
+                    )}
+                    <p className="text-xs text-slate-400">
+                      Terakhir dipakai: {k.last_used_at ?? "belum pernah"}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <NBButton
+                        variant="secondary"
+                        onClick={() => toggleActive(k)}
+                        disabled={togglingId === k.id}
+                        className="px-3"
+                      >
+                        {togglingId === k.id
+                          ? "Memproses…"
+                          : k.is_active
+                            ? "Nonaktifkan"
+                            : "Aktifkan"}
+                      </NBButton>
+                      <NBButton
+                        variant="danger"
+                        onClick={() => setDeleting(k)}
+                        className="px-3"
+                      >
+                        Hapus
+                      </NBButton>
+                    </div>
+                  </div>
+                </NBAccordion>
               </div>
-            </NBCard>
+              <div className="hidden md:block">
+                <NBCard className="p-4 transition-colors">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-white">{k.name}</p>
+                      <p className="mt-1 flex flex-wrap gap-1.5">
+                        <NBBadge tone={k.is_active ? "ok" : "muted"}>
+                          {k.is_active ? "Aktif" : "Nonaktif"}
+                        </NBBadge>
+                        <NBBadge tone="muted">{k.stream_ids.length} kamera</NBBadge>
+                        {k.domain_lock && (
+                          <NBBadge tone="info">{k.domain_lock}</NBBadge>
+                        )}
+                        {!k.include_playback && (
+                          <NBBadge tone="muted">Tanpa playback</NBBadge>
+                        )}
+                      </p>
+                      {k.custom_camera_name && (
+                        <p className="mt-1 text-xs text-slate-400">
+                          Nama kustom: {k.custom_camera_name}
+                        </p>
+                      )}
+                      <p className="mt-1 text-xs text-slate-400">
+                        Terakhir dipakai: {k.last_used_at ?? "belum pernah"}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <NBButton
+                        variant="secondary"
+                        onClick={() => toggleActive(k)}
+                        disabled={togglingId === k.id}
+                        className="px-3"
+                      >
+                        {togglingId === k.id
+                          ? "Memproses…"
+                          : k.is_active
+                            ? "Nonaktifkan"
+                            : "Aktifkan"}
+                      </NBButton>
+                      <NBButton
+                        variant="danger"
+                        onClick={() => setDeleting(k)}
+                        className="px-3"
+                      >
+                        Hapus
+                      </NBButton>
+                    </div>
+                  </div>
+                </NBCard>
+              </div>
+            </div>
           ))}
         </div>
       )}

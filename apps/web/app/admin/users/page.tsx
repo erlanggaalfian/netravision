@@ -1369,8 +1369,7 @@ function GroupAccessModal({
               {grantedCount} dari {streams.length} dipilih
             </p>
             <div className="flex gap-1">
-              <button
-                type="button"
+              <MiniBtn
                 onClick={() =>
                   setAccess((prev) => {
                     const next: Record<number, GrantFlags> = { ...prev };
@@ -1387,17 +1386,16 @@ function GroupAccessModal({
                     return next;
                   })
                 }
-                className="min-h-[44px] rounded-md px-2 text-xs font-medium text-accent-300 transition-colors hover:bg-ink-800"
+                className="min-h-[44px]"
               >
                 Pilih semua
-              </button>
-              <button
-                type="button"
+              </MiniBtn>
+              <MiniBtn
                 onClick={() => setAccess({})}
-                className="min-h-[44px] rounded-md px-2 text-xs font-medium text-slate-400 transition-colors hover:bg-ink-800"
+                className="min-h-[44px]"
               >
                 Bersihkan
-              </button>
+              </MiniBtn>
             </div>
           </div>
           <p className="mb-3 text-xs leading-relaxed text-slate-400">
@@ -1585,8 +1583,7 @@ function UserAccessModal({
               {grantedCount} dari {streams.length} dipilih
             </p>
             <div className="flex gap-1">
-              <button
-                type="button"
+              <MiniBtn
                 onClick={() =>
                   setAccess((prev) => {
                     const next: Record<number, AccessFlags> = { ...prev };
@@ -1602,17 +1599,16 @@ function UserAccessModal({
                     return next;
                   })
                 }
-                className="min-h-[44px] rounded-md px-2 text-xs font-medium text-accent-300 transition-colors hover:bg-ink-800"
+                className="min-h-[44px]"
               >
                 Pilih semua
-              </button>
-              <button
-                type="button"
+              </MiniBtn>
+              <MiniBtn
                 onClick={() => setAccess({})}
-                className="min-h-[44px] rounded-md px-2 text-xs font-medium text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-200"
+                className="min-h-[44px]"
               >
                 Bersihkan
-              </button>
+              </MiniBtn>
             </div>
           </div>
           <div className="mb-1 flex items-center gap-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">

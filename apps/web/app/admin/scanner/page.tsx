@@ -123,7 +123,7 @@ export default function AdminScannerPage() {
     return (
       <>
         {/* Mobile: kartu */}
-        <li className="flex items-start gap-3 rounded-xl bg-ink-800 shadow-sm p-3 md:hidden">
+        <li className="flex items-center gap-3 rounded-xl bg-ink-800 shadow-sm p-3 md:hidden">
           {checkbox}
           <div className="min-w-0 flex-1">
             <p className="truncate font-mono text-sm text-white">
@@ -249,7 +249,19 @@ export default function AdminScannerPage() {
             </p>
           ) : (
             <>
-              {/* Mobile: daftar kartu */}
+              {/* Mobile: pilih semua + daftar kartu */}
+              {selectable.length > 0 && (
+                <label className="mb-2 flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-300 md:hidden">
+                  <input
+                    type="checkbox"
+                    checked={checked.size === selectable.length}
+                    onChange={toggleAll}
+                    className="h-5 w-5 accent-accent-500"
+                    aria-label="Pilih semua"
+                  />
+                  Pilih semua
+                </label>
+              )}
               <ul className="space-y-2 md:hidden">
                 {hosts.map((h) => (
                   <HostRow key={key(h)} h={h} />

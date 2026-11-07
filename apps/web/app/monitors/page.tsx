@@ -524,8 +524,17 @@ export default function MonitorsPage() {
               </div>
 
               <div className="mb-1.5 flex items-center justify-between">
-                <span className="text-sm font-medium text-neutral-300">
-                  Pilih kamera ({formIds.length})
+                <span className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-neutral-300">
+                    Pilih kamera ({formIds.length})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setFormIds(streams.map((s) => s.id))}
+                    className="rounded-xl bg-ink-800 px-2.5 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-ink-700 active:scale-[0.98]"
+                  >
+                    Pilih semua
+                  </button>
                 </span>
                 <span className="text-[11px] text-neutral-400">
                   Urutan bisa digeser
@@ -603,7 +612,7 @@ export default function MonitorsPage() {
               </div>
 
               <div className="flex gap-2">
-                <Button variant="ghost" onClick={cancelEdit} className="flex-1">
+                <Button variant="subtle" onClick={cancelEdit} className="flex-1">
                   Batal
                 </Button>
                 <Button
@@ -706,7 +715,7 @@ export default function MonitorsPage() {
                           <Button onClick={() => setOpenId(l.id)} className="flex-1">
                             Buka
                           </Button>
-                          <Button variant="ghost" onClick={() => startEdit(l)} className="flex-1">
+                          <Button variant="subtle" onClick={() => startEdit(l)} className="flex-1">
                             Ubah
                           </Button>
                           <Button variant="danger" onClick={() => setDeleting(l)} className="flex-1">

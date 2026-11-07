@@ -269,14 +269,14 @@ function GrantsModal({
               <button
                 type="button"
                 onClick={() => setChecked(new Set(streams.map((s) => s.id)))}
-                className="min-h-[44px] rounded-md px-2 text-xs font-medium text-accent-300 transition-colors hover:bg-ink-800"
+                className="inline-flex min-h-[44px] shrink-0 cursor-pointer items-center whitespace-nowrap rounded-xl bg-ink-800 px-2.5 py-1.5 text-xs font-semibold text-slate-200 transition-all duration-150 ease-out hover:bg-ink-700 active:scale-[0.98] sm:text-sm"
               >
                 Pilih semua
               </button>
               <button
                 type="button"
                 onClick={() => setChecked(new Set())}
-                className="min-h-[44px] rounded-md px-2 text-xs font-medium text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-200"
+                className="inline-flex min-h-[44px] shrink-0 cursor-pointer items-center whitespace-nowrap rounded-xl bg-ink-800 px-2.5 py-1.5 text-xs font-semibold text-slate-200 transition-all duration-150 ease-out hover:bg-ink-700 active:scale-[0.98] sm:text-sm"
               >
                 Bersihkan
               </button>
