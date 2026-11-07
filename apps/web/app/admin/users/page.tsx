@@ -123,6 +123,31 @@ function MiniBtn({
   );
 }
 
+/* Indikator iklan ringkas (HP): ikon megaphone + warna saja, tanpa teks.
+   Hijau = iklan tampil, abu-abu = tidak tampil. Desktop tetap pakai
+   lencana teks. */
+function AdsIcon({ on }: { on: boolean }) {
+  return (
+    <span
+      title={on ? "Iklan: Ya" : "Iklan: Tidak"}
+      aria-label={on ? "Iklan: Ya" : "Iklan: Tidak"}
+      className={`inline-flex shrink-0 items-center justify-center rounded-full p-1.5 ${
+        on ? "bg-ok-400/15 text-ok-400" : "bg-ink-800 text-slate-400"
+      }`}
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+        <path
+          d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 110-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 01-1.44-4.282m3.102.069a18.03 18.03 0 01-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 018.835 2.535M10.34 6.66a23.847 23.847 0 008.835-2.535m0 0A23.74 23.74 0 0018.795 3.14c.383-.21.87-.05 1.07.338.196.38.09.885-.274 1.15a23.73 23.73 0 01-1.796 1.255m0 0A23.74 23.74 0 0018.795 8.14c.383.21.87.05 1.07-.338.196-.38.09-.885-.274-1.15a23.73 23.73 0 01-1.796-1.255"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </span>
+  );
+}
+
 function PencilIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -400,9 +425,7 @@ export default function AdminUsersPage() {
     const mobilePanel = (
       <div className="flex items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-2">
-          <NBBadge tone={u.show_ads ? "ok" : "muted"}>
-            Iklan: {u.show_ads ? "Ya" : "Tidak"}
-          </NBBadge>
+          <AdsIcon on={u.show_ads} />
           <span className="min-w-0 truncate text-[11px] text-slate-400">
             Dibuat oleh:{" "}
             <span className="text-slate-300">{u.dibuat_oleh ?? "—"}</span>
@@ -592,7 +615,7 @@ export default function AdminUsersPage() {
               Pilih semua di halaman ini
             </label>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-3">
           {perGrup.map(([name, members]) => {
             const allAds =
               members.length > 0 && members.every((m) => m.show_ads);
@@ -602,92 +625,104 @@ export default function AdminUsersPage() {
                 key={name}
                 className="overflow-hidden rounded-2xl border border-ink-800 bg-ink-900 shadow-sm"
               >
-                <div className="flex items-center justify-between gap-4 border-b border-ink-850 px-5 py-4 sm:px-6">
-                  <div className="flex min-w-0 flex-1 items-center gap-3">
-                    <NBCheckbox
-                      checked={
-                        members.length > 0 &&
-                        members.every((m) => selected.has(m.id))
-                      }
-                      onChange={() => toggleSelectGroup(members)}
-                      ariaLabel={`Pilih semua anggota ${name}`}
-                    />
-                    <button
-                      onClick={() => toggleGroup(name)}
-                      aria-expanded={open}
-                      className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg px-2 py-1 text-left transition-colors hover:bg-ink-700/40"
-                    >
-                      <NBBadge tone="info">Grup</NBBadge>
-                      <span className="flex min-w-0 items-baseline gap-1.5">
-                        <span className="truncate text-sm font-bold text-white sm:text-base">
-                          {name}
-                        </span>
-                        <span className="shrink-0 text-xs text-slate-400 sm:hidden">
-                          · {members.length}
-                        </span>
-                        <span className="hidden shrink-0 text-xs text-slate-400 sm:inline sm:text-sm">
-                          · {members.length} anggota
-                        </span>
-                      </span>
-                      {/* Lencana Iklan: hanya di desktop; di HP pindah ke bar detail. */}
-                      <span className="hidden shrink-0 md:block">
-                        <NBBadge tone={allAds ? "ok" : "muted"}>
-                          Iklan: {allAds ? "Ya" : "Tidak"}
-                        </NBBadge>
-                      </span>
-                    </button>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-3 sm:gap-4">
-                    {/* Ubah grup + Akses Kamera: hanya di desktop; di HP pindah ke bar detail.
-                        Dibungkus span (bukan class hidden di tombol) karena
-                        display inline-flex MiniBtn mengalahkan hidden. */}
-                    <span className="hidden md:block">
-                      <MiniBtn onClick={() => setGroupEdit({ name, members })}>
-                        Ubah grup
-                      </MiniBtn>
+                <div className="border-b border-ink-850 px-5 py-3 sm:px-6 md:py-4">
+                  {/* Nama grup di atas (HP): baris sendiri, lebar penuh, tidak terpotong. */}
+                  <button
+                    onClick={() => toggleGroup(name)}
+                    aria-expanded={open}
+                    className="mb-2 flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg text-left transition-colors hover:bg-ink-700/40 md:hidden"
+                  >
+                    <NBBadge tone="info">Grup</NBBadge>
+                    <span className="min-w-0 flex-1 truncate text-sm font-bold text-white">
+                      {name}
                     </span>
-                    {/* Akses grup hanya saat grup terbuka (ala Stitch):
-                        saat tertutup hanya Ubah grup + chevron. */}
-                    {open && (
+                    <span className="shrink-0 text-xs text-slate-400">
+                      · {members.length} anggota
+                    </span>
+                  </button>
+                  {/* Baris kontrol. */}
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <NBCheckbox
+                        checked={
+                          members.length > 0 &&
+                          members.every((m) => selected.has(m.id))
+                        }
+                        onChange={() => toggleSelectGroup(members)}
+                        ariaLabel={`Pilih semua anggota ${name}`}
+                      />
+                      {/* Toggle desktop (sembunyi di HP karena nama sudah di atas). */}
+                      <button
+                        onClick={() => toggleGroup(name)}
+                        aria-expanded={open}
+                        className="hidden min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg px-2 py-1 text-left transition-colors hover:bg-ink-700/40 md:flex"
+                      >
+                        <NBBadge tone="info">Grup</NBBadge>
+                        <span className="flex min-w-0 items-baseline gap-1.5">
+                          <span className="truncate text-base font-bold text-white">
+                            {name}
+                          </span>
+                          <span className="shrink-0 text-xs text-slate-400 sm:text-sm">
+                            · {members.length} anggota
+                          </span>
+                        </span>
+                        <span className="shrink-0">
+                          <NBBadge tone={allAds ? "ok" : "muted"}>
+                            Iklan: {allAds ? "Ya" : "Tidak"}
+                          </NBBadge>
+                        </span>
+                      </button>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3 sm:gap-4">
+                      {/* Ubah grup + Akses Kamera: hanya di desktop; di HP pindah ke bar detail.
+                          Dibungkus span (bukan class hidden di tombol) karena
+                          display inline-flex MiniBtn mengalahkan hidden. */}
                       <span className="hidden md:block">
-                        <MiniBtn onClick={() => setGroupAccess({ name, members })}>
-                          <span className="hidden sm:inline">Akses Kamera</span>
-                          <span className="sm:hidden">Akses</span>
+                        <MiniBtn onClick={() => setGroupEdit({ name, members })}>
+                          Ubah grup
                         </MiniBtn>
                       </span>
-                    )}
-                    <button
-                      onClick={() => toggleGroup(name)}
-                      aria-expanded={open}
-                      aria-label={open ? "Tutup grup" : "Buka grup"}
-                      className="shrink-0 cursor-pointer rounded p-1 text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-200"
-                    >
-                      <svg
-                        width="20"
-                        height="20"
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        aria-hidden
-                        className={`shrink-0 text-slate-400 transition-transform duration-200 ease-out ${open ? "rotate-180" : ""}`}
+                      {/* Akses grup hanya saat grup terbuka (ala Stitch):
+                          saat tertutup hanya Ubah grup + chevron. */}
+                      {open && (
+                        <span className="hidden md:block">
+                          <MiniBtn onClick={() => setGroupAccess({ name, members })}>
+                            <span className="hidden sm:inline">Akses Kamera</span>
+                            <span className="sm:hidden">Akses</span>
+                          </MiniBtn>
+                        </span>
+                      )}
+                      <button
+                        onClick={() => toggleGroup(name)}
+                        aria-expanded={open}
+                        aria-label={open ? "Tutup grup" : "Buka grup"}
+                        className="shrink-0 cursor-pointer rounded p-1 text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-200"
                       >
-                        <path
-                          d="M4 6l4 4 4-4"
-                          stroke="currentColor"
-                          strokeWidth="1.75"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    </button>
+                        <svg
+                          width="20"
+                          height="20"
+                          viewBox="0 0 16 16"
+                          fill="none"
+                          aria-hidden
+                          className={`shrink-0 text-slate-400 transition-transform duration-200 ease-out ${open ? "rotate-180" : ""}`}
+                        >
+                          <path
+                            d="M4 6l4 4 4-4"
+                            stroke="currentColor"
+                            strokeWidth="1.75"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
                 </div>
                 {/* Bar detail grup, HP saja (ala Stitch): lencana Iklan + Ubah grup
                     + Akses Kamera, muncul saat grup terbuka. */}
                 {open && (
                   <div className="flex items-center justify-between gap-2 border-b border-ink-850 bg-ink-850/40 p-3 sm:px-4 md:hidden">
-                    <NBBadge tone={allAds ? "ok" : "muted"}>
-                      Iklan: {allAds ? "Ya" : "Tidak"}
-                    </NBBadge>
+                    <AdsIcon on={allAds} />
                     <div className="flex shrink-0 items-center gap-1">
                       <MiniBtn onClick={() => setGroupEdit({ name, members })}>
                         Ubah grup
