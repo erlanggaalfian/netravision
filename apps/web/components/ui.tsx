@@ -413,22 +413,23 @@ export function Spinner() {
   );
 }
 
-/* Ikon grid mini: kotak-kotak sesuai jumlah kolom (1×1, 2×2, 3×3, 4×4).
-   Dipakai tombol pemilih grid di Live dan Putar Ulang (PC). */
-export function GridIcon({ cols, size = 16 }: { cols: number; size?: number }) {
+/* Ikon grid mini: kotak-kotak besar sesuai jumlah kolom (1×1, 2×2, 3×3,
+   4×4) dengan jarak rapat dan sudut tajam. Dipakai tombol pemilih
+   grid di Live dan Putar Ulang (PC). */
+export function GridIcon({ cols, size = 18 }: { cols: number; size?: number }) {
   return (
     <span
       className="grid shrink-0"
       style={{
         gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-        gap: cols === 1 ? 0 : 1.5,
+        gap: cols === 1 ? 0 : 1,
         width: size,
         height: size,
       }}
       aria-hidden
     >
       {Array.from({ length: cols * cols }).map((_, i) => (
-        <span key={i} className="rounded-[1px] bg-current" />
+        <span key={i} className="bg-current" />
       ))}
     </span>
   );

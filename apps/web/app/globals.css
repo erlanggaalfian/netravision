@@ -120,6 +120,7 @@
    monitor mempertahankan penampilan ruang kendali malam. Bungkus elemen
    dengan class ini; seluruh token --nv-* di dalamnya kembali ke gelap. */
 .nv-stage {  color-scheme: dark;
+  background: #000;
   --nv-ink-950: #070b10;
   --nv-ink-900: #0d141c;
   --nv-ink-850: #111a24;

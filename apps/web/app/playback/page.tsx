@@ -264,7 +264,7 @@ function PlaybackPanel({
                     aria-label={`Putar segmen ${fmtTime(e.start)}`}
                     className={`absolute top-0.5 h-11 rounded-full transition ${
                       isActive
-                        ? "bg-gradient-to-b from-accent-400 to-accent-500 shadow-[0_2px_12px_-2px_var(--nv-accent-500)]"
+                        ? "bg-gradient-to-r from-accent-600 to-accent-500 shadow-[0_2px_12px_-2px_var(--nv-accent-600)]"
                         : e.has_event
                           ? "bg-warn-400/80 hover:bg-warn-400"
                           : "bg-accent-600/60 hover:bg-accent-500"
