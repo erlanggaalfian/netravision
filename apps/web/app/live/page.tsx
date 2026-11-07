@@ -219,9 +219,11 @@ export default function LivePage() {
             </span>
           </div>
 
-          {/* Baris pencarian + tombol filter (HP saja) */}
-          <div className="mt-4 flex items-center gap-2 border-t border-ink-800 pt-4">
-            <div className="relative min-w-0 flex-1 lg:max-w-xs">
+          {/* Kontrol: satu baris di PC lebar (search + grid + refresh +
+              status), bertumpuk di HP/tablet; dilipat di HP */}
+          <div className="mt-4 flex flex-col gap-4 border-t border-ink-800 pt-4 xl:flex-row xl:items-center xl:gap-3">
+            <div className="flex items-center gap-2 xl:min-w-0 xl:flex-1">
+              <div className="relative min-w-0 flex-1 xl:max-w-xs">
               <svg
                 width="17"
                 height="17"
@@ -280,9 +282,9 @@ export default function LivePage() {
 
           {/* Kontrol grid + refresh + status: dilipat di HP, tampil di desktop */}
           <div
-            className={`${filterOpen ? "nv-pop block" : "hidden"} mt-4 md:block`}
+            className={`${filterOpen ? "nv-pop block" : "hidden"} md:block`}
           >
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3 xl:flex-nowrap">
               <div className="flex min-w-0 items-center gap-2 max-md:flex-1">
                 {isDesktop && (
                   <span className="text-xs font-semibold text-slate-400">
@@ -400,6 +402,7 @@ export default function LivePage() {
                 ))}
               </div>
             </div>
+          </div>
           </div>
         </div>
 
