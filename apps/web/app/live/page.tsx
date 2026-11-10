@@ -308,7 +308,10 @@ export default function LivePage() {
             className={`${filterOpen ? "nv-pop block" : "hidden"} md:block`}
           >
             <div className="flex flex-wrap items-center gap-3 xl:flex-nowrap">
-              <div className="flex min-w-0 items-center gap-2 max-md:flex-1">
+              {/* Grid selebar penuh di HP: 4 tombol (2/4/6/9) butuh
+                  ~228px minimum; bila dipaksa sebaris dengan Muat ulang
+                  di layar sempit, tombol terakhir terpotong. */}
+              <div className="flex min-w-0 items-center gap-2 max-md:w-full">
                 {isDesktop && (
                   <span className="text-xs font-semibold text-slate-400">
                     Grid:
