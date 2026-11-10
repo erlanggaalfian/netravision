@@ -1153,11 +1153,13 @@ function EditStreamModal({
   );
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  /* Selector folder tampil setiap kali mode penyimpanan memakai Drive,
+     walau belum ada folder terdaftar, supaya pengguna selalu bisa memilih
+     ke Drive mana dan tahu harus tambah folder di Penyimpanan dulu. */
   const showDriveFolder =
-    driveFolders.length > 0 &&
-    (storageMode === "drive" ||
-      storageMode === "both" ||
-      stream.drive_folder_id != null);
+    storageMode === "drive" ||
+    storageMode === "both" ||
+    stream.drive_folder_id != null;
 
   async function save() {
     setError("");
@@ -1259,17 +1261,24 @@ function EditStreamModal({
               label="Folder Google Drive tujuan"
               hint="Pilih folder tempat rekaman kamera ini disimpan"
             >
-              <NBSelect
-                value={driveFolderId}
-                onChange={(e) => setDriveFolderId(e.target.value)}
-              >
-                <option value="">Default (folder pertama)</option>
-                {driveFolders.map((f) => (
-                  <option key={f.id} value={String(f.id)}>
-                    {f.folder_name || f.folder_id}
-                  </option>
-                ))}
-              </NBSelect>
+              {driveFolders.length === 0 ? (
+                <p className="rounded-xl bg-ink-800 px-4 py-3 text-sm leading-relaxed text-slate-300">
+                  Belum ada folder Google Drive. Tambah tautan folder dulu di
+                  menu Penyimpanan, lalu pilih di sini.
+                </p>
+              ) : (
+                <NBSelect
+                  value={driveFolderId}
+                  onChange={(e) => setDriveFolderId(e.target.value)}
+                >
+                  <option value="">Default (folder pertama)</option>
+                  {driveFolders.map((f) => (
+                    <option key={f.id} value={String(f.id)}>
+                      {f.folder_name || f.folder_id}
+                    </option>
+                  ))}
+                </NBSelect>
+              )}
             </NBField>
           )}
         </div>
