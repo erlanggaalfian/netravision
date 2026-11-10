@@ -4,8 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import { useCameraStatus } from "../../../hooks/useCameraStatus";
-import type { DriveFolder, Group, ScanPath, ScanResult, Stream } from "../../../lib/types";
+import type { AdConfig, DriveFolder, Group, ScanPath, ScanResult, Stream } from "../../../lib/types";
 import { ShareModal } from "../../../components/ShareModal";
+import { FocusModal } from "../../../components/FocusModal";
 import { ErrorBox, Modal, Spinner } from "../../../components/ui";
 import {
   NBAccordion,
@@ -94,6 +95,7 @@ function StreamRow({
   onEdit,
   onDelete,
   onShare,
+  onView,
   canShare,
   isSuperAdmin,
 }: {
@@ -105,6 +107,8 @@ function StreamRow({
   onEdit: () => void;
   onDelete: () => void;
   onShare: () => void;
+  /* Buka popup live yang sama seperti di menu Live (FocusModal). */
+  onView: () => void;
   /* Admin biasa hanya boleh membagikan kamera yang diizinkan
      superadmin (can_reshare); tambah/ubah/hapus hanya superadmin. */
   canShare: boolean;
@@ -138,6 +142,9 @@ function StreamRow({
   );
   const actions = (
     <div className="flex flex-wrap gap-2">
+      <NBButton variant="secondary" onClick={onView} className="px-3">
+        Lihat
+      </NBButton>
       {canShare && (
         <NBButton variant="secondary" onClick={onShare} className="px-3">
           Bagikan
@@ -207,6 +214,9 @@ export default function AdminStreamsPage() {
   const [editing, setEditing] = useState<Stream | null>(null);
   const [deleting, setDeleting] = useState<Stream | null>(null);
   const [shareFor, setShareFor] = useState<Stream | null>(null);
+  /* Kamera yang dibuka di popup live (FocusModal, sama seperti Live). */
+  const [focus, setFocus] = useState<Stream | null>(null);
+  const [ad, setAd] = useState<AdConfig | null>(null);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [showCoords, setShowCoords] = useState(false);
   const [showGroup, setShowGroup] = useState(false);
@@ -256,6 +266,8 @@ export default function AdminStreamsPage() {
 
   useEffect(() => {
     load();
+    /* Config iklan untuk popup live (FocusModal), sama seperti Live. */
+    api.get<AdConfig>("/ad-config").then(setAd).catch(() => {});
     /* Akun Drive opsional, sembunyikan field bila gagal dimuat. */
     api.get<{ folders: DriveFolder[] }>("/admin/storage/google-drive").then((d) => setDriveFolders(d.folders ?? [])).catch(() => {});
     loadGroups();
@@ -493,6 +505,7 @@ export default function AdminStreamsPage() {
                 onEdit={() => setEditing(s)}
                 onDelete={() => setDeleting(s)}
                 onShare={() => setShareFor(s)}
+                onView={() => setFocus(s)}
                 canShare={isSuperAdmin || reshareIds.has(s.id)}
                 isSuperAdmin={isSuperAdmin}
               />
@@ -568,6 +581,8 @@ export default function AdminStreamsPage() {
           onClose={() => setShareFor(null)}
         />
       )}
+      {/* Popup live yang sama seperti di menu Live. */}
+      <FocusModal stream={focus} onClose={() => setFocus(null)} ad={ad} />
       {deleting && (
         <NBConfirmModal
           title="Hapus kamera"
