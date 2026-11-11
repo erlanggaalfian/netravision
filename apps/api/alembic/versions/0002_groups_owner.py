@@ -71,19 +71,22 @@ def upgrade() -> None:
             "group_id", "stream_id", name="uq_group_streams_group_id_stream_id"
         ),
     )
-    op.add_column("streams", sa.Column("owner_id", sa.Integer(), nullable=True))
-    op.create_foreign_key(
-        "fk_streams_owner_id_users",
-        "streams",
-        "users",
-        ["owner_id"],
-        ["id"],
-        ondelete="SET NULL",
-    )
+    # SQLite tidak mendukung ALTER constraint (create/drop FK) pada tabel
+    # yang sudah ada; batch mode membuat ulang tabel bila perlu (G-R6).
+    with op.batch_alter_table("streams") as batch_op:
+        batch_op.add_column(sa.Column("owner_id", sa.Integer(), nullable=True))
+        batch_op.create_foreign_key(
+            "fk_streams_owner_id_users",
+            "users",
+            ["owner_id"],
+            ["id"],
+            ondelete="SET NULL",
+        )
 
 
 def downgrade() -> None:
-    op.drop_constraint("fk_streams_owner_id_users", "streams", type_="foreignkey")
-    op.drop_column("streams", "owner_id")
+    with op.batch_alter_table("streams") as batch_op:
+        batch_op.drop_constraint("fk_streams_owner_id_users", type_="foreignkey")
+        batch_op.drop_column("owner_id")
     op.drop_table("group_streams")
     op.drop_table("stream_groups")

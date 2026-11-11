@@ -3,8 +3,21 @@
 Revision ID: 0016
 Revises: 0015
 Create Date: 2026-11-07
+
+CATATAN (G-T3): versi lama file ini menjalankan
+`UPDATE users SET is_active = FALSE WHERE username = 'guest'` pada baris
+guest yang SUDAH ADA, sehingga server yang upgrade dari 0015 ke 0016
+dengan guest yang sengaja diaktifkan operator menjadi terkunci tanpa
+pemberitahuan. Versi ini HANYA menonaktifkan baris guest yang BARU dibuat
+(cabang INSERT); baris yang sudah ada tidak disentuh. Server yang sudah
+menjalankan 0016 lama dan guest-nya mati karenanya harus mengaktifkan
+guest MANUAL lewat web (menu Pengguna, switch Login Guest di baris guest)
+bila memang menginginkannya - tidak ada migrasi korektif yang
+mengaktifkan ulang otomatis, karena tidak bisa dibedakan apakah
+nonaktif itu pilihan operator atau akibat migrasi lama.
 """
 from collections.abc import Sequence
+from datetime import datetime, timezone
 
 import sqlalchemy as sa
 
@@ -26,17 +39,19 @@ def upgrade() -> None:
         sa.text("SELECT id FROM users WHERE username = 'guest'")
     ).first()
     if row is None:
+        # Hanya baris guest BARU yang dibuat nonaktif. Baris guest yang
+        # sudah ada TIDAK disentuh: operator mungkin sudah sengaja
+        # mengaktifkannya, dan migrasi tidak boleh mematikannya paksa
+        # (G-T3: versi lama migrasi ini menonaktifkan guest yang aktif).
         conn.execute(
             sa.text(
                 "INSERT INTO users (username, password_hash, role, is_active, "
                 "show_ads, created_at, updated_at) VALUES "
-                "('guest', '!', 'guest', FALSE, TRUE, now(), now())"
-            )
+                "('guest', '!', 'guest', FALSE, TRUE, :now, :now)"
+            ),
+            {"now": datetime.now(timezone.utc)},
         )
-    else:
-        conn.execute(
-            sa.text("UPDATE users SET is_active = FALSE WHERE username = 'guest'")
-        )
+    # else: biarkan apa adanya (aktif tetap aktif, nonaktif tetap nonaktif).
 
 
 def downgrade() -> None:

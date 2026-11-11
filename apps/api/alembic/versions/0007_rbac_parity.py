@@ -24,7 +24,7 @@ def upgrade() -> None:
         batch_op.add_column(sa.Column("parent_admin_id", sa.Integer(), nullable=True))
         batch_op.create_foreign_key(
             "fk_users_parent_admin_id", "users",
-            ["parent_admin_id"], ["id"],
+            ["parent_admin_id"], ["id"], ondelete="SET NULL",
         )
     # Izin playback terpisah dari izin tonton (paritas v2.0).
     # Default True agar grant lama tidak berubah perilaku.

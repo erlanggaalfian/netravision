@@ -39,21 +39,23 @@ def upgrade() -> None:
             server_default=sa.func.now(),
         ),
     )
-    op.add_column(
-        "streams",
-        sa.Column("drive_account_id", sa.Uuid(), nullable=True),
-    )
-    op.create_foreign_key(
-        "fk_streams_drive_account_id",
-        "streams",
-        "drive_accounts",
-        ["drive_account_id"],
-        ["id"],
-        ondelete="SET NULL",
-    )
+    # SQLite tidak mendukung ALTER constraint pada tabel yang sudah ada;
+    # batch mode membuat ulang tabel bila perlu (G-R6).
+    with op.batch_alter_table("streams") as batch_op:
+        batch_op.add_column(
+            sa.Column("drive_account_id", sa.Uuid(), nullable=True),
+        )
+        batch_op.create_foreign_key(
+            "fk_streams_drive_account_id",
+            "drive_accounts",
+            ["drive_account_id"],
+            ["id"],
+            ondelete="SET NULL",
+        )
 
 
 def downgrade() -> None:
-    op.drop_constraint("fk_streams_drive_account_id", "streams", type_="foreignkey")
-    op.drop_column("streams", "drive_account_id")
+    with op.batch_alter_table("streams") as batch_op:
+        batch_op.drop_constraint("fk_streams_drive_account_id", type_="foreignkey")
+        batch_op.drop_column("drive_account_id")
     op.drop_table("drive_accounts")

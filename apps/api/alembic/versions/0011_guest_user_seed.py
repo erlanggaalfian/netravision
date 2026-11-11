@@ -1,10 +1,11 @@
-"""Akun guest persisten — tampil di menu Pengguna agar show_ads bisa diatur.
+"""Akun guest persisten - tampil di menu Pengguna agar show_ads bisa diatur.
 
 Revision ID: 0011
 Revises: 0010
 Create Date: 2026-11-06
 """
 from collections.abc import Sequence
+from datetime import datetime, timezone
 
 import sqlalchemy as sa
 
@@ -27,12 +28,15 @@ def upgrade() -> None:
         sa.text("SELECT 1 FROM users WHERE username = 'guest'")
     ).first()
     if not exists:
+        # Waktu diisi dari Python (bukan now() khas Postgres) supaya
+        # migrasi jalan juga di SQLite demo/tes (G-R6).
         conn.execute(
             sa.text(
                 "INSERT INTO users (username, password_hash, role, is_active, "
                 "show_ads, created_at, updated_at) VALUES "
-                "('guest', '!', 'guest', TRUE, TRUE, now(), now())"
-            )
+                "('guest', '!', 'guest', TRUE, TRUE, :now, :now)"
+            ),
+            {"now": datetime.now(timezone.utc)},
         )
 
 

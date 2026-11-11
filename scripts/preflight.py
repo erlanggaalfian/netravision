@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Preflight check NetraVision v3.0 — dijalankan SEBELUM install.sh di server.
+"""Preflight check NetraVision v3.0 - dijalankan SEBELUM install.sh di server.
 
 Hanya memakai stdlib. Setiap cek mencetak OK / GAGAL / PERINGATAN + pesan
 perbaikan. Exit 0 bila tidak ada yang GAGAL (peringatan tidak menggagalkan).
@@ -8,11 +8,19 @@ Cek:
   1. biner docker
   2. plugin docker compose
   3. biner apache2
-  4. port 80 & 443 di-listen oleh apache2 (bukan docker / proses lain)
+  4. port 80 & 443 di-listen oleh apache2 (bukan docker / proses lain);
+     Apache yang terinstal tapi belum jalan harus dinyalakan dulu
+     (`sudo systemctl enable --now apache2`) - install.sh melakukannya
+     sebelum preflight
   5. disk kosong >= 10 GB di /
   6. python3 tersedia
-  7. UDP 8189 (WebRTC MediaMTX): PERINGATAN bila sudah dipakai
-     (biasanya mediamtx v2.0 — harus dihentikan sebelum `compose up` v3)
+  7. UDP 8189 (WebRTC MediaMTX): GAGAL bila sudah dipakai (biasanya
+     mediamtx v2.0 - harus dihentikan sebelum `compose up` v3;
+     install.sh menghentikannya di langkah 3, preflight memastikan
+     port benar-benar bebas)
+  8. DRIVE_TOKEN_KEY: GAGAL bila DRIVE_ENABLED=true di deploy/.env tapi
+     kunci kosong/placeholder/tidak valid (aktivasi Drive akan crash
+     RuntimeError tanpa kunci Fernet yang sah)
 """
 
 from __future__ import annotations
@@ -34,7 +42,7 @@ results: list[tuple[str, str, str]] = []  # (nama, status, pesan)
 def report(nama: str, status: str, pesan: str = "") -> None:
     results.append((nama, status, pesan))
     tag = {"OK": "[  OK  ]", "GAGAL": "[ GAGAL ]", "PERINGATAN": "[ WARN ]"}[status]
-    print(f"{tag} {nama}" + (f" — {pesan}" if pesan else ""))
+    print(f"{tag} {nama}" + (f" - {pesan}" if pesan else ""))
 
 
 def hex_port(port: int) -> str:
@@ -184,7 +192,8 @@ def check_web_ports() -> None:
             report(
                 f"port {port} di-listen",
                 "GAGAL",
-                f"tidak ada proses listen di port {port}; pastikan Apache berjalan.",
+                f"tidak ada proses listen di port {port}; pastikan Apache berjalan "
+                f"(`sudo systemctl enable --now apache2`).",
             )
         elif "apache2" in owner or "httpd" in owner:
             report(f"port {port} milik apache2", "OK", f"pemilik: {owner}")
@@ -192,7 +201,7 @@ def check_web_ports() -> None:
             report(
                 f"port {port} milik apache2",
                 "GAGAL",
-                f"port {port} dipegang '{owner}' — v3.0 butuh 80/443 tetap milik Apache.",
+                f"port {port} dipegang '{owner}' - v3.0 butuh 80/443 tetap milik Apache.",
             )
 
 
@@ -225,18 +234,78 @@ def check_udp_webrtc() -> None:
         s.bind(("0.0.0.0", WEBRTC_UDP_PORT))
         report(f"UDP {WEBRTC_UDP_PORT} bebas", "OK")
     except OSError:
+        # GAGAL, bukan peringatan: `docker compose up` v3 pasti gagal
+        # (port already allocated) bila mediamtx v2.0 masih memegang port ini.
         report(
             f"UDP {WEBRTC_UDP_PORT} bebas",
-            "PERINGATAN",
-            f"port sudah dipakai (kemungkinan mediamtx v2.0) — "
-            f"hentikan mediamtx v2.0 sebelum 'docker compose up' v3.",
+            "GAGAL",
+            f"port sudah dipakai (kemungkinan mediamtx v2.0) - "
+            f"hentikan dulu: `sudo systemctl stop mediamtx`, lalu jalankan ulang.",
         )
     finally:
         s.close()
 
 
+def _read_deploy_env() -> dict[str, str]:
+    """Baca deploy/.env (bila ada) sebagai dict sederhana."""
+    env_path = os.path.join(os.path.dirname(__file__), "..", "deploy", ".env")
+    values: dict[str, str] = {}
+    try:
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                values[k.strip()] = v.strip()
+    except OSError:
+        pass
+    return values
+
+
+def _valid_fernet_key(key: str) -> bool:
+    """Kunci Fernet sah = 32 byte dalam base64 urlsafe (44 karakter)."""
+    import base64
+
+    if len(key) != 44:
+        return False
+    try:
+        raw = base64.urlsafe_b64decode(key.encode())
+    except Exception:
+        return False
+    return len(raw) == 32
+
+
+def check_drive_token_key() -> None:
+    env = _read_deploy_env()
+    if not env:
+        # .env belum dibuat (install.sh membuatnya di langkah 2) - lewati.
+        report("DRIVE_TOKEN_KEY (bila Drive aktif)", "OK", "deploy/.env belum ada - dicek lagi setelah install.sh membuatnya")
+        return
+    if env.get("DRIVE_ENABLED", "false").strip().lower() != "true":
+        report("DRIVE_TOKEN_KEY (bila Drive aktif)", "OK", "DRIVE_ENABLED=false - kunci tidak dibutuhkan")
+        return
+    key = env.get("DRIVE_TOKEN_KEY", "").strip()
+    if not key or key == "CHANGE_ME_GENERATED_BY_INSTALL_SH":
+        report(
+            "DRIVE_TOKEN_KEY (bila Drive aktif)",
+            "GAGAL",
+            "DRIVE_ENABLED=true tapi DRIVE_TOKEN_KEY kosong - jalankan install.sh "
+            "(ia membuatnya otomatis) atau generate manual, lihat deploy/.env.example.",
+        )
+    elif not _valid_fernet_key(key):
+        report(
+            "DRIVE_TOKEN_KEY (bila Drive aktif)",
+            "GAGAL",
+            "DRIVE_TOKEN_KEY tidak valid (harus base64 urlsafe 32-byte dari "
+            "Fernet.generate_key()) - aktivasi Drive akan crash RuntimeError.",
+        )
+    else:
+        report("DRIVE_TOKEN_KEY (bila Drive aktif)", "OK")
+
+
 def main() -> int:
-    print("NetraVision v3.0 — preflight check\n")
+    print("NetraVision v3.0 - preflight check\n")
     check_docker()
     check_compose()
     check_apache()
@@ -244,13 +313,14 @@ def main() -> int:
     check_disk()
     check_python()
     check_udp_webrtc()
+    check_drive_token_key()
 
     gagal = sum(1 for _, st, _ in results if st == "GAGAL")
     print()
     if gagal:
-        print(f"HASIL: {gagal} cek GAGAL — perbaiki dulu sebelum install.sh.")
+        print(f"HASIL: {gagal} cek GAGAL - perbaiki dulu sebelum install.sh.")
         return 1
-    print("HASIL: semua cek penting OK — aman lanjut ke install.sh.")
+    print("HASIL: semua cek penting OK - aman lanjut ke install.sh.")
     return 0
 
 

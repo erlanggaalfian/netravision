@@ -64,4 +64,34 @@ def downgrade() -> None:
     with op.batch_alter_table("streams") as batch_op:
         batch_op.drop_constraint("fk_streams_drive_folder_id", type_="foreignkey")
         batch_op.drop_column("drive_folder_id")
+    # Buat ulang tabel lama dan kembalikan barisnya (G-S3): upgrade
+    # memindahkan satu baris google_drive_settings ke google_drive_folders
+    # lalu men-drop tabel lama; downgrade yang lama hanya men-drop folder
+    # sehingga konfigurasi Drive hilang diam-diam.
+    op.create_table(
+        "google_drive_settings",
+        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
+        sa.Column("folder_url", sa.String(500), nullable=True),
+        sa.Column("folder_id", sa.String(128), nullable=True),
+        sa.Column("folder_name", sa.String(128), nullable=True),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("updated_by", sa.String(50), nullable=True),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    conn = op.get_bind()
+    rows = conn.execute(
+        sa.text(
+            "SELECT folder_url, folder_id, folder_name, updated_at, updated_by"
+            " FROM google_drive_folders ORDER BY id LIMIT 1"
+        )
+    ).fetchall()
+    for r in rows:
+        conn.execute(
+            sa.text(
+                "INSERT INTO google_drive_settings"
+                " (folder_url, folder_id, folder_name, updated_at, updated_by)"
+                " VALUES (:u, :f, :n, :t, :b)"
+            ),
+            {"u": r[0], "f": r[1], "n": r[2], "t": r[3], "b": r[4]},
+        )
     op.drop_table("google_drive_folders")

@@ -6,11 +6,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /srv/api
 
-COPY pyproject.toml ./
+COPY pyproject.toml requirements.lock ./
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ffmpeg \
+ && apt-get install -y --no-install-recommends ffmpeg rclone \
  && rm -rf /var/lib/apt/lists/* \
- && pip install .
+ && pip install -r requirements.lock \
+ && pip install . --no-deps
 
 COPY app ./app
 COPY alembic ./alembic

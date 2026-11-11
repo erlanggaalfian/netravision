@@ -177,7 +177,12 @@ def upgrade() -> None:
         sa.Column("action", sa.String(64), nullable=False),
         sa.Column("ip", sa.String(64), nullable=True),
         sa.Column("user_agent", sa.String(512), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.ForeignKeyConstraint(["api_key_id"], ["api_keys.id"], ondelete="SET NULL",
                                 name="fk_api_access_logs_api_key_id_api_keys"),
         sa.ForeignKeyConstraint(["stream_id"], ["streams.id"], ondelete="SET NULL",

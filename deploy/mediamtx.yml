@@ -1,10 +1,10 @@
-# NetraVision v3.0 — konfigurasi MediaMTX
+# NetraVision v3.0, konfigurasi MediaMTX
 # Dipakai oleh deploy/docker-compose.yml (mount read-only ke /mediamtx.yml).
 # Referensi key: template resmi bluenviron/mediamtx.
 #
 # Arsitektur:
 # - Kamera --RTSP--> MediaMTX --WebRTC/WHEP--> browser (sinyal via Apache :443)
-# - Media WebRTC (UDP 8189) langsung ke browser — lihat ports di docker-compose.yml
+# - Media WebRTC (UDP 8189) langsung ke browser, lihat ports di docker-compose.yml
 # - Path stream_{id} (main) & stream_{id}_sub (sub) didaftarkan DINAMIS oleh
 #   service api via control API (Fase 1+); file ini hanya default-nya.
 
@@ -17,7 +17,7 @@ rtspAddress: :8554
 # Paksa TCP agar stabil menembus firewall/NAT.
 rtspTransports: [tcp]
 
-# RTMP tidak dipakai — matikan untuk mengurangi permukaan serangan.
+# RTMP tidak dipakai, matikan untuk mengurangi permukaan serangan.
 rtmp: no
 
 # HLS fallback (untuk jaringan yang memblokir UDP). Diakses via Apache /hls/*.
@@ -29,21 +29,22 @@ hlsPartDuration: 500ms
 hlsSegmentDuration: 1s
 
 # WebRTC: sinyal WHEP via HTTP :8889 (Apache proxy /whep/* ke sini),
-# media via UDP port 8189 (default) — di-publish ke host di docker-compose.yml.
+# media via UDP port 8189 (default), di-publish ke host di docker-compose.yml.
 webrtc: yes
 webrtcAddress: :8889
-# PENTING: isi dengan IP publik server agar browser menerima kandidat ICE
-# yang benar. Tanpa ini browser hanya dapat IP internal Docker (video hitam).
-# IP publik server (NAT router 103.210.52.66 -> 172.16.17.6).
-# Contoh: webrtcAdditionalHosts: [103.210.52.66]
-webrtcAdditionalHosts: [103.210.52.66]
+# PENTING: isi dengan IP/domain publik server agar browser menerima kandidat
+# ICE yang benar. Tanpa ini browser hanya dapat IP internal Docker (video hitam).
+# M1: JANGAN tulis IP hardcoded di sini. Nilainya diisi dari environment
+# (deploy/.env -> WEBRTC_ADDITIONAL_HOST -> MTX_WEBRTCADDITIONALHOSTS di
+# docker-compose.yml, service mediamtx). Daftar di bawah sengaja kosong.
+webrtcAdditionalHosts: []
 # Jangan iklankan IP internal Docker ke browser.
 webrtcIPsFromInterfaces: no
 
 # Control API: dipakai service api untuk register/unregister path kamera.
 # Di dalam container listen di semua interface agar reachable via network
 # docker (mediamtx:9997); ke host hanya 127.0.0.1 (lihat compose).
-# MediaMTX versi baru hanya mengizinkan control API dari localhost —
+# MediaMTX versi baru hanya mengizinkan control API dari localhost,
 # izinkan subnet privat (jaringan Docker) via authInternalUsers.
 # PENTING: begitu authInternalUsers ditulis, daftar bawaan diganti total,
 # jadi izin publish/read/playback untuk semua orang harus ditulis eksplisit.
@@ -71,7 +72,7 @@ authInternalUsers:
 metrics: no
 
 #######################################################
-# Path defaults — berlaku untuk semua path stream_{id} / stream_{id}_sub
+# Path defaults, berlaku untuk semua path stream_{id} / stream_{id}_sub
 # yang didaftarkan API (brand-aware resolver, Fase 1+).
 pathDefaults:
   # API mem-publish path via control API; source publisher = API mendorong
@@ -93,7 +94,7 @@ pathDefaults:
   # Retensi default lokal 7 hari; per-kamera bisa dioverride via API (Fase 3).
   recordDeleteAfter: 168h
 
-# Path statis: kosong — semua path dikelola dinamis oleh API.
+# Path statis: kosong, semua path dikelola dinamis oleh API.
 # Contoh pola yang akan didaftarkan API:
 #   stream_1      -> main stream kamera id 1 (RTSP kamera, selalu tersambung)
 #   stream_1_sub  -> sub 480x270 8fps, transkode ffmpeg dari stream_1

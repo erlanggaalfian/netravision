@@ -1,20 +1,30 @@
 #!/usr/bin/env python3
 """Migrasi sekali-jalan: database v2.0 (MariaDB) -> v3.0 (PostgreSQL).
 
-Sumber : MariaDB v2.0 — koneksi via env V2_DB_HOST/PORT/USER/PASSWORD/NAME
-Tujuan : PostgreSQL v3.0 — via env DATABASE_URL (bagian driver +asyncpg diabaikan)
+Sumber : MariaDB v2.0 - koneksi via env V2_DB_HOST/PORT/USER/PASSWORD/NAME
+Tujuan : PostgreSQL v3.0 - via env DATABASE_URL (bagian driver +asyncpg diabaikan)
 
 Keamanan/idempotensi:
   - Default --dry-run: hanya menghitung + melaporkan, tanpa menulis apa pun.
   - --apply menolak bila tabel tujuan sudah berisi data, kecuali --force.
   - ID asli dipertahankan (penting untuk relasi); memakai
     ON CONFLICT DO NOTHING + reset sequence setelahnya.
-  - Hash password user v2.0 (bcrypt) disalin APA ADANYA — tidak di-re-hash.
+  - Hash password user v2.0 (bcrypt) disalin APA ADANYA - tidak di-re-hash.
 
 Contoh:
   python deploy/migrate-v2.py                      # dry-run
   python deploy/migrate-v2.py --apply              # eksekusi
   python deploy/migrate-v2.py --apply --force      # eksekusi walau tujuan berisi data
+  python deploy/migrate-v2.py --apply --copy-recordings \
+      --v2-recordings-dir /var/lib/cctv/recordings \
+      --v3-recordings-dir /var/lib/docker/volumes/netravision_recordings/_data
+  python deploy/migrate-v2.py --apply --copy-recordings-only \
+      --v2-recordings-dir <v2> --v3-recordings-dir <v3>
+
+File rekaman (G-T4): migrasi DB saja TIDAK memindahkan file rekaman.
+Pakai --copy-recordings (rsync bila ada, fallback cp) + verifikasi ukuran
+per file. Arsip v2.0 JANGAN dihapus sebelum verifikasi ini OK (CUTOVER
+Fase H) - BLUEPRINT menjanjikan arsip lama tetap bisa diputar.
 """
 
 import argparse
@@ -69,7 +79,7 @@ def map_user(r: dict) -> dict:
     return {
         "id": r["id"],
         "username": r["username"],
-        "password_hash": r["password_hash"],  # bcrypt v2.0 — salin apa adanya
+        "password_hash": r["password_hash"],  # bcrypt v2.0 - salin apa adanya
         "role": map_role(r.get("role")),
         "is_active": True,
         "created_at": r.get("created_at"),
@@ -119,7 +129,7 @@ def map_api_key(r: dict) -> dict:
 
     secret_pass: bila sudah bcrypt -> salin; bila plaintext legacy -> beri
     tanda agar admin merotasi (disimpan apa adanya, verifikasi v3.0 hanya
-    bcrypt — lihat laporan migrasi).
+    bcrypt - lihat laporan migrasi).
     """
     secret = r.get("secret_pass") or ""
     if is_bcrypt_hash(secret):
@@ -164,6 +174,84 @@ def map_access_log(r: dict) -> dict:
 
 
 AD_CONFIG_SKIP = {"id"}
+
+
+# ── penyalinan file rekaman v2.0 -> volume recordings v3 (G-T4) ───────
+
+def _iter_files(root) -> list:
+    from pathlib import Path
+
+    root = Path(root)
+    return sorted(p for p in root.rglob("*") if p.is_file())
+
+
+def _resolve_recording_dirs(args):
+    """(src, dst) dari argumen/env, atau None + pesan bila tidak lengkap."""
+    src = args.v2_recordings_dir or ""
+    dst = args.v3_recordings_dir or ""
+    if not src or not dst:
+        print("BATAL: --copy-recordings butuh --v2-recordings-dir dan --v3-recordings-dir")
+        print("  (atau env V2_RECORDINGS_DIR / V3_RECORDINGS_DIR).")
+        print("  Tujuan v3 = mountpoint host volume netravision_recordings, mis.:")
+        print("    docker volume inspect netravision_recordings --format '{{.Mountpoint}}'")
+        return None
+    if not os.path.isdir(src):
+        print(f"BATAL: direktori rekaman v2.0 tidak ada: {src}")
+        return None
+    return src, dst
+
+
+def copy_recordings(src_dir: str, dst_dir: str, dry_run: bool = False) -> dict:
+    """Salin file rekaman v2.0 -> volume recordings v3, lalu verifikasi.
+
+    Memakai rsync -a bila ada (tanpa --delete: tujuan bisa berisi rekaman
+    v3 yang sudah ada), fallback shutil.copy2. Verifikasi: setiap file
+    sumber harus ada di tujuan dengan ukuran yang sama. Mengembalikan dict
+    {files, bytes, copied, missing, ok}.
+    """
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    src, dst = Path(src_dir), Path(dst_dir)
+    files = _iter_files(src)
+    total_bytes = sum(p.stat().st_size for p in files)
+    result = {"files": len(files), "bytes": total_bytes, "copied": 0, "missing": [], "ok": False}
+    print(f"Rencana salin rekaman: {len(files)} file, {total_bytes} byte")
+    print(f"  sumber : {src}")
+    print(f"  tujuan : {dst}")
+    if dry_run:
+        print("DRY-RUN - tidak ada file yang disalin. Tambahkan --apply untuk eksekusi.")
+        result["ok"] = True
+        return result
+    dst.mkdir(parents=True, exist_ok=True)
+    rsync = shutil.which("rsync")
+    if rsync:
+        r = subprocess.run(
+            [rsync, "-a", f"{src}/", f"{dst}/"], capture_output=True, text=True
+        )
+        if r.returncode != 0:
+            print(f"! rsync gagal: {r.stderr.strip()}")
+            return result
+    else:
+        for p in files:
+            target = dst / p.relative_to(src)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(p, target)
+    # Verifikasi: tiap file sumber ada di tujuan dengan ukuran sama.
+    missing = []
+    for p in files:
+        target = dst / p.relative_to(src)
+        if not target.is_file() or target.stat().st_size != p.stat().st_size:
+            missing.append(str(p.relative_to(src)))
+    result["copied"] = len(files) - len(missing)
+    result["missing"] = missing[:20]
+    result["ok"] = not missing
+    if result["ok"]:
+        print(f"  salin rekaman OK: {result['copied']} file terverifikasi (ukuran cocok)")
+    else:
+        print(f"  ! salin rekaman BELUM LENGKAP: {len(missing)} file hilang/berbeda - JANGAN hapus arsip v2.0")
+    return result
 
 
 def map_ad_config(r: dict) -> list[dict]:
@@ -238,7 +326,29 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Migrasi DB v2.0 (MariaDB) -> v3.0 (PostgreSQL)")
     ap.add_argument("--apply", action="store_true", help="eksekusi penulisan (default: dry-run)")
     ap.add_argument("--force", action="store_true", help="lanjut walau tujuan sudah berisi data")
+    ap.add_argument("--copy-recordings", action="store_true",
+                    help="salin juga file rekaman v2.0 ke volume recordings v3 (dengan verifikasi)")
+    ap.add_argument("--copy-recordings-only", action="store_true",
+                    help="hanya salin file rekaman, tanpa migrasi DB")
+    ap.add_argument("--v2-recordings-dir", default=os.getenv("V2_RECORDINGS_DIR", ""),
+                    help="direktori rekaman v2.0 (atau env V2_RECORDINGS_DIR)")
+    ap.add_argument("--v3-recordings-dir", default=os.getenv("V3_RECORDINGS_DIR", ""),
+                    help="direktori tujuan rekaman v3 (atau env V3_RECORDINGS_DIR)")
     args = ap.parse_args()
+
+    # ── hanya salin rekaman (tanpa DB) ──
+    if args.copy_recordings_only:
+        dirs = _resolve_recording_dirs(args)
+        if dirs is None:
+            return 2
+        result = copy_recordings(dirs[0], dirs[1], dry_run=not args.apply)
+        return 0 if result["ok"] else 1
+
+    rec_dirs = None
+    if args.copy_recordings:
+        rec_dirs = _resolve_recording_dirs(args)
+        if rec_dirs is None:
+            return 2
 
     src = _src_conn()
     dst = _dst_conn()
@@ -284,8 +394,11 @@ def main() -> int:
         if legacy_secrets:
             print(f"  ! {legacy_secrets} api_keys punya secret_pass plaintext legacy -> wajib dirotasi via panel admin")
 
+        if rec_dirs:
+            copy_recordings(rec_dirs[0], rec_dirs[1], dry_run=True)
+
         if not args.apply:
-            print("\nDRY-RUN selesai — tidak ada yang ditulis. Tambahkan --apply untuk eksekusi.")
+            print("\nDRY-RUN selesai - tidak ada yang ditulis. Tambahkan --apply untuk eksekusi.")
             return 0
 
         # ── pengaman ──
@@ -335,6 +448,12 @@ def main() -> int:
         print("\nMigrasi selesai. Password user disalin apa adanya (bcrypt kompatibel).")
         if legacy_secrets:
             print(f"INGAT: {legacy_secrets} api_keys butuh rotasi secret_pass via panel admin.")
+        if rec_dirs:
+            result = copy_recordings(rec_dirs[0], rec_dirs[1], dry_run=False)
+            if not result["ok"]:
+                print("\nMigrasi DB selesai, tapi salin rekaman BELUM LENGKAP.")
+                print("Arsip v2.0 JANGAN dihapus - ulangi dengan --copy-recordings-only.")
+                return 1
         return 0
     finally:
         src.close()
