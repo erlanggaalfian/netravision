@@ -116,9 +116,17 @@ async def _visible_streams(user: User, db: AsyncSession) -> list[Stream]:
     return [s for s in streams if s.id in allowed]
 
 
-async def _get_stream_or_404(db: AsyncSession, stream_id: int) -> Stream:
+async def _get_stream_or_404(
+    db: AsyncSession, stream_id: int, require_active: bool = True
+) -> Stream:
+    """Ambil stream atau 404.
+
+    require_active=True (default, untuk penonton/playback): stream nonaktif
+    dianggap tidak ada. require_active=False (untuk admin): cukup ada di DB,
+    supaya kamera nonaktif tetap bisa diaktifkan lagi, dihapus, atau diatur.
+    """
     stream = await db.get(Stream, stream_id)
-    if stream is None or not stream.is_active:
+    if stream is None or (require_active and not stream.is_active):
         raise HTTPException(status_code=404, detail="stream tidak ditemukan")
     return stream
 

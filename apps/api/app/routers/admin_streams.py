@@ -208,7 +208,8 @@ async def admin_update_stream(
     db: AsyncSession = Depends(get_db),
     mediamtx: MediaMTXClient = Depends(get_mediamtx),
 ):
-    stream = await _get_stream_or_404(db, stream_id)
+    stream = await _get_stream_or_404(db, stream_id, require_active=False)
+    was_active = stream.is_active
     if data.name is not None:
         stream.name = data.name
     if data.is_active is not None:
@@ -252,6 +253,15 @@ async def admin_update_stream(
         stream.retention_days = data.retention_days
     await db.commit()
     await db.refresh(stream)
+    # Reaktivasi (nonaktif -> aktif): daftarkan ulang path ke MediaMTX
+    # (best-effort, idempoten) supaya kamera langsung bisa diputar lagi.
+    # Bila MediaMTX sedang mati, sync berkala akan mendaftarkannya sendiri.
+    if not was_active and stream.is_active:
+        source = stream.main_url or stream.rtsp_url
+        if source:
+            await _register_paths(
+                mediamtx, stream.id, source, stream.sub_url,
+                record=stream.recording_enabled)
     return stream_to_out(stream, get_settings())
 
 
@@ -261,7 +271,7 @@ async def admin_delete_stream(
     db: AsyncSession = Depends(get_db),
     mediamtx: MediaMTXClient = Depends(get_mediamtx),
 ):
-    stream = await _get_stream_or_404(db, stream_id)
+    stream = await _get_stream_or_404(db, stream_id, require_active=False)
     try:
         await mediamtx.delete_path(f"stream_{stream_id}")
         await mediamtx.delete_path(f"stream_{stream_id}_sub")
@@ -278,7 +288,7 @@ async def get_sharing(
     db: AsyncSession = Depends(get_db),
     me: User = Depends(get_current_user),
 ):
-    await _get_stream_or_404(db, stream_id)
+    await _get_stream_or_404(db, stream_id, require_active=False)
     if not await _admin_may_see_stream(me, db, stream_id):
         raise HTTPException(status_code=403, detail="tidak punya akses ke kamera ini")
     result = await db.execute(
@@ -304,7 +314,7 @@ async def set_sharing(
     db: AsyncSession = Depends(get_db),
     me: User = Depends(get_current_user),
 ):
-    await _get_stream_or_404(db, stream_id)
+    await _get_stream_or_404(db, stream_id, require_active=False)
     # Normalisasi: bentuk baru (shares) menang; bentuk lama (user_ids)
     # dianggap can_playback=True.
     shares = list(data.shares)
@@ -384,7 +394,7 @@ async def get_stream_grants(
     me: User = Depends(get_current_user),
 ):
     """Grant admin untuk satu kamera (dipakai modal Bagikan)."""
-    await _get_stream_or_404(db, stream_id)
+    await _get_stream_or_404(db, stream_id, require_active=False)
     if not await _admin_may_see_stream(me, db, stream_id):
         raise HTTPException(status_code=403, detail="tidak punya akses ke kamera ini")
     result = await db.execute(
@@ -423,7 +433,7 @@ async def set_stream_grants(
     Baris yang belum ada dibuat; yang sudah ada hanya diubah flag-nya.
     can_reshare=True memaksa can_view=True (membagikan butuh live).
     """
-    await _get_stream_or_404(db, stream_id)
+    await _get_stream_or_404(db, stream_id, require_active=False)
     for g in data.grants:
         user = await db.get(User, g.admin_id)
         if user is None:
@@ -470,7 +480,7 @@ async def set_stream_grants(
 
 @router.post("/admin/streams/{stream_id}/owner", dependencies=[Depends(super_admin_only)])
 async def set_owner(stream_id: int, data: OwnerIn, db: AsyncSession = Depends(get_db)):
-    stream = await _get_stream_or_404(db, stream_id)
+    stream = await _get_stream_or_404(db, stream_id, require_active=False)
     user = await db.get(User, data.user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="user tidak ditemukan")
@@ -491,7 +501,7 @@ async def set_role_access(stream_id: int, data: RoleAccessIn, db: AsyncSession =
 
     Paritas v2.0: tamu dapat diberi kamera tertentu satu per satu.
     """
-    await _get_stream_or_404(db, stream_id)
+    await _get_stream_or_404(db, stream_id, require_active=False)
     if data.role not in ("admin", "user", "guest"):
         raise HTTPException(status_code=400, detail="role tidak dikenal")
     result = await db.execute(
@@ -522,7 +532,7 @@ async def get_role_access(
     db: AsyncSession = Depends(get_db),
     me: User = Depends(get_current_user),
 ):
-    await _get_stream_or_404(db, stream_id)
+    await _get_stream_or_404(db, stream_id, require_active=False)
     if not await _admin_may_see_stream(me, db, stream_id):
         raise HTTPException(status_code=403, detail="tidak punya akses ke kamera ini")
     result = await db.execute(
