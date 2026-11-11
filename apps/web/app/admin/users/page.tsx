@@ -372,15 +372,15 @@ export default function AdminUsersPage() {
       </span>
     );
     const mobilePanel = (
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-col gap-2">
         {/* Saat akordion terbuka boleh detail: Iklan + Dibuat oleh bertumpuk dua baris. */}
-        <span className="flex min-w-0 flex-col items-start gap-0.5">
+        <span className="flex flex-col items-start gap-0.5">
           <span
             className={`text-[11px] font-medium ${u.show_ads ? "text-ok-400" : "text-slate-400"}`}
           >
             Iklan: {u.show_ads ? "Ya" : "Tidak"}
           </span>
-          <span className="min-w-0 truncate text-[11px] text-slate-400">
+          <span className="text-[11px] text-slate-400">
             Dibuat oleh:{" "}
             <span className="text-slate-300">{u.dibuat_oleh ?? "-"}</span>
           </span>
@@ -445,8 +445,8 @@ export default function AdminUsersPage() {
             </svg>
           </button>
           {mOpen && (
-            <div className="flex items-center justify-between gap-2 border-t border-ink-850 bg-ink-850/40 px-4 py-2">
-              <p className="min-w-0 truncate text-[11px] text-slate-400">
+            <div className="flex flex-col gap-2 border-t border-ink-850 bg-ink-850/40 px-4 py-2">
+              <p className="text-[11px] text-slate-400">
                 Dibuat oleh:{" "}
                 <span className="text-slate-300">
                   {u.dibuat_oleh ?? "-"}
