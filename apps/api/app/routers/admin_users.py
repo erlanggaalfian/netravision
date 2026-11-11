@@ -1,7 +1,7 @@
 """Router admin: pengguna & hak akses (MIGRATION-MAP §4)."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,16 +32,18 @@ class UserOut(BaseModel):
 
 
 class UserCreate(BaseModel):
-    username: str
-    password: str
+    # A-R1: panjang sesuai kolom DB (username 64, password dibatasi
+    # 72 karakter karena bcrypt).
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=72)
     role: str = "user"
     show_ads: bool = True
     admin_group: str | None = None
 
 
 class UserUpdate(BaseModel):
-    username: str | None = None
-    password: str | None = None
+    username: str | None = Field(default=None, min_length=1, max_length=64)
+    password: str | None = Field(default=None, min_length=1, max_length=72)
     role: str | None = None
     is_active: bool | None = None
     show_ads: bool | None = None
@@ -120,6 +122,48 @@ async def _get_user_or_404(user_id: int, db: AsyncSession) -> User:
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "user tidak ditemukan")
     return user
+
+
+async def _validate_stream_ids(db: AsyncSession, stream_ids: list[int]) -> None:
+    """Pastikan semua stream ada; 400 bila ada yang fiktif (A-S6)."""
+    if not stream_ids:
+        return
+    found = set(
+        (await db.execute(select(Stream.id).where(Stream.id.in_(stream_ids))))
+        .scalars()
+        .all()
+    )
+    missing = sorted(set(stream_ids) - found)
+    if missing:
+        raise HTTPException(
+            status_code=400, detail=f"stream tidak ada: {missing}"
+        )
+
+
+async def _admin_reshare_scope(me: User, db: AsyncSession) -> set[int]:
+    """Kamera yang boleh dibagikan admin biasa (grant can_reshare)."""
+    if is_super_admin(me):
+        rows = await db.execute(select(Stream.id))
+        return set(rows.scalars().all())
+    rows = await db.execute(
+        select(StreamAdminGrant.stream_id).where(
+            StreamAdminGrant.admin_id == me.id,
+            StreamAdminGrant.can_reshare.is_(True),
+        )
+    )
+    return set(rows.scalars().all())
+
+
+def _check_same_group(me: User, target: User) -> None:
+    """Admin biasa hanya boleh mengelola/melihat user di grupnya (A-S7)."""
+    if is_super_admin(me):
+        return
+    grup = (me.admin_group or "").strip()
+    if not grup or (target.admin_group or "").strip() != grup:
+        raise HTTPException(
+            status_code=403,
+            detail="hanya boleh mengatur akses kamera user di grup Anda",
+        )
 
 
 @router.get("/admin/users", response_model=list[UserOut])
@@ -255,9 +299,11 @@ async def delete_user(
 async def get_camera_access(
     user_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(admin_only),
+    me: User = Depends(admin_only),
 ):
-    await _get_user_or_404(user_id, db)
+    target = await _get_user_or_404(user_id, db)
+    # A-S7: admin biasa hanya boleh membaca akses user di grupnya.
+    _check_same_group(me, target)
     result = await db.execute(
         select(UserStreamAccess).where(
             UserStreamAccess.user_id == user_id,
@@ -265,6 +311,10 @@ async def get_camera_access(
         )
     )
     rows = result.scalars().all()
+    if not is_super_admin(me):
+        # Hanya baris dalam cakupan reshare admin itu yang terlihat.
+        scope = await _admin_reshare_scope(me, db)
+        rows = [r for r in rows if r.stream_id in scope]
     return {
         "user_id": user_id,
         "stream_ids": [r.stream_id for r in rows],
@@ -286,13 +336,7 @@ async def set_camera_access(
     target = await _get_user_or_404(user_id, db)
     # Admin biasa hanya boleh mengatur akses kamera user di grupnya
     # sendiri. Superadmin boleh ke semua.
-    if not is_super_admin(me):
-        grup = (me.admin_group or "").strip()
-        if not grup or (target.admin_group or "").strip() != grup:
-            raise HTTPException(
-                status_code=403,
-                detail="hanya boleh mengatur akses kamera user di grup Anda",
-            )
+    _check_same_group(me, target)
     # Normalisasi: bentuk baru (shares) menang; bentuk lama (stream_ids)
     # dianggap can_playback=True.
     shares = list(data.shares)
@@ -300,13 +344,36 @@ async def set_camera_access(
         shares = [
             CameraAccessShareIn(stream_id=sid) for sid in data.stream_ids
         ]
+    # A-S6: dedup per stream_id (jaga urutan) + validasi keberadaan
+    # stream (400 bila fiktif) supaya tidak menabrak FK/UniqueConstraint.
+    seen: set[int] = set()
+    deduped: list[CameraAccessShareIn] = []
+    for s in shares:
+        if s.stream_id not in seen:
+            seen.add(s.stream_id)
+            deduped.append(s)
+    shares = deduped
+    await _validate_stream_ids(db, [s.stream_id for s in shares])
     # Admin yang membagikan wajib punya can_reshare atas kameranya;
     # bila share mencakup playback, wajib punya can_playback juga.
     for s in shares:
         await require_reshare(me, db, s.stream_id, need_playback=s.can_playback)
-    await db.execute(
-        delete(UserStreamAccess).where(UserStreamAccess.user_id == user_id)
-    )
+    if is_super_admin(me):
+        await db.execute(
+            delete(UserStreamAccess).where(UserStreamAccess.user_id == user_id)
+        )
+    else:
+        # E-K2: hanya baris dalam cakupan reshare admin ini yang
+        # diganti; baris di luar cakupan (mis. dari superadmin atau
+        # admin lain) DIPERTAHANKAN, bukan dihapus.
+        scope = await _admin_reshare_scope(me, db)
+        if scope:
+            await db.execute(
+                delete(UserStreamAccess).where(
+                    UserStreamAccess.user_id == user_id,
+                    UserStreamAccess.stream_id.in_(scope),
+                )
+            )
     for s in shares:
         db.add(
             UserStreamAccess(
@@ -335,8 +402,13 @@ async def set_access_legacy(
 async def get_admin_grants(
     admin_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(admin_only),
+    me: User = Depends(admin_only),
 ):
+    # A-S7: admin biasa hanya boleh membaca grant dirinya sendiri.
+    if not is_super_admin(me) and admin_id != me.id:
+        raise HTTPException(
+            status_code=403, detail="hanya boleh membaca grant Anda sendiri"
+        )
     await _get_user_or_404(admin_id, db)
     result = await db.execute(
         select(StreamAdminGrant).where(StreamAdminGrant.admin_id == admin_id)
@@ -372,6 +444,15 @@ async def set_admin_grants(
     grants = list(data.grants)
     if not grants and data.stream_ids:
         grants = [AdminGrantIn(stream_id=sid) for sid in data.stream_ids]
+    # A-S6: dedup per stream_id + validasi keberadaan stream.
+    seen: set[int] = set()
+    deduped: list[AdminGrantIn] = []
+    for g in grants:
+        if g.stream_id not in seen:
+            seen.add(g.stream_id)
+            deduped.append(g)
+    grants = deduped
+    await _validate_stream_ids(db, [g.stream_id for g in grants])
     # Kamera tanpa live maupun rekaman berarti tidak diberikan sama
     # sekali (paritas v2.0).
     grants = [g for g in grants if g.can_view or g.can_playback]
@@ -396,20 +477,41 @@ async def set_admin_grants(
 
 @router.get("/admin/access-overview")
 async def access_overview(
-    db: AsyncSession = Depends(get_db), _: User = Depends(admin_only)
+    db: AsyncSession = Depends(get_db), me: User = Depends(admin_only)
 ):
-    """Ringkasan: jumlah user per role + grant per stream."""
-    roles = await db.execute(
-        select(User.role, func.count(User.id)).group_by(User.role)
-    )
-    grants = await db.execute(
-        select(
+    """Ringkasan: jumlah user per role + grant per stream.
+
+    A-S7: admin biasa hanya melihat ringkasan grupnya sendiri
+    (user segrup + grant kamera dalam cakupan reshare-nya).
+    """
+    if is_super_admin(me):
+        roles_q = select(User.role, func.count(User.id)).group_by(User.role)
+        grants_q = select(
             UserStreamAccess.stream_id, func.count(UserStreamAccess.user_id)
         ).group_by(UserStreamAccess.stream_id)
-    )
-    streams = await db.execute(
-        select(Stream.id, Stream.name).where(Stream.is_active.is_(True))
-    )
+        streams_q = select(Stream.id, Stream.name).where(Stream.is_active.is_(True))
+    else:
+        grup = (me.admin_group or "").strip()
+        roles_q = (
+            select(User.role, func.count(User.id))
+            .where(User.admin_group == grup)
+            .group_by(User.role)
+        )
+        scope = await _admin_reshare_scope(me, db)
+        grants_q = (
+            select(
+                UserStreamAccess.stream_id, func.count(UserStreamAccess.user_id)
+            )
+            .where(UserStreamAccess.stream_id.in_(scope) if scope else False)
+            .group_by(UserStreamAccess.stream_id)
+        )
+        streams_q = select(Stream.id, Stream.name).where(
+            Stream.is_active.is_(True),
+            Stream.id.in_(scope) if scope else False,
+        )
+    roles = await db.execute(roles_q)
+    grants = await db.execute(grants_q)
+    streams = await db.execute(streams_q)
     names = {sid: name for sid, name in streams.all()}
     return {
         "roles": {role: count for role, count in roles.all()},

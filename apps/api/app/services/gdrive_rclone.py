@@ -1,9 +1,9 @@
-"""Koneksi Google Drive via rclone — alur sederhana tanpa Cloud Console.
+"""Koneksi Google Drive via rclone, alur sederhana tanpa Cloud Console.
 
 User menempel token JSON dari `rclone authorize "drive"` (dijalankan di
 komputer mereka yang ada browser) ke tombol "Hubungkan" di aplikasi.
 Server menyimpan token sebagai remote rclone [gdrive], lalu meng-upload
-segmen rekaman langsung via `rclone copyto` — tanpa FUSE mount, tanpa SSH.
+segmen rekaman langsung via `rclone copyto`, tanpa FUSE mount, tanpa SSH.
 
 Token berisi refresh_token sehingga rclone memperbarui access_token
 secara otomatis; koneksi tidak kedaluwarsa.
@@ -15,6 +15,7 @@ import logging
 import os
 import shutil
 import stat
+from pathlib import Path
 
 log = logging.getLogger("netravision.gdrive_rclone")
 
@@ -22,9 +23,18 @@ REMOTE_NAME = "gdrive"
 
 
 def _data_dir() -> str:
+    """Direktori data API tempat .rclone.conf disimpan.
 
-    # data/ relatif terhadap cwd API (~/nv-demo/apps/api/data di demo)
-    base = os.path.join(os.getcwd(), "data")
+    B-T4: jangan bergantung pada CWD proses (berubah-ubah di container).
+    Urutan: env RCLONE_DATA_DIR (atau NETRAVISION_DATA_DIR) -> data/ di bawah
+    root package API (apps/api/data, stabil di native maupun container).
+    Di deploy Docker, direktori ini di-mount ke volume `apidata` sehingga
+    token tidak hilang saat container dibuat ulang.
+    """
+    override = os.environ.get("RCLONE_DATA_DIR") or os.environ.get(
+        "NETRAVISION_DATA_DIR"
+    )
+    base = override or str(Path(__file__).resolve().parents[2] / "data")
     os.makedirs(base, exist_ok=True)
     return base
 

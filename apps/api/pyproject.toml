@@ -1,40 +1,47 @@
 [project]
 name = "netravision-api"
 version = "3.0.0a0"
-description = "NetraVision v3.0 — backend API (FastAPI modular, async SQLAlchemy 2)"
+description = "NetraVision v3.0 - backend API (FastAPI modular, async SQLAlchemy 2)"
 readme = "README.md"
 # Produksi menargetkan Python 3.13; sintaks ditulis kompatibel 3.12+ agar bisa
 # diverifikasi di environment dev saat ini.
 requires-python = ">=3.12"
+# Dependensi di-pin persis (==) ke versi yang terverifikasi lolos pytest di
+# .venv saat ini, supaya build Docker reproduktif (tanpa lockfile, rilis
+# dependensi di masa depan bisa merusak build tanpa perubahan kode).
+# Regenerasi kunci: apps/api/requirements.lock (pip freeze dari .venv yang
+# sama); Dockerfile harus `pip install -r requirements.lock` (lihat laporan
+# area (g) - perubahan Dockerfile milik koordinator area (b)).
 dependencies = [
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.30",
-    "sqlalchemy[asyncio]>=2.0",
-    "alembic>=1.13",
-    "pydantic>=2.7",
-    "pydantic-settings>=2.3",
-    "pyjwt>=2.8",
-    "pwdlib[bcrypt]>=0.2",
-    "psycopg[binary]>=3.1",
-    "asyncpg>=0.29",
-    "httpx>=0.27",
-    "python-multipart>=0.0.9",
-    "prometheus_client>=0.20",
-    "cryptography>=41",
+    "fastapi==0.162.0",
+    "uvicorn[standard]==0.54.0",
+    "sqlalchemy[asyncio]==2.1.6",
+    "alembic==1.20.1",
+    "pydantic==2.14.2",
+    "pydantic-settings==2.16.2",
+    "pyjwt==2.15.1",
+    "pwdlib[bcrypt]==0.3.1",
+    "psycopg[binary]==3.3.7",
+    "asyncpg==0.32.0",
+    "httpx==0.28.1",
+    "python-multipart==0.0.33",
+    "prometheus_client==0.26.0",
+    "cryptography==50.0.2",
 ]
 
 [project.optional-dependencies]
 test = [
-    "pytest>=8",
-    "pytest-asyncio>=0.23",
-    "httpx>=0.27",
+    "pytest==9.2.0",
+    "pytest-asyncio==1.4.1.post1",
+    "httpx==0.28.1",
+    "aiosqlite==0.22.1",
 ]
 drive = [
-    "google-api-python-client>=2.0",
-    "google-auth-oauthlib>=1.0",
+    "google-api-python-client==2.202.0",
+    "google-auth-oauthlib==1.5.0",
 ]
 migrate = [
-    "pymysql>=1.1",
+    "pymysql==1.2.4",
 ]
 
 [build-system]

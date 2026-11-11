@@ -55,6 +55,33 @@ super_admin_only = require_roles("super_admin")
 _AUTO_BRANDS = ["hikvision", "dahua", "uniview_ipc", "tplink_vigi", "reolink"]
 
 
+async def _admin_may_see_stream(me: User, db: AsyncSession, stream_id: int) -> bool:
+    """Bolehkah admin biasa membaca sharing/grant/role-access satu kamera?
+
+    A-S7: super_admin boleh semua; admin biasa hanya bila punya grant
+    atas kamera itu atau kamera itu miliknya (dipasang/dimiliki).
+    """
+    if is_super_admin(me):
+        return True
+    grant = (
+        (await db.execute(
+            select(StreamAdminGrant).where(
+                StreamAdminGrant.stream_id == stream_id,
+                StreamAdminGrant.admin_id == me.id,
+            )
+        ))
+        .scalars()
+        .first()
+    )
+    if grant is not None:
+        return True
+    stream = await db.get(Stream, stream_id)
+    if stream is None:
+        return False
+    pemasang = getattr(stream, "created_by", None) or getattr(stream, "owner_id", None)
+    return pemasang == me.id
+
+
 async def _register_paths(
     mediamtx: MediaMTXClient, stream_id: int, main_url: str, sub_url: str | None,
     record: bool = False,
@@ -169,10 +196,10 @@ async def admin_create_stream(
                                     record=data.recording_enabled)
     out = stream_to_out(stream, get_settings())
     # Status registrasi MediaMTX dikembalikan ke UI (bukan 500, bukan diam).
-    out_dict = out.model_dump()
-    out_dict["mediamtx_registered"] = ok
-    out_dict["mediamtx_error"] = err
-    return out_dict
+    # A-S2: field ini bagian dari StreamOut supaya tidak dipangkas response_model.
+    out.mediamtx_registered = ok
+    out.mediamtx_error = err
+    return out
 
 
 @router.put("/admin/streams/{stream_id}", response_model=StreamOut, dependencies=[Depends(super_admin_only)])
@@ -246,8 +273,14 @@ async def admin_delete_stream(
 
 
 @router.get("/admin/streams/{stream_id}/sharing")
-async def get_sharing(stream_id: int, db: AsyncSession = Depends(get_db)):
+async def get_sharing(
+    stream_id: int,
+    db: AsyncSession = Depends(get_db),
+    me: User = Depends(get_current_user),
+):
     await _get_stream_or_404(db, stream_id)
+    if not await _admin_may_see_stream(me, db, stream_id):
+        raise HTTPException(status_code=403, detail="tidak punya akses ke kamera ini")
     result = await db.execute(
         select(UserStreamAccess).where(
             UserStreamAccess.stream_id == stream_id,
@@ -277,10 +310,16 @@ async def set_sharing(
     shares = list(data.shares)
     if not shares and data.user_ids:
         shares = [ShareIn(user_id=uid) for uid in data.user_ids]
-    # Admin yang membagikan wajib punya can_reshare atas kameranya;
-    # bila share mencakup playback, wajib punya can_playback juga.
+    # A-S6: dedup per user_id (jaga urutan) supaya tidak menabrak
+    # UniqueConstraint user_stream_access.
+    seen: set[int] = set()
+    deduped: list[ShareIn] = []
     for s in shares:
-        await require_reshare(me, db, stream_id, need_playback=s.can_playback)
+        if s.user_id not in seen:
+            seen.add(s.user_id)
+            deduped.append(s)
+    shares = deduped
+    # Validasi keberadaan user dulu (400 bila fiktif), sebelum cek reshare.
     user_ids = [s.user_id for s in shares]
     if user_ids:
         result = await db.execute(select(User.id).where(User.id.in_(user_ids)))
@@ -288,6 +327,10 @@ async def set_sharing(
         missing = set(user_ids) - found
         if missing:
             raise HTTPException(status_code=400, detail=f"user tidak ada: {sorted(missing)}")
+    # Admin yang membagikan wajib punya can_reshare atas kameranya;
+    # bila share mencakup playback, wajib punya can_playback juga.
+    for s in shares:
+        await require_reshare(me, db, stream_id, need_playback=s.can_playback)
     # Cakupan admin biasa: hanya boleh membagikan ke user/guest di
     # grupnya sendiri, bukan ke diri sendiri. Admin dikelola oleh
     # superadmin (lewat grant), bukan lewat Bagikan. Superadmin boleh
@@ -335,9 +378,15 @@ async def set_sharing(
 
 
 @router.get("/admin/streams/{stream_id}/grants")
-async def get_stream_grants(stream_id: int, db: AsyncSession = Depends(get_db)):
+async def get_stream_grants(
+    stream_id: int,
+    db: AsyncSession = Depends(get_db),
+    me: User = Depends(get_current_user),
+):
     """Grant admin untuk satu kamera (dipakai modal Bagikan)."""
     await _get_stream_or_404(db, stream_id)
+    if not await _admin_may_see_stream(me, db, stream_id):
+        raise HTTPException(status_code=403, detail="tidak punya akses ke kamera ini")
     result = await db.execute(
         select(StreamAdminGrant).where(StreamAdminGrant.stream_id == stream_id)
     )
@@ -468,8 +517,14 @@ async def set_role_access(stream_id: int, data: RoleAccessIn, db: AsyncSession =
 
 
 @router.get("/admin/streams/{stream_id}/role-access")
-async def get_role_access(stream_id: int, db: AsyncSession = Depends(get_db)):
+async def get_role_access(
+    stream_id: int,
+    db: AsyncSession = Depends(get_db),
+    me: User = Depends(get_current_user),
+):
     await _get_stream_or_404(db, stream_id)
+    if not await _admin_may_see_stream(me, db, stream_id):
+        raise HTTPException(status_code=403, detail="tidak punya akses ke kamera ini")
     result = await db.execute(
         select(StreamPermission).where(
             StreamPermission.stream_id == stream_id,
@@ -570,8 +625,31 @@ async def disk_info(db: AsyncSession = Depends(get_db)):
                        (settings.gdrive_record_path or "").rstrip("/"))
         if not gdrive_path:
             continue
+        # B-R1: GET tidak boleh berefek samping (dulu os.makedirs di sini)
+        # dan jangan memindai staging bila path tidak ada/bukan direktori.
+        # Kuota adalah asumsi dari konfigurasi (gdrive_quota_tb), bukan
+        # kuota nyata Google Drive; ditandai quota_source agar tidak
+        # menyesatkan.
+        if not gdrive_path or not os.path.isdir(gdrive_path):
+            gdrive_entries.append({
+                "folder_id": fol.id,
+                "mount": gdrive_path,
+                "label": f"Google Drive — {fol.folder_name or fol.folder_id}",
+                "drive_folder_id": fol.folder_id,
+                "drive_folder_name": fol.folder_name or "",
+                "drive_folder_url": fol.folder_url or "",
+                "storage_type": "google_drive",
+                "size_bytes": int(settings.gdrive_quota_tb * (1024**4)),
+                "avail_bytes": int(settings.gdrive_quota_tb * (1024**4)),
+                "size_human": f"{settings.gdrive_quota_tb:g}TB",
+                "avail_human": f"{settings.gdrive_quota_tb:g}TB",
+                "fstype": "gdrive",
+                "usage_pct": 0,
+                "mounted": False,
+                "quota_source": "configured",
+            })
+            continue
         try:
-            os.makedirs(gdrive_path, exist_ok=True)
             quota_tb = settings.gdrive_quota_tb
             total = int(quota_tb * (1024**4))
             used = 0
@@ -597,6 +675,8 @@ async def disk_info(db: AsyncSession = Depends(get_db)):
                 "avail_human": f"{avail / (1024**4):.1f}TB",
                 "fstype": "gdrive",
                 "usage_pct": round(used / total * 100, 1) if total else 0,
+                "mounted": True,
+                "quota_source": "configured",
             })
         except Exception as e:  # noqa: BLE001
             log.warning("disk Google Drive gagal: %s", e)
@@ -635,7 +715,11 @@ async def scan_camera(data: ScanRequest):
 
     if data.rtsp_url and data.rtsp_url.strip():
         url = data.rtsp_url.strip()
-        res = await resolve_stream(brand=None, rtsp_url=url)
+        # A-S4: URL tidak valid harus 400, bukan 500.
+        try:
+            res = await resolve_stream(brand=None, rtsp_url=url)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         cand = ScanCandidate(
             main_url=res.main_url, sub_url=res.sub_url,
             brand=res.brand, method=res.method,

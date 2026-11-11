@@ -124,3 +124,55 @@ def test_map_ad_config():
     assert "v2_marquee_text" in keys
     assert "v2_scroll_speed" in keys
     assert "id" not in keys and "v2_id" not in keys
+
+
+# --- salin rekaman v2.0 -> volume v3 (G-T4) ---
+
+def _isi_rekaman(root):
+    (root / "cam1").mkdir(parents=True)
+    (root / "cam1" / "2026-11-01_10-00-00.mp4").write_bytes(b"a" * 100)
+    (root / "cam1" / "2026-11-01_10-01-00.mp4").write_bytes(b"b" * 50)
+    (root / "cam2").mkdir(parents=True)
+    (root / "cam2" / "seg.mp4").write_bytes(b"c" * 10)
+
+
+def test_copy_recordings_dry_run_tidak_menulis(tmp_path):
+    src, dst = tmp_path / "v2", tmp_path / "v3"
+    _isi_rekaman(src)
+    r = mig.copy_recordings(str(src), str(dst), dry_run=True)
+    assert r["ok"] is True
+    assert r["files"] == 3
+    assert r["bytes"] == 160
+    assert not dst.exists()
+
+
+def test_copy_recordings_menyalin_dan_memverifikasi(tmp_path):
+    src, dst = tmp_path / "v2", tmp_path / "v3"
+    _isi_rekaman(src)
+    r = mig.copy_recordings(str(src), str(dst), dry_run=False)
+    assert r["ok"] is True
+    assert r["copied"] == 3
+    assert r["missing"] == []
+    assert (dst / "cam1" / "2026-11-01_10-00-00.mp4").read_bytes() == b"a" * 100
+    assert (dst / "cam2" / "seg.mp4").read_bytes() == b"c" * 10
+
+
+def test_copy_recordings_mendeteksi_file_tidak_tersalin(tmp_path, monkeypatch):
+    # Rusak verifikasi: hapus satu file tujuan setelah salin dengan
+    # memalsukan shutil.copy2 agar melewati satu file.
+    import shutil
+
+    src, dst = tmp_path / "v2", tmp_path / "v3"
+    _isi_rekaman(src)
+    real_copy2 = shutil.copy2
+
+    def copy2_lewati_satu(s, d, *a, **k):
+        if str(s).endswith("seg.mp4"):
+            return d
+        return real_copy2(s, d, *a, **k)
+
+    monkeypatch.setattr(shutil, "copy2", copy2_lewati_satu)
+    monkeypatch.setattr(shutil, "which", lambda *a, **k: None)  # paksa fallback cp
+    r = mig.copy_recordings(str(src), str(dst), dry_run=False)
+    assert r["ok"] is False
+    assert r["missing"] == ["cam2/seg.mp4"]

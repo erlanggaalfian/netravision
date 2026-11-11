@@ -1,4 +1,12 @@
-"""Test subnet scan (CIDR) — tanpa network asli (mock rtsp_discovery)."""
+"""Test subnet scan (CIDR) async, tanpa network asli (mock rtsp_discovery).
+
+Alur async: POST /admin/scan-subnet langsung kembalikan 202 + job_id,
+pemindaian jalan di background; hasil diambil lewat polling
+GET /admin/scan-subnet/{job_id} sampai status done.
+"""
+
+import asyncio
+import time
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -16,15 +24,32 @@ async def scan_client(app_client):
     """app_client + router scan-subnet (main.py belum me-mount-nya)."""
     app, mtmx, db = app_client
     app.include_router(admin_scan.router, prefix="/api")
+    # Isolasi antar-test: job store di memori proses bertahan lintas test.
+    admin_scan._jobs.clear()
     return app, mtmx, db
 
 async def _login_admin(scan_client):
     app, _, db = scan_client
-    admin = make_user()
+    # Router scan-subnet hanya untuk super_admin (E-K1).
+    admin = make_user(role="super_admin")
     db.add(admin)
     await db.commit()
     auth_as(app, admin)
     return app
+
+async def _poll_done(c, job_id, timeout=10.0):
+    """Polling GET job sampai done/error, kembalikan body terakhir."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        r = await c.get(f"/api/admin/scan-subnet/{job_id}")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        if body["status"] in ("done", "error"):
+            return body
+        assert asyncio.get_running_loop().time() < deadline, (
+            f"job scan {job_id} tak selesai dalam {timeout} detik"
+        )
+        await asyncio.sleep(0.05)
 
 async def test_scan_subnet_cidr_invalid(scan_client):
     app = await _login_admin(scan_client)
@@ -61,6 +86,7 @@ async def test_scan_subnet_mock_tanpa_network(scan_client, monkeypatch):
     monkeypatch.setattr(rtsp_discovery, "_run_ffprobe", fake_ffprobe)
 
     async with _client(app) as c:
+        t0 = time.monotonic()
         r = await c.post(
             "/api/admin/scan-subnet",
             json={
@@ -70,16 +96,29 @@ async def test_scan_subnet_mock_tanpa_network(scan_client, monkeypatch):
                 "password": "pw",
             },
         )
-        assert r.status_code == 200, r.text
-        body = r.json()
+        # POST async: langsung 202 + job_id, tanpa menunggu scan selesai.
+        assert time.monotonic() - t0 < 2.0, "POST harus kembali cepat (<2 detik)"
+        assert r.status_code == 202, r.text
+        job_id = r.json()["job_id"]
+        assert job_id
+        body = await _poll_done(c, job_id)
+        assert body["status"] == "done"
+        assert body["total"] == 6
+        assert body["scanned"] == 6
+        assert body["error"] is None
         hosts = body["hosts"]
-        assert len(hosts) == 1
-        h = hosts[0]
-        assert h["host"] == "192.168.1.10"
+        # A-R6: host unreachable tetap muncul di hasil (bukan disaring).
+        assert len(hosts) == 6
+        by_host = {h["host"]: h for h in hosts}
+        h = by_host["192.168.1.10"]
         assert h["port"] == 554
         assert h["status"] == "video"
         assert h["best_main"].endswith("/H.264")
         assert h["best_sub"] is None
+        assert all(
+            by_host[f"192.168.1.{n}"]["status"] == "unreachable"
+            for n in (9, 11, 12, 13, 14)
+        )
         # Kompatibilitas lama: candidates berisi best_main per host.
         assert len(body["candidates"]) == 1
         assert body["candidates"][0]["main_url"] == h["best_main"]
@@ -107,8 +146,9 @@ async def test_scan_subnet_host_gagal_tetap_dikembalikan(scan_client, monkeypatc
             "/api/admin/scan-subnet",
             json={"ip_range": "192.168.7.0/30"},  # 2 host
         )
-        assert r.status_code == 200, r.text
-        body = r.json()
+        assert r.status_code == 202, r.text
+        body = await _poll_done(c, r.json()["job_id"])
+        assert body["status"] == "done"
         assert len(body["hosts"]) == 2
         assert all(h["status"] == "auth_failed" for h in body["hosts"])
         assert all(h["best_main"] is None for h in body["hosts"])
@@ -126,3 +166,11 @@ async def test_scan_subnet_butuh_admin(scan_client):
             "/api/admin/scan-subnet", json={"ip_range": "192.168.1.0/30"}
         )
         assert r.status_code == 403, r.text
+
+
+async def test_scan_subnet_job_tidak_ditemukan(scan_client):
+    """GET job_id yang tidak ada (atau sudah dihapus) -> 404."""
+    app = await _login_admin(scan_client)
+    async with _client(app) as c:
+        r = await c.get("/api/admin/scan-subnet/tidak-ada")
+        assert r.status_code == 404, r.text

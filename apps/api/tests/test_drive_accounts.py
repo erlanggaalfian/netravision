@@ -115,7 +115,7 @@ async def test_create_duplicate_name_409(app_client, drive_env, db_session):
     await _mk_account(db_session, "Akun A")
     app, _, db = app_client
     app.state.audit_session_factory = _audit_factory_for(db)
-    auth_as(app, make_user())
+    auth_as(app, make_user(role="super_admin"))
     async with _client(app) as c:
         r = await c.post("/api/admin/drive-accounts", json={"name": "Akun A"})
     assert r.status_code == 409
@@ -126,7 +126,7 @@ async def test_list_includes_camera_count(app_client, db_session):
     await _mk_stream(db_session, "cam1", drive_account_id=acc.id)
     await _mk_stream(db_session, "cam2", drive_account_id=acc.id)
     app, _, _ = app_client
-    auth_as(app, make_user())
+    auth_as(app, make_user(role="super_admin"))
     async with _client(app) as c:
         r = await c.get("/api/admin/drive-accounts")
     assert r.status_code == 200
@@ -141,7 +141,7 @@ async def test_set_default_revokes_old(app_client, db_session):
     b = await _mk_account(db_session, "B")
     app, _, db = app_client
     app.state.audit_session_factory = _audit_factory_for(db)
-    auth_as(app, make_user())
+    auth_as(app, make_user(role="super_admin"))
     async with _client(app) as c:
         r = await c.put(f"/api/admin/drive-accounts/{b.id}", json={"is_default": True})
     assert r.status_code == 200, r.text
@@ -155,18 +155,20 @@ async def test_delete_409_when_used(app_client, db_session):
     await _mk_stream(db_session, "cam1", drive_account_id=acc.id)
     app, _, db = app_client
     app.state.audit_session_factory = _audit_factory_for(db)
-    auth_as(app, make_user())
+    auth_as(app, make_user(role="super_admin"))
     async with _client(app) as c:
         r = await c.delete(f"/api/admin/drive-accounts/{acc.id}")
     assert r.status_code == 409
-    assert r.json()["detail"]["camera_count"] == 1
+    # A-R2: detail 409 kini string, bukan dict (frontend tidak membaca
+    # camera_count dari detail; jumlahnya ada di daftar akun).
+    assert r.json()["detail"] == "akun masih dipakai 1 kamera"
 
 
 async def test_delete_ok_when_unused(app_client, db_session):
     acc = await _mk_account(db_session, "Akun A")
     app, _, db = app_client
     app.state.audit_session_factory = _audit_factory_for(db)
-    auth_as(app, make_user())
+    auth_as(app, make_user(role="super_admin"))
     async with _client(app) as c:
         r = await c.delete(f"/api/admin/drive-accounts/{acc.id}")
     assert r.status_code == 200, r.text
@@ -222,7 +224,7 @@ async def test_callback_success(app_client, db_session, drive_env, monkeypatch):
 async def test_reauth_returns_oauth_url(app_client, db_session, drive_env):
     acc = await _mk_account(db_session, "Akun A")
     app, _, _ = app_client
-    auth_as(app, make_user())
+    auth_as(app, make_user(role="super_admin"))
     async with _client(app) as c:
         r = await c.post(f"/api/admin/drive-accounts/{acc.id}/reauth")
     assert r.status_code == 200

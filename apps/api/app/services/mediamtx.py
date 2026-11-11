@@ -86,13 +86,21 @@ class MediaMTXClient:
     async def ensure_path(self, name: str, conf: dict) -> None:
         """Pastikan path ada dengan konfigurasi `conf`.
 
-        Belum ada -> add. Sudah ada tapi beda -> patch (hanya bila beda, agar
-        sync berkala tidak me-reload path yang sedang ditonton)."""
+        H2: Belum ada -> add. Sudah ada tapi beda -> patch HANYA key yang
+        berbeda (bukan seluruh conf), dan lewati sama sekali bila semua key
+        sudah sama, agar sync berkala tiap 60 detik tidak me-reload path
+        yang sedang ditonton. Perbandingan dinormalisasi (bool vs string)
+        karena API MediaMTX kadang mengembalikan bentuk yang berbeda.
+        """
         cur = await self.get_path(name)
         if cur is None:
             await self._request("POST", f"/v3/config/paths/add/{name}", json=conf)
-        elif any(cur.get(k) != v for k, v in conf.items()):
-            await self.patch_path(name, conf)
+            return
+        diff = {
+            k: v for k, v in conf.items() if not _conf_value_equal(cur.get(k), v)
+        }
+        if diff:
+            await self.patch_path(name, diff)
 
     async def path_ready(self, name: str) -> bool:
         """Status runtime: sumber path sedang tersambung & mengirim media."""
@@ -109,6 +117,20 @@ class MediaMTXClient:
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+
+def _conf_value_equal(cur_val, want_val) -> bool:
+    """Samakah nilai config MediaMTX yang ada dengan yang diinginkan?"""
+    if cur_val == want_val:
+        return True
+    if isinstance(want_val, bool) and isinstance(cur_val, str):
+        low = cur_val.strip().lower()
+        return low in ("true", "yes", "1") if want_val else low in ("false", "no", "0")
+    if isinstance(want_val, str) and isinstance(cur_val, bool):
+        return _conf_value_equal(want_val, cur_val)
+    if cur_val is None or want_val is None:
+        return False
+    return str(cur_val).strip() == str(want_val).strip()
 
 
 def get_mediamtx() -> MediaMTXClient:

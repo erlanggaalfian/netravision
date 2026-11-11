@@ -18,7 +18,8 @@ from app.core.rbac import (
     require_roles,
 )
 from app.db.session import get_db
-from app.models.access import StreamPermission, UserStreamAccess
+from app.models.access import StreamAdminGrant, StreamPermission, UserStreamAccess
+from app.models.groups import GroupStream, StreamGroup
 from app.models.streams import Stream
 from app.models.users import User
 from app.schemas.stream import StreamOut
@@ -63,8 +64,30 @@ async def _visible_streams(user: User, db: AsyncSession) -> list[Stream]:
         select(Stream).where(Stream.is_active.is_(True)).order_by(Stream.id)
     )
     streams = list(result.scalars().all())
-    if user.role in ("admin", "super_admin"):
+    if user.role == "super_admin":
         return streams
+    if user.role == "admin":
+        # A-T2: admin biasa hanya melihat kamera miliknya sendiri
+        # (created_by/owner_id) atau yang di-grant can_view.
+        allowed: set[int] = {
+            s.id
+            for s in streams
+            if (getattr(s, "created_by", None) or getattr(s, "owner_id", None))
+            == user.id
+        }
+        allowed.update(
+            (
+                await db.execute(
+                    select(StreamAdminGrant.stream_id).where(
+                        StreamAdminGrant.admin_id == user.id,
+                        StreamAdminGrant.can_view.is_(True),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return [s for s in streams if s.id in allowed]
     allowed: set[int] = set(
         (
             await db.execute(
@@ -82,6 +105,7 @@ async def _visible_streams(user: User, db: AsyncSession) -> list[Stream]:
             await db.execute(
                 select(StreamPermission.stream_id).where(
                     StreamPermission.role == user.role,
+                    StreamPermission.user_id.is_(None),
                     StreamPermission.can_view.is_(True),
                 )
             )
@@ -118,7 +142,28 @@ async def list_streams(
     settings = get_settings()
     streams = await _visible_streams(user, db)
     if group:
-        streams = [s for s in streams if (s.group_name or "") == group]
+        # A-S9: keanggotaan grup dibaca dari tabel group_streams,
+        # bukan kolom streams.group_name yang tidak pernah diisi.
+        grp = (
+            (await db.execute(select(StreamGroup).where(StreamGroup.name == group)))
+            .scalars()
+            .first()
+        )
+        if grp is None:
+            streams = []
+        else:
+            in_group = set(
+                (
+                    await db.execute(
+                        select(GroupStream.stream_id).where(
+                            GroupStream.group_id == grp.id
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            streams = [s for s in streams if s.id in in_group]
     if page is not None or limit is not None:
         lim = limit or 20
         pg = page or 1

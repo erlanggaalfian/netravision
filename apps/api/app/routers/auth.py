@@ -4,6 +4,7 @@ Path dipertahankan persis seperti v2.0: POST /api/auth/login|refresh|logout|gues
 """
 
 import hmac
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -26,6 +27,38 @@ from app.schemas.auth import GuestIn, LoginIn, RefreshIn, TokenOut
 
 router = APIRouter(tags=["auth"])
 
+# A-S13: grace window rotasi refresh (in-memory, per proses).
+# Masalah: hanya satu refresh_token_hash per user di DB, jadi dua
+# refresh bersamaan dengan token yang sama bisa saling menghanguskan.
+# Pendekatan: hash refresh yang baru saja dirotasi tetap diterima
+# selama _GRACE_SECONDS detik. Ini menahan race (dua refresh
+# bersamaan sama-sama lolos, yang belakangan menang) tanpa mengubah
+# skema DB. Batasnya: login di perangkat kedua tetap menghanguskan
+# refresh perangkat pertama (butuh tabel token per perangkat untuk
+# multi-sesi penuh, di luar cakupan perbaikan ini).
+_GRACE_SECONDS = 60.0
+_recent_refresh: dict[int, tuple[str, float]] = {}
+
+
+def _grace_accept(user_id: int, token_hash: str) -> bool:
+    entry = _recent_refresh.get(user_id)
+    if entry is None:
+        return False
+    old_hash, until = entry
+    if time.monotonic() > until:
+        _recent_refresh.pop(user_id, None)
+        return False
+    return hmac.compare_digest(old_hash, token_hash)
+
+
+def _grace_remember(user_id: int, old_hash: str | None) -> None:
+    if old_hash:
+        _recent_refresh[user_id] = (old_hash, time.monotonic() + _GRACE_SECONDS)
+
+
+def _grace_clear(user_id: int) -> None:
+    _recent_refresh.pop(user_id, None)
+
 
 async def _get_active_user(db: AsyncSession, username: str) -> User | None:
     result = await db.execute(
@@ -38,6 +71,8 @@ def _token_pair(user: User) -> TokenOut:
     settings = get_settings()
     access = create_access_token(user.id, user.username, user.role, settings)
     refresh, _jti = create_refresh_token(user.id, settings)
+    # Login baru membatalkan grace token lama user ini.
+    _grace_clear(user.id)
     user.refresh_token_hash = hash_token(refresh)
     return TokenOut(
         access_token=access,
@@ -76,18 +111,33 @@ async def refresh(data: RefreshIn, db: AsyncSession = Depends(get_db)) -> TokenO
     if payload.get("type") != "refresh":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token salah tipe")
 
-    result = await db.execute(select(User).where(User.id == int(payload["sub"])))
+    try:
+        user_id = int(payload.get("sub"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token tidak valid")
+    result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalars().first()
-    if (
-        user is None
-        or not user.is_active
-        or user.refresh_token_hash is None
-        or not hmac.compare_digest(user.refresh_token_hash, hash_token(data.refresh_token))
-    ):
+    presented = hash_token(data.refresh_token)
+    current_ok = (
+        user is not None
+        and user.is_active
+        and user.refresh_token_hash is not None
+        and hmac.compare_digest(user.refresh_token_hash, presented)
+    )
+    # A-S13: terima juga hash yang baru saja dirotasi selama grace window.
+    grace_ok = (
+        user is not None
+        and user.is_active
+        and _grace_accept(user.id, presented)
+    )
+    if not (current_ok or grace_ok):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="refresh ditolak")
 
-    # Rotation: token lama hangus, terbit pasangan baru.
+    # Rotation: token lama hangus, terbit pasangan baru. Hash lama
+    # disimpan di grace window supaya refresh bersamaan tidak gagal.
+    old_hash = user.refresh_token_hash
     pair = _token_pair(user)
+    _grace_remember(user.id, old_hash)
     await db.commit()
     return pair
 
@@ -101,6 +151,7 @@ async def logout(
         db_user = result.scalars().first()
         if db_user is not None:
             db_user.refresh_token_hash = None
+            _grace_clear(user.id)
             await db.commit()
     return {"ok": True}
 

@@ -3,7 +3,7 @@
 Untuk kamera dengan recording_enabled=True dan storage_mode "both"/"drive",
 segmen rekaman yang sudah stabil (tidak berubah 20 detik terakhir) disalin
 dari {recordings_dir}/stream_{id}/ ke {local_path}/stream_{id}/ tiap folder
-— folder staging lokal yang di-mount ke Google Drive via `rclone mount`.
+, folder staging lokal yang di-mount ke Google Drive via `rclone mount`.
 
 Multi-tautan: tiap folder punya local_path sendiri. Kamera memilih folder
 via streams.drive_folder_id; NULL = folder pertama (default).
@@ -32,6 +32,20 @@ log = logging.getLogger("netravision.drive_mirror")
 
 _STABLE_SEC = 20
 _INTERVAL_SEC = 30
+_MOUNT_SENTINEL = ".netravision-mount-ok"
+_warned_dead: set[str] = set()  # path staging yang sudah diperingatkan mati
+
+
+def _staging_alive(path: str) -> bool:
+    """True bila path staging adalah mount rclone yang masih hidup.
+
+    B-S6: mount rclone yang mati meninggalkan direktori lokal biasa, tanpa
+    cek ini file menumpuk di disk lokal dan pengguna mengira sudah di Drive.
+    Hidup = mountpoint aktif, atau berisi sentinel yang ditaruh operator.
+    """
+    if os.path.ismount(path):
+        return True
+    return os.path.isfile(os.path.join(path, _MOUNT_SENTINEL))
 
 
 async def _folders() -> list[tuple[int, str, str]]:
@@ -60,8 +74,48 @@ async def _mirror_candidates() -> list[tuple[int, str, int | None]]:
         return [(sid, name, fid) for sid, name, fid in res.all()]
 
 
+def _prune_staging(src_base: str, dst_base: str, stream_id: int) -> None:
+    """Bersihkan staging lama: file yang sumbernya sudah tak ada, atau lebih
+    tua dari drive_retention_days. Hanya jalan bila mount hidup dan sumber ada.
+    """
+    from datetime import datetime as _dt
+
+    settings = get_settings()
+    src = os.path.join(src_base, f"stream_{stream_id}")
+    dst = os.path.join(dst_base, f"stream_{stream_id}")
+    if not os.path.isdir(src) or not os.path.isdir(dst):
+        return
+    try:
+        src_names = set(os.listdir(src))
+        cutoff = _dt.now().timestamp() - settings.drive_retention_days * 86400
+    except OSError:
+        return
+    for fn in os.listdir(dst):
+        tpath = os.path.join(dst, fn)
+        try:
+            if not os.path.isfile(tpath):
+                continue
+            if fn not in src_names or os.path.getmtime(tpath) < cutoff:
+                os.remove(tpath)
+                log.info("mirror: staging lama dihapus %s", tpath)
+        except OSError as e:  # noqa: BLE001
+            log.warning("mirror: gagal bersihkan staging %s: %s", tpath, e)
+
+
 def _mirror_one(src_base: str, dst_base: str, stream_id: int) -> None:
     """Salin segmen stabil satu kamera ke satu folder tujuan."""
+    settings = get_settings()
+    # B-S6: jangan menulis buta ke staging yang mount-nya mati.
+    if settings.drive_mirror_require_mount and not _staging_alive(dst_base):
+        if dst_base not in _warned_dead:
+            _warned_dead.add(dst_base)
+            log.warning(
+                "mirror: staging %s bukan mount aktif (rclone mount mati?), "
+                "penyalinan dilewati sampai mount hidup lagi",
+                dst_base,
+            )
+        return
+    _warned_dead.discard(dst_base)
     src = os.path.join(src_base, f"stream_{stream_id}")
     if not os.path.isdir(src):
         return
@@ -76,7 +130,7 @@ def _mirror_one(src_base: str, dst_base: str, stream_id: int) -> None:
             if not os.path.isfile(spath):
                 continue
             if time.time() - os.path.getmtime(spath) < _STABLE_SEC:
-                continue  # masih ditulis — lewati
+                continue  # masih ditulis, lewati
             tpath = os.path.join(dst, fn)
             if os.path.exists(tpath) and os.path.getsize(tpath) == os.path.getsize(
                 spath
@@ -87,6 +141,7 @@ def _mirror_one(src_base: str, dst_base: str, stream_id: int) -> None:
             log.info("mirror stream_%s -> %s: %s tersalin", stream_id, dst_base, fn)
         except OSError as e:  # noqa: BLE001
             log.warning("mirror stream_%s gagal menyalin %s: %s", stream_id, fn, e)
+    _prune_staging(src_base, dst_base, stream_id)
 
 
 def _mirror_tick(

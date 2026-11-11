@@ -56,7 +56,7 @@ async def test_user_show_ads_crud(app_client):
 
 async def test_ad_config_respects_show_ads(app_client):
     app, _, db = app_client
-    admin = make_user()
+    admin = make_user(role="super_admin")
     noads = make_user(id=2, username="noads", role="user", show_ads=False)
     yesads = make_user(id=3, username="yesads", role="user", show_ads=True)
     db.add_all([admin, noads, yesads])
@@ -99,7 +99,7 @@ async def test_ad_config_respects_show_ads(app_client):
 
 async def test_ad_config_roundtrip_new_fields(app_client):
     app, _, db = app_client
-    admin = make_user()
+    admin = make_user(role="super_admin")
     db.add(admin)
     await db.commit()
     auth_as(app, admin)

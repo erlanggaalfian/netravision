@@ -21,6 +21,25 @@ from app.models.users import User
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
+def _sub_to_int(payload: dict) -> int:
+    """Ubah klaim sub menjadi id user; 401 bila hilang atau bukan angka.
+
+    Token sesi embed yang sah punya sub "key:N" dan token tanpa sub
+    sebelumnya melempar ValueError/KeyError menjadi 500 (A-T5).
+    """
+    sub = payload.get("sub")
+    if sub is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="token tanpa sub"
+        )
+    try:
+        return int(sub)
+    except (TypeError, ValueError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="token tidak valid"
+        ) from e
+
+
 async def _user_from_token(raw: str, db: AsyncSession) -> User:
     try:
         payload = decode_token(raw, get_settings())
@@ -49,7 +68,7 @@ async def _user_from_token(raw: str, db: AsyncSession) -> User:
                     is_active=True, show_ads=True)
 
     result = await db.execute(
-        select(User).where(User.id == int(payload["sub"]), User.is_active.is_(True))
+        select(User).where(User.id == _sub_to_int(payload), User.is_active.is_(True))
     )
     user = result.scalars().first()
     if user is None:
@@ -186,7 +205,8 @@ async def require_camera_access(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Izinkan bila: admin, atau punya grant eksplisit, atau grant berbasis peran."""
+    """Izinkan bila: super_admin, admin pemilik/grant, atau punya grant eksplisit,
+    atau grant berbasis peran (user_id NULL)."""
     return await _check_camera_access(stream_id, user, db)
 
 
@@ -254,28 +274,27 @@ async def _check_camera_access(
         )
 
     if user.role == "admin":
-        if not need_playback:
-            return user  # perilaku lama dipertahankan
-        # Paritas v2.0 boleh_playback untuk admin: kamera miliknya
-        # (dipasang/dimiliki) atau via grant can_playback.
-        stream = (
-            (await db.execute(select(Stream).where(Stream.id == stream_id)))
-            .scalars()
-            .first()
+        # A-T2 (perubahan perilaku, paling restriktif): admin biasa
+        # hanya boleh mengakses kamera miliknya sendiri (dipasang atau
+        # dimiliki) atau yang di-grant kepadanya. can_view untuk Live,
+        # can_playback untuk playback. Perilaku lama yang membiarkan
+        # admin melihat semua kamera sudah tidak berlaku.
+        pemasang = getattr(stream_ada, "created_by", None) or getattr(
+            stream_ada, "owner_id", None
         )
-        if stream is not None:
-            pemasang = getattr(stream, "created_by", None) or getattr(
-                stream, "owner_id", None
-            )
-            if pemasang == user.id:
-                return user
+        if pemasang == user.id:
+            return user
         grant = (
             (
                 await db.execute(
                     select(StreamAdminGrant).where(
                         StreamAdminGrant.stream_id == stream_id,
                         StreamAdminGrant.admin_id == user.id,
-                        StreamAdminGrant.can_playback.is_(True),
+                        (
+                            StreamAdminGrant.can_playback.is_(True)
+                            if need_playback
+                            else StreamAdminGrant.can_view.is_(True)
+                        ),
                     )
                 )
             )
@@ -286,7 +305,11 @@ async def _check_camera_access(
             return user
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="tidak punya izin membuka rekaman kamera ini",
+            detail=(
+                "tidak punya izin membuka rekaman kamera ini"
+                if need_playback
+                else "tidak punya akses ke kamera ini"
+            ),
         )
 
     grant = (
@@ -316,6 +339,10 @@ async def _check_camera_access(
                 select(StreamPermission).where(
                     StreamPermission.stream_id == stream_id,
                     StreamPermission.role == user.role,
+                    # A-R4: hanya baris berbasis peran (user_id NULL);
+                    # baris yang ditujukan ke user tertentu tidak boleh
+                    # memberi akses ke semua user dengan peran itu.
+                    StreamPermission.user_id.is_(None),
                     StreamPermission.can_view.is_(True),
                 )
             )

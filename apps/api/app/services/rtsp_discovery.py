@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import tempfile
 from dataclasses import dataclass
 from urllib.parse import quote, urlparse
 
@@ -177,31 +179,57 @@ def parse_ffprobe_output(text: str) -> VideoProbe:
 
 
 async def _run_ffprobe(url: str, timeout: float = _FFPROBE_TIMEOUT) -> VideoProbe:
-    """Jalankan ffprobe singkat (3 dtk baca) ke satu URL RTSP."""
-    cmd = [
-        FFPROBE, "-rtsp_transport", "tcp", "-v", "error",
-        "-select_streams", "v:0",
-        "-show_entries",
-        "stream=codec_name,width,height,avg_frame_rate,r_frame_rate:packet=pts_time,flags",
-        "-read_intervals", "%+6", "-of", "json", url,
-    ]
-    proc: asyncio.subprocess.Process | None = None
+    """Jalankan ffprobe singkat (3 dtk baca) ke satu URL RTSP.
+
+    M3: URL RTSP lengkap (berisi kredensial kamera) TIDAK PERNAH dilewatkan
+    sebagai argv ffprobe, argv terlihat di `ps` oleh semua user di server
+    (diverifikasi: wrapper env-var saja TIDAK cukup, karena ffprobe hasil
+    exec tetap menampilkan URL di argv-nya). Sebagai gantinya URL ditulis ke
+    file concat sementara (0600, dihapus di finally) dan ffprobe membacanya
+    lewat demuxer concat; argv hanya berisi path file temp itu. stderr
+    ffprobe tidak pernah di-log (pesan error concat bisa memuat URL).
+    Terverifikasi terhadap MediaMTX lokal: status video, codec, resolusi,
+    dan fps sama seperti pemanggilan langsung. Batasan yang diketahui:
+    flag keyframe tidak diteruskan demuxer concat sehingga gop_seconds
+    menjadi None, dan negosiasi transport bisa jatuh dulu ke UDP sebelum
+    TCP (dibatasi timeout yang sama).
+    """
+    fd, list_path = tempfile.mkstemp(prefix="ffprobe-", suffix=".txt")
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
-        if proc is not None:
-            try:
-                proc.kill()
-            except Exception:  # noqa: BLE001
-                pass
-        return VideoProbe(status="timeout")
-    except (FileNotFoundError, OSError):
-        return VideoProbe(status="error")
+        safe_url = url.replace("'", "'\\''")
+        with os.fdopen(fd, "w") as f:
+            f.write(f"file '{safe_url}'\n")
+        cmd = [
+            FFPROBE, "-rtsp_transport", "tcp", "-v", "error",
+            "-protocol_whitelist", "file,rtsp,tcp,udp,rtp,crypto",
+            "-select_streams", "v:0",
+            "-show_entries",
+            "stream=codec_name,width,height,avg_frame_rate,r_frame_rate:packet=pts_time,flags",
+            "-read_intervals", "%+6", "-of", "json",
+            "-f", "concat", "-safe", "0", "-i", list_path,
+        ]
+        proc: asyncio.subprocess.Process | None = None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            if proc is not None:
+                try:
+                    proc.kill()
+                except Exception:  # noqa: BLE001
+                    pass
+            return VideoProbe(status="timeout")
+        except (FileNotFoundError, OSError):
+            return VideoProbe(status="error")
+    finally:
+        try:
+            os.remove(list_path)
+        except OSError:
+            pass
     text = out.decode("utf-8", "replace")
     if proc.returncode != 0 or not text.strip():
         stderr = err.decode("utf-8", "replace").lower()

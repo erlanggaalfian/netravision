@@ -30,7 +30,9 @@ async def check_mediamtx() -> dict:
         async with httpx.AsyncClient(timeout=3.0) as client:
             resp = await client.get(url)
         ms = round((time.perf_counter() - started) * 1000, 1)
-        if resp.status_code < 500:
+        # A-S11: hanya 2xx yang sehat; 4xx/5xx (salah konfigurasi,
+        # path tidak ada) harus dilaporkan tidak sehat.
+        if 200 <= resp.status_code < 300:
             return {"name": "mediamtx", "status": "ok", "latency_ms": ms}
         return {"name": "mediamtx", "status": "error", "detail": f"http {resp.status_code}"}
     except Exception as e:  # noqa: BLE001

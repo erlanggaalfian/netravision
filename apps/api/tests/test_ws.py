@@ -11,14 +11,16 @@ from tests.conftest import auth_as, make_user
 
 
 async def _seed(db):
-    db.add(make_user())
+    # A-T1: snapshot WS hanya berisi kamera yang terlihat untuk user.
+    # Pakai super_admin agar Cam 1 masuk snapshot.
+    db.add(make_user(role="super_admin"))
     db.add(Stream(id=1, name="Cam 1", rtsp_url="rtsp://cam/1",
                   main_url="rtsp://cam/1", is_active=True, is_online=True))
     await db.commit()
 
 
 def _token():
-    return create_access_token(1, "admin", "admin", get_settings())
+    return create_access_token(1, "admin", "super_admin", get_settings())
 
 
 async def test_ws_snapshot_and_ping(app_client):

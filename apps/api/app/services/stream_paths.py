@@ -1,4 +1,4 @@
-"""Konfigurasi path MediaMTX per kamera — pola v2 (cctv-monitoring) persis.
+"""Konfigurasi path MediaMTX per kamera, pola v2 (cctv-monitoring) persis.
 
 v2 (backend/main.py register_stream_in_mediamtx):
 - stream_{id}      = MAIN: source RTSP kamera, rtspTransport tcp, selalu
@@ -38,13 +38,19 @@ def sub_path(stream_id: int) -> str:
     return f"stream_{stream_id}_sub"
 
 
-def main_conf(source: str, record: bool) -> dict:
-    return {
+def main_conf(source: str, record: bool, retention_days: int | None = None) -> dict:
+    conf = {
         "source": source,
         "rtspTransport": "tcp",
         "sourceOnDemand": False,
         "record": bool(record),
     }
+    # B-T3: setel recordDeleteAfter per kamera dari retention_days-nya, agar
+    # retensi > 7 hari tidak dipangkas default 168 jam di pathDefaults.
+    # None = biarkan default MediaMTX (168 jam).
+    if record and retention_days:
+        conf["recordDeleteAfter"] = f"{int(retention_days) * 24}h"
+    return conf
 
 
 def sub_conf(stream_id: int) -> dict:
@@ -58,9 +64,11 @@ def sub_conf(stream_id: int) -> dict:
 
 
 async def register_stream(mediamtx, stream_id: int, source: str,
-                          record: bool) -> None:
+                          record: bool, retention_days: int | None = None) -> None:
     """Daftarkan/selaraskan main + sub sebuah kamera (idempoten)."""
-    await mediamtx.ensure_path(main_path(stream_id), main_conf(source, record))
+    await mediamtx.ensure_path(
+        main_path(stream_id), main_conf(source, record, retention_days)
+    )
     await mediamtx.ensure_path(sub_path(stream_id), sub_conf(stream_id))
 
 
@@ -70,6 +78,9 @@ def _selftest() -> None:
     assert c["runOnDemand"].endswith("rtsp://127.0.0.1:$RTSP_PORT/$MTX_PATH")
     assert "-g 16" in c["runOnDemand"] and "-r 8" in c["runOnDemand"]
     assert main_conf("rtsp://x", True)["sourceOnDemand"] is False
+    assert main_conf("rtsp://x", True, 30)["recordDeleteAfter"] == "720h"
+    assert "recordDeleteAfter" not in main_conf("rtsp://x", True)
+    assert "recordDeleteAfter" not in main_conf("rtsp://x", False, 30)
 
 
 if __name__ == "__main__":

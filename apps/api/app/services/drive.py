@@ -20,7 +20,7 @@ CHUNK = 1024 * 1024
 
 
 def _drive_list_all(svc, folder_id: str, fields: str) -> list[dict]:
-    """List semua file di folder (sync — panggil via to_thread)."""
+    """List semua file di folder (sync, panggil via to_thread)."""
     out, token = [], None
     while True:
         res = svc.files().list(
@@ -36,7 +36,7 @@ def _drive_list_all(svc, folder_id: str, fields: str) -> list[dict]:
 
 @dataclass
 class AccountCreds:
-    """Kredensial akun Drive (primitif — aman lintas sesi DB)."""
+    """Kredensial akun Drive (primitif, aman lintas sesi DB)."""
 
     id: str
     token: dict
@@ -78,10 +78,10 @@ class DriveUploader:
                 creds.refresh(Request())
                 self._account.token = json.loads(creds.to_json())
                 raise _TokenRefreshed(creds.to_json())
-            raise RuntimeError(f"token Drive akun {self._account.id} tidak valid — reauth")
+            raise RuntimeError(f"token Drive akun {self._account.id} tidak valid, reauth")
         s = self.settings  # legacy: token.json instalasi satu-akun lama
         if not os.path.exists(s.drive_token_file):
-            raise RuntimeError(f"{s.drive_token_file} belum ada — lihat docs/GOOGLE-DRIVE.md")
+            raise RuntimeError(f"{s.drive_token_file} belum ada, lihat docs/GOOGLE-DRIVE.md")
         creds = Credentials.from_authorized_user_file(s.drive_token_file, SCOPES)
         if not creds.valid:
             if creds.expired and creds.refresh_token:
@@ -89,7 +89,7 @@ class DriveUploader:
                 with open(s.drive_token_file, "w") as f:
                     f.write(creds.to_json())
             else:
-                raise RuntimeError("token Drive tak valid — ulangi docs/GOOGLE-DRIVE.md")
+                raise RuntimeError("token Drive tak valid, ulangi docs/GOOGLE-DRIVE.md")
         return build("drive", "v3", credentials=creds)
 
     async def _svc(self):
@@ -103,17 +103,44 @@ class DriveUploader:
                 self._service = await asyncio.to_thread(self._build_service)
         return self._service
 
-    async def ensure_folder(self, stream_name: str) -> str:
-        if stream_name in self._folder_cache:
-            return self._folder_cache[stream_name]
+    async def ensure_folder(self, stream_name: str, stream_id: int | None = None) -> str:
+        """Folder Drive untuk satu kamera.
+
+        B-R2: folder diidentifikasi dari ID kamera (nama tidak unik dan bisa
+        berubah). Bila stream_id diisi, nama folder = `stream_{id}` (stabil
+        walau kamera diganti nama; cache dikunci per ID). Tanpa stream_id
+        (pemakaian legacy/test), perilaku lama berbasis nama dipertahankan.
+        """
+        if stream_id is not None:
+            cache_key = f"id:{stream_id}"
+            folder_name = f"stream_{stream_id}"
+        else:
+            cache_key = f"name:{stream_name}"
+            folder_name = stream_name
+        if cache_key in self._folder_cache:
+            return self._folder_cache[cache_key]
         svc = await self._svc()
         if self._account and self._account.root_folder_id:
-            folder_id = await self._ensure_child(svc, self._account.root_folder_id, stream_name)
+            folder_id = await self._ensure_child(svc, self._account.root_folder_id, folder_name)
         else:
             root = await self._ensure_child(svc, None, self.settings.drive_folder_root)
-            folder_id = await self._ensure_child(svc, root, stream_name)
-        self._folder_cache[stream_name] = folder_id
+            folder_id = await self._ensure_child(svc, root, folder_name)
+        self._folder_cache[cache_key] = folder_id
         return folder_id
+
+    def invalidate_folder_cache(
+        self, stream_id: int | None = None, stream_name: str | None = None
+    ) -> None:
+        """Buang entri cache folder satu kamera (mis. setelah ganti nama).
+
+        Folder berbasis ID tidak bergantung pada nama, jadi ganti nama tidak
+        lagi membuat folder yatim; ini hanya membersihkan sisa entri legacy
+        berbasis nama.
+        """
+        if stream_id is not None:
+            self._folder_cache.pop(f"id:{stream_id}", None)
+        if stream_name is not None:
+            self._folder_cache.pop(f"name:{stream_name}", None)
 
     async def _ensure_child(self, svc, parent_id, name: str) -> str:
         def _find():
@@ -145,10 +172,13 @@ class DriveUploader:
 
         return await asyncio.to_thread(_find)
 
-    async def upload_file(self, local_path: str, stream_name: str, retries: int = 3):
+    async def upload_file(
+        self, local_path: str, stream_name: str,
+        stream_id: int | None = None, retries: int = 3,
+    ):
         """Unggah satu segmen (resumable). Return file_id / None bila gagal."""
         svc = await self._svc()
-        folder_id = await self.ensure_folder(stream_name)
+        folder_id = await self.ensure_folder(stream_name, stream_id)
         name = os.path.basename(local_path)
         if await self.find_file(folder_id, name):
             return None
@@ -178,8 +208,16 @@ class DriveUploader:
         log.error("drive upload %s gagal total: %s", name, last)
         return None
 
-    async def queue_upload(self, local_path: str, stream_name: str) -> None:
-        await self._queue.put((local_path, stream_name))
+    async def queue_upload(
+        self, local_path: str, stream_name: str, stream_id: int | None = None
+    ) -> None:
+        # Item 3-elemen bila stream_id diketahui (folder berbasis ID, B-R2);
+        # 2-elemen untuk pemakaian legacy.
+        await self._queue.put(
+            (local_path, stream_name, stream_id)
+            if stream_id is not None
+            else (local_path, stream_name)
+        )
 
     def _mine(self, drive_account_id, storage_mode: str) -> bool:
         if storage_mode not in ("drive", "both"):
@@ -224,7 +262,7 @@ class DriveUploader:
                 continue
             stream_name = names.get(sid, entry)
             try:
-                folder_id = await self.ensure_folder(stream_name)
+                folder_id = await self.ensure_folder(stream_name, sid)
                 files = sorted(os.listdir(d))
             except Exception as e:  # noqa: BLE001
                 log.warning("drive scan %s gagal: %s", stream_name, e)
@@ -234,20 +272,28 @@ class DriveUploader:
                     continue
                 try:
                     exists = await self.find_file(folder_id, name)
-                except Exception:  # noqa: BLE001
-                    exists = True
+                except Exception as e:  # noqa: BLE001
+                    # B-R3: kegagalan cek JANGAN dianggap "sudah ada". Catat
+                    # dan lewati putaran ini; scan 5 menit berikut mencoba lagi.
+                    log.warning(
+                        "drive scan %s: cek %s gagal, dicoba lagi putaran berikut: %s",
+                        stream_name, name, e,
+                    )
+                    continue
                 if not exists:
-                    await self.queue_upload(os.path.join(d, name), stream_name)
+                    await self.queue_upload(os.path.join(d, name), stream_name, sid)
                     count += 1
         return count
 
     async def run_upload_loop(self) -> None:
         try:
             while True:
-                local_path, stream_name = await self._queue.get()
+                item = await self._queue.get()
+                local_path, stream_name = item[0], item[1]
+                stream_id = item[2] if len(item) > 2 else None
                 try:
                     if os.path.exists(local_path):
-                        await self.upload_file(local_path, stream_name)
+                        await self.upload_file(local_path, stream_name, stream_id)
                 except Exception as e:  # noqa: BLE001
                     log.warning("drive loop: %s: %s", local_path, e)
                 finally:

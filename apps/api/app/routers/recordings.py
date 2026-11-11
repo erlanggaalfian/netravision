@@ -4,12 +4,17 @@ Sumber segmen: lokal (pola deploy/mediamtx.yml) + Google Drive bila
 storage_mode stream = drive/both dan drive_enabled (proxy via backend).
 """
 
+import asyncio
 import logging
 import os
+import re
+import shutil
+import tempfile
 from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, StreamingResponse
+from starlette.background import BackgroundTask
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,21 +56,79 @@ async def _get_stream(stream_id: int, db: AsyncSession) -> Stream:
     return stream
 
 
+async def _folder_link_segments(
+    stream: Stream, day: date | None, db: AsyncSession
+) -> list[Segment]:
+    """Segmen dari staging lokal folder-link (local_path tiap tautan Drive).
+
+    B-T1: jalur upload folder-link (mirror/uploader rclone) menulis ke
+    {local_path}/stream_{id}/, staging ini harus dibaca playback, bukan
+    hanya segmen lokal recordings_dir + folder OAuth.
+    """
+    settings = get_settings()
+    out: list[Segment] = []
+    try:
+        from app.models.drive import GoogleDriveFolder
+
+        rows = (
+            await db.execute(select(GoogleDriveFolder).order_by(GoogleDriveFolder.id))
+        ).scalars().all()
+    except Exception as e:  # noqa: BLE001
+        log.warning("drive folder-link list gagal: %s", e)
+        return out
+    for row in rows:
+        base = (row.local_path or "").rstrip("/") or (
+            settings.gdrive_record_path or ""
+        ).rstrip("/")
+        if not base:
+            continue
+        d = os.path.join(base, f"stream_{stream.id}")
+        try:
+            names = os.listdir(d)
+        except OSError:
+            continue
+        for name in names:
+            if not name.endswith(".mp4"):
+                continue
+            start = parse_segment_name(name)
+            if start is None or (day is not None and start.date() != day):
+                continue
+            path = os.path.join(d, name)
+            try:
+                size = os.path.getsize(path)
+            except OSError:
+                continue
+            out.append(Segment(start=start, path=path, size=size, name=name))
+    return out
+
+
 async def _all_segments(
     stream: Stream, day: date | None, db: AsyncSession
 ) -> list[Segment]:
-    """Gabungan segmen lokal + Drive akun kamera ini (lokal menang bila nama sama)."""
+    """Gabungan segmen lokal + folder-link + Drive akun kamera ini.
+
+    Lokal menang bila nama sama, lalu folder-link, lalu folder OAuth.
+    """
     settings = get_settings()
     segs = list_segments(stream.id, day, settings.recordings_dir)
-    if stream.storage_mode in ("drive", "both") and settings.drive_enabled:
+    if stream.storage_mode in ("drive", "both"):
         names = {s.name for s in segs}
+        # B-T1: staging lokal folder-link (mirror rclone).
+        try:
+            for s in await _folder_link_segments(stream, day, db):
+                if s.name not in names:
+                    names.add(s.name)
+                    segs.append(s)
+        except Exception as e:  # noqa: BLE001
+            log.warning("drive folder-link %s gagal: %s", stream.name, e)
+    if stream.storage_mode in ("drive", "both") and settings.drive_enabled:
         try:
             from app.services.drive_accounts import uploader_for_stream
 
             up = await uploader_for_stream(db, stream)
             if up is None:
                 return _finish(segs)
-            folder_id = await up.ensure_folder(stream.name)
+            folder_id = await up.ensure_folder(stream.name, stream.id)
             for f in await up.list_files(folder_id):
                 name = f.get("name", "")
                 if name in names or not name.endswith(".mp4"):
@@ -82,7 +145,7 @@ async def _all_segments(
                         drive_file_id=f.get("id"),
                     )
                 )
-        except Exception as e:  # noqa: BLE001 — Drive opsional, jangan gagalkan
+        except Exception as e:  # noqa: BLE001, Drive opsional, jangan gagalkan
             log.warning("drive list %s gagal: %s", stream.name, e)
     return _finish(segs)
 
@@ -108,9 +171,128 @@ async def _containing(
     return None
 
 
+def _parse_range(header: str | None, total: int) -> tuple[int, int, bool]:
+    """Header `Range: bytes=a-b` -> (start, end, valid)."""
+    if not header or total <= 0:
+        return 0, total - 1, False
+    m = re.match(r"bytes=(\d+)-(\d*)$", header.strip())
+    if not m:
+        return 0, total - 1, False
+    start = int(m.group(1))
+    if start >= total:
+        return 0, total - 1, False
+    end = int(m.group(2)) if m.group(2) else total - 1
+    return start, min(end, total - 1), True
+
+
+def _cleanup(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+async def _trimmed_segment_file(
+    stream: Stream, seg: Segment, start: datetime | None,
+    end: datetime | None, db: AsyncSession,
+) -> str | None:
+    """Potong segmen ke rentang [start, end] via ffmpeg (stream-copy).
+
+    B-S3: kembalikan potongan yang diminta, bukan seluruh file segmen.
+    Return path file temp, atau None bila tak perlu dipotong / ffmpeg tak ada
+    / gagal (pemanggil memakai segmen utuh dan mencatat warning).
+    """
+    seg_end = seg.end or seg.start
+    if (start is None or start <= seg.start) and (end is None or end >= seg_end):
+        return None
+    if not shutil.which("ffmpeg"):
+        log.warning("trim segmen %s dilewati: ffmpeg tidak ada", seg.name)
+        return None
+    cut_start = max(start, seg.start) if start is not None else seg.start
+    cut_end = min(end, seg_end) if end is not None else seg_end
+    duration = (cut_end - cut_start).total_seconds()
+    if duration <= 0:
+        return None
+    offset = max(0.0, (cut_start - seg.start).total_seconds())
+    tmp_in = tmp_out = None
+    try:
+        if seg.path and os.path.exists(seg.path):
+            src = seg.path
+        else:
+            # Segmen Drive: unduh dulu ke temp, lalu potong.
+            from app.services.drive_accounts import uploader_for_stream
+
+            up = await uploader_for_stream(db, stream)
+            if up is None:
+                return None
+            file_id = seg.drive_file_id
+            if not file_id:
+                folder_id = await up.ensure_folder(stream.name, stream.id)
+                file_id = await up.find_file(folder_id, seg.name)
+            if not file_id:
+                return None
+            fd, tmp_in = tempfile.mkstemp(suffix=".mp4")
+            os.close(fd)
+            pos = 0
+            with open(tmp_in, "wb") as f:
+                while True:
+                    chunk = await up.stream_drive_file(
+                        file_id, pos, pos + CHUNK - 1
+                    )
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    if len(chunk) < CHUNK:
+                        break
+                    pos += CHUNK
+            src = tmp_in
+        fd, tmp_out = tempfile.mkstemp(suffix=".mp4")
+        os.close(fd)
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-y", "-v", "error",
+            "-ss", str(offset), "-i", src,
+            "-t", str(duration), "-c", "copy",
+            "-movflags", "+faststart", tmp_out,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, err = await asyncio.wait_for(proc.communicate(), timeout=120)
+        if proc.returncode != 0:
+            log.warning(
+                "trim segmen %s gagal: %s",
+                seg.name, err.decode(errors="replace").strip()[:200],
+            )
+            _cleanup(tmp_out)
+            return None
+        return tmp_out
+    except Exception as e:  # noqa: BLE001
+        log.warning("trim segmen %s gagal: %s", seg.name, e)
+        if tmp_out:
+            _cleanup(tmp_out)
+        return None
+    finally:
+        if tmp_in:
+            _cleanup(tmp_in)
+
+
 async def _serve_segment(
-    stream: Stream, seg: Segment, download: bool, db: AsyncSession
+    stream: Stream, seg: Segment, download: bool, db: AsyncSession,
+    request: Request | None = None,
+    start: datetime | None = None, end: datetime | None = None,
 ) -> FileResponse | StreamingResponse:
+    if start is not None and start.tzinfo is not None:
+        start = start.replace(tzinfo=None)
+    if end is not None and end.tzinfo is not None:
+        end = end.replace(tzinfo=None)
+    # B-S3: hormati rentang waktu yang diminta (potong via ffmpeg).
+    trimmed = await _trimmed_segment_file(stream, seg, start, end, db)
+    if trimmed is not None:
+        return FileResponse(
+            trimmed,
+            media_type="application/octet-stream" if download else "video/mp4",
+            filename=seg.name if download else None,
+            background=BackgroundTask(_cleanup, trimmed),
+        )
     if seg.path and os.path.exists(seg.path):
         if download:
             return FileResponse(
@@ -119,7 +301,7 @@ async def _serve_segment(
                 filename=seg.name,
             )
         return FileResponse(seg.path, media_type="video/mp4")
-    # Fallback Drive — via akun kamera ini.
+    # Fallback Drive, via akun kamera ini.
     from app.services.drive_accounts import uploader_for_stream
 
     up = await uploader_for_stream(db, stream)
@@ -128,32 +310,60 @@ async def _serve_segment(
     try:
         file_id = seg.drive_file_id
         if not file_id:
-            folder_id = await up.ensure_folder(stream.name)
+            folder_id = await up.ensure_folder(stream.name, stream.id)
             file_id = await up.find_file(folder_id, seg.name)
     except Exception as e:  # noqa: BLE001 - Drive API bisa HttpError/timeout -> 502, bukan 500
-        log.warning("Drive lookup segmen %s gagal: %s", seg.id, e)
+        # A-S5: Segment tidak punya field id, pakai seg.name.
+        log.warning("Drive lookup segmen %s gagal: %s", seg.name, e)
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY, f"Google Drive tidak terjangkau: {e}"
         ) from e
     if not file_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "segmen tidak ditemukan")
 
+    # B-S1: dukung HTTP Range seperti segmen lokal (seek pemutar video).
+    total = seg.size or 0
+    r_start, r_end, has_range = _parse_range(
+        request.headers.get("range") if request is not None else None, total
+    )
+    headers = {"Accept-Ranges": "bytes"}
+    status_code = 200
+    if has_range:
+        headers["Content-Range"] = f"bytes {r_start}-{r_end}/{total}"
+        headers["Content-Length"] = str(r_end - r_start + 1)
+        status_code = 206
+    elif total > 0:
+        headers["Content-Length"] = str(total)
+    if download:
+        headers["Content-Disposition"] = f'attachment; filename="{seg.name}"'
+
     async def gen():
-        start = 0
+        pos = r_start
         while True:
+            if has_range and pos > r_end:
+                break
+            chunk_end = pos + CHUNK - 1
+            if has_range:
+                chunk_end = min(chunk_end, r_end)
             try:
-                chunk = await up.stream_drive_file(file_id, start, start + CHUNK - 1)
+                chunk = await up.stream_drive_file(file_id, pos, chunk_end)
             except Exception as e:  # noqa: BLE001 - streaming Drive gagal di tengah jalan
-                log.warning("Drive stream segmen %s gagal: %s", seg.id, e)
+                # A-S5: Segment tidak punya field id, pakai seg.name.
+                log.warning("Drive stream segmen %s gagal: %s", seg.name, e)
                 break
             if not chunk:
                 break
             yield chunk
             if len(chunk) < CHUNK:
                 break
-            start += CHUNK
+            pos += CHUNK
 
-    return StreamingResponse(gen(), media_type="video/mp4")
+    return StreamingResponse(
+        gen(),
+        media_type="application/octet-stream" if download else "video/mp4",
+        headers=headers,
+        status_code=status_code,
+    )
 
 
 def _file_url(stream_id: int, seg: Segment) -> str:
@@ -248,16 +458,27 @@ async def stream_range(
     stream_id: int,
     start: datetime,
     end: datetime | None = None,
+    request: Request = None,  # noqa: B008 - FastAPI mengisi Request
     _user: User = Depends(user_or_above),
     _access: User = Depends(require_camera_playback_access()),
     db: AsyncSession = Depends(get_db),
 ):
     """Stream video rentang waktu (inline, video/mp4)."""
+    # B-S3: seragamkan timezone sebelum membandingkan (campur naive/aware
+    # sebelumnya bisa TypeError -> 500).
+    if start.tzinfo is not None:
+        start = start.replace(tzinfo=None)
+    if end is not None and end.tzinfo is not None:
+        end = end.replace(tzinfo=None)
+    if end is not None and end < start:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "end < start")
     stream = await _get_stream(stream_id, db)
     seg = await _containing(stream, start, db)
     if seg is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "tidak ada rekaman")
-    return await _serve_segment(stream, seg, download=False, db=db)
+    return await _serve_segment(
+        stream, seg, download=False, db=db, request=request, start=start, end=end
+    )
 
 
 @router.get("/recordings/{stream_id}/file")
@@ -265,18 +486,57 @@ async def download_file(
     stream_id: int,
     start: datetime,
     end: datetime,
+    request: Request = None,  # noqa: B008 - FastAPI mengisi Request
     _user: User = Depends(user_or_above),
     _access: User = Depends(require_camera_playback_access()),
     db: AsyncSession = Depends(get_db),
 ):
     """Unduh potongan rekaman (attachment). Rentang harus milik stream ini."""
+    # B-S3: seragamkan timezone sebelum membandingkan.
+    if start.tzinfo is not None:
+        start = start.replace(tzinfo=None)
+    if end.tzinfo is not None:
+        end = end.replace(tzinfo=None)
     if end < start:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "end < start")
     stream = await _get_stream(stream_id, db)
     seg = await _containing(stream, start, db)
     if seg is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "tidak ada rekaman")
-    return await _serve_segment(stream, seg, download=True, db=db)
+    seg_end = seg.end or seg.start
+    if end > seg_end:
+        # Rentang melintasi beberapa segmen: tolak dengan jelas daripada
+        # memotong diam-diam (minta per segmen).
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "rentang melewati batas segmen, unduh per segmen",
+        )
+    return await _serve_segment(
+        stream, seg, download=True, db=db, request=request, start=start, end=end
+    )
+
+
+async def _find_next_drive_aware(
+    stream: Stream, after: datetime, db: AsyncSession
+) -> tuple[Segment, datetime] | None:
+    """Segmen yang memuat `after`, atau segmen berikutnya (lokal + Drive).
+
+    B-S2: dipakai playback-url dan next-playable agar konsisten, fallback
+    tidak lagi lokal saja.
+    """
+    if after.tzinfo is not None:
+        after = after.replace(tzinfo=None)
+    res = find_next_playable(stream.id, after, get_settings().recordings_dir)
+    if res is not None:
+        return res
+    if stream.storage_mode in ("drive", "both"):
+        for seg in await _all_segments(stream, None, db):
+            end = seg.end or seg.start
+            if seg.start <= after < end:
+                return seg, after
+            if seg.start >= after:
+                return seg, seg.start
+    return None
 
 
 @router.get("/recordings/{stream_id}/playback-url", response_model=PlaybackUrlOut)
@@ -292,8 +552,9 @@ async def playback_url(
         time = time.replace(tzinfo=None)
     seg = await _containing(stream, time, db)
     if seg is None:
-        # cari berikutnya
-        nxt = find_next_playable(stream.id, time, get_settings().recordings_dir)
+        # B-S2: cari berikutnya dengan pencarian Drive-aware (seperti
+        # next-playable), bukan hanya lokal.
+        nxt = await _find_next_drive_aware(stream, time, db)
         if nxt is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "tidak ada rekaman")
         seg = nxt[0]
@@ -312,17 +573,7 @@ async def next_playable(
     after = after or datetime.now()
     if after.tzinfo is not None:
         after = after.replace(tzinfo=None)
-    # lokal dulu (cepat), lalu gabungan bila drive aktif
-    res = find_next_playable(stream.id, after, get_settings().recordings_dir)
-    if res is None and stream.storage_mode in ("drive", "both"):
-        for seg in await _all_segments(stream, None, db):
-            end = seg.end or seg.start
-            if seg.start <= after < end:
-                res = (seg, after)
-                break
-            if seg.start >= after:
-                res = (seg, seg.start)
-                break
+    res = await _find_next_drive_aware(stream, after, db)
     if res is None:
         return {"available": False, "time": None}
     return {"available": True, "time": res[1].isoformat()}

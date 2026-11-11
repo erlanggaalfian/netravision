@@ -29,13 +29,22 @@ _STABLE_SEC = 20
 _INTERVAL_SEC = 60
 
 
-async def _uploaded_names(stream_id: int) -> set[str]:
+async def _uploaded_names(stream_id: int, folder_id: str | None = None) -> set[str]:
+    """Nama segmen yang sudah ter-upload untuk satu kamera.
+
+    B-S5: dikunci per folder tujuan (kolom drive_uploads.folder_id). Segmen
+    yang ter-upload ke folder lama TIDAK dianggap sudah ter-upload ke folder
+    baru, sehingga ganti folder memicu re-upload.
+    """
     from app.models.drive import DriveUpload  # noqa: PLC0415
 
     async with get_session_factory()() as db:
-        res = await db.execute(
-            select(DriveUpload.segment_name).where(DriveUpload.stream_id == stream_id)
+        q = select(DriveUpload.segment_name).where(
+            DriveUpload.stream_id == stream_id
         )
+        if folder_id is not None:
+            q = q.where(DriveUpload.folder_id == folder_id)
+        res = await db.execute(q)
         return {r[0] for r in res.all()}
 
 
@@ -110,7 +119,7 @@ async def _upload_once() -> None:
     recordings_dir = settings.recordings_dir
     for sid, cam_name, folder_id in await _camera_targets():
         try:
-            done = await _uploaded_names(sid)
+            done = await _uploaded_names(sid, folder_id)
         except Exception as e:  # noqa: BLE001
             log.warning("uploader: baca drive_uploads gagal: %s", e)
             continue

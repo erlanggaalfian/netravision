@@ -16,12 +16,14 @@ import hashlib
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
+import jwt
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.security import create_access_token, verify_password
+from app.core.rate_limit import client_ip as _trusted_client_ip
+from app.core.security import decode_token, verify_password
 from app.db.session import get_db
 from app.models.keys import ApiAccessLog, ApiKey, ApiKeyStream
 from app.models.misc import AdConfig
@@ -53,13 +55,8 @@ def _key_hash(raw: str) -> str:
 
 
 def _client_ip(request: Request) -> str:
-    fwd = request.headers.get("x-forwarded-for", "")
-    if fwd:
-        return fwd.split(",")[0].strip()
-    return (
-        request.headers.get("x-real-ip", "")
-        or (request.client.host if request.client else "")
-    )
+    # A-R5: hanya percaya X-Forwarded-For dari proxy tepercaya.
+    return _trusted_client_ip(request)
 
 
 def _domain_of(url: str) -> str:
@@ -190,14 +187,46 @@ def _public_base(request: Request) -> str:
 
 
 def _session_token(key: ApiKey, stream_id: int, ttl_mnt: int) -> str:
+    """Token sesi embed yang TERIKAT ke satu kamera (A-T3).
+
+    create_access_token tidak punya parameter klaim tambahan, jadi
+    payload dibangun di sini dengan bentuk yang sama ditambah klaim
+    "stream_id". Validator WHEP wajib memeriksa klaim itu lewat
+    _validate_session_token sebelum memutar kamera.
+    """
     settings = get_settings()
-    return create_access_token(
-        user_id=f"key:{key.id}",
-        username=f"embed:{key.name}",
-        role="embed",
-        settings=settings,
-        expires_minutes=ttl_mnt,
-    )
+    payload = {
+        "sub": f"key:{key.id}",
+        "username": f"embed:{key.name}",
+        "role": "embed",
+        "type": "access",
+        "stream_id": stream_id,
+        "iat": _now(),
+        "exp": _now() + timedelta(minutes=ttl_mnt),
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def _validate_session_token(token: str, stream_id: int) -> int:
+    """Validasi token sesi embed untuk satu kamera tertentu.
+
+    Return id API key bila sah. Raise ValueError bila signature/
+    kedaluwarsa salah, bukan token embed, atau stream_id di token
+    tidak cocok dengan kamera yang diminta (token kamera A tidak
+    bisa dipakai untuk kamera B).
+    """
+    payload = decode_token(token, get_settings())
+    if payload.get("type") != "access" or payload.get("role") != "embed":
+        raise ValueError("bukan token sesi embed")
+    if payload.get("stream_id") != stream_id:
+        raise ValueError("token sesi bukan untuk kamera ini")
+    sub = str(payload.get("sub") or "")
+    if not sub.startswith("key:"):
+        raise ValueError("token sesi tidak valid")
+    try:
+        return int(sub[4:])
+    except ValueError as e:
+        raise ValueError("token sesi tidak valid") from e
 
 
 def _whep_url(request: Request, stream_id: int, session: str) -> str:
@@ -393,6 +422,16 @@ async def external_playback(
         )
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Kamera tidak tersedia")
 
+    # A-T4: hormati include_playback=False pada API key.
+    if key_rec.include_playback is False:
+        await _log(
+            db, request, "external.playback.denied:no_playback",
+            key_id=key_rec.id, stream_id=target,
+        )
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Playback tidak diizinkan untuk kunci ini"
+        )
+
     settings = get_settings()
     rec_dir = settings.recordings_dir
     nomor = ids.index(target) + 1
@@ -416,8 +455,9 @@ async def external_playback(
         try:
             day = datetime.strptime(date, "%Y-%m-%d").date()
         except ValueError:
+            # A-S3: kontrak FROZEN external memakai 403 untuk semua error.
             raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
+                status.HTTP_403_FORBIDDEN,
                 "format date tidak valid (pakai YYYY-MM-DD)",
             )
         segs = list_segments(target, day=day, recordings_dir=rec_dir)
@@ -447,12 +487,12 @@ async def external_playback(
             at = datetime.fromisoformat(time)
         except ValueError:
             raise HTTPException(
-                status.HTTP_400_BAD_REQUEST, "format time tidak valid"
+                status.HTTP_403_FORBIDDEN, "format time tidak valid"
             )
         seg = await _containing(stream, at, db)
         if seg is None:
             raise HTTPException(
-                status.HTTP_404_NOT_FOUND, "tidak ada rekaman"
+                status.HTTP_403_FORBIDDEN, "tidak ada rekaman"
             )
         ttl = key_rec.session_ttl_mnt or _DEFAULT_TTL_MNT
         expires_at = _now() + timedelta(minutes=ttl)
@@ -518,15 +558,25 @@ async def external_playback_file(
     stream = result.scalars().first()
     if stream is None or not stream.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Kamera tidak tersedia")
+    # A-T4: hormati include_playback=False pada API key.
+    if key_rec.include_playback is False:
+        await _log(
+            db, request, "external.playback.file.denied:no_playback",
+            key_id=key_rec.id, stream_id=target,
+        )
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Playback tidak diizinkan untuk kunci ini"
+        )
     try:
         at = datetime.fromisoformat(start)
     except ValueError:
+        # A-S3: kontrak FROZEN external memakai 403 untuk semua error.
         raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "format start tidak valid"
+            status.HTTP_403_FORBIDDEN, "format start tidak valid"
         )
     seg = await _containing(stream, at, db)
     if seg is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "tidak ada rekaman")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "tidak ada rekaman")
     await _log(
         db, request, "external.playback.file.ok", key_id=key_rec.id,
         stream_id=target,

@@ -55,7 +55,7 @@ async def _status_broadcaster() -> None:
 async def _mediamtx_sync_loop() -> None:
     """Sinkronisasi path kamera ke MediaMTX: saat start + tiap 60 detik.
 
-    Path MediaMTX bersifat dinamis (tidak tersimpan) — bila MediaMTX restart,
+    Path MediaMTX bersifat dinamis (tidak tersimpan), bila MediaMTX restart,
     semua path hilang. Loop ini mendaftarkan ulang semua kamera aktif dan
     menghapus path milik kamera yang sudah dihapus/dinonaktifkan.
     """
@@ -92,7 +92,7 @@ async def _mediamtx_sync_loop() -> None:
                 try:
                     await register_stream(
                         mediamtx, s.id, s.main_url or s.rtsp_url or "",
-                        bool(s.recording_enabled))
+                        bool(s.recording_enabled), s.retention_days or 7)
                 except Exception as e:  # noqa: BLE001
                     log.warning("sync path stream_%s gagal: %s", s.id, e)
             # Hapus path yatim (kamera dihapus/dinonaktifkan).
@@ -118,7 +118,7 @@ async def lifespan(app: FastAPI):
         if shutil.which("ffmpeg"):
             tasks.append(asyncio.create_task(_poster_loop()))
         else:
-            log.warning("posters_enabled tapi ffmpeg tak ditemukan — poster mati")
+            log.warning("posters_enabled tapi ffmpeg tak ditemukan, poster mati")
 
     if settings.retention_enabled:
         tasks.append(asyncio.create_task(_retention_loop()))
@@ -183,11 +183,16 @@ async def _drive_loop() -> None:
 
     Rescan tiap 5 menit agar segmen yang gagal ikut tercoba lagi dan
     akun yang baru ditambah/dihapus otomatis ter-rekonsiliasi.
+
+    B-S4: retensi Drive (apply_drive_retention, drive_retention_days) juga
+    jalan dari loop ini, sekali sehari per akun, bukan tiap putaran scan
+    (listing seluruh folder Drive tiap 5 menit terlalu mahal).
     """
     from app.services import drive_accounts as da
 
     log = logging.getLogger("netravision.drive")
     tasks: dict[str, asyncio.Task] = {}
+    last_drive_retention: float = 0.0
     try:
         while True:
             try:
@@ -207,6 +212,26 @@ async def _drive_loop() -> None:
                                 log.info("drive[%s]: %d segmen diantrekan", key, n)
                         except Exception as e:  # noqa: BLE001
                             log.warning("drive[%s] scan gagal: %s", key, e)
+                # Retensi Drive sekali sehari (B-S4).
+                import time as _time
+
+                settings = get_settings()
+                if _time.time() - last_drive_retention >= 86400:
+                    last_drive_retention = _time.time()
+                    for key, up in ups.items():
+                        try:
+                            n = await up.apply_drive_retention(
+                                settings.drive_retention_days
+                            )
+                            if n:
+                                log.info(
+                                    "drive[%s]: retensi menghapus %d file",
+                                    key, n,
+                                )
+                        except Exception as e:  # noqa: BLE001
+                            log.warning(
+                                "drive[%s] retensi gagal: %s", key, e
+                            )
             except Exception as e:  # noqa: BLE001
                 log.warning("drive loop gagal: %s", e)
             await asyncio.sleep(300)
@@ -223,7 +248,7 @@ def create_app() -> FastAPI:
     log = logging.getLogger("netravision")
 
     if settings.app_env == "prod" and settings.jwt_secret == "CHANGE-ME-IN-PROD":
-        log.warning("JWT_SECRET masih default — wajib diganti sebelum produksi!")
+        log.warning("JWT_SECRET masih default, wajib diganti sebelum produksi!")
 
     app = FastAPI(title=settings.app_name, version=__version__, lifespan=lifespan)
     app.add_middleware(
@@ -253,7 +278,7 @@ def create_app() -> FastAPI:
     # Akun Google Drive multi-akun (callback OAuth publik, sisanya admin).
     app.include_router(admin_drive.router, prefix="/api")
     app.include_router(admin_drive.admin_router, prefix="/api")
-    # Embed pihak ketiga — kontrak FROZEN, tanpa login user (auth via API key).
+    # Embed pihak ketiga, kontrak FROZEN, tanpa login user (auth via API key).
     app.include_router(external.router, prefix="/api")
     # Rekaman: 8 endpoint persis kontrak v2.0.
     app.include_router(recordings.router, prefix="/api")

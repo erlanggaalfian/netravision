@@ -142,7 +142,12 @@ async def test_logout_clears_refresh(app):
     assert fake.committed
 
 
-async def test_guest_disabled_by_default(app):
+async def test_guest_disabled_by_default(app, monkeypatch):
+    # Isolasi dari .env lokal: get_settings() di-cache (lru_cache) dan
+    # Settings membaca .env - .env demo di mesin ini berisi GUEST_ENABLED=true,
+    # sehingga tanpa override tes ini gagal padahal default kode adalah False.
+    # Tes ini menguji DEFAULT, jadi paksa False secara eksplisit.
+    monkeypatch.setattr(get_settings(), "guest_enabled", False)
     c, _ = _client(app)
     async with c:
         r = await c.post("/api/auth/guest", json={})
@@ -173,8 +178,10 @@ async def test_guest_db_row_disabled_wins_over_env(app, monkeypatch):
     assert r.status_code == 403
 
 
-async def test_guest_db_row_enabled_wins_over_env(app):
+async def test_guest_db_row_enabled_wins_over_env(app, monkeypatch):
     """Baris guest is_active=True menang atas env default False."""
+    # Isolasi dari .env lokal (lihat test_guest_disabled_by_default).
+    monkeypatch.setattr(get_settings(), "guest_enabled", False)
     guest = _make_user(id=9, username="guest", role="guest", is_active=True)
     c, _ = _client(app, guest)
     async with c:

@@ -1,6 +1,6 @@
 """Konfigurasi aplikasi dari environment (pydantic-settings).
 
-Tanpa nilai rahasia di repo — lihat .env.example.
+Tanpa nilai rahasia di repo, lihat .env.example.
 """
 
 from functools import lru_cache
@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     public_base_url: str = ""
 
     posters_dir: str = "data/posters"
+    # Jalur rekaman HARUS sama dengan yang ditulis MediaMTX. Di deploy Docker
+    # di-override compose (RECORDINGS_DIR=/recordings, volume recordings);
+    # default relatif ini hanya untuk jalan native (CWD = apps/api).
     recordings_dir: str = "data/recordings"
 
     # Worker poster (ffmpeg). Mati otomatis bila ffmpeg tak ada (warning sekali).
@@ -49,7 +52,7 @@ class Settings(BaseSettings):
     # Retensi lokal harian (per stream: retention_days di DB).
     retention_enabled: bool = True
 
-    # Google Drive — MODUL OPSIONAL, default nonaktif.
+    # Google Drive, MODUL OPSIONAL, default nonaktif.
     drive_enabled: bool = False
     drive_credentials_file: str = "data/drive/credentials.json"
     drive_token_file: str = "data/drive/token.json"
@@ -64,6 +67,10 @@ class Settings(BaseSettings):
     # copier menyalin segmen stabil ke sini untuk kamera dengan
     # storage_mode "both". Kosong = mode ini nonaktif.
     gdrive_record_path: str = ""
+    # Mirror staging: bila True, staging lokal hanya ditulis bila path-nya
+    # mount rclone yang masih hidup (atau berisi sentinel .netravision-mount-ok).
+    # False = izinkan direktori lokal biasa (dev/test saja).
+    drive_mirror_require_mount: bool = True
     # Kuota tampilan untuk entri Google Drive di /api/admin/disks (TB).
     gdrive_quota_tb: float = 5.0
 

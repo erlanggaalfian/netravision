@@ -136,8 +136,10 @@ async def test_cameras_filter_satu_kamera(app_client):
 
 async def test_streams_paginasi_dan_group(app_client):
     """/api/streams: ?page/?limit/?group (v2.0); tanpa param = list penuh."""
+    from app.models.groups import GroupStream, StreamGroup
+
     app, _, db = app_client
-    admin = make_user()
+    admin = make_user(role="super_admin")
     db.add(admin)
     for i in range(1, 6):
         db.add(Stream(
@@ -145,6 +147,11 @@ async def test_streams_paginasi_dan_group(app_client):
             main_url=f"rtsp://x/{i}", is_active=True,
             group_name="Gedung A" if i <= 2 else "Parkir",
         ))
+    # A-S9: filter ?group= membaca keanggotaan dari group_streams,
+    # bukan kolom streams.group_name. Seed grupnya secara eksplisit.
+    db.add_all([StreamGroup(id=1, name="Gedung A"), StreamGroup(id=2, name="Parkir")])
+    db.add_all([GroupStream(group_id=1, stream_id=i) for i in (1, 2)])
+    db.add_all([GroupStream(group_id=2, stream_id=i) for i in (3, 4, 5)])
     await db.commit()
     auth_as(app, admin)
     async with _client(app) as c:
@@ -165,7 +172,7 @@ async def test_streams_paginasi_dan_group(app_client):
 
 
 async def _seed_logs(db):
-    admin = make_user()
+    admin = make_user(role="super_admin")
     db.add(admin)
     now = datetime.now(timezone.utc)
     logs = [

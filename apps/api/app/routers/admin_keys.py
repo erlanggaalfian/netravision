@@ -10,7 +10,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,25 +18,27 @@ from app.core.rbac import require_roles
 from app.core.security import hash_password
 from app.db.session import get_db
 from app.models.keys import ApiAccessLog, ApiKey, ApiKeyStream
+from app.models.streams import Stream
 
-router = APIRouter(tags=["admin-keys"], dependencies=[Depends(require_roles("admin"))])
+# E-K1: kelola API key hanya super_admin (admin biasa tidak boleh).
+router = APIRouter(tags=["admin-keys"], dependencies=[Depends(require_roles("super_admin"))])
 
 
 class ApiKeyCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=128)
     stream_ids: list[int]
     domain_lock: str | None = None
     password: str | None = None
-    session_limit_min: int | None = None
+    session_limit_min: int | None = Field(default=None, ge=1, le=1440)
     custom_camera_name: str | None = None
     include_playback: bool | None = None
 
 
 class ApiKeyUpdate(BaseModel):
-    name: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=128)
     domain_lock: str | None = None
     password: str | None = None
-    session_limit_min: int | None = None
+    session_limit_min: int | None = Field(default=None, ge=1, le=1440)
     stream_ids: list[int] | None = None
     is_active: bool | None = None
     custom_camera_name: str | None = None
@@ -53,7 +55,28 @@ def _key_to_out(key: ApiKey, stream_ids: list[int]) -> dict:
         "stream_ids": stream_ids,
         "custom_camera_name": key.custom_camera_name or "",
         "include_playback": key.include_playback,
+        "session_limit_min": key.session_ttl_mnt,
     }
+
+
+async def _validate_stream_ids(db: AsyncSession, stream_ids: list[int]) -> list[int]:
+    """Dedup (jaga urutan) + pastikan semua stream ada; 400 bila fiktif (A-S6)."""
+    seen: list[int] = []
+    for sid in stream_ids:
+        if sid not in seen:
+            seen.append(sid)
+    if seen:
+        found = set(
+            (await db.execute(select(Stream.id).where(Stream.id.in_(seen))))
+            .scalars()
+            .all()
+        )
+        missing = [sid for sid in seen if sid not in found]
+        if missing:
+            raise HTTPException(
+                status_code=400, detail=f"stream tidak ada: {missing}"
+            )
+    return seen
 
 
 async def _stream_ids_of(db: AsyncSession, key_id: int) -> list[int]:
@@ -67,6 +90,7 @@ async def _stream_ids_of(db: AsyncSession, key_id: int) -> list[int]:
 
 async def _set_key_streams(db: AsyncSession, key_id: int, stream_ids: list[int]) -> None:
     """Simpan cakupan kamera dengan urutan (position = indeks)."""
+    stream_ids = await _validate_stream_ids(db, stream_ids)
     await db.execute(delete(ApiKeyStream).where(ApiKeyStream.api_key_id == key_id))
     for pos, sid in enumerate(stream_ids):
         db.add(ApiKeyStream(api_key_id=key_id, stream_id=sid, position=pos))
@@ -91,21 +115,24 @@ async def list_keys(db: AsyncSession = Depends(get_db)):
 
 @router.post("/admin/api-keys", status_code=201)
 async def create_key(data: ApiKeyCreate, db: AsyncSession = Depends(get_db)):
+    stream_ids = await _validate_stream_ids(db, data.stream_ids)
     raw = secrets.token_urlsafe(32)
     key = ApiKey(
         name=data.name,
         key_hash=hashlib.sha256(raw.encode()).hexdigest(),
         domain_lock=data.domain_lock,
         password_hash=hash_password(data.password) if data.password else None,
+        # A-S1: simpan TTL sesi embed supaya benar-benar mengikuti setelan.
+        session_ttl_mnt=data.session_limit_min,
         custom_camera_name=(data.custom_camera_name or "").strip(),
         include_playback=data.include_playback if data.include_playback is not None else True,
     )
     db.add(key)
     await db.flush()
-    await _set_key_streams(db, key.id, data.stream_ids)
+    await _set_key_streams(db, key.id, stream_ids)
     await db.commit()
     await db.refresh(key)
-    out = _key_to_out(key, data.stream_ids)
+    out = _key_to_out(key, stream_ids)
     out["key"] = raw  # hanya tampil sekali
     return out
 
@@ -125,6 +152,9 @@ async def update_key(key_id: int, data: ApiKeyUpdate, db: AsyncSession = Depends
         key.custom_camera_name = data.custom_camera_name.strip()
     if data.include_playback is not None:
         key.include_playback = data.include_playback
+    if data.session_limit_min is not None:
+        # A-S1: simpan TTL sesi embed supaya benar-benar mengikuti setelan.
+        key.session_ttl_mnt = data.session_limit_min
     if data.stream_ids is not None:
         await _set_key_streams(db, key_id, data.stream_ids)
     await db.commit()

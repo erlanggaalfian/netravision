@@ -2,7 +2,7 @@
 
 from httpx import ASGITransport, AsyncClient
 
-from app.models.access import UserStreamAccess
+from app.models.access import StreamAdminGrant, UserStreamAccess
 from app.models.streams import Stream
 from tests.conftest import auth_as, make_user
 
@@ -21,7 +21,12 @@ async def _seed(db):
         brand="generic", is_active=True,
     )
     db.add_all([admin, op, s1, s2,
-                UserStreamAccess(user_id=2, stream_id=1, can_view=True)])
+                UserStreamAccess(user_id=2, stream_id=1, can_view=True),
+                # A-T2: admin biasa hanya melihat kamera yang di-grant.
+                # Beri admin grant can_view + can_playback untuk kedua kamera
+                # agar tes list/reconnect/poster menguji jalurnya, bukan 403.
+                StreamAdminGrant(stream_id=1, admin_id=1, can_view=True, can_playback=True),
+                StreamAdminGrant(stream_id=2, admin_id=1, can_view=True, can_playback=True)])
     await db.commit()
     return admin, op
 
@@ -97,7 +102,14 @@ async def test_reconnect_404(app_client):
     assert r.status_code == 404
 
 
-async def test_poster_404(app_client):
+async def test_poster_404(app_client, monkeypatch, tmp_path):
+    # Isolasi dari sisa file demo di working directory: posters_dir default
+    # (data/posters) di VM ini berisi stream_1.jpg..stream_4.jpg dari worker
+    # poster demo, sehingga tanpa override tes yang mengharapkan 404 ini
+    # mendapat 200. Arahkan ke direktori kosong di tmp_path.
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "posters_dir", str(tmp_path / "posters"))
     app, _, db = app_client
     admin, _ = await _seed(db)
     auth_as(app, admin)
@@ -106,14 +118,17 @@ async def test_poster_404(app_client):
     assert r.status_code == 404
 
 
-async def test_poster_token_query_param(app_client):
+async def test_poster_token_query_param(app_client, monkeypatch, tmp_path):
     """Poster bisa diakses via ?token= (untuk <img> tanpa header)."""
     from app.core.config import get_settings
     from app.core.security import create_access_token
 
+    # Isolasi posters_dir (lihat test_poster_404): file demo di working
+    # directory tidak boleh membuat tes 404 ini lolos/ gagal tergantung mesin.
+    monkeypatch.setattr(get_settings(), "posters_dir", str(tmp_path / "posters"))
     app, _, db = app_client
     admin, _ = await _seed(db)
-    # Tanpa override auth — pakai JWT asli.
+    # Tanpa override auth - pakai JWT asli.
     tok = create_access_token(admin.id, admin.username, admin.role, get_settings())
     async with _client(app) as c:
         r = await c.get(f"/api/posters/stream_1.jpg?token={tok}")

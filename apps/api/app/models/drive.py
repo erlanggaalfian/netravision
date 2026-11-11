@@ -1,7 +1,7 @@
 """Model: drive_accounts (Google Drive multi-akun, v3.0).
 
 Satu baris = satu akun Google yang terhubung via OAuth2. Token OAuth
-disimpan terenkripsi (Fernet, app/core/drive_tokens.py) — tidak pernah
+disimpan terenkripsi (Fernet, app/core/drive_tokens.py) - tidak pernah
 plaintext di DB. Kamera memilih akun via streams.drive_account_id;
 NULL = pakai akun default (is_default).
 """
@@ -47,23 +47,6 @@ class DriveAccount(Base):
         return self.status == "connected" and bool(self.token_encrypted)
 
 
-class GoogleDriveSetting(Base):
-    """Tujuan Google Drive mode folder-link + rclone (satu baris, id=1).
-
-    DIGANTI oleh GoogleDriveFolder (multi-tautan, migrasi 0009).
-    Dipertahankan sementara agar migrasi bisa membaca baris lama.
-    """
-
-    __tablename__ = "google_drive_settings"
-
-    id: Mapped[int] = mapped_column(primary_key=True, default=1)
-    folder_url: Mapped[str | None] = mapped_column(String(500), nullable=True, default="")
-    folder_id: Mapped[str | None] = mapped_column(String(128), nullable=True, default="")
-    folder_name: Mapped[str | None] = mapped_column(String(128), nullable=True, default="")
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    updated_by: Mapped[str | None] = mapped_column(String(50), nullable=True, default="")
-
-
 class DriveUpload(Base):
     """Jejak segmen yang sudah ter-upload ke Google Drive (via rclone copyto).
 
@@ -84,7 +67,7 @@ class DriveUpload(Base):
 class GoogleDriveFolder(Base):
     """Satu tautan folder Google Drive (mode folder-link + rclone).
 
-    Bisa ada BANYAK baris — tiap baris = satu folder tujuan dengan
+    Bisa ada BANYAK baris - tiap baris = satu folder tujuan dengan
     mount rclone-nya sendiri (local_path). Kamera memilih folder via
     streams.drive_folder_id; NULL = folder pertama (default).
     """

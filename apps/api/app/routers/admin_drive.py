@@ -20,13 +20,13 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.rbac import get_current_user, require_roles
 from app.db.session import get_db
-from app.models.drive import DriveAccount, GoogleDriveFolder
+from app.models.drive import DriveAccount, DriveUpload, GoogleDriveFolder
 from app.models.streams import Stream
 from app.models.users import User
 from app.services.drive_accounts import clear_drive_client_cache
@@ -35,7 +35,8 @@ log = logging.getLogger("netravision.admin_drive")
 
 router = APIRouter(tags=["admin-drive"])  # callback OAuth: publik (dipanggil Google)
 admin_router = APIRouter(
-    tags=["admin-drive"], dependencies=[Depends(require_roles("admin"))]
+    # E-K1 (backend): Penyimpanan/Drive hanya super_admin, bukan admin biasa.
+    tags=["admin-drive"], dependencies=[Depends(require_roles("super_admin"))]
 )
 
 _GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -89,7 +90,7 @@ def _client_credentials(settings) -> tuple[str, str]:
             data = json.load(f)
     except (OSError, ValueError) as e:
         raise RuntimeError(
-            f"credentials Drive tidak terbaca ({settings.drive_credentials_file}) — "
+            f"credentials Drive tidak terbaca ({settings.drive_credentials_file}), "
             "lihat docs/GOOGLE-DRIVE.md §1"
         ) from e
     node = data.get("web") or data.get("installed") or {}
@@ -106,6 +107,17 @@ def _redirect_uri(settings) -> str:
             "PUBLIC_BASE_URL / public_base_url wajib diset untuk OAuth Drive"
         )
     return f"{base}/api/admin/drive-accounts/oauth/callback"
+
+
+def _config_exc(e: RuntimeError) -> HTTPException:
+    """A-S12: RuntimeError konfigurasi Drive -> HTTPException yang bisa
+    ditindaklanjuti (bukan 500). PUBLIC_BASE_URL kosong adalah masalah
+    konfigurasi server (503); credentials tidak terbaca adalah setup yang
+    belum lengkap (400)."""
+    msg = str(e)
+    if "PUBLIC_BASE_URL" in msg:
+        return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, msg)
+    return HTTPException(status.HTTP_400_BAD_REQUEST, msg)
 
 
 def _oauth_url(account_id: str, settings) -> str:
@@ -179,13 +191,30 @@ async def create_account(data: AccountCreate, db: AsyncSession = Depends(get_db)
     if exists:
         raise HTTPException(status.HTTP_409_CONFLICT, "nama akun sudah dipakai")
     # Validasi dini: credentials + public_base harus benar sebelum user OAuth.
-    _client_credentials(settings)
-    _redirect_uri(settings)
-    acc = DriveAccount(name=data.name)
+    try:
+        _client_credentials(settings)
+        _redirect_uri(settings)
+    except RuntimeError as e:
+        raise _config_exc(e) from e
+    # B-S7: akun pertama otomatis menjadi default, supaya resolve_drive_account
+    # tidak mengembalikan None dan Drive tidak diam-diam nonaktif.
+    n_accounts = (await db.execute(
+        select(func.count()).select_from(DriveAccount)
+    )).scalar() or 0
+    acc = DriveAccount(name=data.name, is_default=(n_accounts == 0))
     db.add(acc)
     await db.commit()
     await db.refresh(acc)
-    return {"id": str(acc.id), "name": acc.name, "oauth_url": _oauth_url(str(acc.id), settings)}
+    try:
+        oauth_url = _oauth_url(str(acc.id), settings)
+    except RuntimeError as e:
+        raise _config_exc(e) from e
+    return {
+        "id": str(acc.id),
+        "name": acc.name,
+        "is_default": acc.is_default,
+        "oauth_url": oauth_url,
+    }
 
 
 @admin_router.put("/admin/drive-accounts/{account_id}")
@@ -216,7 +245,10 @@ async def update_account(
 @admin_router.post("/admin/drive-accounts/{account_id}/reauth")
 async def reauth_account(account_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     acc = await _get_or_404(db, account_id)
-    return {"oauth_url": _oauth_url(str(acc.id), get_settings())}
+    try:
+        return {"oauth_url": _oauth_url(str(acc.id), get_settings())}
+    except RuntimeError as e:
+        raise _config_exc(e) from e
 
 
 @admin_router.delete("/admin/drive-accounts/{account_id}")
@@ -226,9 +258,11 @@ async def delete_account(account_id: uuid.UUID, db: AsyncSession = Depends(get_d
         Stream.drive_account_id == acc.id
     ))).scalar() or 0
     if n:
+        # A-R2: detail harus string seperti endpoint lain (jumlah kamera
+        # sudah tercantum di pesan), bukan dict.
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            {"message": f"akun masih dipakai {n} kamera", "camera_count": n},
+            f"akun masih dipakai {n} kamera",
         )
     # Revoke token ke Google (best-effort; hapus DB apa pun hasilnya).
     if acc.token_encrypted:
@@ -250,11 +284,22 @@ async def delete_account(account_id: uuid.UUID, db: AsyncSession = Depends(get_d
 
 @router.get("/admin/drive-accounts/oauth/callback", include_in_schema=False)
 async def oauth_callback(
-    code: str, state: str, request: Request, db: AsyncSession = Depends(get_db)
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
 ):
-    """Dipanggil browser user setelah consent Google (TANPA auth — state HMAC)."""
+    """Dipanggil browser user setelah consent Google (TANPA auth, state HMAC).
+
+    A-R2: Google bisa memanggil balik dengan ?error=access_denied (tanpa
+    code/state); itu harus dijawab redirect connected=0, bukan 422 karena
+    code/state wajib.
+    """
     settings = get_settings()
     base = (settings.public_base_url or "").rstrip("/") or str(request.base_url).rstrip("/")
+    if error or not code or not state:
+        return RedirectResponse(f"{base}/admin/drive/?connected=0", status_code=302)
     try:
         account_id = _verify_state(state)
     except ValueError:
@@ -263,7 +308,7 @@ async def oauth_callback(
     try:
         token = await _exchange_code(code, settings)
         if "refresh_token" not in token:
-            log.warning("OAuth akun %s tanpa refresh_token — consent mungkin diulang", acc.id)
+            log.warning("OAuth akun %s tanpa refresh_token, consent mungkin diulang", acc.id)
         from app.core.drive_tokens import encrypt_token
 
         acc.token_encrypted = encrypt_token(token)
@@ -338,8 +383,15 @@ async def add_gdrive_folder(
 ):
     """Tambah satu tautan folder Google Drive.
 
-    Bila koneksi rclone Drive aktif, akses folder diverifikasi dulu —
+    Bila koneksi rclone Drive aktif, akses folder diverifikasi dulu,
     gagal = 400 dengan pesan jelas.
+
+    B-R4 (pilihan yang dipakai): bila rclone BELUM terhubung, tautan tetap
+    disimpan, tetapi dengan penanda `verified: false` + `warning` di respons
+    dan warning di log, bukan diam-diam. Alasan: alur setup memperbolehkan
+    tempel tautan dulu sebelum menekan "Hubungkan"; menolak 400 akan memaksa
+    urutan setup yang kaku. Bila folder ternyata salah, upload rclone tetap
+    gagal dengan jelas di log (bukan diam-diam).
     """
     folder_id = parse_gdrive_folder_id(payload.folder_url)
     if not folder_id:
@@ -352,6 +404,8 @@ async def add_gdrive_folder(
     # Verifikasi via rclone bila terhubung
     from app.services import gdrive_rclone as gr
 
+    verified = False
+    warning = ""
     try:
         st = await gr.connection_status()
     except Exception:  # noqa: BLE001
@@ -361,8 +415,15 @@ async def add_gdrive_folder(
             info = await gr.check_folder_access(folder_id)
             if not folder_name:
                 folder_name = info.get("name", "")
+            verified = True
         except Exception as e:  # noqa: BLE001 - rclone/subprocess bisa OSError, bukan cuma RuntimeError
             raise HTTPException(status_code=400, detail=str(e)) from e
+    else:
+        warning = (
+            "Google Drive belum terhubung, tautan disimpan TANPA verifikasi. "
+            "Hubungkan Google Drive dulu, lalu periksa kembali folder ini."
+        )
+        log.warning("tambah folder Drive %s tanpa verifikasi: %s", folder_id, warning)
     row = GoogleDriveFolder(
         folder_url=payload.folder_url.strip(),
         folder_id=folder_id,
@@ -374,7 +435,11 @@ async def add_gdrive_folder(
     db.add(row)
     await db.commit()
     await db.refresh(row)
-    return _gdrive_folder_dict(row)
+    out = _gdrive_folder_dict(row)
+    out["verified"] = verified
+    if warning:
+        out["warning"] = warning
+    return out
 
 
 @admin_router.put("/admin/storage/google-drive/{folder_id}")
@@ -384,7 +449,14 @@ async def update_gdrive_folder(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_user),
 ):
-    """Ubah satu tautan folder Google Drive."""
+    """Ubah satu tautan folder Google Drive.
+
+    B-S5: seperti saat tambah, akses folder diverifikasi bila rclone
+    terhubung (gagal = 400). Bila folder tujuan BERGANTI, jejak upload lama
+    untuk folder lama dihapus dari drive_uploads, drive_uploads dikunci per
+    folder, jadi segmen lama di-upload ulang ke folder baru, bukan dianggap
+    sudah ter-upload hanya karena namanya sama.
+    """
     row = await db.get(GoogleDriveFolder, folder_id)
     if row is None:
         raise HTTPException(status_code=404, detail="folder tidak ditemukan")
@@ -394,14 +466,53 @@ async def update_gdrive_folder(
             status_code=400,
             detail="Tautan folder Google Drive tidak dikenali.",
         )
+    folder_name = (payload.folder_name or "").strip()
+    verified = False
+    warning = ""
+    from app.services import gdrive_rclone as gr
+
+    try:
+        st = await gr.connection_status()
+    except Exception:  # noqa: BLE001
+        st = {"connected": False}
+    if st.get("connected"):
+        try:
+            info = await gr.check_folder_access(fid)
+            if not folder_name:
+                folder_name = info.get("name", "")
+            verified = True
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail=str(e)) from e
+    else:
+        warning = (
+            "Google Drive belum terhubung, folder diubah TANPA verifikasi. "
+            "Hubungkan Google Drive dulu, lalu periksa kembali folder ini."
+        )
+        log.warning("ubah folder Drive %s tanpa verifikasi: %s", fid, warning)
+    old_fid = row.folder_id
+    if fid != old_fid:
+        # Folder berganti: segmen lama harus di-upload ulang ke folder baru.
+        res = await db.execute(
+            delete(DriveUpload).where(DriveUpload.folder_id == old_fid)
+        )
+        if res.rowcount:
+            log.info(
+                "folder Drive %s -> %s: %d jejak upload lama dihapus, "
+                "segmen akan di-upload ulang",
+                old_fid, fid, res.rowcount,
+            )
     row.folder_url = payload.folder_url.strip()
     row.folder_id = fid
-    row.folder_name = (payload.folder_name or "").strip()
+    row.folder_name = folder_name
     row.local_path = (payload.local_path or "").strip()
     row.updated_at = datetime.now(timezone.utc)
     row.updated_by = admin.username
     await db.commit()
-    return _gdrive_folder_dict(row)
+    out = _gdrive_folder_dict(row)
+    out["verified"] = verified
+    if warning:
+        out["warning"] = warning
+    return out
 
 
 @admin_router.delete("/admin/storage/google-drive/{folder_id}")
@@ -440,7 +551,7 @@ async def gdrive_connection_status():
 async def gdrive_connect(payload: RcloneTokenIn):
     """Simpan token dari `rclone authorize "drive"` + verifikasi ke Google.
 
-    Token ditempel user dari aplikasi (tombol Hubungkan) — tanpa SSH,
+    Token ditempel user dari aplikasi (tombol Hubungkan), tanpa SSH,
     tanpa Cloud Console.
     """
     from app.services import gdrive_rclone as gr
@@ -476,7 +587,7 @@ class GdriveCodeIn(BaseModel):
 async def gdrive_connect_start():
     """Mulai sesi hubung: jalankan rclone config sampai URL auth muncul.
 
-    Return {session_id, auth_url} — user buka URL di browser, salin kode.
+    Return {session_id, auth_url}, user buka URL di browser, salin kode.
     """
     from app.services import gdrive_pkce as gc
 

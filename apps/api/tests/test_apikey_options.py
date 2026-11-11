@@ -11,8 +11,14 @@ def _client(app):
 
 async def test_apikey_options_create_update(app_client):
     app, _, db = app_client
-    admin = make_user()
+    admin = make_user(role="super_admin")
     db.add(admin)
+    # A-S6: stream_ids divalidasi keberadaannya; seed kameranya dulu.
+    from app.models.streams import Stream
+
+    for i in (1, 2, 3):
+        db.add(Stream(id=i, name=f"Cam {i}", rtsp_url=f"rtsp://x/{i}",
+                      main_url=f"rtsp://x/{i}", is_active=True))
     await db.commit()
     auth_as(app, admin)
     async with _client(app) as c:
@@ -67,7 +73,7 @@ async def test_apikey_options_create_update(app_client):
 
 async def test_logs_offset_and_status_filter(app_client):
     app, _, db = app_client
-    admin = make_user()
+    admin = make_user(role="super_admin")
     db.add(admin)
     await db.commit()
     auth_as(app, admin)

@@ -37,7 +37,7 @@ def test_parse_gdrive_folder_id():
 @pytest.mark.asyncio
 async def test_gdrive_folders_crud(app_client):
     app, _, _ = app_client
-    auth_as(app, make_user())
+    auth_as(app, make_user(role="super_admin"))
     async with _client(app) as c:
         r = await c.get("/api/admin/storage/google-drive")
         assert r.status_code == 200
@@ -92,7 +92,7 @@ async def test_gdrive_folders_crud(app_client):
 @pytest.mark.asyncio
 async def test_gdrive_folder_invalid_url(app_client):
     app, _, _ = app_client
-    auth_as(app, make_user())
+    auth_as(app, make_user(role="super_admin"))
     async with _client(app) as c:
         r = await c.post(
             "/api/admin/storage/google-drive",
@@ -105,7 +105,7 @@ async def test_gdrive_folder_invalid_url(app_client):
 @pytest.mark.asyncio
 async def test_disks_includes_google_drive_folders(app_client, monkeypatch, tmp_path):
     app, _, _ = app_client
-    auth_as(app, make_user())
+    auth_as(app, make_user(role="super_admin"))
     s = get_settings()
     monkeypatch.setattr(s, "gdrive_record_path", str(tmp_path / "staging"))
     monkeypatch.setattr(s, "gdrive_quota_tb", 5.0)
@@ -144,6 +144,9 @@ def test_mirror_tick_multi_folder(monkeypatch, tmp_path):
 
     s = get_settings()
     monkeypatch.setattr(s, "recordings_dir", str(tmp_path / "recordings"))
+    # B-S6: mirror menolak staging yang bukan mount hidup. Tes ini menguji
+    # logika penyalinan multi-folder, bukan cek mount, jadi matikan syaratnya.
+    monkeypatch.setattr(s, "drive_mirror_require_mount", False)
     folders = [
         (1, "CCTV-1", str(tmp_path / "staging1")),
         (2, "CCTV-2", str(tmp_path / "staging2")),

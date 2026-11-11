@@ -1,6 +1,6 @@
 """Service rekaman: pindai segmen MediaMTX, linimasa, next-playable, retensi.
 
-Layout segmen — SUMBER KEBENARAN: deploy/mediamtx.yml (recordPath):
+Layout segmen, SUMBER KEBENARAN: deploy/mediamtx.yml (recordPath):
     {recordings_dir}/stream_{stream_id}/YYYY-MM-DD_HH-MM-SS-%f.mp4
 
 `recordings_dir` HARUS menunjuk ke volume yang sama dengan yang ditulis
@@ -70,7 +70,10 @@ def _assign_ends(segments: list[Segment]) -> None:
             try:
                 mtime = datetime.fromtimestamp(os.path.getmtime(seg.path))
             except OSError:
-                mtime = seg.start
+                # B-T5: segmen Drive punya path="" (mtime tak terbaca), jangan
+                # end=start (durasi 0, tak bisa diputar). Pakai durasi segmen
+                # yang wajar (recordSegmentDuration MediaMTX).
+                mtime = seg.start + timedelta(seconds=SEGMENT_FALLBACK_SEC)
             seg.end = max(seg.start, mtime)
 
 
@@ -149,17 +152,35 @@ async def apply_retention(db: AsyncSession, recordings_dir: str | None = None) -
 
     Memakai kolom `retention_days` yang sudah ada di model Stream
     (default 7 hari = 168 jam, selaras recordDeleteAfter MediaMTX).
+
+    B-T2: kamera mode drive/both HANYA dihapus bila segmen sudah tercatat
+    ter-upload di drive_uploads. Tanpa bukti upload, salinan lokal adalah
+    satu-satunya salinan, dipertahankan walau kedaluwarsa.
     """
+    from app.models.drive import DriveUpload
+
     root = _recordings_dir(recordings_dir)
     now = datetime.now()
     result = await db.execute(
         select(Stream).where(Stream.is_active.is_(True), Stream.recording_enabled.is_(True))
     )
     deleted = 0
+    kept_unuploaded = 0
     for stream in result.scalars().all():
         cutoff = now - timedelta(days=stream.retention_days or 7)
+        uploaded: set[str] | None = None
+        if stream.storage_mode in ("drive", "both"):
+            res = await db.execute(
+                select(DriveUpload.segment_name).where(
+                    DriveUpload.stream_id == stream.id
+                )
+            )
+            uploaded = {r[0] for r in res.all()}
         for seg in list_segments(stream.id, None, root):
             if seg.start < cutoff:
+                if uploaded is not None and seg.name not in uploaded:
+                    kept_unuploaded += 1
+                    continue
                 try:
                     os.remove(seg.path)
                     deleted += 1
@@ -167,6 +188,11 @@ async def apply_retention(db: AsyncSession, recordings_dir: str | None = None) -
                     log.warning("gagal hapus segmen %s: %s", seg.path, e)
     if deleted:
         log.info("retensi: %d segmen lama dihapus", deleted)
+    if kept_unuploaded:
+        log.info(
+            "retensi: %d segmen kedaluwarsa dipertahankan (belum ter-upload ke Drive)",
+            kept_unuploaded,
+        )
     return deleted
 
 

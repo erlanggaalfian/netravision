@@ -28,6 +28,9 @@ class StreamOut(BaseModel):
     # Kredensial RTSP: hanya diisi endpoint admin (sudah di-masking per v2.0).
     rtsp_url: str | None = None
     drive_folder_id: int | None = None
+    # Status registrasi MediaMTX (A-S2): hanya diisi admin_create_stream.
+    mediamtx_registered: bool = False
+    mediamtx_error: str | None = None
 
 
 class StreamCreate(BaseModel):
