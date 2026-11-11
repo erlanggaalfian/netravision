@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import type { Stream, SubnetHost } from "../../../lib/types";
 import { ErrorBox } from "../../../components/ui";
@@ -17,6 +17,15 @@ const SCAN_STATUS: Record<string, { label: string; tone: Tone }> = {
   unreachable: { label: "Tidak terjangkau", tone: "muted" },
 };
 
+type ScanJobStatus = {
+  status: "running" | "done" | "error";
+  scanned: number;
+  total: number;
+  hosts: SubnetHost[];
+  candidates: { host: string; main_url: string }[];
+  error: string | null;
+};
+
 function mainInfo(h: SubnetHost): string {
   const p = h.paths.find((x) => x.role === "main");
   if (!p?.width || !p.height) return p?.path ?? "";
@@ -31,11 +40,19 @@ export default function AdminScannerPage() {
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [scanning, setScanning] = useState(false);
+  const [progress, setProgress] = useState({ scanned: 0, total: 0 });
   const [hosts, setHosts] = useState<SubnetHost[] | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState(0);
   const [error, setError] = useState("");
+  /* Batalkan polling saat unmount supaya tidak setState sesudah lepas. */
+  const cancelledRef = useRef(false);
+  useEffect(() => {
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, []);
 
   const key = (h: SubnetHost) => `${h.host}:${h.port}`;
   const selectable = (hosts ?? []).filter((h) => h.status === "video");
@@ -43,23 +60,44 @@ export default function AdminScannerPage() {
   async function doScan() {
     setError("");
     setScanning(true);
+    setProgress({ scanned: 0, total: 0 });
     setHosts(null);
     setChecked(new Set());
     setAdded(0);
     try {
-      const res = await api.post<{ hosts: SubnetHost[] }>("/admin/scan-subnet", {
+      /* Scan async: POST langsung kembalikan 202 + job_id, lalu polling
+         status tiap 2 detik sampai done/error. */
+      const created = await api.post<{ job_id: string }>("/admin/scan-subnet", {
         ip_range: ipRange.trim(),
         port: parseInt(port, 10) || 554,
         username: username.trim(),
         password,
       });
-      setHosts(res.hosts);
-      if (res.hosts.length === 0)
-        setError("Tidak ada kamera ditemukan di subnet ini.");
+      const jobId = created.job_id;
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 2000));
+        if (cancelledRef.current) return;
+        const job = await api.get<ScanJobStatus>(
+          `/admin/scan-subnet/${jobId}`,
+        );
+        if (cancelledRef.current) return;
+        setProgress({ scanned: job.scanned, total: job.total });
+        if (job.status === "done") {
+          setHosts(job.hosts);
+          if (job.hosts.length === 0)
+            setError("Tidak ada kamera ditemukan di subnet ini.");
+          break;
+        }
+        if (job.status === "error") {
+          setError(job.error ?? "Scan gagal");
+          break;
+        }
+      }
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Scan gagal");
+      if (!cancelledRef.current)
+        setError(e instanceof ApiError ? e.message : "Scan gagal");
     } finally {
-      setScanning(false);
+      if (!cancelledRef.current) setScanning(false);
     }
   }
 
@@ -84,6 +122,10 @@ export default function AdminScannerPage() {
     setError("");
     setAdding(true);
     let ok = 0;
+    /* E-S5: jangan berhenti di kegagalan pertama, lanjutkan sisanya
+       dan laporkan mana yang gagal. */
+    const failed: string[] = [];
+    const failedKeys = new Set<string>();
     for (const h of selected) {
       try {
         // force: path sudah diverifikasi video saat scan.
@@ -94,23 +136,28 @@ export default function AdminScannerPage() {
           force: true,
         });
         ok++;
-      } catch (e) {
-        setError(
-          e instanceof ApiError
-            ? `Gagal menambah ${h.host}: ${e.message}`
-            : `Gagal menambah ${h.host}`,
-        );
-        break;
+      } catch {
+        failed.push(h.host);
+        failedKeys.add(key(h));
       }
     }
+    if (failed.length > 0) {
+      setError(
+        `Gagal menambah ${failed.length} kamera: ${failed.join(", ")}. ${ok} kamera berhasil ditambahkan.`,
+      );
+    }
     setAdded(ok);
+    /* Reset checked supaya klik kedua tidak membuat duplikat; bila
+       ada yang gagal, hanya yang gagal yang tetap tercentang. */
+    setChecked(failedKeys);
     setAdding(false);
   }
 
-  function HostRow({ h }: { h: SubnetHost }) {
-    const st = SCAN_STATUS[h.status] ?? SCAN_STATUS.error;
+  /* E-R5: dua komponen terpisah supaya HTML valid: kartu <li>
+     hanya di dalam <ul> mobile, baris <tr> hanya di <tbody>. */
+  function HostCheckbox({ h }: { h: SubnetHost }) {
     const canPick = h.status === "video";
-    const checkbox = (
+    return (
       <input
         type="checkbox"
         checked={checked.has(key(h))}
@@ -120,37 +167,45 @@ export default function AdminScannerPage() {
         aria-label={`Pilih ${h.host}`}
       />
     );
+  }
+
+  function HostCard({ h }: { h: SubnetHost }) {
+    const st = SCAN_STATUS[h.status] ?? SCAN_STATUS.error;
     return (
-      <>
-        {/* Mobile: kartu */}
-        <li className="flex items-center gap-3 rounded-xl bg-ink-900 shadow-sm p-3 md:hidden">
-          {checkbox}
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-mono text-sm text-white">
-              {h.host}:{h.port}
-            </p>
-            <p className="mt-0.5 truncate text-xs text-slate-400">
-              {h.best_main ? mainInfo(h) : "tanpa video"}
-            </p>
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              <NBBadge tone={st.tone}>{st.label}</NBBadge>
-            </div>
-          </div>
-        </li>
-        {/* Desktop: baris tabel */}
-        <NBTr key={key(h)} className="hidden md:table-row">
-          <NBTd>{checkbox}</NBTd>
-          <NBTd className="font-mono">{h.host}</NBTd>
-          <NBTd className="font-mono">{h.port}</NBTd>
-          <NBTd>
+      <li className="flex items-center gap-3 rounded-xl bg-ink-900 shadow-sm p-3 md:hidden">
+        <HostCheckbox h={h} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-mono text-sm text-white">
+            {h.host}:{h.port}
+          </p>
+          <p className="mt-0.5 truncate text-xs text-slate-400">
+            {h.best_main ? mainInfo(h) : "tanpa video"}
+          </p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
             <NBBadge tone={st.tone}>{st.label}</NBBadge>
-          </NBTd>
-          <NBTd className="max-w-[280px] truncate font-mono text-xs">
-            {h.best_main ?? "-"}
-          </NBTd>
-          <NBTd className="text-xs">{mainInfo(h)}</NBTd>
-        </NBTr>
-      </>
+          </div>
+        </div>
+      </li>
+    );
+  }
+
+  function HostRow({ h }: { h: SubnetHost }) {
+    const st = SCAN_STATUS[h.status] ?? SCAN_STATUS.error;
+    return (
+      <NBTr className="hidden md:table-row">
+        <NBTd>
+          <HostCheckbox h={h} />
+        </NBTd>
+        <NBTd className="font-mono">{h.host}</NBTd>
+        <NBTd className="font-mono">{h.port}</NBTd>
+        <NBTd>
+          <NBBadge tone={st.tone}>{st.label}</NBBadge>
+        </NBTd>
+        <NBTd className="max-w-[280px] truncate font-mono text-xs">
+          {h.best_main ?? "-"}
+        </NBTd>
+        <NBTd className="text-xs">{mainInfo(h)}</NBTd>
+      </NBTr>
     );
   }
 
@@ -209,7 +264,9 @@ export default function AdminScannerPage() {
         {scanning && (
           <div className="mt-5 space-y-2 border-t border-ink-800 pt-4">
             <div className="flex justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              <span>Memindai {ipRange}…</span>
+              <span>
+                Memindai {progress.scanned} dari {progress.total} host…
+              </span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-ink-700">
               <div className="nv-scanbar h-full rounded-full bg-accent-500" />
@@ -264,7 +321,7 @@ export default function AdminScannerPage() {
               )}
               <ul className="space-y-2 md:hidden">
                 {hosts.map((h) => (
-                  <HostRow key={key(h)} h={h} />
+                  <HostCard key={key(h)} h={h} />
                 ))}
               </ul>
               {/* Desktop: tabel */}

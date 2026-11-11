@@ -104,14 +104,14 @@
   --nv-neutral-300: #4b5563;
   --nv-neutral-400: #5b6472;
   --nv-neutral-500: #6b7280;
-  --nv-neutral-600: #9aa3b2;
-  --nv-neutral-700: #4b5563;
+  --nv-neutral-600: #7d8694;
+  --nv-neutral-700: #9aa3b2;
   --nv-slate-100: #334155;
   --nv-slate-200: #3f4753;
   --nv-slate-300: #4b5563;
   --nv-slate-400: #5b6472;
   --nv-slate-500: #6b7684;
-  --nv-slate-600: #8a94a6;
+  --nv-slate-600: #7d8794;
   --nv-white: #101a2c;
 }
 
@@ -205,9 +205,6 @@ body {
 .nv-pop {
   animation: nv-pop 200ms cubic-bezier(0, 0, 0.2, 1);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04);
-}
-.nv-pop {
-  animation: nv-pop 0.18s ease-out;
 }
 
 /* Lampu status: memudar perlahan lalu terang kembali secara sinambung,

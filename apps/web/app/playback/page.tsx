@@ -38,11 +38,13 @@ const GRID_OPTS = [
   { cols: 4, label: "4×4" },
 ];
 
+/* Breakpoint sama dengan Live (md, 768px): di bawah md selalu 1 kolom,
+   pemilih grid baru tampil di md. */
 const GRID_CLASS: Record<number, string> = {
-  1: "sm:grid-cols-1",
-  2: "sm:grid-cols-2",
-  3: "sm:grid-cols-2 lg:grid-cols-3",
-  4: "sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4",
+  1: "md:grid-cols-1",
+  2: "md:grid-cols-2",
+  3: "md:grid-cols-2 lg:grid-cols-3",
+  4: "md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4",
 };
 
 function todayStr(): string {
@@ -104,33 +106,53 @@ function PlaybackPanel({
   const [timeline, setTimeline] = useState<TimelineData | null>(null);
   const [active, setActive] = useState<TimelineEntry | null>(null);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [urlLoading, setUrlLoading] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  /* Nomor urutan: hanya respons terbaru load linimasa / fetch URL
+     playback yang dipakai, respons kedaluwarsa diabaikan. */
+  const loadSeqRef = useRef(0);
+  const playSeqRef = useRef(0);
+  const hasTimelineRef = useRef(false);
   /* Sinyal iklan: hover panel + klik/fokus pada area video saja (bukan
      tombol, segmen, atau unduhan). */
   const [panelHovered, setPanelHovered] = useState(false);
   const [adClickTick, setAdClickTick] = useState(0);
 
   const load = useCallback(async () => {
+    const mySeq = ++loadSeqRef.current;
     setPhase("loading");
     setError(null);
-    setTimeline(null);
-    setActive(null);
-    setVideoSrc(null);
+    /* Jangan kosongkan timeline/active/videoSrc sebelum fetch berhasil:
+       Muat ulang saat sedang menonton tidak boleh menghilangkan video
+       yang sedang diputar bila reload kemudian gagal. */
     try {
       const t = await api.get<TimelineData>(
         `/recordings/${streamId}/timeline?date=${date}`,
       );
+      if (mySeq !== loadSeqRef.current) return;
       setTimeline(t);
+      hasTimelineRef.current = true;
       setPhase("ready");
     } catch (e) {
+      if (mySeq !== loadSeqRef.current) return;
       if (e instanceof ApiError && e.status === 404) {
-        setPhase("not-implemented");
+        /* Endpoint timeline sudah ada; 404 berarti kamera tidak
+           ditemukan, bukan fitur belum tersedia. */
+        setError("Kamera tidak ditemukan");
+        setPhase(hasTimelineRef.current ? "ready" : "not-implemented");
       } else {
         setError(e instanceof ApiError ? e.message : "Gagal memuat linimasa");
-        setPhase("error");
+        setPhase(hasTimelineRef.current ? "ready" : "error");
       }
     }
+  }, [streamId, date]);
+
+  /* Kamera/tanggal berganti: linimasa lama bukan lagi acuan, jadi
+     kegagalan load berikutnya tidak boleh kembali ke fase ready. */
+  useEffect(() => {
+    hasTimelineRef.current = false;
   }, [streamId, date]);
 
   useEffect(() => {
@@ -139,17 +161,29 @@ function PlaybackPanel({
 
   const playEntry = useCallback(
     async (entry: TimelineEntry) => {
+      const mySeq = ++playSeqRef.current;
       setActive(entry);
       setVideoSrc(null);
+      setVideoError(null);
+      setUrlLoading(true);
       try {
         const p = await api.get<PlaybackUrl>(
           `/recordings/${streamId}/playback-url?time=${encodeURIComponent(entry.start)}`,
         );
+        if (mySeq !== playSeqRef.current) return;
+        /* Hormati expires_at: URL yang sudah kedaluwarsa jangan dipakai. */
+        if (p.expires_at && new Date(p.expires_at).getTime() <= Date.now()) {
+          setVideoError("Tautan rekaman sudah kedaluwarsa, coba putar lagi segmen ini.");
+          return;
+        }
         setVideoSrc(p.url);
       } catch (e) {
+        if (mySeq !== playSeqRef.current) return;
         setError(
           e instanceof ApiError ? e.message : "Gagal memuat URL playback",
         );
+      } finally {
+        if (mySeq === playSeqRef.current) setUrlLoading(false);
       }
     },
     [streamId],
@@ -256,8 +290,11 @@ function PlaybackPanel({
         <div className="p-4">
           <EmptyCard
             nested
-            title="Linimasa belum tersedia"
-            desc="Linimasa rekaman tersedia mulai Fase 3. Coba lagi nanti."
+            title={error ? "Kamera tidak ditemukan" : "Linimasa belum tersedia"}
+            desc={
+              error ??
+              "Linimasa rekaman tersedia mulai Fase 3. Coba lagi nanti."
+            }
           />
         </div>
       )}
@@ -300,6 +337,7 @@ function PlaybackPanel({
                   <button
                     key={i}
                     onClick={() => playEntry(e)}
+                    disabled={urlLoading}
                     title={`${fmtTime(e.start)} - ${fmtTime(e.end)}${e.has_event ? " · ada event" : ""}`}
                     aria-label={`Putar segmen ${fmtTime(e.start)}`}
                     className={`absolute top-0.5 h-11 rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
@@ -354,13 +392,31 @@ function PlaybackPanel({
                 }
               }}
             >
-              {videoSrc ? (
+              {videoError ? (
+                <div className="flex aspect-video flex-col items-center justify-center gap-2 px-6 text-center">
+                  <p className="text-sm font-semibold text-slate-200">
+                    Video gagal diputar
+                  </p>
+                  <p className="text-xs text-slate-400">{videoError}</p>
+                  <button
+                    onClick={() => active && playEntry(active)}
+                    className="mt-1 flex h-11 items-center rounded-xl bg-white/10 px-4 text-xs font-bold text-white transition hover:bg-white/25 active:scale-95"
+                  >
+                    Coba lagi
+                  </button>
+                </div>
+              ) : videoSrc ? (
                 <video
                   ref={videoRef}
                   key={videoSrc}
                   src={videoSrc}
                   controls
                   playsInline
+                  onError={() =>
+                    setVideoError(
+                      "Video gagal dimuat, segmen mungkin sudah terhapus atau tautannya kedaluwarsa.",
+                    )
+                  }
                   className="aspect-video w-full bg-black"
                 />
               ) : (
@@ -397,7 +453,7 @@ function PlaybackPanel({
                       Event
                     </span>
                   )}
-                  Rekaman siap diputar
+                  {videoError ? "Rekaman gagal diputar" : "Rekaman siap diputar"}
                 </span>
                 <Button
                   variant="primary"

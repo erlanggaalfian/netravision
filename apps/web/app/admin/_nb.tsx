@@ -5,7 +5,7 @@
    (nv-panel-modern), heading besar/bold. Permukaan SOLID (tanpa blur),
    memakai token tema (ink/accent/slate) sehingga mode gelap/terang benar. */
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 
 export function NBCard({
   children,
@@ -263,19 +263,28 @@ export function NBConfirmModal({
   onConfirm: () => void;
   confirmLabel?: string;
 }) {
+  const titleId = useId();
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-0 sm:items-center sm:p-6"
       onClick={onCancel}
       role="dialog"
       aria-modal="true"
+      aria-labelledby={titleId}
     >
       <div
-        className="nv-pop nv-panel-modern w-full max-w-lg overflow-y-auto !rounded-2xl pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
+        className="nv-pop nv-panel-modern w-full max-w-lg overflow-y-auto rounded-2xl! pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-ink-800 px-5 py-4">
-          <h2 className="text-xl font-extrabold tracking-tight text-slate-100">{title}</h2>
+          <h2 id={titleId} className="text-xl font-extrabold tracking-tight text-slate-100">{title}</h2>
           <button
             onClick={onCancel}
             aria-label="Tutup"

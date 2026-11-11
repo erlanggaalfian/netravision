@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
+import { useAuth } from "../../../lib/auth";
 import type { Group, Stream } from "../../../lib/types";
 import { ErrorBox, Modal, Spinner } from "../../../components/ui";
 import {
@@ -39,6 +40,10 @@ function GroupIcon({ className = "" }: { className?: string }) {
 
 
 export default function AdminGroupsPage() {
+  const { user: me } = useAuth();
+  /* E-S1: Tambah Grup dan Kelola Kamera hanya super_admin;
+     backend sudah super_admin_only untuk keduanya. */
+  const isSuperAdmin = me?.role === "super_admin";
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [streams, setStreams] = useState<Stream[]>([]);
   const [error, setError] = useState("");
@@ -65,7 +70,11 @@ export default function AdminGroupsPage() {
       <NBTitle
         title="Grup Wilayah"
         desc="Kelompokkan kamera per area dan atur cakupannya"
-        action={<NBButton onClick={() => setShowAdd(true)}>+ Tambah Grup</NBButton>}
+        action={
+          isSuperAdmin ? (
+            <NBButton onClick={() => setShowAdd(true)}>+ Tambah Grup</NBButton>
+          ) : undefined
+        }
       />
       {error && (
         <div className="mb-4">
@@ -91,7 +100,7 @@ export default function AdminGroupsPage() {
                 )}
               </span>
             );
-            const actions = (
+            const actions = isSuperAdmin ? (
               <NBButton
                 variant="secondary"
                 onClick={() => setGrantsFor(g)}
@@ -99,7 +108,7 @@ export default function AdminGroupsPage() {
               >
                 Kelola Kamera
               </NBButton>
-            );
+            ) : null;
             return (
               <div key={g.id}>
                 <div className="md:hidden">

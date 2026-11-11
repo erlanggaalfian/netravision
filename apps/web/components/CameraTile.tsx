@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { playWhep, stopWhep } from "../lib/whep";
 import { useFullscreen } from "../hooks/useFullscreen";
-import { withToken } from "../lib/api";
+import { usePosterUrl } from "../lib/api";
 import { AdBanner } from "./AdBanner";
 import type { AdConfig, Stream } from "../lib/types";
 
@@ -24,6 +24,9 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const [playing, setPlaying] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [failMsg, setFailMsg] = useState<string | null>(null);
+  const [disconnected, setDisconnected] = useState(false);
+  const [retryTick, setRetryTick] = useState(0);
   const [showControls, setShowControls] = useState(false);
   /* Sinyal iklan: hover tile + tiap klik tile (perilaku marquee hover/click). */
   const [tileHovered, setTileHovered] = useState(false);
@@ -35,30 +38,71 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
   );
 
   const url = stream.whep_sub_url || stream.whep_main_url;
+  /* Poster lewat blob object URL (header Authorization), bukan ?token= di URL. */
+  const posterSrc = usePosterUrl(stream.poster_url);
+
+  /* Pulih dari gagal: begitu kamera kembali online, URL berubah, atau
+     kamera berganti, reset state gagal/terputus supaya tile mencoba
+     ulang tanpa reload penuh. Effect WHEP di bawah memakai `failed`
+     sebagai dependensi, jadi reset ini memicu percobaan ulang. */
+  useEffect(() => {
+    setFailed(false);
+    setFailMsg(null);
+    setDisconnected(false);
+    setPlaying(false);
+  }, [stream.id, stream.is_online, url]);
 
   useEffect(() => {
+    if (!stream.is_online) return;
+    /* Online tapi tidak ada URL WHEP sama sekali: gagal dengan pesan
+       yang jelas, bukan spinner selamanya. */
+    if (!url) {
+      setFailed(true);
+      setFailMsg("URL stream tidak tersedia");
+      return;
+    }
+    if (failed || disconnected) return;
     const box = boxRef.current;
     const video = videoRef.current;
-    if (!box || !video || !url || !stream.is_online) return;
+    if (!box || !video) return;
 
     let cancelled = false;
+    const fail = (msg: string) => {
+      if (cancelled) return;
+      stopWhep(pcRef.current);
+      pcRef.current = null;
+      setPlaying(false);
+      setFailed(true);
+      setFailMsg(msg);
+    };
     const io = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
         if (entry.isIntersecting && !pcRef.current && !cancelled) {
-          playWhep(video, url, () => {
-            if (!cancelled) setFailed(true);
-          })
+          playWhep(
+            video,
+            url,
+            () => fail("Stream tidak dapat diputar"),
+            undefined,
+            () => {
+              if (cancelled) return;
+              stopWhep(pcRef.current);
+              pcRef.current = null;
+              setPlaying(false);
+              setDisconnected(true);
+            },
+          )
             .then((pc) => {
               if (cancelled) {
                 stopWhep(pc);
                 return;
               }
               pcRef.current = pc;
+              setDisconnected(false);
               setPlaying(true);
             })
             .catch(() => {
-              if (!cancelled) setFailed(true);
+              fail("Stream tidak dapat diputar");
             });
         } else if (!entry.isIntersecting && pcRef.current) {
           stopWhep(pcRef.current);
@@ -75,11 +119,11 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
       stopWhep(pcRef.current);
       pcRef.current = null;
     };
-  }, [url, stream.is_online, stream.id]);
+  }, [url, stream.is_online, stream.id, failed, disconnected, retryTick]);
 
   const toggleControls = () => setShowControls((v) => !v);
 
-  const online = stream.is_online && !failed;
+  const online = stream.is_online && !failed && !disconnected;
   /* Kontrol terlihat saat tap-toggle aktif, hover mouse, atau fokus keyboard
      masuk (tiga pemicu yang sama dengan CSS .cam-controls di globals.css);
      saat ketiganya mati, kontrol juga disembunyikan dari keyboard
@@ -125,9 +169,9 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
             className={`h-full w-full ${fs ? "object-contain" : "object-cover"}`}
           />
           {!playing &&
-            (stream.poster_url ? (
+            (posterSrc ? (
               <img
-                src={withToken(stream.poster_url)}
+                src={posterSrc}
                 alt={stream.name}
                 loading="lazy"
                 className="absolute inset-0 h-full w-full object-cover"
@@ -140,18 +184,38 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
                 </span>
               </div>
             ))}
-          {playing && (
+          {playing && !disconnected && (
             <span className="pointer-events-none absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-black/70 px-2.5 py-1 text-[11px] font-bold tracking-wider text-white shadow-[0_4px_12px_rgba(0,0,0,0.4)]">
               <span className="h-1.5 w-1.5 rounded-full bg-bad-400 shadow-[0_0_8px_2px_rgba(248,113,113,0.6)]" />
               LIVE
             </span>
           )}
+          {disconnected && !playing && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60 px-4 text-center">
+              <span className="text-sm font-semibold text-slate-200">
+                Koneksi terputus
+              </span>
+              <span className="text-xs text-slate-400">
+                Mencoba lagi, atau ketuk Coba lagi di bawah.
+              </span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDisconnected(false);
+                  setRetryTick((t) => t + 1);
+                }}
+                className="mt-1 flex h-11 items-center rounded-xl bg-white/10 px-4 text-xs font-bold text-white transition hover:bg-white/25 active:scale-95"
+              >
+                Coba lagi
+              </button>
+            </div>
+          )}
         </>
       ) : (
         <div className="relative flex h-full w-full flex-col items-center justify-center gap-2.5 bg-ink-900 px-4 text-center">
-          {stream.poster_url && (
+          {posterSrc && (
             <img
-              src={withToken(stream.poster_url)}
+              src={posterSrc}
               alt=""
               aria-hidden
               loading="lazy"
@@ -191,9 +255,22 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
           </span>
           <span className="relative text-xs text-slate-400">
             {stream.is_online
-              ? "Stream tidak dapat diputar"
+              ? (failMsg ?? "Stream tidak dapat diputar")
               : "Kamera tidak terjangkau"}
           </span>
+          {stream.is_online && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setFailed(false);
+                setFailMsg(null);
+                setRetryTick((t) => t + 1);
+              }}
+              className="relative mt-1 flex h-11 items-center rounded-xl bg-white/10 px-4 text-xs font-bold text-white transition hover:bg-white/25 active:scale-95"
+            >
+              Coba lagi
+            </button>
+          )}
         </div>
       )}
 

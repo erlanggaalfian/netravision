@@ -299,8 +299,10 @@ export default function AdminAdsPage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    /* E-T1: muat config mentah dari endpoint admin, bukan dari
+       GET /ad-config publik yang difilter audiens/show_ads. */
     api
-      .get<AdConfig>("/ad-config")
+      .get<AdConfig>("/admin/ad-config")
       .then((r) => setCfg({ ...DEFAULTS, ...r }))
       .catch((e) =>
         setError(e instanceof ApiError ? e.message : "Gagal memuat konfigurasi"),
@@ -604,13 +606,19 @@ export default function AdminAdsPage() {
               </div>
               <NBField label="Jenis Tampilan">
                 <NBSelect
-                  value={
-                    cfg.display_mode === "periodic" ? "periodic" : "always"
-                  }
+                  value={cfg.display_mode}
                   onChange={(e) => set("display_mode", e.target.value)}
                 >
                   <option value="always">Selalu Tampil</option>
                   <option value="periodic">Berkala</option>
+                  {/* E-R3: nilai tak dikenal dipertahankan, bukan
+                      diam-diam diubah jadi "always". */}
+                  {cfg.display_mode !== "always" &&
+                    cfg.display_mode !== "periodic" && (
+                      <option value={cfg.display_mode}>
+                        {cfg.display_mode} (tidak dikenal, dipertahankan)
+                      </option>
+                    )}
                 </NBSelect>
               </NBField>
               {cfg.display_mode === "periodic" && (

@@ -36,11 +36,10 @@ const ThemeCtx = createContext<{ theme: Theme; toggle: () => void }>({
 });
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>("dark");
-
-  useEffect(() => {
-    setTheme(resolveInitial());
-  }, []);
+  // Inisialisasi malas dari resolveInitial() agar tidak menimpa nilai
+  // anti-FOUC (data-theme di <html>) dengan "dark" hardcoded lalu
+  // menulisnya ke localStorage sebelum render pertama yang benar.
+  const [theme, setTheme] = useState<Theme>(resolveInitial);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;

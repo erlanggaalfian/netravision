@@ -9,6 +9,7 @@ export async function playWhep(
   url: string,
   onFail?: () => void,
   signal?: AbortSignal,
+  onDisconnect?: () => void,
 ): Promise<RTCPeerConnection> {
   const pc = new RTCPeerConnection();
   const abort = () => pc.close();
@@ -64,8 +65,12 @@ export async function playWhep(
   signal?.removeEventListener("abort", abort);
 
   // Putus di tengah jalan (jaringan/kamera), beri tahu pemanggil.
+  // "disconnected" ditangani terpisah dari "failed": pemanggil bisa
+  // menampilkan status terputus/mencoba lagi, bukan frame beku dengan
+  // badge LIVE yang masih menyala.
   pc.addEventListener("connectionstatechange", () => {
     if (pc.connectionState === "failed") onFail?.();
+    else if (pc.connectionState === "disconnected") onDisconnect?.();
   });
 
   try {

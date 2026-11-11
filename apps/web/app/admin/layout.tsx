@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
 import type { ReactNode } from "react";
 import { AdminGuard } from "../../components/AdminGuard";
 import { AppShell } from "../../components/AppShell";
@@ -45,6 +46,22 @@ export default function AdminLayout({
   const { user } = useAuth();
   const isSuperAdmin = user?.role === "super_admin";
   const visibleNav = NAV.filter((n) => !n.superAdminOnly || isSuperAdmin);
+  /* E-K1: periksa rute yang diminta terhadap daftar superAdminOnly
+     SEBELUM render, bukan dari visibleNav yang sudah difilter. */
+  const cleanPath = (pathname ?? "").replace(/\/+$/, "") || "/";
+  const restricted =
+    !isSuperAdmin &&
+    NAV.some(
+      (n) =>
+        n.superAdminOnly &&
+        (cleanPath === n.href || cleanPath.startsWith(n.href + "/")),
+    );
+  useEffect(() => {
+    if (user && restricted && typeof window !== "undefined") {
+      window.location.href = "/admin/streams";
+    }
+  }, [user, restricted]);
+  if (user && restricted) return null;
 
   return (
     <AdminGuard>
@@ -56,10 +73,6 @@ export default function AdminLayout({
               {visibleNav.map((n) => {
                 const cleanPath = (pathname ?? "").replace(/\/+$/, "") || "/";
                 const active = cleanPath.startsWith(n.href + "/") || cleanPath === n.href;
-                if (n.superAdminOnly && !isSuperAdmin && active && typeof window !== "undefined") {
-                  window.location.href = "/admin/streams";
-                  return null;
-                }
                 return (
                   <Link
                     key={n.href}

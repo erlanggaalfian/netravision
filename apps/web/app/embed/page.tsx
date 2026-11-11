@@ -22,7 +22,20 @@ interface EmbedCamera {
 interface StreamSession {
   url: string;
   expires_at: string | null;
+  /* Aditif dari /external/stream: jangan dibuang, dipakai untuk batas
+     putar dan iklan (D-S4). */
+  stream?: {
+    id: number;
+    name: string;
+    embed_timeout_seconds?: number;
+    click_to_play?: boolean;
+  } | null;
+  ad?: AdConfig | null;
 }
+
+/* Base API tanpa header Authorization: halaman embed publik tidak boleh
+   membawa token login ambient (D-R8). */
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
 
 function msLeft(expiresAt: string | null): number | null {
   if (!expiresAt) return null;
@@ -49,6 +62,13 @@ function EmbedPlayer({
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /* D-S1: pembatalan sesi yang tertunda (Berhenti/unmount). */
+  const abortRef = useRef<AbortController | null>(null);
+  /* Tenggat putar: min(TTL sesi kunci, embed_timeout_seconds). */
+  const deadlineRef = useRef<number | null>(null);
+  /* Iklan dari respons /external/stream menimpa iklan awal (D-S4). */
+  const [sessionAd, setSessionAd] = useState<AdConfig | null>(null);
+  const effectiveAd = sessionAd ?? ad;
 
   const [session, setSession] = useState<StreamSession | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -73,6 +93,9 @@ function EmbedPlayer({
   };
 
   const stop = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    deadlineRef.current = null;
     clearTimer();
     stopWhep(pcRef.current);
     pcRef.current = null;
@@ -89,7 +112,10 @@ function EmbedPlayer({
       const s = await api.get<StreamSession>(
         `/external/stream?key=${encodeURIComponent(apiKey)}&camera=${camera.id}`,
       );
+      /* camera.id sudah dicocokkan dari /external/cameras berdasarkan id
+         (D-K1); jangan kirim nomor urut di sini. */
       setSession(s);
+      if (s.ad !== undefined) setSessionAd(s.ad);
       return s;
     } catch (e) {
       setFailed(e instanceof ApiError ? e.message : "Gagal memulai sesi");
@@ -101,19 +127,47 @@ function EmbedPlayer({
 
   const start = useCallback(
     async (sess?: StreamSession | null) => {
-      const s = sess ?? (await fetchSession());
+      /* Pakai sesi yang sudah diambil (mis. prefetch autoplay) bila ada. */
+      const s = sess ?? session ?? (await fetchSession());
       const video = videoRef.current;
       if (!s || !video) return;
       stop();
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
       try {
         setNegotiating(true);
-        const pc = await playWhep(video, s.url);
+        const pc = await playWhep(video, s.url, undefined, ctrl.signal);
+        if (ctrl.signal.aborted) {
+          stopWhep(pc);
+          return;
+        }
         pcRef.current = pc;
         setPlaying(true);
-        /* Hitung mundur keep-alive dari expires_at. */
+        /* Hitung mundur keep-alive memakai batas embed, bukan TTL sesi
+           kunci saja (D-S4): berhenti di yang paling dulu habis. */
+        const embedMs =
+          typeof s.stream?.embed_timeout_seconds === "number" &&
+          s.stream.embed_timeout_seconds > 0
+            ? s.stream.embed_timeout_seconds * 1000
+            : null;
+        const sessMs = msLeft(s.expires_at);
+        const totalMs =
+          embedMs !== null
+            ? sessMs !== null
+              ? Math.min(embedMs, sessMs)
+              : embedMs
+            : sessMs;
+        deadlineRef.current =
+          totalMs !== null ? Date.now() + totalMs : null;
         clearTimer();
+        if (deadlineRef.current === null) {
+          setLeft(null);
+          return;
+        }
         const tick = () => {
-          const ms = msLeft(s.expires_at);
+          const deadline = deadlineRef.current;
+          if (deadline === null) return;
+          const ms = Math.max(0, deadline - Date.now());
           setLeft(ms);
           if (ms === 0) {
             clearTimer();
@@ -124,13 +178,31 @@ function EmbedPlayer({
         tick();
         timerRef.current = setInterval(tick, 1000);
       } catch {
+        if (ctrl.signal.aborted) return;
         setFailed("Gagal memutar stream.");
       } finally {
         setNegotiating(false);
       }
     },
-    [fetchSession, stop],
+    [fetchSession, session, stop],
   );
+
+  /* D-S4 click_to_play: bila false, putar otomatis begitu sesi pertama
+     didapat; bila true, sesi hasil prefetch dipakai ulang tombol putar. */
+  const autoRef = useRef(false);
+  useEffect(() => {
+    if (autoRef.current) return;
+    autoRef.current = true;
+    let cancelled = false;
+    (async () => {
+      const s = await fetchSession();
+      if (cancelled) return;
+      if (s && s.stream?.click_to_play === false) await start(s);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchSession, start]);
 
   /* Perpanjang: sesi baru lalu lanjutkan putar. */
   const extend = useCallback(async () => {
@@ -144,14 +216,18 @@ function EmbedPlayer({
 
   return (
     <div
-      onClick={() => setAdClickTick((t) => t + 1)}
       onMouseEnter={() => setTileHovered(true)}
       onMouseLeave={() => setTileHovered(false)}
       className="overflow-hidden rounded-2xl bg-ink-900 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.35)]"
     >
       {/* Area video saja yang nv-stage (selalu gelap), kartu pemain
           mengikuti tema seperti CameraTile. */}
-      <div className="nv-stage relative aspect-video bg-black">
+      {/* D-R6: sinyal klik iklan hanya dari klik area video, bukan dari
+          kontrol pemutar di luar area ini (Berhenti ada di footer). */}
+      <div
+        onClick={() => setAdClickTick((t) => t + 1)}
+        className="nv-stage relative aspect-video bg-black"
+      >
         {/* Video SELALU terpasang, start() membaca videoRef saat tombol
             ditekan, saat itu playing masih false. */}
         <video
@@ -212,11 +288,12 @@ function EmbedPlayer({
           </div>
         )}
 
-        {/* Toast keep-alive */}
+        {/* Toast keep-alive: klik di sini bukan klik area video (D-R6). */}
         {showKeepAlive && (
           <div
             role="status"
             aria-live="polite"
+            onClick={(e) => e.stopPropagation()}
             className="absolute left-3 top-3 z-30 flex max-w-[calc(100%-24px)] items-center gap-2.5 rounded-xl bg-ink-900/95 px-3.5 py-2.5"
           >
             <span className="min-w-0 truncate text-xs font-medium text-neutral-200">
@@ -236,7 +313,7 @@ function EmbedPlayer({
               type="button"
               onClick={() => setToastDismissed(true)}
               aria-label="Tutup pemberitahuan"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-ink-800 hover:text-white"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-ink-800 hover:text-white"
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
                 <path
@@ -251,10 +328,20 @@ function EmbedPlayer({
         )}
       </div>
 
+      {/* D-S3: kegagalan Perpanjang sesi terlihat walau video masih memutar. */}
+      {playing && failed && (
+        <div
+          role="alert"
+          className="border-t border-ink-800 bg-bad-400/10 px-4 py-2.5 text-xs leading-relaxed text-bad-400"
+        >
+          {failed}
+        </div>
+      )}
+
       {/* Iklan di bawah video (di luar area 16:9), bukan overlay. */}
-      {ad?.is_active && (
+      {effectiveAd?.is_active && (
         <AdBanner
-          config={ad}
+          config={effectiveAd}
           placement="below"
           hovered={tileHovered}
           clickTick={adClickTick}
@@ -349,6 +436,8 @@ function EmbedInner() {
   const [phase, setPhase] = useState<Phase>("loading");
   const [cameras, setCameras] = useState<EmbedCamera[]>([]);
   const [ad, setAd] = useState<AdConfig | null>(null);
+  /* Pesan panel error yang bisa dibedakan (D-S2): kunci salah vs gangguan. */
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [cameraState, setCameraState] = useState<{
     title: string;
     text: string;
@@ -365,22 +454,47 @@ function EmbedInner() {
         const data = await api.get<EmbedCamera[]>(
           `/external/cameras?key=${encodeURIComponent(key)}`,
         );
-        /* Banner iklan: publik, backend menonaktifkan bila tak diizinkan. */
-        api
-          .get<AdConfig>("/ad-config")
+        /* Banner iklan publik: fetch langsung TANPA header Authorization
+           (D-R8). api.get akan melampirkan token login ambient bila ada,
+           sehingga tampilan iklan ikut preferensi akun yang kebetulan
+           login di browser ini. /ad-config publik: tanpa token, backend
+           memperlakukannya sebagai tamu anonim. */
+        fetch(`${API_BASE}/ad-config`)
+          .then((r) => (r.ok ? r.json() : null))
           .then((c) => {
-            if (!cancelled) setAd(c);
+            if (!cancelled && c) setAd(c);
           })
           .catch(() => {});
         if (cancelled) return;
-        /* Embed hanya untuk SATU kamera: ?camera wajib dan harus valid.
-           Tanpa ?camera, atau bila id tidak cocok, tampilkan pesan dan
-           jangan render semua kamera bertumpuk. */
+        setCameraState(null);
+        setLoadError(null);
+        /* D-K1: ?camera= diartikan ID dulu; bila bukan ID yang sah dalam
+           cakupan kunci, baru fallback ke nomor urut 1-based sesuai
+           urutan /external/cameras. Frontend mengirim camera.id ke
+           /external/stream, jadi kamera yang tampil dan yang diputar
+           selalu sama. */
         let list = data;
-        if (cameraParam) {
+        if (data.length === 0) {
+          /* D-R7: kunci memang tidak punya kamera: biarkan panel
+             "Tidak ada kamera" yang tampil, bukan "tambahkan ?camera=". */
+          list = [];
+        } else if (cameraParam) {
           const wanted = Number(cameraParam);
-          list = data.filter((c) => c.id === wanted);
-          if (list.length === 0) {
+          let match: EmbedCamera | undefined;
+          if (Number.isFinite(wanted)) {
+            match = data.find((c) => c.id === wanted);
+            if (
+              !match &&
+              Number.isInteger(wanted) &&
+              wanted >= 1 &&
+              wanted <= data.length
+            ) {
+              match = data[wanted - 1];
+            }
+          }
+          if (match) {
+            list = [match];
+          } else {
             setCameraState({
               title: "Kamera tidak tersedia",
               text: `Kamera ?camera=${cameraParam} tidak tersedia untuk kunci ini.`,
@@ -388,6 +502,9 @@ function EmbedInner() {
             list = [];
           }
         } else {
+          /* Embed hanya untuk SATU kamera: ?camera wajib dan harus valid.
+             Tanpa ?camera, tampilkan pesan dan jangan render semua kamera
+             bertumpuk. */
           setCameraState({
             title: "Kamera belum dipilih",
             text: "Tambahkan ?camera=<id> pada tautan embed.",
@@ -398,9 +515,17 @@ function EmbedInner() {
         setPhase("ready");
       } catch (e) {
         if (cancelled) return;
-        if (e instanceof ApiError && e.status === 404) {
+        /* D-S2: backend mengembalikan 403 (bukan 404) untuk kunci salah /
+           kedaluwarsa / nonaktif; 404 tidak pernah datang dari endpoint
+           ini. Bedakan dari gangguan jaringan / server (500). */
+        if (e instanceof ApiError && (e.status === 403 || e.status === 401)) {
           setPhase("unavailable");
         } else {
+          setLoadError(
+            e instanceof ApiError
+              ? e.message
+              : "Tidak dapat memuat kamera, periksa koneksi lalu coba lagi.",
+          );
           setPhase("error");
         }
       }
@@ -436,7 +561,10 @@ function EmbedInner() {
         {phase === "error" && (
           <EmbedStatePanel
             title="Tautan embed tidak valid"
-            text="Parameter ?key= tidak ditemukan atau tidak dikenal."
+            text={
+              loadError ??
+              "Parameter ?key= tidak ditemukan atau tidak dikenal."
+            }
           />
         )}
 

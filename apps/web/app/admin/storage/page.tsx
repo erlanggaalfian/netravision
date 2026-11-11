@@ -54,6 +54,8 @@ export default function AdminStoragePage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState<GDriveFolder | null>(null);
+  /* E-S9: Putuskan koneksi butuh konfirmasi dulu. */
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   // Modal hubungkan: tempel token dari `rclone authorize "drive"`
   const [showConnect, setShowConnect] = useState(false);
   const [token, setToken] = useState("");
@@ -108,6 +110,7 @@ export default function AdminStoragePage() {
 
   async function disconnect() {
     setError("");
+    setConfirmDisconnect(false);
     try {
       await api.del("/admin/storage/google-drive/connection");
       await loadConn();
@@ -189,7 +192,7 @@ export default function AdminStoragePage() {
           {conn?.connected ? (
             <div className="flex items-center gap-2">
               <NBBadge tone="ok">Terhubung</NBBadge>
-              <NBButton variant="danger" onClick={disconnect} className="px-3">
+              <NBButton variant="danger" onClick={() => setConfirmDisconnect(true)} className="px-3">
                 Putuskan
               </NBButton>
             </div>
@@ -318,6 +321,15 @@ export default function AdminStoragePage() {
           message={`Hapus "${deleting.folder_name || deleting.folder_id}"? Kamera yang memakai folder ini kembali ke default.`}
           onCancel={() => setDeleting(null)}
           onConfirm={remove}
+        />
+      )}
+
+      {confirmDisconnect && (
+        <NBConfirmModal
+          title="Putuskan Google Drive"
+          message="Putuskan koneksi Google Drive? Upload rekaman otomatis akan berhenti sampai dihubungkan lagi."
+          onCancel={() => setConfirmDisconnect(false)}
+          onConfirm={disconnect}
         />
       )}
 

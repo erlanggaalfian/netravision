@@ -250,14 +250,18 @@ export default function AdminUsersPage() {
     if (u.role === "guest") {
       return (
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          <NBButton
-            variant="secondary"
-            onClick={() => setAccessFor(u)}
-            className="px-3"
-            aria-label={`Akses Kamera ${u.username}`}
-          >
-            Akses Kamera
-          </NBButton>
+          {/* E-S4: Akses Kamera guest selalu 403 untuk admin biasa
+              (guest tidak punya admin_group), jadi sembunyikan. */}
+          {isSuperAdmin && (
+            <NBButton
+              variant="secondary"
+              onClick={() => setAccessFor(u)}
+              className="px-3"
+              aria-label={`Akses Kamera ${u.username}`}
+            >
+              Akses Kamera
+            </NBButton>
+          )}
           <NBButton
             variant="secondary"
             onClick={() => setEditing(u)}
@@ -881,7 +885,8 @@ function UserFormModal({
           const body: Record<string, unknown> = {
             username: username.trim(),
             role,
-            admin_group: role === "super_admin" ? null : group.trim() || null,
+            /* E-R2: kirim grup efektif, bukan group kosong/null. */
+            admin_group: role === "super_admin" ? null : effectiveGroup || null,
           };
           if (!inGroup) body.show_ads = showAds;
           if (password) body.password = password;
@@ -893,7 +898,8 @@ function UserFormModal({
           password,
           role,
           ...(inGroup ? {} : { show_ads: showAds }),
-          admin_group: role === "super_admin" ? null : group.trim() || null,
+          /* E-R2: admin biasa mengirim grupnya sendiri, bukan null. */
+          admin_group: role === "super_admin" ? null : effectiveGroup || null,
         });
       }
       onDone();
@@ -1137,14 +1143,21 @@ function GroupEditModal({
   onDone: () => void;
 }) {
   const [newName, setNewName] = useState(name);
-  const [adsOn, setAdsOn] = useState(members.every((m) => m.show_ads));
+  /* E-S2: tri-state iklan. null = campuran (sebagian Ya, sebagian
+     Tidak); jangan default false lalu Simpan aktif sejak dibuka. */
+  const [adsOn, setAdsOn] = useState<boolean | null>(() => {
+    if (members.length === 0) return true;
+    if (members.every((m) => m.show_ads)) return true;
+    if (members.every((m) => !m.show_ads)) return false;
+    return null;
+  });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   /* Hanya superadmin yang bisa mengubah nama grup; admin biasa
      terkunci di grupnya sendiri (aturan yang sama seperti form). */
   const canRename = me?.role === "super_admin";
   const nameChanged = newName.trim() !== "" && newName.trim() !== name;
-  const adsChanged = members.some((m) => m.show_ads !== adsOn);
+  const adsChanged = adsOn !== null && members.some((m) => m.show_ads !== adsOn);
   const valid = newName.trim() !== "" && (nameChanged || adsChanged);
 
   async function save() {
@@ -1156,7 +1169,9 @@ function GroupEditModal({
         members.map(async (m) => {
           const body: Record<string, unknown> = {};
           if (nameChanged) body.admin_group = target;
-          if (m.show_ads !== adsOn) body.show_ads = adsOn;
+          /* Hanya kirim show_ads bila user benar-benar mengubah
+             toggle (adsOn bukan null dan berbeda dari anggota). */
+          if (adsOn !== null && m.show_ads !== adsOn) body.show_ads = adsOn;
           if (Object.keys(body).length > 0) {
             await api.put(`/admin/users/${m.id}`, body);
           }
@@ -1203,12 +1218,22 @@ function GroupEditModal({
           </span>
           <input
             type="checkbox"
-            checked={adsOn}
+            checked={adsOn === true}
+            ref={(el) => {
+              if (el) el.indeterminate = adsOn === null;
+            }}
             onChange={(e) => setAdsOn(e.target.checked)}
             className="h-5 w-5 shrink-0 accent-accent-500"
             aria-label="Tampilkan Iklan untuk grup"
           />
         </label>
+        {adsOn === null && (
+          <p className="text-xs text-slate-400">
+            Status iklan anggota grup saat ini campuran (sebagian Ya,
+            sebagian Tidak). Centang atau hapus centang untuk menyamakan
+            semuanya, atau biarkan apa adanya.
+          </p>
+        )}
         <p className="text-xs text-slate-400">{members.length} anggota</p>
         <NBButton onClick={save} disabled={busy || !valid} className="w-full">
           {busy ? "Menyimpan…" : "Simpan"}
@@ -1326,8 +1351,10 @@ function GroupAccessModal({
     return () => {
       cancelled = true;
     };
+    /* E-T2: tunggu streams/reshareIds selesai dimuat sebelum
+       membangun peta awal; bangun ulang saat streams berubah. */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [members]);
+  }, [members, streams]);
 
   function setFlag(
     id: number,
@@ -1378,9 +1405,12 @@ function GroupAccessModal({
       const selected = Object.entries(access).filter(
         ([, a]) => a.can_view || a.can_playback || a.can_reshare,
       );
+      /* E-S4: akses admin diatur lewat grant, bukan UserStreamAccess;
+         jangan menulis camera-access untuk anggota admin. */
+      const nonAdminMembers = members.filter((m) => m.role !== "admin");
       /* Akses tiap anggota diganti dengan pilihan grup. */
       await Promise.all(
-        members.map((m) =>
+        nonAdminMembers.map((m) =>
           api.post(`/admin/users/${m.id}/camera-access`, {
             shares: selected.map(([sid, a]) => ({
               stream_id: Number(sid),
@@ -1832,9 +1862,15 @@ function AdminGrantModal({
     setGrants((prev) => {
       const cur = prev[id] ?? { ...EMPTY_GRANT };
       const next = { ...cur, [key]: value };
-      /* Bagikan butuh Live; mematikan Live ikut mematikan Bagikan. */
-      if (key === "can_reshare" && value) next.can_view = true;
-      if (key === "can_view" && !value) next.can_reshare = false;
+      /* E-S3: Playback dan Bagikan butuh Live; mematikan Live ikut
+         mematikan Playback dan Bagikan. */
+      if ((key === "can_playback" || key === "can_reshare") && value) {
+        next.can_view = true;
+      }
+      if (key === "can_view" && !value) {
+        next.can_playback = false;
+        next.can_reshare = false;
+      }
       return { ...prev, [id]: next };
     });
   }

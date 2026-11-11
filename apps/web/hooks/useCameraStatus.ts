@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { getAccessToken, tryRefresh } from "../lib/api";
+import { getAccessToken, isGuestSession, tryGuestLogin, tryRefresh } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import type { StatusChange, Stream } from "../lib/types";
 
 /* Hook status kamera real-time via WebSocket /ws. */
@@ -11,14 +12,31 @@ export function useCameraStatus() {
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const retryRef = useRef(0);
+  /* Tunggu AuthProvider selesai boot (termasuk re-login guest diam-diam)
+     sebelum membuka WS, agar token belum ada saat mount tidak membuat
+     WS mati tanpa pernah dimulai. */
+  const { loading: authLoading } = useAuth();
 
   useEffect(() => {
+    if (authLoading) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
 
+    const scheduleReconnect = () => {
+      if (cancelled) return;
+      const delay = Math.min(1000 * 2 ** retryRef.current, 15000);
+      retryRef.current += 1;
+      timer = setTimeout(connect, delay);
+    };
+
     const connect = () => {
       const token = getAccessToken();
-      if (!token) return;
+      if (!token) {
+        // Token belum ada (mis. re-login guest AuthProvider masih jalan):
+        // jangan return mati, jadwalkan percobaan ulang.
+        scheduleReconnect();
+        return;
+      }
       const proto = location.protocol === "https:" ? "wss" : "ws";
       const ws = new WebSocket(
         `${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`,
@@ -56,13 +74,18 @@ export function useCameraStatus() {
         setConnected(false);
         if (cancelled) return;
         // Ditolak sebelum terbuka = biasanya access token kedaluwarsa
-        // (umur 15 menit). Refresh dulu; tanpa ini reconnect memakai token
-        // basi yang sama dan ditolak (403) selamanya.
-        if (!opened) await tryRefresh();
+        // (umur 15 menit, guest 60 menit). Pulihkan dulu lewat jalur
+        // self-healing yang sama seperti HTTP: sesi guest login ulang
+        // sebagai guest (refresh token guest memang null, jadi tryRefresh
+        // saja tidak akan pernah berhasil), sesi biasa lewat refresh.
+        // Tanpa ini reconnect memakai token basi yang sama dan ditolak
+        // selamanya.
+        if (!opened) {
+          if (isGuestSession()) await tryGuestLogin();
+          else await tryRefresh();
+        }
         if (cancelled) return;
-        const delay = Math.min(1000 * 2 ** retryRef.current, 15000);
-        retryRef.current += 1;
-        timer = setTimeout(connect, delay);
+        scheduleReconnect();
       };
       ws.onerror = () => ws.close();
     };
@@ -79,7 +102,7 @@ export function useCameraStatus() {
       clearInterval(ping);
       wsRef.current?.close();
     };
-  }, []);
+  }, [authLoading]);
 
   return { status, connected };
 }

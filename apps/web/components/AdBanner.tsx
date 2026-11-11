@@ -69,6 +69,8 @@ export function AdBanner({
       setVisible(show);
       timeout = setTimeout(() => tick(!show), show ? showMs : hideMs);
     };
+    /* Siklus pertama langsung tampil, bukan menunggu showMs+hideMs. */
+    setVisible(true);
     timeout = setTimeout(() => tick(false), showMs);
     return () => {
       alive = false;
@@ -87,12 +89,21 @@ export function AdBanner({
   const hoverShowMs = Math.max(1, config.marquee_hover_show_seconds || 5) * 1000;
   const hoverHideDelayMs =
     Math.max(0, config.marquee_hover_hide_delay_seconds || 5) * 1000;
+  /* Nilai hovered terbaru untuk dipakai di dalam timer, supaya iklan
+     tidak disembunyikan saat pointer masih di atas tile. */
+  const hoveredRef = useRef(hovered);
+  hoveredRef.current = hovered;
   useEffect(() => {
     if (!isPeriodic || trigger !== "hover") return;
     if (!hovered) return;
     clearTimers();
     setVisible(true);
-    later(() => setVisible(false), hoverShowMs);
+    later(() => {
+      /* Masih di-hover: tetap tampil, baru hilang setelah jeda
+         pasca-hover yang dijadwalkan effect di bawah. */
+      if (hoveredRef.current) return;
+      setVisible(false);
+    }, hoverShowMs);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPeriodic, trigger, hovered]);
 

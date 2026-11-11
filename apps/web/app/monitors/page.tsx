@@ -14,8 +14,10 @@ import {
   Spinner,
 } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
-import { useAuth } from "../../lib/auth";
+import { isAdminRole, useAuth } from "../../lib/auth";
 import { useCameraStatus } from "../../hooks/useCameraStatus";
+import { useFullscreen } from "../../hooks/useFullscreen";
+import type { RefObject } from "react";
 import type { AdConfig, Stream } from "../../lib/types";
 
 /* Monitor kustom: tata letak kisi tersimpan (pengganti custom-monitor v2.0).
@@ -49,7 +51,19 @@ function loadLayouts(): MonitorLayout[] {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    /* D-R1: validasi per item; satu entri rusak dibuang, bukan membuat
+       seluruh halaman crash. */
+    return parsed.filter(
+      (item): item is MonitorLayout =>
+        !!item &&
+        typeof item === "object" &&
+        typeof item.id === "string" &&
+        typeof item.name === "string" &&
+        Array.isArray(item.streamIds) &&
+        item.streamIds.every((n: unknown) => typeof n === "number") &&
+        typeof item.cols === "number",
+    );
   } catch {
     return [];
   }
@@ -85,12 +99,15 @@ function MiniPreview({
   layout: MonitorLayout;
   byId: Map<number, Stream>;
 }) {
-  const total = layout.streamIds.length;
-  const maxCells = layout.cols;
-  const shownCount = total > maxCells ? maxCells - 1 : total;
-  const cells = layout.streamIds.slice(0, shownCount);
+  const streamIds = Array.isArray(layout.streamIds) ? layout.streamIds : [];
+  const total = streamIds.length;
+  const maxCells = Math.max(1, layout.cols || 2);
+  /* D-R2: pratinjau 1 kolom dengan >1 kamera harus menampilkan kamera:
+     minimal 1 sel, bukan 0. */
+  const shownCount = total > maxCells ? Math.max(1, maxCells - 1) : total;
+  const cells = streamIds.slice(0, shownCount);
   const rest = total - cells.length;
-  const names = layout.streamIds
+  const names = streamIds
     .map((id) => byId.get(id)?.name ?? "Tanpa nama")
     .join(", ");
   return (
@@ -135,6 +152,7 @@ function GroupSections({
   groups,
   loading,
   error,
+  warning,
   byId,
   layoutIds,
   colsClass,
@@ -145,6 +163,7 @@ function GroupSections({
   groups: { id: number; name: string; stream_ids: number[] }[] | null;
   loading: boolean;
   error: string | null;
+  warning?: string | null;
   byId: Map<number, Stream>;
   layoutIds: number[];
   colsClass: string;
@@ -153,6 +172,9 @@ function GroupSections({
   ad?: AdConfig | null;
 }) {
   const [openSections, setOpenSections] = useState<Set<number>>(new Set());
+  /* D-S7: seksi grup terbuka secara default (kunci = daftar id seksi,
+     supaya tidak dibuka ulang tiap render/status berubah). */
+  const openedForRef = useRef("");
   const toggleSection = (id: number) => {
     setOpenSections((prev) => {
       const next = new Set(prev);
@@ -161,6 +183,28 @@ function GroupSections({
       return next;
     });
   };
+  /* D-S7: buka semua seksi secara default. Dihitung dari groups +
+     layoutIds (tanpa byId) supaya hook ini bisa ditaruh sebelum
+     early-return loading/error. */
+  const sectionKey = useMemo(() => {
+    if (!groups) return "";
+    const inLayout = new Set(layoutIds);
+    const ids = groups
+      .filter((g) => g.stream_ids.some((id) => inLayout.has(id)))
+      .map((g) => g.id);
+    if (
+      layoutIds.some((id) => !groups.some((g) => g.stream_ids.includes(id)))
+    ) {
+      ids.push(0);
+    }
+    return ids.join(",");
+  }, [groups, layoutIds]);
+  useEffect(() => {
+    if (!sectionKey) return;
+    if (openedForRef.current === sectionKey) return;
+    openedForRef.current = sectionKey;
+    setOpenSections(new Set(sectionKey.split(",").map(Number)));
+  }, [sectionKey]);
   if (loading || groups === null) {
     return (
       <div className="flex items-center justify-center gap-2 py-16 text-sm text-neutral-400">
@@ -183,6 +227,8 @@ function GroupSections({
     );
   }
   const inLayout = new Set(layoutIds);
+  /* D-S8: dedup lintas grup, satu tile per kamera (grup pertama menang). */
+  const seen = new Set<number>();
   const sections = groups
     .map((g) => ({
       id: g.id,
@@ -190,7 +236,12 @@ function GroupSections({
       streams: g.stream_ids
         .filter((id) => inLayout.has(id))
         .map((id) => byId.get(id))
-        .filter((s): s is Stream => !!s),
+        .filter((s): s is Stream => !!s)
+        .filter((s) => {
+          if (seen.has(s.id)) return false;
+          seen.add(s.id);
+          return true;
+        }),
     }))
     .filter((sec) => sec.streams.length > 0);
   const grouped = new Set(sections.flatMap((sec) => sec.streams.map((s) => s.id)));
@@ -208,8 +259,29 @@ function GroupSections({
       </div>
     );
   }
+  const allOpen = sections.every((sec) => openSections.has(sec.id));
   return (
     <div className="flex flex-col gap-6">
+      {warning && (
+        <div className="nv-panel-modern px-4 py-3 text-xs leading-relaxed text-neutral-400">
+          {warning}
+        </div>
+      )}
+      <div className="flex justify-end">
+        <Button
+          variant="subtle"
+          onClick={() =>
+            setOpenSections(
+              allOpen
+                ? new Set()
+                : new Set(sections.map((sec) => sec.id)),
+            )
+          }
+          className="min-h-11 px-3 text-xs"
+        >
+          {allOpen ? "Tutup semua" : "Buka semua"}
+        </Button>
+      </div>
       {sections.map((sec) => {
         const open = openSections.has(sec.id);
         return (
@@ -260,10 +332,15 @@ export default function MonitorsPage() {
   const [ad, setAd] = useState<AdConfig | null>(null);
   const [groups, setGroups] = useState<{ id: number; name: string; stream_ids: number[] }[] | null>(null);
   const [groupsError, setGroupsError] = useState<string | null>(null);
+  const [groupsWarning, setGroupsWarning] = useState<string | null>(null);
   const [groupsLoading, setGroupsLoading] = useState(false);
   const [deleting, setDeleting] = useState<MonitorLayout | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const gridWrapRef = useRef<HTMLDivElement>(null);
+  /* D-S9: fullscreen lewat hook (fallback webkit iOS), bukan
+     requestFullscreen mentah. */
+  const { fs: isFullscreen, toggle: toggleFullscreen } = useFullscreen(
+    gridWrapRef as RefObject<HTMLElement | null>,
+  );
 
   // form state
   const [formName, setFormName] = useState("");
@@ -412,9 +489,11 @@ export default function MonitorsPage() {
   const loadGroups = useCallback(async () => {
     setGroupsLoading(true);
     setGroupsError(null);
+    setGroupsWarning(null);
     try {
       const gs = await api.get<{ id: number; name: string }[]>("/admin/groups");
-      const full = await Promise.all(
+      /* D-R4: satu grup gagal jangan menggugurkan semua (allSettled). */
+      const results = await Promise.allSettled(
         gs.map(async (g) => {
           const r = await api.get<{ stream_ids: number[] }>(
             `/admin/groups/${encodeURIComponent(g.name)}/camera-grants`,
@@ -422,7 +501,35 @@ export default function MonitorsPage() {
           return { id: g.id, name: g.name, stream_ids: r.stream_ids };
         }),
       );
+      const full = results
+        .filter(
+          (
+            r,
+          ): r is PromiseFulfilledResult<{
+            id: number;
+            name: string;
+            stream_ids: number[];
+          }> => r.status === "fulfilled",
+        )
+        .map((r) => r.value);
+      const failedN = results.length - full.length;
+      if (full.length === 0 && results.length > 0) {
+        const first = results.find((r) => r.status === "rejected") as
+          | PromiseRejectedResult
+          | undefined;
+        throw new Error(
+          first?.reason instanceof ApiError
+            ? first.reason.message
+            : "Gagal memuat grup kamera",
+        );
+      }
       setGroups(full);
+      if (failedN > 0) {
+        /* Peringatan non-blocking: grup yang berhasil tetap tampil. */
+        setGroupsWarning(
+          `${failedN} grup gagal dimuat, menampilkan yang berhasil.`,
+        );
+      }
     } catch (e) {
       setGroupsError(
         e instanceof ApiError ? e.message : "Gagal memuat grup kamera",
@@ -433,32 +540,14 @@ export default function MonitorsPage() {
     }
   }, []);
 
+  /* D-R4: jangan panggil loadGroups di dalam fungsi updater setState
+     (React boleh memanggil updater dua kali di StrictMode). */
   const toggleGroupMode = () => {
-    setGroupMode((v) => {
-      if (!v && groups === null) loadGroups();
-      return !v;
-    });
+    if (!groupMode && groups === null) loadGroups();
+    setGroupMode((v) => !v);
   };
 
-  const toggleFullscreen = () => {
-    const el = gridWrapRef.current;
-    if (!el) return;
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-    } else {
-      el.requestFullscreen?.().catch(() => {});
-    }
-  };
-
-  /* Status layar penuh: label tombol mengikuti keadaan, termasuk bila
-     pengguna keluar lewat Esc atau tombol browser. */
-  useEffect(() => {
-    const onChange = () => {
-      setIsFullscreen(document.fullscreenElement === gridWrapRef.current);
-    };
-    document.addEventListener("fullscreenchange", onChange);
-    return () => document.removeEventListener("fullscreenchange", onChange);
-  }, []);
+  /* D-S9: toggleFullscreen kini dari hook useFullscreen (lihat atas). */
 
   const openLayout = layouts.find((l) => l.id === openId) ?? null;
   const openStreams = openLayout
@@ -518,13 +607,17 @@ export default function MonitorsPage() {
                   >
                     Ubah
                   </Button>
-                  <Button
-                    variant={groupMode ? "primary" : "subtle"}
-                    onClick={toggleGroupMode}
-                    aria-pressed={groupMode}
-                  >
-                    Mode grup
-                  </Button>
+                  {/* D-S10: Mode grup hanya admin/super_admin; user/guest
+                      selalu 403 di /admin/groups. */}
+                  {isAdminRole(user?.role) && (
+                    <Button
+                      variant={groupMode ? "primary" : "subtle"}
+                      onClick={toggleGroupMode}
+                      aria-pressed={groupMode}
+                    >
+                      Mode grup
+                    </Button>
+                  )}
                   <Button
                     variant="subtle"
                     onClick={toggleFullscreen}
@@ -578,6 +671,7 @@ export default function MonitorsPage() {
                   groups={groups}
                   loading={groupsLoading}
                   error={groupsError}
+                  warning={groupsWarning}
                   byId={byId}
                   layoutIds={openLayout.streamIds}
                   colsClass={COLS_CLASS[openLayout.cols] ?? COLS_CLASS[2]}
@@ -664,7 +758,9 @@ export default function MonitorsPage() {
                 </span>
               </div>
               <div className="mb-5 flex max-h-72 flex-col gap-1.5 overflow-y-auto rounded-xl bg-ink-800 p-2 shadow-sm">
-                {streams.map((s) => {
+                {/* D-R3: titik status memakai merged (override WebSocket),
+                    bukan snapshot API lama. */}
+                {merged.map((s) => {
                   const checked = formIds.includes(s.id);
                   return (
                     <div

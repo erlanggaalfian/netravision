@@ -34,6 +34,25 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  /* Blokir 429: timestamp (ms) kapan blokir berakhir, dari header
+     Retry-After. Selama blokir, tombol Masuk/Guest dinonaktifkan dan
+     menampilkan hitung mundur. */
+  const [blockedUntil, setBlockedUntil] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const retryIn = blockedUntil
+    ? Math.max(0, Math.ceil((blockedUntil - now) / 1000))
+    : 0;
+  const blocked = retryIn > 0;
+
+  useEffect(() => {
+    if (!blockedUntil) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [blockedUntil]);
+
+  useEffect(() => {
+    if (blockedUntil && Date.now() >= blockedUntil) setBlockedUntil(null);
+  }, [now, blockedUntil]);
   /* Tombol Guest tampil bila login guest aktif. null = belum tahu,
      tampilkan dulu (perilaku lama) sampai jawaban API datang. */
   const [guestEnabled, setGuestEnabled] = useState<boolean | null>(null);
@@ -62,30 +81,42 @@ export default function LoginPage() {
 
   async function onLogin(e: React.FormEvent) {
     e.preventDefault();
+    if (blocked) return;
     setError("");
     setBusy(true);
     try {
       await login(username.trim(), password);
       router.push("/live");
     } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : "Gagal masuk. Coba lagi.",
-      );
+      if (err instanceof ApiError && err.retryAfter != null) {
+        setBlockedUntil(Date.now() + err.retryAfter * 1000);
+        setError(`${err.message} Coba lagi dalam ${err.retryAfter} detik.`);
+      } else {
+        setError(
+          err instanceof ApiError ? err.message : "Gagal masuk. Coba lagi.",
+        );
+      }
     } finally {
       setBusy(false);
     }
   }
 
   async function onGuest() {
+    if (blocked) return;
     setError("");
     setBusy(true);
     try {
       await loginGuest();
       router.push("/live");
     } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : "Gagal masuk. Coba lagi.",
-      );
+      if (err instanceof ApiError && err.retryAfter != null) {
+        setBlockedUntil(Date.now() + err.retryAfter * 1000);
+        setError(`${err.message} Coba lagi dalam ${err.retryAfter} detik.`);
+      } else {
+        setError(
+          err instanceof ApiError ? err.message : "Gagal masuk. Coba lagi.",
+        );
+      }
     } finally {
       setBusy(false);
     }
@@ -149,17 +180,17 @@ export default function LoginPage() {
             <div className="space-y-3 pt-2">
               <button
                 type="submit"
-                disabled={busy}
+                disabled={busy || blocked}
                 className="min-h-[48px] w-full cursor-pointer rounded-xl bg-gradient-to-b from-accent-500 to-accent-600 px-4 text-[16px] font-semibold text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-500),inset_0_1px_0_rgba(255,255,255,0.2)] transition-all duration-150 ease-out hover:from-accent-400 hover:to-accent-500 hover:shadow-[0_6px_20px_-4px_var(--nv-accent-500),inset_0_1px_0_rgba(255,255,255,0.25)] disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]"
               >
-                {busy ? "Memeriksa…" : "Masuk"}
+                {busy ? "Memeriksa…" : blocked ? `Tunggu ${retryIn} detik` : "Masuk"}
               </button>
               {/* Tombol Guest hanya bila login guest aktif. */}
               {guestEnabled !== false && (
                 <button
                   type="button"
                   onClick={onGuest}
-                  disabled={busy}
+                  disabled={busy || blocked}
                   className="min-h-[48px] w-full cursor-pointer rounded-xl bg-ink-800 px-4 text-sm font-semibold text-slate-300 shadow-sm transition-all duration-150 ease-out hover:bg-ink-700 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]"
                 >
                   Guest login

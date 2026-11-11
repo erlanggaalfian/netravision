@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { playWhep, stopWhep } from "../lib/whep";
-import { withToken } from "../lib/api";
+import { usePosterUrl } from "../lib/api";
 import { AdBanner } from "./AdBanner";
 import { Badge, Button } from "./ui";
 import { useFullscreen } from "../hooks/useFullscreen";
@@ -27,7 +27,10 @@ export function FocusModal({ stream, onClose, ad }: Props) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const switchRef = useRef<((url: string, target: "LQ" | "HQ") => void) | null>(null);
+  const cancelSwitchRef = useRef<(() => void) | null>(null);
+  const hqTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [failed, setFailed] = useState(false);
+  const [failMsg, setFailMsg] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [vRatio, setVRati] = useState<string | null>(null);
   const [quality, setQuality] = useState<"LQ" | "HQ">("LQ");
@@ -39,6 +42,8 @@ export function FocusModal({ stream, onClose, ad }: Props) {
   /* Sinyal iklan: hover stage + tiap klik stage (perilaku marquee hover/click). */
   const [stageHovered, setStageHovered] = useState(false);
   const [adClickTick, setAdClickTick] = useState(0);
+  /* Poster lewat blob object URL (header Authorization), bukan ?token= di URL. */
+  const posterSrc = usePosterUrl(stream?.poster_url);
   const stageRef = useRef<HTMLDivElement>(null);
   const { fs, rotated, cssRotate, toggle: toggleFs, rotate } = useFullscreen(
     stageRef,
@@ -54,18 +59,28 @@ export function FocusModal({ stream, onClose, ad }: Props) {
 
   useEffect(() => {
     setFailed(false);
+    setFailMsg(null);
     setPlaying(false);
     setVRati(null);
     setQuality("LQ");
     const video = videoRef.current;
     const main = stream?.whep_main_url;
     const sub = stream?.whep_sub_url;
+    /* Online tapi tidak ada URL WHEP sama sekali: gagal dengan pesan
+       yang jelas, bukan spinner selamanya. */
+    if (stream?.is_online && !(main || sub)) {
+      setFailed(true);
+      setFailMsg("URL stream tidak tersedia");
+      return;
+    }
     if (!video || !(main || sub) || !stream?.is_online) return;
     let cancelled = false;
     let pending: RTCPeerConnection | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const fail = () => {
-      if (!cancelled) setFailed(true);
+    const fail = (msg?: string) => {
+      if (cancelled) return;
+      if (msg) setFailMsg(msg);
+      setFailed(true);
     };
 
     /* Ganti stream dengan smooth: sambung URL baru di elemen tersembunyi,
@@ -74,7 +89,11 @@ export function FocusModal({ stream, onClose, ad }: Props) {
        toggle manual LQ/HQ dua arah. */
     const smoothSwitch = (url: string, target: "LQ" | "HQ") => {
       if (cancelled || !url) return;
-      // Batalkan switch yang masih jalan bila ada.
+      // Batalkan switch yang masih jalan bila ada, supaya tidak ada
+      // dua sesi WHEP yang berebut srcObject saat toggle cepat atau
+      // bersamaan dengan auto-upgrade.
+      cancelSwitchRef.current?.();
+      cancelSwitchRef.current = null;
       if (pending) {
         stopWhep(pending);
         pending = null;
@@ -87,6 +106,7 @@ export function FocusModal({ stream, onClose, ad }: Props) {
       const cancelMine = () => {
         myCancelled = true;
       };
+      cancelSwitchRef.current = cancelMine;
       playWhep(hidden, url)
         .then((pc) => {
           if (cancelled || myCancelled) return stopWhep(pc);
@@ -98,6 +118,9 @@ export function FocusModal({ stream, onClose, ad }: Props) {
             stopWhep(pcRef.current);
             pcRef.current = pc;
             pending = null;
+            if (cancelSwitchRef.current === cancelMine) {
+              cancelSwitchRef.current = null;
+            }
             setQuality(target);
           };
           if (hidden.videoWidth > 0) swap();
@@ -105,6 +128,9 @@ export function FocusModal({ stream, onClose, ad }: Props) {
         })
         .catch(() => {
           /* gagal: tetap di stream lama, jangan tampilkan error */
+          if (cancelSwitchRef.current === cancelMine) {
+            cancelSwitchRef.current = null;
+          }
         });
       return cancelMine;
     };
@@ -125,7 +151,7 @@ export function FocusModal({ stream, onClose, ad }: Props) {
           pcRef.current = pc;
           setQuality(want === "HQ" && main ? "HQ" : "LQ");
         })
-        .catch(fail);
+        .catch(() => fail());
     } else {
       playWhep(video, sub, fail)
         .then((pc) => {
@@ -133,6 +159,7 @@ export function FocusModal({ stream, onClose, ad }: Props) {
           pcRef.current = pc;
           // v2: upgrade HD 1 detik setelah sub tampil.
           timer = setTimeout(goHQ, 1000);
+          hqTimerRef.current = timer;
         })
         .catch(() => {
           if (!cancelled) goHQ();
@@ -141,6 +168,9 @@ export function FocusModal({ stream, onClose, ad }: Props) {
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      hqTimerRef.current = undefined;
+      cancelSwitchRef.current?.();
+      cancelSwitchRef.current = null;
       stopWhep(pending);
       stopWhep(pcRef.current);
       pcRef.current = null;
@@ -193,9 +223,14 @@ export function FocusModal({ stream, onClose, ad }: Props) {
 
   if (!stream) return null;
 
+  const canSnapshot =
+    playing && !failed && !!stream?.is_online;
   const snapshot = () => {
     const video = videoRef.current;
+    /* Jangan unduh JPEG 0x0 dan jangan diam tanpa umpan balik: tombol
+       sudah dinonaktifkan bila belum ada frame, guard ini lapis kedua. */
     if (!video) return;
+    if (!video.videoWidth || !video.videoHeight || video.readyState < 2) return;
     const c = document.createElement("canvas");
     c.width = video.videoWidth;
     c.height = video.videoHeight;
@@ -243,6 +278,12 @@ export function FocusModal({ stream, onClose, ad }: Props) {
                 const url = target === "HQ" ? stream?.whep_main_url : stream?.whep_sub_url;
                 // Smooth: sambung di background, tukar saat sudah bergambar.
                 // Jangan ubah `want` agar effect tidak restart (layar hitam).
+                // Batalkan auto-upgrade yang tertunda supaya tidak ada dua
+                // sesi WHEP yang berjalan bersamaan.
+                if (hqTimerRef.current) {
+                  clearTimeout(hqTimerRef.current);
+                  hqTimerRef.current = undefined;
+                }
                 if (url && switchRef.current) switchRef.current(url, target);
               }}
               aria-label={quality === "HQ" ? "Ganti ke sub stream (LQ)" : "Ganti ke main stream (HD)"}
@@ -258,8 +299,9 @@ export function FocusModal({ stream, onClose, ad }: Props) {
             <Button
               variant="subtle"
               onClick={snapshot}
+              disabled={!canSnapshot}
               aria-label="Ambil snapshot"
-              title="Ambil snapshot"
+              title={canSnapshot ? "Ambil snapshot" : "Snapshot tersedia setelah video mulai bergambar"}
               className="h-11"
             >
               <svg
@@ -346,7 +388,7 @@ export function FocusModal({ stream, onClose, ad }: Props) {
               </p>
               <p className="text-xs text-slate-400">
                 {stream.is_online
-                  ? "Coba tutup dan buka kembali"
+                  ? (failMsg ?? "Coba tutup dan buka kembali")
                   : "Kamera tidak terjangkau saat ini"}
               </p>
             </div>
@@ -373,9 +415,9 @@ export function FocusModal({ stream, onClose, ad }: Props) {
               {/* Poster langsung tampil saat popup dibuka agar tidak hitam/
                   loading dulu; hilang begitu video mulai bergambar. */}
               {!playing &&
-                (stream.poster_url ? (
+                (posterSrc ? (
                   <img
-                    src={withToken(stream.poster_url)}
+                    src={posterSrc}
                     alt={stream.name}
                     className="pointer-events-none absolute inset-0 h-full w-full object-contain"
                   />
@@ -390,7 +432,10 @@ export function FocusModal({ stream, onClose, ad }: Props) {
               <div className="absolute right-2 top-2 flex gap-2">
                 {fs && (
                   <button
-                    onClick={rotate}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      rotate();
+                    }}
                     className={`flex h-11 w-11 items-center justify-center rounded-xl text-white transition active:scale-95 ${rotated ? "bg-accent-400/30 hover:bg-accent-400/40" : "bg-white/10 hover:bg-white/25"}`}
                     aria-label={rotated ? "Ikuti rotasi HP" : "Putar ke landscape"}
                     aria-pressed={rotated}
@@ -417,7 +462,10 @@ export function FocusModal({ stream, onClose, ad }: Props) {
                   </button>
                 )}
                 <button
-                  onClick={toggleFs}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleFs();
+                  }}
                   className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/25 active:scale-95"
                   aria-label={fs ? "Keluar layar penuh" : "Layar penuh"}
                   title={fs ? "Keluar layar penuh" : "Layar penuh"}

@@ -170,6 +170,23 @@ export default function LivePage() {
     [streams, status],
   );
 
+  /* FocusModal memakai data kamera terbaru, bukan salinan saat diklik:
+     perbarui salinan focus saat merged berubah (status/nama/URL). */
+  useEffect(() => {
+    if (!focus) return;
+    const fresh = merged.find((s) => s.id === focus.id);
+    if (
+      fresh &&
+      (fresh.is_online !== focus.is_online ||
+        fresh.name !== focus.name ||
+        fresh.whep_main_url !== focus.whep_main_url ||
+        fresh.whep_sub_url !== focus.whep_sub_url ||
+        fresh.poster_url !== focus.poster_url)
+    ) {
+      setFocus(fresh);
+    }
+  }, [merged, focus]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return merged.filter((s) => {
@@ -433,13 +450,16 @@ export default function LivePage() {
           </div>
         </div>
 
-        {/* Konten */}
-        {fetching ? (
+        {/* Konten: streams lama dipertahankan saat Muat ulang gagal;
+            error tampil sebagai banner di atas grid lama, bukan
+            menggantikan seluruh grid. Panel error penuh hanya bila
+            belum pernah ada data sama sekali. */}
+        {fetching && streams.length === 0 ? (
           <SkeletonGrid
             cols={gridCols}
             count={isDesktop ? gridCols * 2 : (activeOpt.count ?? 4)}
           />
-        ) : error ? (
+        ) : error && streams.length === 0 ? (
           <div className="nv-panel-modern flex flex-col items-center gap-4 px-6 py-16 text-center">
             <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-bad-500/10">
               <svg
@@ -468,7 +488,19 @@ export default function LivePage() {
               Coba lagi
             </Button>
           </div>
-        ) : filtered.length === 0 ? (
+        ) : (
+          <>
+            {error && (
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-bad-500/10 px-4 py-3 ring-1 ring-bad-500/30">
+                <p className="text-sm text-slate-200">
+                  Gagal memuat ulang: {error}. Menampilkan data kamera terakhir.
+                </p>
+                <Button variant="subtle" onClick={load}>
+                  Coba lagi
+                </Button>
+              </div>
+            )}
+            {filtered.length === 0 ? (
           <div className="nv-panel-modern flex flex-col items-center gap-4 px-6 py-16 text-center">
             <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-accent-500/10">
               <svg
@@ -505,6 +537,8 @@ export default function LivePage() {
               <CameraTile key={s.id} stream={s} onExpand={setFocus} ad={ad} />
             ))}
           </div>
+            )}
+          </>
         )}
       </div>
 

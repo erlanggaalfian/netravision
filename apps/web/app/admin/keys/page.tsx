@@ -489,10 +489,16 @@ function EmbedPlayerSettings() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+  /* E-R4: teks mentah field timeout, supaya mengosongkan field
+     tidak langsung menjadi 0; nilai kosong kembali ke default 300
+     saat disimpan, tapi field tetap bisa diketik ulang. */
+  const [timeoutText, setTimeoutText] = useState<string | null>(null);
 
   useEffect(() => {
+    /* E-T1: muat config mentah dari endpoint admin, bukan dari
+       GET /ad-config publik yang difilter audiens/show_ads. */
     api
-      .get<AdConfig>("/ad-config")
+      .get<AdConfig>("/admin/ad-config")
       .then(setCfg)
       .catch((e) =>
         setError(e instanceof ApiError ? e.message : "Gagal memuat pengaturan"),
@@ -507,6 +513,7 @@ function EmbedPlayerSettings() {
     try {
       const res = await api.post<AdConfig>("/admin/ad-config", cfg);
       setCfg(res);
+      setTimeoutText(null);
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (e) {
@@ -554,12 +561,20 @@ function EmbedPlayerSettings() {
           >
             <NBInput
               inputMode="numeric"
-              value={String(cfg.embed_timeout_seconds ?? 300)}
+              value={
+                timeoutText ?? String(cfg.embed_timeout_seconds ?? 300)
+              }
               onChange={(e) => {
-                const n = parseInt(e.target.value, 10);
+                const raw = e.target.value;
+                setTimeoutText(raw);
+                if (raw.trim() === "") {
+                  setCfg({ ...cfg, embed_timeout_seconds: 300 });
+                  return;
+                }
+                const n = parseInt(raw, 10);
                 setCfg({
                   ...cfg,
-                  embed_timeout_seconds: Number.isNaN(n) ? 0 : n,
+                  embed_timeout_seconds: Number.isNaN(n) ? 300 : n,
                 });
               }}
             />

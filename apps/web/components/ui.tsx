@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 
 /* Komponen UI bersama, "ruang kendali siaran": permukaan bertingkat,
    hairline white/8, radius 12-16px, satu aksen biru. API tidak berubah. */
@@ -223,8 +223,8 @@ export function Badge({
   children: ReactNode;
 }) {
   const styles = {
-    ok: "bg-ok-400/12 text-ok-300",
-    bad: "bg-bad-400/12 text-bad-300",
+    ok: "bg-ok-400/12 text-ok-400",
+    bad: "bg-bad-400/12 text-bad-400",
     warn: "bg-warn-400/12 text-warn-300",
     info: "bg-accent-500/12 text-accent-300",
     muted: "bg-ink-800 text-slate-400",
@@ -297,12 +297,21 @@ export function Modal({
   children: ReactNode;
   wide?: boolean;
 }) {
+  const titleId = useId();
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-0 sm:items-center sm:p-6"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
+      aria-labelledby={titleId}
     >
       <div
         className={`nv-pop max-h-[92dvh] w-full overflow-y-auto rounded-t-2xl bg-ink-900 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:rounded-2xl ${
@@ -311,7 +320,7 @@ export function Modal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-ink-800 px-5 py-4 sm:px-6">
-          <h2 className="text-lg font-bold tracking-tight text-white">
+          <h2 id={titleId} className="text-lg font-bold tracking-tight text-white">
             {title}
           </h2>
           <button

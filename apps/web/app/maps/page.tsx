@@ -10,7 +10,7 @@ import { AppShell } from "../../components/AppShell";
 import { FocusModal } from "../../components/FocusModal";
 import { Button, Card, ErrorBox, SectionTitle } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
-import { isAdminRole, useAuth } from "../../lib/auth";
+import { useAuth } from "../../lib/auth";
 import { useCameraStatus } from "../../hooks/useCameraStatus";
 import type { Stream } from "../../lib/types";
 
@@ -62,7 +62,7 @@ function MarkerPopup({
           type="button"
           onClick={onClose}
           aria-label="Tutup popup"
-          className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-neutral-400 transition-colors hover:bg-ink-800 hover:text-white"
+          className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full text-neutral-400 transition-colors hover:bg-ink-800 hover:text-white"
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
             <path
@@ -155,13 +155,22 @@ export default function MapsPage() {
   const mapRef = useRef<LType.Map | null>(null);
   const layerRef = useRef<LType.LayerGroup | null>(null);
   const meLayerRef = useRef<LType.LayerGroup | null>(null);
+  /* D-S5: cache marker per id supaya perubahan status hanya memperbarui
+     marker yang berubah, bukan menghancurkan semuanya (popup yang
+     terbuka ikut tertahan). */
+  const markersRef = useRef(new Map<number, LType.Marker>());
+  const popupRootsRef = useRef(
+    new Map<number, ReturnType<typeof createRoot>>(),
+  );
   const locateTimerRef = useRef<number | null>(null);
   const LRef = useRef<typeof LType | null>(null);
   const fittedRef = useRef(false);
   const focusRef = useRef(setFocus);
   focusRef.current = setFocus;
 
-  const isAdmin = isAdminRole(user?.role);
+  /* D-T1: drag/penempatan marker hanya super_admin; backend
+     PUT /admin/streams hanya super_admin, admin biasa selalu 403. */
+  const isSuperAdmin = user?.role === "super_admin";
 
   const load = useCallback(async () => {
     setFetching(true);
@@ -206,6 +215,9 @@ export default function MapsPage() {
     })();
     return () => {
       cancelled = true;
+      popupRootsRef.current.forEach((r) => r.unmount());
+      popupRootsRef.current.clear();
+      markersRef.current.clear();
       mapRef.current?.remove();
       mapRef.current = null;
     };
@@ -241,22 +253,54 @@ export default function MapsPage() {
     [unmapped, q],
   );
 
-  /* Gambar ulang marker setiap data/status berubah. */
+  /* Sinkronisasi marker secara inkremental (D-S5, D-S6): hanya marker
+     yang berubah yang diperbarui, marker yang hilang dihapus, popup yang
+     sedang terbuka dipertahankan. Marker digambar dari mappedShown
+     sehingga pencarian juga memfilter peta, bukan hanya panel samping. */
   useEffect(() => {
     const L = LRef.current;
     const map = mapRef.current;
     const layer = layerRef.current;
     if (!L || !map || !layer) return;
-    layer.clearLayers();
-    const bounds: LType.LatLngExpression[] = [];
-    const popupRoots: ReturnType<typeof createRoot>[] = [];
+    const wanted = new Map(mappedShown.map((s) => [s.id, s]));
 
-    for (const s of mapped) {
+    for (const [id, marker] of markersRef.current) {
+      if (wanted.has(id)) continue;
+      layer.removeLayer(marker);
+      marker.remove();
+      popupRootsRef.current.get(id)?.unmount();
+      popupRootsRef.current.delete(id);
+      markersRef.current.delete(id);
+    }
+
+    const bounds: LType.LatLngExpression[] = [];
+    for (const s of mappedShown) {
       const lat = s.latitude as number;
       const lng = s.longitude as number;
+      bounds.push([lat, lng]);
+      const existing = markersRef.current.get(s.id);
+      if (existing) {
+        existing.setLatLng([lat, lng]);
+        existing.setIcon(markerIcon(L, s.is_online));
+        existing.options.draggable = isSuperAdmin;
+        if (isSuperAdmin) existing.dragging?.enable();
+        else existing.dragging?.disable();
+        popupRootsRef.current.get(s.id)?.render(
+          <MarkerPopup
+            s={s}
+            onClose={() => map.closePopup()}
+            onLive={() => {
+              map.closePopup();
+              focusRef.current(s);
+            }}
+          />,
+        );
+        continue;
+      }
+
       const marker = L.marker([lat, lng], {
         icon: markerIcon(L, s.is_online),
-        draggable: isAdmin,
+        draggable: isSuperAdmin,
         title: s.name,
       });
 
@@ -272,10 +316,10 @@ export default function MapsPage() {
           }}
         />,
       );
-      popupRoots.push(popupRoot);
+      popupRootsRef.current.set(s.id, popupRoot);
       marker.bindPopup(el, { closeButton: false });
 
-      if (isAdmin) {
+      if (isSuperAdmin) {
         marker.on("dragend", async () => {
           const ll = marker.getLatLng();
           setSavingId(s.id);
@@ -304,23 +348,19 @@ export default function MapsPage() {
       }
 
       marker.addTo(layer);
-      bounds.push([lat, lng]);
+      markersRef.current.set(s.id, marker);
     }
 
     if (bounds.length > 0 && !fittedRef.current) {
       map.fitBounds(L.latLngBounds(bounds).pad(0.25));
       fittedRef.current = true;
     }
-
-    return () => {
-      popupRoots.forEach((r) => r.unmount());
-    };
-  }, [mapped, isAdmin]);
+  }, [mappedShown, isSuperAdmin]);
 
   /* Admin: tandai kamera belum-dipetakan di tengah peta. */
   const placeAtCenter = async (s: Stream) => {
     const map = mapRef.current;
-    if (!map || !isAdmin) return;
+    if (!map || !isSuperAdmin) return;
     const c = map.getCenter();
     setSavingId(s.id);
     setSaveError(null);
@@ -410,8 +450,8 @@ export default function MapsPage() {
         <SectionTitle
           title="Peta Kamera"
           desc={
-            isAdmin
-              ? "Lokasi semua kamera. Seret marker untuk memindahkan posisi (admin)."
+            isSuperAdmin
+              ? "Lokasi semua kamera. Seret marker untuk memindahkan posisi (super admin)."
               : "Lokasi semua kamera."
           }
           action={
@@ -455,7 +495,7 @@ export default function MapsPage() {
               </span>
             </div>
           )}
-          {isAdmin && (
+          {isSuperAdmin && (
             <div className="nv-frost absolute left-1/2 top-3 z-10 -translate-x-1/2 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs text-neutral-300">
               Seret marker untuk memindahkan posisi kamera
             </div>
@@ -465,7 +505,7 @@ export default function MapsPage() {
               Di HP untuk admin wadah turun sedikit supaya tidak menutupi
               pil petunjuk "Seret marker" di tengah atas. */}
           <div
-            className={`absolute left-2.5 z-10 flex flex-col items-start gap-2.5 ${isAdmin ? "top-14 md:top-2.5" : "top-2.5"}`}
+            className={`absolute left-2.5 z-10 flex flex-col items-start gap-2.5 ${isSuperAdmin ? "top-14 md:top-2.5" : "top-2.5"}`}
           >
             <div className="nv-frost flex flex-col overflow-hidden rounded-full">
               <button
@@ -553,7 +593,7 @@ export default function MapsPage() {
                         {s.name}
                       </span>
                     </div>
-                    {isAdmin && (
+                    {isSuperAdmin && (
                       <Button
                         variant="primary"
                         onClick={() => placeAtCenter(s)}
@@ -567,7 +607,7 @@ export default function MapsPage() {
                 ))}
               </ul>
             )}
-            {isAdmin && unmappedShown.length > 0 && (
+            {isSuperAdmin && unmappedShown.length > 0 && (
               <p className="mt-3 text-xs leading-relaxed text-neutral-400">
                 Geser peta ke lokasi kamera, lalu tekan “Tengah peta”.
               </p>

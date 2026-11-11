@@ -64,6 +64,19 @@ function pathInfo(p: ScanPath): string {
 
 const PAGE_SIZE = 12;
 
+/* E-S7: validasi latitude/longitude, dipakai form Tambah dan Ubah. */
+function coordError(lat: string, lon: string): string | null {
+  const latN = lat.trim() === "" ? null : parseFloat(lat);
+  const lonN = lon.trim() === "" ? null : parseFloat(lon);
+  if (latN !== null && (Number.isNaN(latN) || latN < -90 || latN > 90)) {
+    return "Latitude harus angka -90 sampai 90.";
+  }
+  if (lonN !== null && (Number.isNaN(lonN) || lonN < -180 || lonN > 180)) {
+    return "Longitude harus angka -180 sampai 180.";
+  }
+  return null;
+}
+
 function CameraIcon({ className = "" }: { className?: string }) {
   return (
     <svg
@@ -342,16 +355,31 @@ export default function AdminStreamsPage() {
 
   async function doBulkDelete() {
     setError("");
-    try {
-      for (const id of selected) {
+    /* E-S6: laporkan hasil per kamera, bersihkan selected hanya
+       untuk yang berhasil, yang gagal tetap terpilih. */
+    const failed: { id: number; name: string }[] = [];
+    const succeeded: number[] = [];
+    for (const id of selected) {
+      try {
         await api.del(`/admin/streams/${id}`);
+        succeeded.push(id);
+      } catch {
+        failed.push({
+          id,
+          name: streams?.find((s) => s.id === id)?.name ?? `#${id}`,
+        });
       }
-      setSelected(new Set());
-      setBulkDeleting(false);
-      load();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Gagal menghapus terpilih");
     }
+    setSelected(new Set(failed.map((f) => f.id)));
+    load();
+    if (failed.length === 0) {
+      setBulkDeleting(false);
+      return;
+    }
+    setError(
+      `Gagal menghapus ${failed.length} kamera: ${failed.map((f) => f.name).join(", ")}. ${succeeded.length} kamera berhasil dihapus.`,
+    );
+    /* Modal tetap terbuka supaya yang gagal bisa dicoba lagi. */
   }
 
   return (
@@ -556,6 +584,7 @@ export default function AdminStreamsPage() {
 
       {showAdd && (
         <AddStreamModal
+          driveFolders={driveFolders}
           onClose={() => setShowAdd(false)}
           onDone={() => {
             setShowAdd(false);
@@ -613,21 +642,35 @@ export default function AdminStreamsPage() {
           onClose={() => setShowCoords(false)}
           onDone={async (lat, lon) => {
             setError("");
-            try {
-              for (const id of selected) {
+            /* E-S6: laporkan hasil per kamera; lempar error supaya
+               BulkCoordsModal menampilkannya di dalam modal. */
+            const failed: string[] = [];
+            const succeeded: number[] = [];
+            for (const id of selected) {
+              try {
                 await api.put(`/admin/streams/${id}`, {
                   latitude: lat,
                   longitude: lon,
                 });
+                succeeded.push(id);
+              } catch {
+                failed.push(
+                  streams?.find((s) => s.id === id)?.name ?? `#${id}`,
+                );
               }
+            }
+            setSelected(new Set(
+              [...selected].filter((id) => !succeeded.includes(id)),
+            ));
+            load();
+            if (failed.length === 0) {
               setShowCoords(false);
               setSelected(new Set());
-              load();
-            } catch (e) {
-              setError(
-                e instanceof ApiError ? e.message : "Gagal menyimpan koordinat",
-              );
+              return;
             }
+            throw new Error(
+              `Gagal menyimpan koordinat untuk ${failed.length} kamera: ${failed.join(", ")}. ${succeeded.length} kamera berhasil.`,
+            );
           }}
         />
       )}
@@ -738,7 +781,13 @@ function BulkCoordsModal({
           try {
             await onDone(latN, lonN);
           } catch (e) {
-            setError(e instanceof ApiError ? e.message : "Gagal menyimpan");
+            setError(
+              e instanceof ApiError
+                ? e.message
+                : e instanceof Error
+                  ? e.message
+                  : "Gagal menyimpan",
+            );
           } finally {
             setBusy(false);
           }
@@ -822,9 +871,11 @@ function BulkGroupModal({
 }
 
 function AddStreamModal({
+  driveFolders,
   onClose,
   onDone,
 }: {
+  driveFolders: DriveFolder[];
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -843,6 +894,10 @@ function AddStreamModal({
   const [retentionDays, setRetentionDays] = useState("7");
   const [latitude, setLatitude] = useState("");
   const [longitude, setLongitude] = useState("");
+  /* E-S8: selector mode penyimpanan + folder Drive seperti Edit. */
+  const [storageMode, setStorageMode] = useState("local");
+  const [driveFolderId, setDriveFolderId] = useState("");
+  const showDriveFolder = storageMode === "drive" || storageMode === "both";
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -877,6 +932,12 @@ function AddStreamModal({
   async function save() {
     if (!picked) return;
     setError("");
+    /* E-S7: validasi latitude/longitude sebelum kirim. */
+    const badCoord = coordError(latitude, longitude);
+    if (badCoord) {
+      setError(badCoord);
+      return;
+    }
     setBusy(true);
     try {
       const lat = latitude.trim() === "" ? null : parseFloat(latitude);
@@ -888,7 +949,11 @@ function AddStreamModal({
         {
           name: name.trim(),
           rtsp_url: picked.url,
-          storage_mode: "local",
+          storage_mode: storageMode,
+          drive_folder_id:
+            storageMode === "local" || driveFolderId === ""
+              ? null
+              : parseInt(driveFolderId, 10),
           recording_enabled: recordingEnabled,
           retention_days: Math.min(365, Math.max(1, parseInt(retentionDays, 10) || 7)),
           latitude: lat !== null && !Number.isNaN(lat) ? lat : null,
@@ -1036,7 +1101,7 @@ function AddStreamModal({
                 onChange={(e) => setRetentionDays(e.target.value)}
               />
             </NBField>
-            <NBField label="Latitude">
+            <NBField label="Latitude" hint="-90 s/d 90">
               <NBInput
                 inputMode="decimal"
                 placeholder="-6.2"
@@ -1044,7 +1109,7 @@ function AddStreamModal({
                 onChange={(e) => setLatitude(e.target.value)}
               />
             </NBField>
-            <NBField label="Longitude">
+            <NBField label="Longitude" hint="-180 s/d 180">
               <NBInput
                 inputMode="decimal"
                 placeholder="106.8"
@@ -1053,6 +1118,45 @@ function AddStreamModal({
               />
             </NBField>
           </div>
+          <NBField label="Mode penyimpanan rekaman">
+            <NBSelect
+              value={storageMode}
+              onChange={(e) => {
+                const v = e.target.value;
+                setStorageMode(v);
+                if (v === "local") setDriveFolderId("");
+              }}
+            >
+              <option value="local">Lokal</option>
+              <option value="drive">Google Drive</option>
+              <option value="both">Keduanya</option>
+            </NBSelect>
+          </NBField>
+          {showDriveFolder && (
+            <NBField
+              label="Folder Google Drive tujuan"
+              hint="Pilih folder tempat rekaman kamera ini disimpan"
+            >
+              {driveFolders.length === 0 ? (
+                <p className="rounded-xl bg-ink-800 px-4 py-3 text-sm leading-relaxed text-slate-300">
+                  Belum ada folder Google Drive. Tambah tautan folder dulu di
+                  menu Penyimpanan, lalu pilih di sini.
+                </p>
+              ) : (
+                <NBSelect
+                  value={driveFolderId}
+                  onChange={(e) => setDriveFolderId(e.target.value)}
+                >
+                  <option value="">Default (folder pertama)</option>
+                  {driveFolders.map((f) => (
+                    <option key={f.id} value={String(f.id)}>
+                      {f.folder_name || f.folder_id}
+                    </option>
+                  ))}
+                </NBSelect>
+              )}
+            </NBField>
+          )}
         </div>
 
         <NBButton
@@ -1163,6 +1267,12 @@ function EditStreamModal({
 
   async function save() {
     setError("");
+    /* E-S7: validasi latitude/longitude sebelum kirim. */
+    const badCoord = coordError(latitude, longitude);
+    if (badCoord) {
+      setError(badCoord);
+      return;
+    }
     setBusy(true);
     try {
       const lat = latitude.trim() === "" ? null : parseFloat(latitude);
@@ -1175,7 +1285,11 @@ function EditStreamModal({
         retention_days: Math.min(365, Math.max(1, parseInt(retentionDays, 10) || 7)),
         latitude: lat !== null && !Number.isNaN(lat) ? lat : null,
         longitude: lon !== null && !Number.isNaN(lon) ? lon : null,
-        drive_folder_id: driveFolderId === "" ? null : parseInt(driveFolderId, 10),
+        /* E-R1: mode Lokal tidak menyimpan folder lama. */
+        drive_folder_id:
+          storageMode === "local" || driveFolderId === ""
+            ? null
+            : parseInt(driveFolderId, 10),
       });
       onDone();
     } catch (e) {
@@ -1249,7 +1363,12 @@ function EditStreamModal({
           <NBField label="Mode penyimpanan rekaman">
             <NBSelect
               value={storageMode}
-              onChange={(e) => setStorageMode(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setStorageMode(v);
+                /* E-R1: ganti ke Lokal langsung reset folder lama. */
+                if (v === "local") setDriveFolderId("");
+              }}
             >
               <option value="local">Lokal</option>
               <option value="drive">Google Drive</option>

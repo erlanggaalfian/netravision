@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api, clearTokens, getAccessToken, getRefreshToken, isGuestSession, setGuestSession, setTokens } from "./api";
+import { api, clearTokens, getAccessToken, isGuestSession, setGuestSession, setTokens } from "./api";
 import type { User } from "./types";
 
 /* Peran dengan hak admin penuh di UI (paritas v2.0: super_admin = kuasa penuh). */
@@ -28,7 +28,9 @@ const Ctx = createContext<AuthCtx | null>(null);
 
 interface TokenPair {
   access_token: string;
-  refresh_token: string;
+  // Guest mendapat refresh_token null dari backend; setTokens tidak
+  // pernah menyimpannya sebagai string literal "null".
+  refresh_token: string | null;
 }
 
 async function fetchMe(): Promise<User | null> {
@@ -44,9 +46,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Sesi guest lama (sebelum flag nv_guest ada) ditandai refresh token "null".
-    const wasGuest = () =>
-      isGuestSession() || getRefreshToken() === "null";
+    // Sesi guest lama (sebelum flag nv_guest ada) ditandai refresh token
+    // "null"; isGuestSession() sudah mengenalinya.
+    const wasGuest = () => isGuestSession();
     const boot = async () => {
       try {
         if (!getAccessToken()) {

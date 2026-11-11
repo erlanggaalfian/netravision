@@ -270,12 +270,37 @@ components:
         by_key: { type: array, items: { type: object, properties: { key_id: { type: integer }, count: { type: integer } } } }
     AdConfig:
       type: object
+      description: "Sesuai respons nyata GET /ad-config (admin_ads.py AdConfigIn) dan apps/web/lib/types.ts; field lama enabled/title/link_url tidak ada di respons nyata."
       properties:
-        enabled: { type: boolean, example: true }
-        title: { type: string, nullable: true }
-        image_url: { type: string, nullable: true }
-        link_url: { type: string, nullable: true }
-        position: { type: string, enum: [top, bottom, sidebar], nullable: true }
+        is_active: { type: boolean, example: true }
+        image_url: { type: string, example: "" }
+        marquee_text: { type: string, example: "" }
+        bg_color: { type: string, example: "#1e293b" }
+        text_color: { type: string, example: "#ffffff" }
+        scroll_speed: { type: integer, example: 5 }
+        font_size: { type: integer, example: 10 }
+        font_family: { type: string, example: "monospace" }
+        image_opacity: { type: number, example: 1.0 }
+        bg_opacity: { type: number, example: 1.0 }
+        text_opacity: { type: number, example: 1.0 }
+        box_width: { type: integer, example: 100 }
+        text_align: { type: string, example: "left" }
+        image_height: { type: integer, example: 20 }
+        embed_timeout_seconds: { type: integer, example: 300 }
+        click_to_play: { type: boolean, example: true }
+        position: { type: string, enum: [top, bottom], example: "bottom" }
+        banner_height: { type: integer, example: 0 }
+        display_mode: { type: string, enum: [always, periodic], example: "always" }
+        periodic_trigger: { type: string, enum: [interval, hover, click], example: "interval" }
+        popup_show_seconds: { type: integer, example: 10 }
+        popup_hide_seconds: { type: integer, example: 50 }
+        marquee_hover_show_seconds: { type: integer, example: 5 }
+        marquee_hover_hide_delay_seconds: { type: integer, example: 5 }
+        marquee_click_show_seconds: { type: integer, example: 5 }
+        audience: { type: string, enum: [all, guest, roles, users], example: "all" }
+        audience_roles: { type: array, items: { type: string } }
+        audience_user_ids: { type: array, items: { type: integer } }
+        click_url: { type: string, example: "" }
     TimelineEntry:
       type: object
       properties:
