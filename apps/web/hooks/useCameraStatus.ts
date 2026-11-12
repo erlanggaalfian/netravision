@@ -7,6 +7,31 @@ import type { StatusChange, Stream } from "../lib/types";
 
 /* Hook status kamera real-time via WebSocket /ws. */
 
+const TOKEN_REFRESH_MARGIN_MS = 60_000;
+
+/* Kedaluwarsa access token (ms sejak epoch) dari klaim exp JWT, tanpa
+   pustaka: token yang tidak bisa dibaca dianggap tidak kedaluwarsa agar
+   server yang memutuskan (tutup 4401 -> refresh). */
+function getTokenExpiryMs(token: string): number | null {
+  try {
+    const payload = JSON.parse(
+      atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")),
+    ) as { exp?: number };
+    return typeof payload.exp === "number" ? payload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+/* Pulihkan sesi lewat jalur yang sama seperti HTTP: sesi guest login
+   ulang sebagai guest (refresh token guest memang null), sesi biasa
+   lewat refresh. Dipakai sebelum menyambung (token basi) dan sesudah
+   ditolak server (kode 4401). */
+async function healSession(): Promise<void> {
+  if (isGuestSession()) await tryGuestLogin();
+  else await tryRefresh();
+}
+
 export function useCameraStatus() {
   const [status, setStatus] = useState<Map<number, boolean>>(new Map());
   const [connected, setConnected] = useState(false);
@@ -29,8 +54,17 @@ export function useCameraStatus() {
       timer = setTimeout(connect, delay);
     };
 
-    const connect = () => {
-      const token = getAccessToken();
+    const connect = async () => {
+      let token = getAccessToken();
+      /* Jangan menyambung dengan token yang sudah kedaluwarsa atau
+         tinggal <60 detik: server akan menutup (4401) dan hook akan
+         berputar memakai token basi yang sama. Refresh dulu. */
+      const exp = token ? getTokenExpiryMs(token) : null;
+      if (token && exp !== null && exp - Date.now() < TOKEN_REFRESH_MARGIN_MS) {
+        await healSession();
+        if (cancelled) return;
+        token = getAccessToken();
+      }
       if (!token) {
         // Token belum ada (mis. re-login guest AuthProvider masih jalan):
         // jangan return mati, jadwalkan percobaan ulang.
@@ -70,19 +104,16 @@ export function useCameraStatus() {
           /* abaikan */
         }
       };
-      ws.onclose = async () => {
+      ws.onclose = async (ev) => {
         setConnected(false);
         if (cancelled) return;
-        // Ditolak sebelum terbuka = biasanya access token kedaluwarsa
-        // (umur 15 menit, guest 60 menit). Pulihkan dulu lewat jalur
-        // self-healing yang sama seperti HTTP: sesi guest login ulang
-        // sebagai guest (refresh token guest memang null, jadi tryRefresh
-        // saja tidak akan pernah berhasil), sesi biasa lewat refresh.
-        // Tanpa ini reconnect memakai token basi yang sama dan ditolak
-        // selamanya.
-        if (!opened) {
-          if (isGuestSession()) await tryGuestLogin();
-          else await tryRefresh();
+        // Ditolak server (kode 4401 = token tidak sah/kedaluwarsa) atau
+        // ditolak sebelum terbuka = token basi. Pulihkan dulu lewat
+        // jalur self-healing yang sama seperti HTTP, supaya reconnect
+        // tidak memakai token basi yang sama dan ditolak selamanya.
+        // Tanpa ini reconnect memakai token basi dan berputar.
+        if (ev.code === 4401 || !opened) {
+          await healSession();
         }
         if (cancelled) return;
         scheduleReconnect();

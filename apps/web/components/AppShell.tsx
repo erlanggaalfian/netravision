@@ -12,6 +12,11 @@ interface NavItem {
   label: string;
   adminOnly?: boolean;
   hideOnMobile?: boolean;
+  /* Jangan prefetch: halaman ini membawa CSS/JS berat yang hanya
+     dipakai saat halaman dibuka (mis. Leaflet di Peta). Prefetch
+     membuat browser memuat CSS-nya lebih dulu lalu memperingatkan
+     "preloaded but not used" bila user tidak segera membuka halaman. */
+  noPrefetch?: boolean;
   icon: ReactNode;
 }
 
@@ -43,6 +48,7 @@ const NAV: NavItem[] = [
   {
     href: "/maps",
     label: "Peta",
+    noPrefetch: true,
     icon: icon("M10 17.5s5.5-4.8 5.5-9a5.5 5.5 0 10-11 0c0 4.2 5.5 9 5.5 9zM10 10.5a2 2 0 100-4 2 2 0 000 4z"),
   },
   {
@@ -103,6 +109,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Link
                 key={n.href}
                 href={n.href}
+                prefetch={n.noPrefetch ? false : undefined}
                 aria-current={active ? "page" : undefined}
                 className={`flex min-h-[44px] items-center gap-3 rounded-xl px-4 py-2.5 text-sm transition-colors duration-150 active:scale-[0.98] ${
                   active
@@ -189,6 +196,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Link
                 key={n.href}
                 href={n.href}
+                prefetch={n.noPrefetch ? false : undefined}
                 aria-current={active ? "page" : undefined}
                 className={`flex min-h-[56px] flex-1 cursor-pointer flex-col items-center justify-center gap-1 text-[10px] font-medium leading-tight transition-colors duration-150 active:scale-95 ${
                   active ? "text-accent-500" : "text-slate-400"

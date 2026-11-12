@@ -36,23 +36,29 @@ async def test_ws_snapshot_and_ping(app_client):
             ]
             ws.send_text("ping")
             assert ws.receive_json() == {"type": "pong"}
+            # Hook browser mengirim ping sebagai JSON; server harus
+            # membalas pong juga untuk format itu.
+            ws.send_text('{"type": "ping"}')
+            assert ws.receive_json() == {"type": "pong"}
 
 
 async def test_ws_rejects_no_token(app_client):
     app, _, db = app_client
     await _seed(db)
     with TestClient(app) as client:
-        with pytest.raises(WebSocketDisconnect) as exc:
-            with client.websocket_connect("/ws"):
-                pass
-        assert exc.value.code == 4401
+        # Penolakan = accept dulu lalu close 4401, jadi handshake
+        # berhasil masuk; kode 4401 terlihat saat menerima.
+        with client.websocket_connect("/ws") as ws:
+            with pytest.raises(WebSocketDisconnect) as exc:
+                ws.receive_json()
+            assert exc.value.code == 4401
 
 
 async def test_ws_rejects_bad_token(app_client):
     app, _, db = app_client
     await _seed(db)
     with TestClient(app) as client:
-        with pytest.raises(WebSocketDisconnect) as exc:
-            with client.websocket_connect("/ws?token=salah"):
-                pass
-        assert exc.value.code == 4401
+        with client.websocket_connect("/ws?token=salah") as ws:
+            with pytest.raises(WebSocketDisconnect) as exc:
+                ws.receive_json()
+            assert exc.value.code == 4401

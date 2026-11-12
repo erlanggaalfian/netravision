@@ -345,7 +345,30 @@ export default function MapsPage() {
          init peta gagal diam-diam setelah tile dimuat (marker tidak
          pernah ditambahkan, fitBounds tidak jalan). */
       (window as unknown as { L?: typeof L }).L = L;
-      await import("leaflet.markercluster");
+      const mc = await import("leaflet.markercluster");
+      /* Jangan hanya mengandalkan efek samping global: UMD menempelkan
+         class klaster di exports modul juga. Bila bundel mengeksekusi
+         plugin sebelum window.L siap (atau memakai salinan L lain),
+         L.markerClusterGroup tidak ada dan init peta melempar
+         "markerClusterGroup is not a function". Pasang factory-nya
+         sendiri dari class exports bila belum menempel. */
+      const MarkerClusterGroup =
+        (L as unknown as { MarkerClusterGroup?: unknown }).MarkerClusterGroup ??
+        (mc as unknown as { MarkerClusterGroup?: unknown }).MarkerClusterGroup ??
+        (mc as unknown as { default?: { MarkerClusterGroup?: unknown } }).default
+          ?.MarkerClusterGroup;
+      if (
+        typeof (L as unknown as { markerClusterGroup?: unknown }).markerClusterGroup !==
+          "function" &&
+        MarkerClusterGroup
+      ) {
+        (L as unknown as { markerClusterGroup: unknown }).markerClusterGroup = (
+          options: unknown,
+        ) =>
+          new (
+            MarkerClusterGroup as new (options: unknown) => unknown
+          )(options);
+      }
       if (cancelled || !containerRef.current || mapRef.current) return;
       LRef.current = L;
       const map = L.map(containerRef.current, {

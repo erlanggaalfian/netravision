@@ -4,6 +4,7 @@ Auth via query param ?token= (JWT access). Browser tidak bisa mengirim header
 Authorization saat handshake WebSocket, jadi token lewat query.
 """
 
+import json
 import logging
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
@@ -84,8 +85,24 @@ async def ws_endpoint(
     # (role "embed", sub "key:N") ditolak; user harus ada, aktif, dan
     # guest yang sudah dinonaktifkan ditolak (_user_from_token sudah
     # menangani ketiganya; token embed gagal di int("key:N") -> 401).
+    # Penolakan dilakukan dengan accept() dulu lalu close(4401): bila
+    # close tanpa accept, uvicorn menjawab handshake dengan HTTP 403
+    # dan browser mencatat "WebSocket is closed before the connection
+    # is established" berulang-ulang tiap token kedaluwarsa. Dengan
+    # accept + close, klien mendapat close event bersih berkode 4401
+    # (tanpa error console) dan bisa refresh token lalu sambung ulang.
+    async def _reject_unauthorized() -> None:
+        try:
+            await websocket.accept()
+        except Exception:
+            return
+        try:
+            await websocket.close(code=4401)
+        except Exception:
+            pass
+
     if not token:
-        await websocket.close(code=4401)
+        await _reject_unauthorized()
         return
     try:
         payload = decode_token(token, settings)
@@ -95,7 +112,7 @@ async def ws_endpoint(
     except Exception as e:
         # HTTPException dari _user_from_token ikut ditolak di sini.
         log.debug("ws auth ditolak: %s", e)
-        await websocket.close(code=4401)
+        await _reject_unauthorized()
         return
 
     visible = await _visible_streams(user, db)
@@ -109,7 +126,17 @@ async def ws_endpoint(
         await websocket.send_json({"type": "snapshot", "streams": snapshot})
         while True:
             text = await websocket.receive_text()
-            if text.strip().lower() == "ping":
+            # Keepalive: terima ping polos ("ping") maupun JSON dari hook
+            # browser ({"type":"ping"}). Sebelumnya hanya "ping" polos
+            # yang dibalas, jadi pong tidak pernah kembali ke browser.
+            is_ping = text.strip().lower() == "ping"
+            if not is_ping:
+                try:
+                    data = json.loads(text)
+                    is_ping = isinstance(data, dict) and data.get("type") == "ping"
+                except Exception:
+                    is_ping = False
+            if is_ping:
                 await websocket.send_json({"type": "pong"})
     except WebSocketDisconnect:
         manager.disconnect(websocket)
