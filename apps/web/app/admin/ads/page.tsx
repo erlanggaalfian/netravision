@@ -113,7 +113,11 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
           Widescreen Monitor (16:9)
         </span>
       </div>
-      <div className="nv-stage relative aspect-video w-full overflow-hidden rounded-xl border border-white/10 bg-gradient-to-br from-ink-800 via-ink-900 to-black">
+      {/* Satu kesatuan: video + banner iklan dalam satu bingkai membulat,
+          supaya iklan terlihat menyatu dengan video (seperti kartu tile
+          kamera aslinya), bukan strip terpisah di bawah kotak video. */}
+      <div className="overflow-hidden rounded-xl border border-white/10">
+      <div className="nv-stage relative aspect-video w-full overflow-hidden bg-gradient-to-br from-ink-800 via-ink-900 to-black">
         <style>{`@keyframes nv-marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }`}</style>
         {/* Pola grid halus ala feed kamera */}
         <div
@@ -148,9 +152,10 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
           {now}
         </div>
       </div>
-      {/* Banner di bawah video (di luar area 16:9), bukan overlay. */}
+      {/* Banner di bawah video (di luar area 16:9), bukan overlay.
+          Menempel langsung pada video dalam bingkai yang sama. */}
       <div
-        className="relative flex items-center gap-2 overflow-hidden border-t border-white/10 px-2.5 py-1.5"
+        className="relative flex items-center gap-2 overflow-hidden px-2.5 py-1.5"
         style={bannerStyle}
       >
           {cfg.image_url && (
@@ -187,6 +192,7 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
             </div>
           </div>
         </div>
+      </div>
     </div>
   );
 }
