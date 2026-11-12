@@ -52,12 +52,31 @@ function todayStr(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function fmtTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+/* Jam:menit dari timestamp (waktu lokal). */
+function fmtClock(ms: number): string {
+  return new Date(ms).toLocaleTimeString("id-ID", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-/* ISO -> nilai input datetime-local (waktu lokal, YYYY-MM-DDTHH:MM). */
+/* Jam:menit:detik dari timestamp (waktu lokal). */
+function fmtClockSec(ms: number): string {
+  return new Date(ms).toLocaleTimeString("id-ID", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+/* Total durasi rekaman sehari, mis. "45 mnt rekaman" / "2 jam 10 mnt rekaman". */
+function fmtDuration(ms: number): string {
+  const totalMin = Math.round(ms / 60000);
+  if (totalMin < 60) return `${totalMin} mnt rekaman`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return m === 0 ? `${h} jam rekaman` : `${h} jam ${m} mnt rekaman`;
+}
 function toLocalInput(iso: string): string {
   const d = new Date(iso);
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -137,13 +156,23 @@ function PlaybackPanel({
 
   useEffect(() => revokeVideoObjectUrl, [revokeVideoObjectUrl]);
   /* Putar berkelanjutan: segmen habis langsung lanjut ke segmen berikut
-     tanpa jeda (default nyala). Segmen berikut diunduh duluan (prefetch)
-     selagi segmen aktif diputar, supaya pindah segmen nyaris tanpa jeda. */
-  const [continuous, setContinuous] = useState(true);
+     tanpa jeda (selalu aktif, tidak ada tombol). Segmen berikut diunduh
+     duluan (prefetch) selagi segmen aktif diputar, supaya pindah segmen
+     nyaris tanpa jeda. */
   const prefetchRef = useRef<{
     start: string;
     promise: Promise<string>;
   } | null>(null);
+  /* Posisi awal (detik) di dalam segmen saat lompat ke jam tertentu
+     lewat linimasa; diterapkan saat metadata video sudah dimuat. */
+  const seekOffsetRef = useRef(0);
+  /* Tooltip hover linimasa: jam:menit di posisi kursor. */
+  const [hoverTime, setHoverTime] = useState<{
+    xPct: number;
+    label: string;
+  } | null>(null);
+  /* Posisi putar saat ini (ms sejak 00:00) untuk playhead + jam berjalan. */
+  const [playheadMs, setPlayheadMs] = useState<number | null>(null);
   /* Cabut prefetch yang tidak jadi dipakai (mis. user pindah segmen). */
   const dropPrefetch = useCallback(() => {
     const pre = prefetchRef.current;
@@ -251,9 +280,10 @@ function PlaybackPanel({
   );
 
   const playEntry = useCallback(
-    async (entry: TimelineEntry) => {
+    async (entry: TimelineEntry, offsetSec = 0) => {
       const mySeq = ++playSeqRef.current;
       setActive(entry);
+      seekOffsetRef.current = offsetSec;
       revokeVideoObjectUrl();
       setVideoSrc(null);
       setVideoError(null);
@@ -276,6 +306,7 @@ function PlaybackPanel({
         }
         videoObjectUrlRef.current = objectUrl;
         setVideoSrc(objectUrl);
+        setPlayheadMs(new Date(entry.start).getTime());
         prefetchNext(entry);
       } catch (e) {
         if (mySeq !== playSeqRef.current) return;
@@ -289,14 +320,57 @@ function PlaybackPanel({
     [fetchSegmentBlob, prefetchNext, dropPrefetch, revokeVideoObjectUrl],
   );
 
-  /* Segmen habis: lanjut otomatis ke segmen berikut bila putar
-     berkelanjutan nyala. */
+  /* Segmen habis: lanjut otomatis ke segmen berikut. */
   const handleVideoEnded = useCallback(() => {
-    if (!continuous || !timeline || !active) return;
+    if (!timeline || !active) return;
     const idx = timeline.entries.findIndex((e) => e.start === active.start);
     const next = timeline.entries[idx + 1];
     if (next) playEntry(next);
-  }, [continuous, timeline, active, playEntry]);
+  }, [timeline, active, playEntry]);
+
+  /* Metadata video dimuat: terapkan posisi awal bila lompat dari linimasa. */
+  const handleLoadedMetadata = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const off = seekOffsetRef.current;
+    seekOffsetRef.current = 0;
+    if (off > 0 && off < v.duration) v.currentTime = off;
+  }, []);
+
+  /* Jam berjalan selama video diputar (untuk playhead + header). */
+  const handleTimeUpdate = useCallback(() => {
+    const v = videoRef.current;
+    if (!v || !active) return;
+    setPlayheadMs(new Date(active.start).getTime() + v.currentTime * 1000);
+  }, [active]);
+
+  /* Lompat ke jam tertentu di linimasa: cari segmen yang memuat jam itu
+     lalu putar dari posisi di dalam segmen. */
+  const seekToTime = useCallback(
+    (timeMs: number) => {
+      if (!timeline) return;
+      const at = new Date(timeMs);
+      const entry = timeline.entries.find((e) => {
+        const s = new Date(e.start).getTime();
+        const en = new Date(e.end).getTime();
+        return s <= timeMs && timeMs < en;
+      });
+      if (entry) {
+        const off = Math.max(
+          0,
+          (timeMs - new Date(entry.start).getTime()) / 1000,
+        );
+        playEntry(entry, off);
+        return;
+      }
+      /* Di celah tanpa rekaman: putar segmen pertama sesudah jam itu. */
+      const next = timeline.entries.find(
+        (e) => new Date(e.start).getTime() > timeMs,
+      );
+      if (next) playEntry(next);
+    },
+    [timeline, playEntry],
+  );
 
   const downloadActive = useCallback(async () => {
     if (!active) return;
@@ -469,46 +543,119 @@ function PlaybackPanel({
 
       {phase === "ready" && timeline && (
         <>
-          {/* Linimasa */}
+          {/* Linimasa: satu track video utuh. Arahkan kursor untuk lihat
+              jam:menit di posisi itu, klik untuk lompat ke jam itu. */}
           <div className="border-b border-ink-800 px-4 py-3">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-400">
                 {timeline.date}
               </span>
               <span className="rounded-full bg-ink-800 px-2.5 py-[3px] text-[11px] font-semibold text-slate-400 shadow-sm">
-                {timeline.entries.length} segmen
+                {fmtDuration(
+                  timeline.entries.reduce(
+                    (sum, e) =>
+                      sum +
+                      (new Date(e.end).getTime() -
+                        new Date(e.start).getTime()),
+                    0,
+                  ),
+                )}
               </span>
             </div>
-            <div className="relative h-12 overflow-hidden rounded-full bg-ink-800 shadow-sm">
+            <div
+              role="slider"
+              aria-label="Linimasa rekaman"
+              aria-valuemin={0}
+              aria-valuemax={1439}
+              aria-valuenow={
+                playheadMs !== null
+                  ? Math.floor((playheadMs - dayStart) / 60000)
+                  : undefined
+              }
+              aria-valuetext={
+                playheadMs !== null ? fmtClock(playheadMs) : undefined
+              }
+              tabIndex={0}
+              onMouseMove={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const xPct = Math.min(
+                  1,
+                  Math.max(0, (e.clientX - rect.left) / rect.width),
+                );
+                setHoverTime({
+                  xPct: xPct * 100,
+                  label: fmtClock(dayStart + xPct * DAY_MS),
+                });
+              }}
+              onMouseLeave={() => setHoverTime(null)}
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const xPct = Math.min(
+                  1,
+                  Math.max(0, (e.clientX - rect.left) / rect.width),
+                );
+                seekToTime(dayStart + xPct * DAY_MS);
+              }}
+              onKeyDown={(e) => {
+                if (!playheadMs) return;
+                if (e.key === "ArrowRight") {
+                  e.preventDefault();
+                  seekToTime(playheadMs + 60_000);
+                } else if (e.key === "ArrowLeft") {
+                  e.preventDefault();
+                  seekToTime(playheadMs - 60_000);
+                }
+              }}
+              className="relative h-12 cursor-pointer overflow-hidden rounded-full bg-ink-800 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+            >
               {Array.from({ length: 25 }).map((_, h) => (
                 <span
                   key={h}
-                  className="absolute top-0 h-full w-px bg-ink-500/25"
+                  className="pointer-events-none absolute top-0 h-full w-px bg-ink-500/25"
                   style={{ left: `${(h / 24) * 100}%` }}
                 />
               ))}
+              {/* Daerah yang ada rekamannya: blok-blok segmen berjejer
+                  tanpa celah, tampak seperti satu track video. */}
               {timeline.entries.map((e, i) => {
                 const left = frac(e.start) * 100;
                 const width = Math.max(0.4, (frac(e.end) - frac(e.start)) * 100);
                 const isActive = active?.start === e.start;
                 return (
-                  <button
+                  <span
                     key={i}
-                    onClick={() => playEntry(e)}
-                    disabled={urlLoading}
-                    title={`${fmtTime(e.start)} - ${fmtTime(e.end)}${e.has_event ? " · ada event" : ""}`}
-                    aria-label={`Putar segmen ${fmtTime(e.start)}`}
-                    className={`absolute top-0.5 h-11 rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+                    aria-hidden
+                    className={`pointer-events-none absolute top-0.5 h-11 ${
                       isActive
                         ? "bg-gradient-to-r from-accent-600 to-accent-500 shadow-[0_2px_12px_-2px_var(--nv-accent-600)]"
                         : e.has_event
-                          ? "bg-warn-400/80 hover:bg-warn-400"
-                          : "bg-accent-600/60 hover:bg-accent-500"
+                          ? "bg-warn-400/80"
+                          : "bg-accent-600/60"
                     }`}
-                    style={{ left: `${left}%`, width: `${width}%`, minWidth: "24px" }}
+                    style={{ left: `${left}%`, width: `${width}%` }}
                   />
                 );
               })}
+              {/* Playhead: garis posisi putar saat ini. */}
+              {playheadMs !== null && (
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute top-0 h-full w-0.5 bg-white shadow-[0_0_6px_rgba(255,255,255,0.9)]"
+                  style={{
+                    left: `${Math.min(100, Math.max(0, ((playheadMs - dayStart) / DAY_MS) * 100))}%`,
+                  }}
+                />
+              )}
+              {/* Tooltip hover: jam:menit di posisi kursor. */}
+              {hoverTime && (
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-md bg-ink-950 px-2 py-1 text-[11px] font-bold tabular-nums whitespace-nowrap text-white shadow-lg ring-1 ring-white/20"
+                  style={{ left: `${hoverTime.xPct}%` }}
+                >
+                  {hoverTime.label}
+                </span>
+              )}
               {timeline.entries.length === 0 && (
                 <div className="flex h-full items-center justify-center text-[11px] text-slate-400">
                   Tidak ada rekaman pada tanggal ini
@@ -529,27 +676,16 @@ function PlaybackPanel({
             </div>
           </div>
 
-          {/* Pratinjau */}
+          {/* Pratinjau: jam berjalan mengikuti video yang diputar. */}
           <div>
             <div className="flex items-center justify-between gap-2 border-b border-ink-800 px-4 py-3">
               <span className="shrink-0 text-[15px] font-extrabold tracking-tight text-slate-100">Pratinjau</span>
-              {active && (
-                <span className="min-w-0 flex-1 truncate text-right text-xs font-medium text-slate-400">
-                  {fmtTime(active.start)} - {fmtTime(active.end)}
+              {playheadMs !== null && (
+                <span className="min-w-0 flex-1 truncate text-right text-xs font-medium tabular-nums text-slate-400">
+                  {fmtClockSec(playheadMs)}
                 </span>
               )}
             </div>
-            {/* Putar berkelanjutan: segmen habis langsung lanjut ke segmen
-                berikut tanpa jeda. */}
-            <label className="flex cursor-pointer items-center gap-2 border-b border-ink-800 px-4 py-2.5 text-xs font-medium text-slate-300">
-              <input
-                type="checkbox"
-                checked={continuous}
-                onChange={(e) => setContinuous(e.target.checked)}
-                className="h-4 w-4 shrink-0 accent-accent-500"
-              />
-              Putar berkelanjutan (otomatis lanjut ke segmen berikut)
-            </label>
             {/* Area video: klik atau fokus keyboard di sini menaikkan
                 sinyal klik iklan, klik tombol/segmen/unduh tidak. */}
             <div
@@ -583,6 +719,8 @@ function PlaybackPanel({
                   playsInline
                   autoPlay
                   onEnded={handleVideoEnded}
+                  onLoadedMetadata={handleLoadedMetadata}
+                  onTimeUpdate={handleTimeUpdate}
                   onError={() =>
                     setVideoError(
                       "Video gagal dimuat, segmen mungkin sudah terhapus atau tautannya kedaluwarsa.",
