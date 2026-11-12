@@ -101,8 +101,13 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
     };
     /* Fallback HLS bila WebRTC/WHEP gagal tersambung (UDP diblokir).
        HLS memakai sub stream yang sama via HTTP, jadi grid tetap
-       menampilkan sub (bukan main). Bila HLS juga gagal, baru fail. */
-    const tryHls = () => {
+       menampilkan sub (bukan main). Bila HLS juga gagal, baru fail.
+       RETRY: muxer HLS MediaMTX per-path butuh ~7-10 dtk untuk hangat
+       (playlist awal berisi segmen gap, sesi baru langsung hangat bila
+       muxer sudah jalan). Percobaan pertama menyalakan muxer; bila
+       gagal, coba lagi setelah jeda supaya playlist sudah hangat.
+       Maks 3 percobaan. */
+    const tryHls = (attempt = 1) => {
       if (cancelled || hlsRef.current) return;
       const v = videoRef.current;
       if (!v) {
@@ -117,7 +122,15 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
       try {
         const handle = playHls(v, hlsUrl, () => {
           if (cancelled) return;
-          fail("Stream tidak dapat diputar");
+          stopHls(hlsRef.current);
+          hlsRef.current = null;
+          if (attempt < 3) {
+            setTimeout(() => {
+              if (!cancelled) tryHls(attempt + 1);
+            }, 4000);
+          } else {
+            fail("Stream tidak dapat diputar");
+          }
         });
         hlsRef.current = handle;
         const onPlaying = () => {
@@ -134,6 +147,13 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
       (entries) => {
         const entry = entries[0];
         if (entry.isIntersecting && !pcRef.current && !hlsRef.current && !cancelled) {
+          /* Hangatkan muxer HLS selagi WHEP dicoba: muxer per-path butuh
+             ~7-10 dtk untuk hangat. Bila WHEP gagal (timeout 10 dtk),
+             playlist HLS sudah hangat dan fallback langsung jalan tanpa
+             menunggu retry. Fetch ini ringan (master playlist saja) dan
+             dibuang hasilnya; sesi HLS yang dipakai nanti dibuat baru
+             oleh hls.js tapi muxer-nya sudah hangat. */
+          fetch(hlsUrl, { method: "GET" }).catch(() => {});
           playWhep(
             video,
             url,
