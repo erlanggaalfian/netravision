@@ -15,6 +15,7 @@ export const metadata: Metadata = {
   title: "NetraVision",
   description: "Sistem pemantauan CCTV",
   manifest: "/manifest.webmanifest",
+  icons: { icon: "/favicon.ico", apple: "/icons/icon.svg" },
 };
 
 /* WAJIB untuk mobile: tanpa ini browser memakai layout viewport ~980px,
