@@ -38,13 +38,13 @@ const GRID_OPTS = [
   { cols: 4, label: "4×4" },
 ];
 
-/* Breakpoint sama dengan Live (md, 768px): di bawah md selalu 1 kolom,
-   pemilih grid baru tampil di md. */
+/* Samakan dengan Live: di md+ jumlah kolom = gridCols (3x3 jadi 3 kolom
+   di md, bukan baru di lg; 4x4 jadi 4 kolom di md, bukan baru di xl). */
 const GRID_CLASS: Record<number, string> = {
   1: "md:grid-cols-1",
   2: "md:grid-cols-2",
-  3: "md:grid-cols-2 lg:grid-cols-3",
-  4: "md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4",
+  3: "md:grid-cols-3",
+  4: "md:grid-cols-4",
 };
 
 function todayStr(): string {
@@ -842,7 +842,15 @@ export default function PlaybackPage() {
   const [multi, setMulti] = useState(false);
   const [streamId, setStreamId] = useState<string>("");
   const [multiIds, setMultiIds] = useState<number[]>([]);
-  const [gridCols, setGridCols] = useState(2);
+  /* Default grid: 3x3 di PC (9 panel per halaman), 2x2 di HP.
+     Ditentukan sekali saat halaman dimuat (sama seperti Live). */
+  const [gridCols, setGridCols] = useState(() =>
+    typeof window !== "undefined" &&
+    window.matchMedia("(min-width: 768px)").matches
+      ? 3
+      : 2,
+  );
+  const [page, setPage] = useState(1);
   /* Panel kontrol dilipat di HP (tombol filter), selalu tampil di desktop. */
   const [filterOpen, setFilterOpen] = useState(false);
   const [date, setDate] = useState(todayStr());
@@ -895,6 +903,11 @@ export default function PlaybackPage() {
 
   const byId = useMemo(() => new Map(streams.map((s) => [s.id, s])), [streams]);
 
+  /* Ganti grid / mode / kamera terpilih / tanggal: kembali ke halaman 1. */
+  useEffect(() => {
+    setPage(1);
+  }, [gridCols, multi, multiIds, streamId, date]);
+
   /* Filter tanggal aktif bila tanggal bukan hari ini. */
   const filterActive = date !== todayStr();
 
@@ -913,6 +926,18 @@ export default function PlaybackPage() {
     : byId.get(Number(streamId))
       ? [byId.get(Number(streamId)) as Stream]
       : [];
+
+  /* Paginasi grid multi-kamera (sama seperti Live): per halaman tampil
+     gridCols x gridCols panel (2x2 = 4, 3x3 = 9, 4x4 = 16). Saat
+     single-kamera tidak ada paginasi. */
+  const perPage = gridCols * gridCols;
+  const totalPages = multi
+    ? Math.max(1, Math.ceil(selectedStreams.length / perPage))
+    : 1;
+  const safePage = Math.min(page, totalPages);
+  const visibleStreams = multi
+    ? selectedStreams.slice((safePage - 1) * perPage, safePage * perPage)
+    : selectedStreams;
 
   return (
     <AppShell>
@@ -1072,20 +1097,47 @@ export default function PlaybackPage() {
             }
           />
         ) : (
-          <div
-            className={`mx-auto grid w-full max-w-5xl grid-cols-1 gap-4 ${multi ? (GRID_CLASS[gridCols] ?? GRID_CLASS[2]) : ""}`}
-          >
-            {selectedStreams.map((s) => (
-              <PlaybackPanel
-                key={s.id}
-                streamId={s.id}
-                streamName={s.name}
-                isOnline={s.is_online}
-                date={date}
-                ad={ad}
-              />
-            ))}
-          </div>
+          <>
+            <div
+              className={`mx-auto grid w-full max-w-5xl grid-cols-1 gap-4 ${multi ? (GRID_CLASS[gridCols] ?? GRID_CLASS[2]) : ""}`}
+            >
+              {visibleStreams.map((s) => (
+                <PlaybackPanel
+                  key={s.id}
+                  streamId={s.id}
+                  streamName={s.name}
+                  isOnline={s.is_online}
+                  date={date}
+                  ad={ad}
+                />
+              ))}
+            </div>
+            {multi && totalPages > 1 && (
+              <div className="mt-4 flex items-center justify-center gap-2">
+                <Button
+                  variant="subtle"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={safePage <= 1}
+                  aria-label="Halaman sebelumnya"
+                  className="rounded-full"
+                >
+                  ‹ Sebelumnya
+                </Button>
+                <span className="text-sm font-semibold text-slate-300">
+                  Halaman {safePage} dari {totalPages}
+                </span>
+                <Button
+                  variant="subtle"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={safePage >= totalPages}
+                  aria-label="Halaman berikutnya"
+                  className="rounded-full"
+                >
+                  Berikutnya ›
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </AppShell>

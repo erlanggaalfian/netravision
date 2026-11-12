@@ -162,6 +162,7 @@ export default function MonitorsPage() {
      sementara, tidak disimpan ke localStorage. */
   const [openGroupLayout, setOpenGroupLayout] =
     useState<MonitorLayout | null>(null);
+  const [page, setPage] = useState(1);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedGroupId, setExpandedGroupId] = useState<number | null>(null);
   const [editing, setEditing] = useState<MonitorLayout | null>(null);
@@ -408,6 +409,21 @@ export default function MonitorsPage() {
         .filter((s): s is Stream => !!s)
     : [];
 
+  /* Paginasi grid layout terbuka (sama seperti Live): per halaman tampil
+     cols x cols kamera (2x2 = 4, 3x3 = 9, 4x4 = 16). */
+  const perPage = (openLayout?.cols || 2) * (openLayout?.cols || 2);
+  const totalPages = Math.max(1, Math.ceil(openStreams.length / perPage));
+  const safePage = Math.min(page, totalPages);
+  const visibleStreams = openStreams.slice(
+    (safePage - 1) * perPage,
+    safePage * perPage,
+  );
+
+  /* Ganti monitor atau isi monitor berubah: kembali ke halaman 1. */
+  useEffect(() => {
+    setPage(1);
+  }, [openId, openGroupLayout, openStreams.length]);
+
   if (loading || (!user && !loading)) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-ink-950">
@@ -498,7 +514,7 @@ export default function MonitorsPage() {
                   className={`grid gap-4 ${COLS_CLASS[openLayout.cols] ?? COLS_CLASS[2]}`}
                 >
                   {Array.from({
-                    length: Math.min(Math.max(openLayout.streamIds.length, 1), 8),
+                    length: perPage,
                   }).map((_, i) => (
                     <div
                       key={i}
@@ -512,25 +528,56 @@ export default function MonitorsPage() {
                 </div>
               ) : (
                 <div
-                  className={`grid gap-4 ${COLS_CLASS[openLayout.cols] ?? COLS_CLASS[2]} ${isFullscreen ? "h-dvh" : ""}`}
-                  style={
-                    isFullscreen
-                      ? {
-                          gridTemplateRows: `repeat(${Math.max(1, Math.ceil(openStreams.length / (openLayout.cols || 2)))}, minmax(0, 1fr))`,
-                        }
-                      : undefined
-                  }
+                  className={isFullscreen ? "flex h-dvh flex-col" : undefined}
                 >
-                  {openStreams.map((s) => (
-                    <CameraTile
-                      key={s.id}
-                      stream={s}
-                      onExpand={setFocus}
-                      ad={ad}
-                      adInFrame={isFullscreen}
-                      fillCell={isFullscreen}
-                    />
-                  ))}
+                  <div
+                    className={`grid gap-4 ${COLS_CLASS[openLayout.cols] ?? COLS_CLASS[2]} ${isFullscreen ? "min-h-0 flex-1" : ""}`}
+                    style={
+                      isFullscreen
+                        ? {
+                            gridTemplateRows: `repeat(${Math.max(1, Math.ceil(visibleStreams.length / (openLayout.cols || 2)))}, minmax(0, 1fr))`,
+                          }
+                        : undefined
+                    }
+                  >
+                    {visibleStreams.map((s) => (
+                      <CameraTile
+                        key={s.id}
+                        stream={s}
+                        onExpand={setFocus}
+                        ad={ad}
+                        adInFrame={isFullscreen}
+                        fillCell={isFullscreen}
+                      />
+                    ))}
+                  </div>
+                  {totalPages > 1 && (
+                    <div className="mt-4 flex items-center justify-center gap-2">
+                      <Button
+                        variant="subtle"
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                        disabled={safePage <= 1}
+                        aria-label="Halaman sebelumnya"
+                        className="rounded-full"
+                      >
+                        ‹ Sebelumnya
+                      </Button>
+                      <span className="text-sm font-semibold text-slate-300">
+                        Halaman {safePage} dari {totalPages}
+                      </span>
+                      <Button
+                        variant="subtle"
+                        onClick={() =>
+                          setPage((p) => Math.min(totalPages, p + 1))
+                        }
+                        disabled={safePage >= totalPages}
+                        aria-label="Halaman berikutnya"
+                        className="rounded-full"
+                      >
+                        Berikutnya ›
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
