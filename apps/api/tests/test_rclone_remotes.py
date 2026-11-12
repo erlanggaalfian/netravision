@@ -706,3 +706,38 @@ async def test_camera_targets_pakai_nama_folder_bukan_id(app_client, monkeypatch
     # Jalur rclone = NAMA folder, bukan ID Drive.
     assert folder_path == "netravision"
     assert folder_path != "1kxvzYWIDWHF8rp3KPhKkrMRaCO3qWxBN"
+
+
+async def test_list_rclone_files_no_mimetype_dan_cache(monkeypatch):
+    """lsjson pakai --no-mimetype (cepat) dan hasilnya di-cache 120 detik.
+
+    Regresi: tanpa --no-mimetype, lsjson 9 file butuh 35-41 detik di
+    staging sehingga linimasa + putar video sangat lambat.
+    """
+    import json as _json
+
+    calls = []
+
+    async def _fake_run(*args, timeout=60):
+        calls.append(args)
+        out = _json.dumps([
+            {"Path": "2026-11-13_00-45-50-284163.mp4",
+             "Name": "2026-11-13_00-45-50-284163.mp4", "Size": 97513},
+        ])
+        return 0, out, ""
+
+    monkeypatch.setattr(gr, "_run_rclone", _fake_run)
+    gr.invalidate_lsjson_cache()
+    items = await gr.list_rclone_files("gdrive", "netravision/test")
+    assert len(items) == 1
+    assert items[0]["Name"] == "2026-11-13_00-45-50-284163.mp4"
+    assert "--no-mimetype" in calls[0], calls[0]
+    assert len(calls) == 1
+    # Panggilan kedua: dari cache, rclone tidak dijalankan lagi.
+    items2 = await gr.list_rclone_files("gdrive", "netravision/test")
+    assert len(items2) == 1
+    assert len(calls) == 1
+    # Invalidate: panggilan berikut menjalankan rclone lagi.
+    gr.invalidate_lsjson_cache("gdrive")
+    await gr.list_rclone_files("gdrive", "netravision/test")
+    assert len(calls) == 2

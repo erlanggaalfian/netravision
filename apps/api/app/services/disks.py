@@ -416,7 +416,7 @@ async def cleanup_rclone_remote(
         try:
             rc, out, _ = await asyncio.to_thread(
                 _rclone_run_sync,
-                ["lsjson", "--recursive", f"{remote_name}:{folder_id}", "--files-only"],
+                ["lsjson", "--recursive", f"{remote_name}:{folder_id}", "--files-only", "--no-mimetype"],
                 60,
             )
         except Exception as e:  # noqa: BLE001
@@ -547,7 +547,7 @@ async def cleanup_folder_retention(db: AsyncSession) -> int:
         try:
             rc, out, _ = await asyncio.to_thread(
                 _rclone_run_sync,
-                ["lsjson", "--recursive", f"{REMOTE_NAME}:{folder_id}", "--files-only"],
+                ["lsjson", "--recursive", f"{REMOTE_NAME}:{folder_id}", "--files-only", "--no-mimetype"],
                 60,
             )
         except RuntimeError as e:

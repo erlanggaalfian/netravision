@@ -29,6 +29,11 @@ log = logging.getLogger("netravision.gdrive_rclone")
 
 REMOTE_NAME = "gdrive"
 
+# Cache daftar file rclone (lsjson): (remote, path) -> (monotonic, items).
+# TTL 120 detik, lihat list_rclone_files.
+_LSJSON_CACHE: dict[tuple[str, str], tuple[float, list[dict]]] = {}
+_LSJSON_TTL_SEC = 120.0
+
 _REMOTE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _SECTION_HDR = re.compile(r"^\s*\[([^\]]+)\]\s*$")
 
@@ -124,10 +129,22 @@ async def list_rclone_files(remote_name: str, path: str) -> list[dict]:
 
     Return list dict {name, size, id}. Raise RuntimeError bila gagal.
     Dipakai Putar Ulang untuk membaca segmen rekaman dari Drive rclone.
+
+    `--no-mimetype`: mengambil MimeType dari Drive sangat lambat di server
+    ini (lsjson 9 file: 35-41 detik, dengan --no-mimetype: ~2 detik),
+    padahal pemanggil hanya butuh name/size/id. Cache 120 detik supaya
+    linimasa + playback-url + file (3 panggilan per sekali putar) tidak
+    mengulang lsjson.
     """
     remote_name = validate_remote_name(remote_name)
+    key = (remote_name, path)
+    now = time.monotonic()
+    hit = _LSJSON_CACHE.get(key)
+    if hit is not None and now - hit[0] < _LSJSON_TTL_SEC:
+        return [dict(f) for f in hit[1]]
     rc, out, err = await _run_rclone(
-        "lsjson", f"{remote_name}:{path}", "--files-only", timeout=60
+        "lsjson", f"{remote_name}:{path}", "--files-only", "--no-mimetype",
+        timeout=60,
     )
     if rc != 0:
         detail = (err or out).strip().split("\n")[-1][:200]
@@ -136,7 +153,18 @@ async def list_rclone_files(remote_name: str, path: str) -> list[dict]:
         items = json.loads(out)
     except json.JSONDecodeError as e:
         raise RuntimeError(f"rclone lsjson bukan JSON: {e}") from e
-    return items if isinstance(items, list) else []
+    items = items if isinstance(items, list) else []
+    _LSJSON_CACHE[key] = (now, [dict(f) for f in items])
+    return items
+
+
+def invalidate_lsjson_cache(remote_name: str | None = None) -> None:
+    """Buang cache lsjson (semua, atau satu remote) sesudah upload/hapus."""
+    if remote_name is None:
+        _LSJSON_CACHE.clear()
+        return
+    for key in [k for k in _LSJSON_CACHE if k[0] == remote_name]:
+        del _LSJSON_CACHE[key]
 
 
 async def stream_rclone_file(
