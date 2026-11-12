@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "../../components/AppShell";
 import { Button, Card, ErrorBox, GridIcon, SectionTitle, Spinner } from "../../components/ui";
-import { api, apiFetch, ApiError } from "../../lib/api";
+import { api, apiFetch, ApiError, usePosterUrl } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import type { AdConfig, Stream } from "../../lib/types";
 import { AdBanner } from "../../components/AdBanner";
@@ -122,14 +122,19 @@ function PlaybackPanel({
   streamName,
   isOnline,
   date,
+  posterUrl,
   ad,
 }: {
   streamId: number;
   streamName: string;
   isOnline: boolean;
   date: string;
+  posterUrl: string | null;
   ad: AdConfig | null;
 }) {
+  /* Poster terbaru kamera (blob object URL, header Authorization),
+     pola sama seperti CameraTile. */
+  const posterSrc = usePosterUrl(posterUrl);
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [timeline, setTimeline] = useState<TimelineData | null>(null);
@@ -698,23 +703,35 @@ function PlaybackPanel({
               }}
             >
               {videoError ? (
-                <div className="flex aspect-video flex-col items-center justify-center gap-2 px-6 text-center">
-                  <p className="text-sm font-semibold text-slate-200">
-                    Video gagal diputar
-                  </p>
-                  <p className="text-xs text-slate-400">{videoError}</p>
-                  <button
-                    onClick={() => active && playEntry(active)}
-                    className="mt-1 flex h-11 items-center rounded-xl bg-white/10 px-4 text-xs font-bold text-white transition hover:bg-white/25 active:scale-95"
-                  >
-                    Coba lagi
-                  </button>
+                <div className="relative flex aspect-video flex-col items-center justify-center gap-2 overflow-hidden px-6 text-center">
+                  {posterSrc && (
+                    <img
+                      src={posterSrc}
+                      alt=""
+                      aria-hidden
+                      loading="lazy"
+                      className="absolute inset-0 h-full w-full object-cover opacity-20"
+                    />
+                  )}
+                  <div className="relative flex flex-col items-center justify-center gap-2">
+                    <p className="text-sm font-semibold text-slate-200">
+                      Video gagal diputar
+                    </p>
+                    <p className="text-xs text-slate-400">{videoError}</p>
+                    <button
+                      onClick={() => active && playEntry(active)}
+                      className="mt-1 flex h-11 items-center rounded-xl bg-white/10 px-4 text-xs font-bold text-white transition hover:bg-white/25 active:scale-95"
+                    >
+                      Coba lagi
+                    </button>
+                  </div>
                 </div>
               ) : videoSrc ? (
                 <video
                   ref={videoRef}
                   key={videoSrc}
                   src={videoSrc}
+                  poster={posterSrc}
                   controls
                   playsInline
                   autoPlay
@@ -729,28 +746,45 @@ function PlaybackPanel({
                   className="aspect-video w-full bg-black"
                 />
               ) : (
-                <div className="flex aspect-video flex-col items-center justify-center gap-2 px-6 text-center">
-                  <svg
-                    width="28"
-                    height="28"
-                    viewBox="0 0 20 20"
-                    fill="none"
-                    className="text-slate-400"
-                    aria-hidden
-                  >
-                    <path
-                      d="M6 4.5v11l9-5.5-9-5.5z"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                  <p className="text-xs text-slate-400">
-                    {active
-                      ? "Memuat video…"
-                      : "Klik salah satu segmen pada linimasa untuk memutar."}
-                  </p>
+                <div className="relative flex aspect-video flex-col items-center justify-center gap-2 overflow-hidden px-6 text-center">
+                  {posterSrc && (
+                    <>
+                      <img
+                        src={posterSrc}
+                        alt=""
+                        aria-hidden
+                        loading="lazy"
+                        className="absolute inset-0 h-full w-full object-cover"
+                      />
+                      <div
+                        className="absolute inset-0 bg-black/55"
+                        aria-hidden
+                      />
+                    </>
+                  )}
+                  <div className="relative flex flex-col items-center justify-center gap-2">
+                    <svg
+                      width="28"
+                      height="28"
+                      viewBox="0 0 20 20"
+                      fill="none"
+                      className="text-slate-400"
+                      aria-hidden
+                    >
+                      <path
+                        d="M6 4.5v11l9-5.5-9-5.5z"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    <p className="text-xs text-slate-400">
+                      {active
+                        ? "Memuat video…"
+                        : "Klik salah satu segmen pada linimasa untuk memutar."}
+                    </p>
+                  </div>
                 </div>
               )}
             </div>
@@ -1108,6 +1142,7 @@ export default function PlaybackPage() {
                   streamName={s.name}
                   isOnline={s.is_online}
                   date={date}
+                  posterUrl={s.poster_url}
                   ad={ad}
                 />
               ))}

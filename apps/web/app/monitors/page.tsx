@@ -13,7 +13,7 @@ import {
   SectionTitle,
   Spinner,
 } from "../../components/ui";
-import { api, ApiError } from "../../lib/api";
+import { api, ApiError, usePosterUrl } from "../../lib/api";
 import { isAdminRole, useAuth } from "../../lib/auth";
 import { useCameraStatus } from "../../hooks/useCameraStatus";
 import { useFullscreen } from "../../hooks/useFullscreen";
@@ -90,6 +90,43 @@ function Chevron({ open }: { open: boolean }) {
   );
 }
 
+/* Satu sel pratinjau mini: poster terbaru kamera + titik status + nama.
+   Komponen sendiri supaya usePosterUrl dipanggil per sel (hook tidak
+   boleh dipanggil di dalam loop .map). Bila tidak ada poster, sel
+   tetap gelap seperti sebelumnya. */
+function MiniPreviewCell({ stream }: { stream: Stream | undefined }) {
+  const posterSrc = usePosterUrl(stream?.poster_url);
+  return (
+    <div
+      title={stream?.name ?? "Tanpa nama"}
+      className="relative aspect-video overflow-hidden rounded-lg bg-ink-800"
+    >
+      {posterSrc && (
+        <img
+          src={posterSrc}
+          alt=""
+          aria-hidden
+          loading="lazy"
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      )}
+      {/* Gradasi bawah supaya nama terbaca di atas gambar. */}
+      {posterSrc && (
+        <div
+          className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/75 to-transparent"
+          aria-hidden
+        />
+      )}
+      <span
+        className={`absolute left-1.5 top-1.5 h-1.5 w-1.5 rounded-full ring-1 ring-black/40 ${stream?.is_online ? "bg-ok-400" : "bg-bad-400"}`}
+      />
+      <span className="absolute inset-x-1.5 bottom-1 truncate text-xs font-medium text-white">
+        {stream?.name ?? "Tanpa nama"}
+      </span>
+    </div>
+  );
+}
+
 /* Pratinjau mini isi layout: sel kecil per kamera + status, sisa diringkas +N.
    Jumlah kolom mengikuti cols layout; tidak ada sel kosong. */
 function MiniPreview({
@@ -116,23 +153,9 @@ function MiniPreview({
       aria-hidden
       title={`${layout.name}: ${total} kamera${names ? `, ${names}` : ""}`}
     >
-      {cells.map((id) => {
-        const s = byId.get(id);
-        return (
-          <div
-            key={id}
-            title={s?.name ?? "Tanpa nama"}
-            className="relative aspect-video overflow-hidden rounded-lg bg-ink-800"
-          >
-            <span
-              className={`absolute left-1.5 top-1.5 h-1.5 w-1.5 rounded-full ${s?.is_online ? "bg-ok-400" : "bg-bad-400"}`}
-            />
-            <span className="absolute inset-x-1.5 bottom-1 truncate text-xs text-neutral-400">
-              {s?.name ?? "Tanpa nama"}
-            </span>
-          </div>
-        );
-      })}
+      {cells.map((id) => (
+        <MiniPreviewCell key={id} stream={byId.get(id)} />
+      ))}
       {rest > 0 && (
         <div
           title={`+${rest} kamera lagi`}
