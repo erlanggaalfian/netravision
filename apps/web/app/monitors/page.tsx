@@ -148,181 +148,6 @@ function MiniPreview({
 /* Mode grup: kamera dikelompokkan per grup kamera (admin).
    Hanya grup yang punya kamera di layout ini yang ditampilkan;
    kamera tanpa grup masuk "Tanpa grup". */
-function GroupSections({
-  groups,
-  loading,
-  error,
-  warning,
-  byId,
-  layoutIds,
-  colsClass,
-  onExpand,
-  onRetry,
-  ad,
-  isFullscreen = false,
-}: {
-  groups: { id: number; name: string; stream_ids: number[] }[] | null;
-  loading: boolean;
-  error: string | null;
-  warning?: string | null;
-  byId: Map<number, Stream>;
-  layoutIds: number[];
-  colsClass: string;
-  onExpand: (s: Stream) => void;
-  onRetry: () => void;
-  ad?: AdConfig | null;
-  isFullscreen?: boolean;
-}) {
-  const [openSections, setOpenSections] = useState<Set<number>>(new Set());
-  /* D-S7: seksi grup terbuka secara default (kunci = daftar id seksi,
-     supaya tidak dibuka ulang tiap render/status berubah). */
-  const openedForRef = useRef("");
-  const toggleSection = (id: number) => {
-    setOpenSections((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-  /* D-S7: buka semua seksi secara default. Dihitung dari groups +
-     layoutIds (tanpa byId) supaya hook ini bisa ditaruh sebelum
-     early-return loading/error. */
-  const sectionKey = useMemo(() => {
-    if (!groups) return "";
-    const inLayout = new Set(layoutIds);
-    const ids = groups
-      .filter((g) => g.stream_ids.some((id) => inLayout.has(id)))
-      .map((g) => g.id);
-    if (
-      layoutIds.some((id) => !groups.some((g) => g.stream_ids.includes(id)))
-    ) {
-      ids.push(0);
-    }
-    return ids.join(",");
-  }, [groups, layoutIds]);
-  useEffect(() => {
-    if (!sectionKey) return;
-    if (openedForRef.current === sectionKey) return;
-    openedForRef.current = sectionKey;
-    setOpenSections(new Set(sectionKey.split(",").map(Number)));
-  }, [sectionKey]);
-  if (loading || groups === null) {
-    return (
-      <div className="flex items-center justify-center gap-2 py-16 text-sm text-neutral-400">
-        <span className="h-5 w-5 animate-spin rounded-full border-2 border-ink-700 border-t-accent-400 motion-reduce:animate-none" />
-        Memuat grup…
-      </div>
-    );
-  }
-  if (error) {
-    return (
-      <div className="nv-panel-modern flex flex-col items-center gap-3 px-6 py-10 text-center text-sm text-neutral-400">
-        <p>{error}</p>
-        <p className="text-xs text-neutral-400">
-          Mode grup membutuhkan akses admin.
-        </p>
-        <Button variant="subtle" onClick={onRetry}>
-          Coba lagi
-        </Button>
-      </div>
-    );
-  }
-  const inLayout = new Set(layoutIds);
-  /* D-S8: dedup lintas grup, satu tile per kamera (grup pertama menang). */
-  const seen = new Set<number>();
-  const sections = groups
-    .map((g) => ({
-      id: g.id,
-      name: g.name,
-      streams: g.stream_ids
-        .filter((id) => inLayout.has(id))
-        .map((id) => byId.get(id))
-        .filter((s): s is Stream => !!s)
-        .filter((s) => {
-          if (seen.has(s.id)) return false;
-          seen.add(s.id);
-          return true;
-        }),
-    }))
-    .filter((sec) => sec.streams.length > 0);
-  const grouped = new Set(sections.flatMap((sec) => sec.streams.map((s) => s.id)));
-  const rest = layoutIds
-    .filter((id) => !grouped.has(id))
-    .map((id) => byId.get(id))
-    .filter((s): s is Stream => !!s);
-  if (rest.length > 0)
-    sections.push({ id: 0, name: "Tanpa grup", streams: rest });
-
-  if (sections.length === 0) {
-    return (
-      <div className="nv-panel-modern px-6 py-10 text-center text-sm text-neutral-400">
-        Tidak ada grup kamera untuk layout ini.
-      </div>
-    );
-  }
-  const allOpen = sections.every((sec) => openSections.has(sec.id));
-  return (
-    <div className="flex flex-col gap-6">
-      {warning && (
-        <div className="nv-panel-modern px-4 py-3 text-xs leading-relaxed text-neutral-400">
-          {warning}
-        </div>
-      )}
-      <div className="flex justify-end">
-        <Button
-          variant="subtle"
-          onClick={() =>
-            setOpenSections(
-              allOpen
-                ? new Set()
-                : new Set(sections.map((sec) => sec.id)),
-            )
-          }
-          className="min-h-11 px-3 text-xs"
-        >
-          {allOpen ? "Tutup semua" : "Buka semua"}
-        </Button>
-      </div>
-      {sections.map((sec) => {
-        const open = openSections.has(sec.id);
-        return (
-          <section key={sec.id}>
-            <button
-              type="button"
-              onClick={() => toggleSection(sec.id)}
-              aria-expanded={open}
-              className="mb-3 flex min-h-[44px] w-full cursor-pointer items-center gap-2 text-left active:scale-[0.99]"
-            >
-              <span className="h-2 w-2 shrink-0 rounded-full bg-accent-400" />
-              <span className="min-w-0 flex-1 truncate text-sm font-semibold text-white">
-                {sec.name}
-              </span>
-              <span className="shrink-0 text-xs font-normal text-neutral-400">
-                {sec.streams.length} kamera
-              </span>
-              <Chevron open={open} />
-            </button>
-            {open && (
-              <div className={`grid gap-4 ${colsClass}`}>
-                {sec.streams.map((s) => (
-                  <CameraTile
-                    key={s.id}
-                    stream={s}
-                    onExpand={onExpand}
-                    ad={ad}
-                    adInFrame={isFullscreen}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-        );
-      })}
-    </div>
-  );
-}
-
 export default function MonitorsPage() {
   const router = useRouter();
   const { user, loading } = useAuth();
@@ -341,7 +166,6 @@ export default function MonitorsPage() {
   const [expandedGroupId, setExpandedGroupId] = useState<number | null>(null);
   const [editing, setEditing] = useState<MonitorLayout | null>(null);
   const [focus, setFocus] = useState<Stream | null>(null);
-  const [groupMode, setGroupMode] = useState(false);
   const [ad, setAd] = useState<AdConfig | null>(null);
   const [groups, setGroups] = useState<{ id: number; name: string; stream_ids: number[] }[] | null>(null);
   const [groupsError, setGroupsError] = useState<string | null>(null);
@@ -553,13 +377,6 @@ export default function MonitorsPage() {
     }
   }, []);
 
-  /* D-R4: jangan panggil loadGroups di dalam fungsi updater setState
-     (React boleh memanggil updater dua kali di StrictMode). */
-  const toggleGroupMode = () => {
-    if (!groupMode && groups === null) loadGroups();
-    setGroupMode((v) => !v);
-  };
-
   /* Buka satu grup kamera sebagai monitor (layout sementara, tidak
      tersimpan): tampilkan semua kamera grup itu dalam kisi. */
   const openGroup = (g: { id: number; name: string; stream_ids: number[] }) => {
@@ -570,7 +387,6 @@ export default function MonitorsPage() {
       streamIds: g.stream_ids,
     });
     setOpenId(`group-${g.id}`);
-    setGroupMode(false);
   };
 
   /* Grup kamera di daftar (sebelum buka monitor tersimpan): muat sekali
@@ -614,7 +430,7 @@ export default function MonitorsPage() {
           <div>
             <SectionTitle
               title={openLayout.name}
-              desc={`${openStreams.length} kamera · ${openLayout.cols} kolom${groupMode ? " · Mode grup" : ""}`}
+              desc={`${openStreams.length} kamera · ${openLayout.cols} kolom`}
               action={
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
@@ -646,17 +462,6 @@ export default function MonitorsPage() {
                   >
                     Ubah
                   </Button>
-                  {/* D-S10: Mode grup hanya admin/super_admin; user/guest
-                      selalu 403 di /admin/groups. */}
-                  {isAdminRole(user?.role) && (
-                    <Button
-                      variant={groupMode ? "primary" : "subtle"}
-                      onClick={toggleGroupMode}
-                      aria-pressed={groupMode}
-                    >
-                      Mode grup
-                    </Button>
-                  )}
                   <Button
                     variant="subtle"
                     onClick={toggleFullscreen}
@@ -705,20 +510,6 @@ export default function MonitorsPage() {
                 <div className="nv-panel-modern p-8 text-center text-sm text-neutral-400">
                   Tidak ada kamera yang cocok, mungkin kamera sudah dihapus.
                 </div>
-              ) : groupMode ? (
-                <GroupSections
-                  groups={groups}
-                  loading={groupsLoading}
-                  error={groupsError}
-                  warning={groupsWarning}
-                  byId={byId}
-                  layoutIds={openLayout.streamIds}
-                  colsClass={COLS_CLASS[openLayout.cols] ?? COLS_CLASS[2]}
-                  onExpand={setFocus}
-                  onRetry={loadGroups}
-                  ad={ad}
-                  isFullscreen={isFullscreen}
-                />
               ) : (
                 <div
                   className={`grid gap-4 ${COLS_CLASS[openLayout.cols] ?? COLS_CLASS[2]} ${isFullscreen ? "h-dvh" : ""}`}
