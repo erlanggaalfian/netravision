@@ -25,7 +25,11 @@ from app.models.streams import Stream
 
 log = logging.getLogger("netravision.recording")
 
-SEGMENT_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})-(\d{1,6})\.mp4$")
+SEGMENT_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})-(\d{1,6})\.mp4(\.mp4)?$")
+# Toleransi .mp4.mp4: recordPath MediaMTX lama berakhiran .mp4 dan format
+# fmp4 menambahkan .mp4 lagi, jadi segmen lama bernama ...mp4.mp4 dan
+# tidak dikenali parser. recordPath sudah diperbaiki (tanpa .mp4), tapi
+# segmen lama tetap harus terbaca untuk upload + Putar Ulang.
 SEGMENT_FALLBACK_SEC = 600  # recordSegmentDuration MediaMTX
 SCAN_AHEAD_DAYS = 8
 

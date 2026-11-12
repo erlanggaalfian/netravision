@@ -31,6 +31,10 @@ def test_parse_segment_name():
     )
     assert parse_segment_name("acak.mp4") is None
     assert parse_segment_name("2026-13-99_99-99-99-000000.mp4") is None
+    # Toleransi .mp4.mp4 (recordPath lama + fmp4): segmen lama tetap terbaca.
+    assert parse_segment_name("2026-11-02_10-00-00-000000.mp4.mp4") == datetime(
+        2026, 11, 2, 10, 0, 0
+    )
 
 
 def test_list_segments_filter_dan_urut(tmp_path):

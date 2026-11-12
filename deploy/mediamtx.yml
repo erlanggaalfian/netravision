@@ -87,7 +87,7 @@ pathDefaults:
   # Perekaman: default MATI. API menyalakan per kamera via create_path
   # bila recording_enabled=true. Format & pola path kompatibel v2.0.
   record: false
-  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f.mp4
+  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
   recordFormat: fmp4
   recordPartDuration: 1s
   recordSegmentDuration: 600s
