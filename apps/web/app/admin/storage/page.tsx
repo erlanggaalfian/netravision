@@ -149,7 +149,7 @@ export default function AdminStoragePage() {
 
   async function startAuthorize() {
     if (!accountLabel.trim()) {
-      setAccountError("Isi dulu nama akun, mis. CCTV Gudang.");
+      setAccountError("Isi dulu nama akun, mis. disk1.");
       return;
     }
     setAccountError("");
@@ -308,7 +308,7 @@ export default function AdminStoragePage() {
 
   async function addAccount() {
     if (!accountLabel.trim()) {
-      setAccountError("Isi dulu nama akun, mis. CCTV Gudang.");
+      setAccountError("Isi dulu nama akun, mis. disk1.");
       return;
     }
     if (!accountToken.trim()) {
@@ -538,9 +538,9 @@ export default function AdminStoragePage() {
               Satu akun untuk satu Google Drive. Nanti bisa tambah akun lagi.
             </p>
             <div className="mt-4 space-y-4">
-              <NBField label="Nama akun" hint="Nama yang mudah dikenali, mis. CCTV Gudang.">
+              <NBField label="Nama akun" hint="Nama yang mudah dikenali, mis. disk1.">
                 <NBInput
-                  placeholder="CCTV Gudang"
+                  placeholder="disk1"
                   value={accountLabel}
                   onChange={(e) => setAccountLabel(e.target.value)}
                 />
@@ -817,7 +817,7 @@ export default function AdminStoragePage() {
             </NBField>
             <NBField label="Nama folder (opsional)" hint="Kosongkan bila ingin nama diambil dari Drive.">
               <NBInput
-                placeholder="mis. CCTV Gudang"
+                placeholder="mis. folder 1"
                 value={folderName}
                 onChange={(e) => setFolderName(e.target.value)}
               />
@@ -865,7 +865,7 @@ export default function AdminStoragePage() {
                     hint={
                       data?.staging_default
                         ? `Kosongkan untuk memakai default: ${data.staging_default}`
-                        : "Lokasi mount untuk folder ini, mis. /mnt/gdrive-gudang"
+                        : "Lokasi mount untuk folder ini, mis. /mnt/gdrive-1"
                     }
                   >
                     <NBInput
