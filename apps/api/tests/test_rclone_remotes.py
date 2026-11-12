@@ -372,6 +372,79 @@ async def test_ensure_netravision_folder_mkdir_fails(monkeypatch):
         await gr.ensure_netravision_folder("gdrive")
 
 
+async def test_drive_remote_token_stored_encrypted_in_db(app_client, monkeypatch, tmp_path):
+    """Token rclone disimpan terenkripsi di DB (bukan plaintext), tidak
+    pernah dibocorkan lewat API, dan bisa dipulihkan ke conf bila hilang."""
+    from cryptography.fernet import Fernet
+
+    monkeypatch.setenv("DRIVE_TOKEN_KEY", Fernet.generate_key().decode())
+    monkeypatch.setenv("RCLONE_DATA_DIR", str(tmp_path))
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    app, _, db_session = app_client
+    auth_as(app, make_user(role="super_admin"))
+
+    async def _fake_save(token_json, remote_name="gdrive"):
+        return {"email": "terhubung"}
+
+    async def _fake_status(remote_name):
+        return {"connected": True, "email": "terhubung",
+                "remote_name": remote_name, "total_bytes": 1000,
+                "used_bytes": 100, "free_bytes": 900}
+
+    async def _fake_ensure(remote_name="gdrive"):
+        return {
+            "folder_id": "abc123",
+            "folder_url": "https://drive.google.com/drive/folders/abc123",
+            "folder_name": "netravision",
+        }
+
+    monkeypatch.setattr(gr, "save_token", _fake_save)
+    monkeypatch.setattr(gr, "remote_status", _fake_status)
+    monkeypatch.setattr(gr, "ensure_netravision_folder", _fake_ensure)
+    monkeypatch.setattr(gr, "find_rclone", lambda: "/usr/bin/rclone")
+    async with _client(app) as c:
+        r = await c.post("/api/admin/drive-remotes", json={
+            "token": TOKEN, "remote_name": "gdrive", "label": "disk1",
+        })
+        assert r.status_code == 201
+        # Respons tidak boleh berisi token (terenkripsi maupun plaintext).
+        body = r.text
+        assert "refresh-1" not in body
+        assert "acc-1" not in body
+
+        # DB menyimpan token terenkripsi, bukan plaintext.
+        from sqlalchemy import select
+        from app.models.drive import RcloneRemote
+
+        async with db_session as db:
+            row = (await db.execute(
+                select(RcloneRemote).where(RcloneRemote.remote_name == "gdrive")
+            )).scalars().first()
+            assert row is not None
+            assert row.token_encrypted
+            assert "refresh-1" not in row.token_encrypted
+            assert "acc-1" not in row.token_encrypted
+            # Dekripsi kembali = token asli.
+            from app.core.drive_tokens import decrypt_token
+
+            assert decrypt_token(row.token_encrypted)["refresh_token"] == "refresh-1"
+
+        # Conf hilang -> pulihkan dari DB.
+        # Simulasikan conf hilang: hapus semua section.
+        gr.delete_remote("gdrive")
+        assert "gdrive" not in gr.list_remote_names()
+        async with db_session as db:
+            restored = await gr.restore_remotes_from_db(db)
+        assert restored == ["gdrive"]
+        assert "gdrive" in gr.list_remote_names()
+        # Panggil lagi: tidak ada yang dipulihkan (sudah ada).
+        async with db_session as db:
+            restored = await gr.restore_remotes_from_db(db)
+        assert restored == []
+
+
 async def test_drive_remote_create_token_invalid(app_client, monkeypatch):
     app, _, _ = app_client
     auth_as(app, make_user(role="super_admin"))

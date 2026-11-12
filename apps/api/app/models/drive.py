@@ -29,6 +29,11 @@ class RcloneRemote(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     remote_name: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     label: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Token OAuth rclone (JSON) terenkripsi Fernet (DRIVE_TOKEN_KEY).
+    # Sumber kebenaran token: bila .rclone.conf hilang, API membangun
+    # ulang conf dari kolom ini saat start. NULL = remote lama, perlu
+    # dihubungkan ulang sekali.
+    token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

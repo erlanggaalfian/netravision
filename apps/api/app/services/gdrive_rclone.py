@@ -236,6 +236,53 @@ def delete_remote(remote_name: str) -> bool:
     return True
 
 
+async def restore_remotes_from_db(db) -> list[str]:
+    """Bangun ulang section rclone di .rclone.conf dari token terenkripsi
+    di DB (rclone_remotes.token_encrypted).
+
+    Dipanggil saat API start: bila conf hilang (mis. container dibuat
+    ulang tanpa volume), semua akun pulih otomatis tanpa perlu
+    hubungkan ulang. Remote yang sudah ada di conf dilewati. Token
+    yang gagal didekripsi dilewati dengan warning (bukan crash).
+    Return daftar nama remote yang dipulihkan."""
+    from sqlalchemy import select
+
+    from app.models.drive import RcloneRemote
+
+    restored: list[str] = []
+    try:
+        rows = (await db.execute(
+            select(RcloneRemote).where(RcloneRemote.token_encrypted.is_not(None))
+        )).scalars().all()
+    except Exception as e:  # noqa: BLE001 - DB belum siap, lewati
+        log.warning("pulih token rclone: baca DB gagal: %s", e)
+        return restored
+    have = set(list_remote_names())
+    for row in rows:
+        if row.remote_name in have:
+            continue
+        try:
+            from app.core.drive_tokens import decrypt_token
+
+            token = decrypt_token(row.token_encrypted)
+        except Exception as e:  # noqa: BLE001 - key beda / data rusak
+            log.warning(
+                "pulih token rclone: dekripsi %s gagal: %s", row.remote_name, e
+            )
+            continue
+        try:
+            import json as _json
+
+            _write_conf(_json.dumps(token), row.remote_name)
+            restored.append(row.remote_name)
+            log.info("pulih token rclone: %s dipulihkan dari DB", row.remote_name)
+        except Exception as e:  # noqa: BLE001 - tulis conf gagal
+            log.warning(
+                "pulih token rclone: tulis %s gagal: %s", row.remote_name, e
+            )
+    return restored
+
+
 async def save_token(token_json: str, remote_name: str = REMOTE_NAME) -> dict:
     """Simpan token sebagai section remote + verifikasi koneksi.
 

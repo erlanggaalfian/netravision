@@ -887,12 +887,25 @@ async def create_drive_remote(
     row = (await db.execute(
         select(RcloneRemote).where(RcloneRemote.remote_name == remote_name)
     )).scalars().first()
+    # Token disimpan terenkripsi di DB (sumber kebenaran): bila .rclone.conf
+    # hilang, API membangun ulang conf dari kolom ini saat start.
+    try:
+        from app.core.drive_tokens import encrypt_token
+
+        token_enc = encrypt_token(json.loads(payload.token))
+    except Exception as e:  # noqa: BLE001 - key belum diset / token aneh
+        log.warning("simpan token rclone ke DB gagal (%s), lanjut tanpa DB", e)
+        token_enc = None
     if row is None:
-        row = RcloneRemote(remote_name=remote_name, label=label)
+        row = RcloneRemote(
+            remote_name=remote_name, label=label, token_encrypted=token_enc
+        )
         db.add(row)
         response.status_code = status.HTTP_201_CREATED
     else:
         row.label = label
+        if token_enc is not None:
+            row.token_encrypted = token_enc
         response.status_code = status.HTTP_200_OK
     await db.commit()
     await db.refresh(row)

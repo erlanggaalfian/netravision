@@ -162,6 +162,18 @@ async def lifespan(app: FastAPI):
 
     tasks.append(asyncio.create_task(authorize_proxy_loop()))
 
+    # Pulihkan token rclone dari DB bila .rclone.conf hilang (mis. container
+    # dibuat ulang tanpa volume): akun pulih otomatis tanpa hubungkan ulang.
+    try:
+        from app.services.gdrive_rclone import restore_remotes_from_db
+
+        async with get_session_factory()() as db:
+            restored = await restore_remotes_from_db(db)
+        if restored:
+            log.info("token rclone dipulihkan dari DB: %s", ", ".join(restored))
+    except Exception as e:  # noqa: BLE001 - pulih gagal, lanjut tanpa conf
+        log.warning("pulih token rclone dari DB gagal: %s", e)
+
     try:
         yield
     finally:
