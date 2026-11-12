@@ -38,11 +38,18 @@ function markerIcon(L: typeof LType, online: boolean): LType.DivIcon {
 
 /* Ikon klaster: lingkaran berisi jumlah kamera di titik itu. Saat zoom
    out, kamera yang lokasinya berdekatan digabung jadi satu titik ini;
-   saat zoom in, klaster pecah kembali jadi marker tunggal. */
-function clusterIcon(L: typeof LType, count: number): LType.DivIcon {
+   saat zoom in, klaster pecah kembali jadi marker tunggal.
+   Warna mengikuti status kamera di dalamnya: hijau bila semua nyala,
+   merah bila semua mati, kuning bila ada yang mati (campuran). */
+type ClusterStatus = "ok" | "bad" | "warn";
+function clusterIcon(
+  L: typeof LType,
+  count: number,
+  status: ClusterStatus = "ok",
+): LType.DivIcon {
   return L.divIcon({
-    html: `<span>${count}</span>`,
-    className: "nv-cluster",
+    html: `<span class="nv-cluster-num">${count}</span>`,
+    className: `nv-cluster nv-cluster-${status}`,
     iconSize: [44, 44],
     iconAnchor: [22, 22],
   });
@@ -360,8 +367,22 @@ export default function MapsPage() {
         showCoverageOnHover: false,
         zoomToBoundsOnClick: true,
         spiderfyOnMaxZoom: true,
-        iconCreateFunction: (cluster) =>
-          clusterIcon(L, cluster.getChildCount()),
+        iconCreateFunction: (cluster) => {
+          /* Warna klaster dari status kamera di dalamnya (dibaca dari
+             properti _nvOnline tiap marker). */
+          const markers = cluster.getAllChildMarkers();
+          const online = markers.filter(
+            (m) =>
+              (m as unknown as { _nvOnline?: boolean })._nvOnline !== false,
+          ).length;
+          const status: ClusterStatus =
+            online === markers.length
+              ? "ok"
+              : online === 0
+                ? "bad"
+                : "warn";
+          return clusterIcon(L, cluster.getChildCount(), status);
+        },
       }).addTo(map);
       mapRef.current = map;
       setMapReady(true);
@@ -437,6 +458,8 @@ export default function MapsPage() {
            ke koordinat lama (hasil seret harus dipertahankan). */
         if (editingLocationId !== s.id) existing.setLatLng([lat, lng]);
         existing.setIcon(markerIcon(L, s.is_online));
+        (existing as unknown as { _nvOnline?: boolean })._nvOnline =
+          s.is_online;
         const canDrag = isSuperAdmin && editingLocationId === s.id;
         existing.options.draggable = canDrag;
         if (canDrag) existing.dragging?.enable();
@@ -469,6 +492,7 @@ export default function MapsPage() {
         draggable: isSuperAdmin && editingLocationId === s.id,
         title: s.name,
       });
+      (marker as unknown as { _nvOnline?: boolean })._nvOnline = s.is_online;
 
       const el = document.createElement("div");
       const popupRoot = createRoot(el);
@@ -507,6 +531,12 @@ export default function MapsPage() {
       marker.addTo(layer);
       markersRef.current.set(s.id, marker);
     }
+
+    /* Segarkan ikon klaster agar warnanya mengikuti status online
+       terbaru (hijau/kuning/merah). */
+    (
+      layer as unknown as { refreshClusters?: () => void }
+    ).refreshClusters?.();
 
     if (bounds.length > 0 && !fittedRef.current) {
       map.fitBounds(L.latLngBounds(bounds).pad(0.25));

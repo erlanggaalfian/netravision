@@ -230,13 +230,15 @@ body {
 }
 
 /* Klaster marker peta: lingkaran berisi jumlah kamera di titik itu.
-   Warna aksen dengan cincin putih supaya terbaca di atas peta. */
+   Warna mengikuti status kamera di dalamnya (hijau = semua nyala,
+   kuning = ada yang mati, merah = semua mati), cincin putih supaya
+   terbaca di atas peta. Angka dipusatkan absolut agar tepat di tengah. */
 .nv-cluster {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 9999px;
-  background: var(--nv-accent-500);
   border: 2px solid #fff;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
   color: #fff;
@@ -244,6 +246,22 @@ body {
   font-weight: 800;
   line-height: 1;
   text-align: center;
+}
+.nv-cluster-ok {
+  background: var(--nv-ok-400);
+}
+.nv-cluster-warn {
+  background: var(--nv-warn-400);
+}
+.nv-cluster-bad {
+  background: var(--nv-bad-400);
+}
+.nv-cluster-num {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  line-height: 1;
 }
 
 /* Cegah auto-zoom iOS pada input (pola mobile yang dikunci). */
