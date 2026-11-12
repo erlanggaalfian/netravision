@@ -376,8 +376,10 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
           placement="below"
         />
       )}
-      {/* Footer kartu: titik status kecil + nama kamera saja (tanpa chip). */}
-      {!fs && (
+      {/* Footer kartu: titik status kecil + nama kamera saja (tanpa chip).
+          Disembunyikan saat layar penuh grid Monitor (fillCell): nama
+          kamera tidak ditampilkan di mode itu. */}
+      {!fs && !fillCell && (
         <div className="flex items-center gap-2 border-t border-ink-800/60 px-3.5 py-3">
           <span
             className={`h-2 w-2 shrink-0 rounded-full ${online ? "bg-ok-400" : "bg-bad-400"}`}
