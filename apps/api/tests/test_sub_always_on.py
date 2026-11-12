@@ -23,10 +23,11 @@ def test_sub_ffmpeg_cmd_main_ke_sub():
     cmd = sub_ffmpeg_cmd(7)
     assert "rtsp://127.0.0.1:$RTSP_PORT/stream_7 " in cmd
     assert cmd.endswith("rtsp://127.0.0.1:$RTSP_PORT/stream_7_sub")
-    # Balapan 404: ffmpeg mencoba lagi bila main belum siap.
-    assert "-reconnect 1" in cmd
-    assert "-reconnect_streamed 1" in cmd
-    assert "-reconnect_delay_max 5" in cmd
+    # TIDAK ada flag -reconnect: ffmpeg 8.1.3 di image mediamtx tidak
+    # mengenal opsi itu ("Option reconnect not found" -> exit 8, semua
+    # sub mati total 2026-11-13 04:54 WIB). Retry ditangani MediaMTX
+    # via runOnAvailableRestart.
+    assert "-reconnect" not in cmd
     # Parameter transcode TIDAK berubah.
     assert "-vf scale=480:270" in cmd
     assert "-b:v 120k" in cmd

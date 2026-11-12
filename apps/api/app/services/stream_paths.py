@@ -29,11 +29,12 @@ lagi menolak main -> 454 Session Not Found), main selalu siap, DAN sub selalu
 siap -> tile grid tampil tanpa menunggu ffmpeg start dan tanpa balapan 404.
 
 Balapan 404 (2026-11-13): bila ffmpeg start saat main path belum siap,
-MediaMTX jawab 404 -> ffmpeg exit 8. Penahan: flag reconnect ffmpeg
-(``-reconnect 1`` dsb.) supaya ffmpeg mencoba lagi sendiri bila input RTSP
-main belum siap, bukan langsung exit. Dengan runOnReady, ffmpeg baru
-dijalankan saat main sudah ready, jadi balapan ini sudah jauh berkurang;
-flag reconnect adalah jaring pengaman bila main sempat putus.
+MediaMTX jawab 404 -> ffmpeg exit 8. Penahan: ``runOnAvailableRestart``
+(MediaMTX menjalankan lagi ffmpeg bila exit) sehingga percobaan ulang
+terjadi saat main sudah siap. Dengan runOnAvailable, ffmpeg baru dijalankan
+saat main sudah ready, jadi balapan ini sudah jauh berkurang. JANGAN tambah
+flag -reconnect ke ffmpeg: ffmpeg 8.1.3 di image mediamtx tidak mengenal
+opsi itu dan langsung exit code 8 (penyebab sub mati total 04:54 WIB).
 
 Konsekuensi yang diterima user: 52 proses transcode ffmpeg berjalan
 terus-menerus (beban CPU konstan).
@@ -48,12 +49,15 @@ from __future__ import annotations
 
 # Parameter transkode v2 (register_transcoded_mediamtx_path). Jangan diubah
 # tanpa alasan: dipakai identik di produksi lama.
-# Tambahan 2026-11-13 (balapan 404): -reconnect* supaya ffmpeg mencoba lagi
-# sendiri bila RTSP main belum siap saat start, bukan langsung exit 8.
+# PERINGATAN 2026-11-13: JANGAN tambah flag -reconnect* di sini. ffmpeg 8.1.3
+# di image mediamtx TIDAK mengenal opsi "reconnect" ("Option reconnect not
+# found") sehingga ffmpeg langsung exit code 8 sebelum membuka input, dan
+# SEMUA sub stream mati total (darurat 04:54 WIB). Retry saat main belum
+# siap ditangani MediaMTX via runOnAvailableRestart (restart ffmpeg bila
+# exit), bukan via flag ffmpeg.
 # Codec/parameter transcode TIDAK berubah (480x270, 8 fps, 120 kbps, GOP 16).
 SUB_FFMPEG = (
-    "ffmpeg -rtsp_transport tcp -reconnect 1 -reconnect_streamed 1 "
-    "-reconnect_delay_max 5 -i rtsp://127.0.0.1:$RTSP_PORT/{main} "
+    "ffmpeg -rtsp_transport tcp -i rtsp://127.0.0.1:$RTSP_PORT/{main} "
     "-vf scale=480:270 -c:v libx264 -preset ultrafast -tune zerolatency "
     "-b:v 120k -maxrate 120k -bufsize 240k "
     "-r 8 -g 16 -an -f rtsp rtsp://127.0.0.1:$RTSP_PORT/{sub}"
@@ -139,11 +143,12 @@ def _selftest() -> None:
     assert "runOnDemandCloseAfter" not in c
     assert c["source"] == "publisher"
     # Perintah ffmpeg: main -> sub eksplisit, parameter transcode tetap.
+    # TIDAK ada flag -reconnect (ffmpeg 8.1.3 tidak mengenalnya; lihat atas).
     cmd = sub_ffmpeg_cmd(7)
     assert "rtsp://127.0.0.1:$RTSP_PORT/stream_7 " in cmd
     assert cmd.endswith("rtsp://127.0.0.1:$RTSP_PORT/stream_7_sub")
     assert "-g 16" in cmd and "-r 8" in cmd
-    assert "-reconnect 1" in cmd and "-reconnect_delay_max 5" in cmd
+    assert "-reconnect" not in cmd
     assert "-vf scale=480:270" in cmd and "-b:v 120k" in cmd
     # Main: runOnReady + restart, sourceOnDemand tetap False.
     m = main_conf("rtsp://x", True, stream_id=7)
