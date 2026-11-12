@@ -774,6 +774,15 @@ function PlaybackPanel({
                 </Button>
               </div>
             )}
+            {/* Iklan tepat di bawah video, sebelum bagian unduh. */}
+            {ad?.is_active && (
+              <AdBanner
+                config={ad}
+                hovered={panelHovered}
+                clickTick={adClickTick}
+                placement="below"
+              />
+            )}
             {/* Unduh rentang: dari jam sekian ke jam sekian, digabung jadi
                 satu file MP4. */}
             <div className="border-t border-ink-800 px-4 py-3">
@@ -819,17 +828,6 @@ function PlaybackPanel({
             </div>
           </div>
         </>
-      )}
-
-      {/* Iklan di bawah panel (di luar area 16:9), bukan overlay: tampil di
-          semua fase panel supaya tinggi panel stabil. */}
-      {ad?.is_active && (
-        <AdBanner
-          config={ad}
-          hovered={panelHovered}
-          clickTick={adClickTick}
-          placement="below"
-        />
       )}
     </div>
   );
