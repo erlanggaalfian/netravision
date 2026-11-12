@@ -441,17 +441,28 @@ export default function AdminStreamsPage() {
               <option value="offline">Offline</option>
             </NBSelect>
           </NBField>
-          <div className="flex items-end gap-2">
-            <span className="tabular-nums">
-              <NBBadge tone="info">
-                {filtered.length} dari {(streams ?? []).length}
-              </NBBadge>
+          {/* Sel jumlah sejajar kotak input: pelabel tak terlihat setinggi
+              label field, isi baris setinggi input (h-11) dan lencana
+              di tengah vertikal, supaya tidak jatuh ke bawah. */}
+          <div className="flex flex-col">
+            <span
+              className="mb-1.5 block text-sm font-semibold invisible select-none"
+              aria-hidden="true"
+            >
+              Jumlah
             </span>
-            {filtersActive && (
-              <NBButton variant="secondary" onClick={clearFilters}>
-                Bersihkan
-              </NBButton>
-            )}
+            <div className="flex h-11 items-center gap-2">
+              <span className="tabular-nums">
+                <NBBadge tone="info">
+                  {filtered.length} dari {(streams ?? []).length}
+                </NBBadge>
+              </span>
+              {filtersActive && (
+                <NBButton variant="secondary" onClick={clearFilters}>
+                  Bersihkan
+                </NBButton>
+              )}
+            </div>
           </div>
         </div>
       </NBCard>

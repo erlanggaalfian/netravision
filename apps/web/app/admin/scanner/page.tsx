@@ -254,7 +254,16 @@ export default function AdminScannerPage() {
               autoComplete="new-password"
             />
           </NBField>
-          <div className="flex items-end">
+          {/* Sel tombol sejajar kotak input: pelabel tak terlihat setinggi
+              label field, supaya tombol tidak turun mengikuti hint di
+              bawah field IP Subnet. */}
+          <div className="flex flex-col">
+            <span
+              className="mb-1.5 block text-sm font-semibold invisible select-none"
+              aria-hidden="true"
+            >
+              Aksi
+            </span>
             <NBButton onClick={doScan} disabled={scanning} className="w-full sm:w-auto">
               {scanning ? "Memindai…" : "Scan Network"}
             </NBButton>
