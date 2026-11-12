@@ -21,12 +21,21 @@ from app.db.session import get_session_factory
 from app.models.drive import GoogleDriveFolder
 from app.models.streams import Stream
 from app.services import gdrive_rclone as gr
+from app.services.disks import camera_rec_dir
 from app.services.recording import parse_segment_name
 
 log = logging.getLogger("netravision.drive_uploader")
 
 _STABLE_SEC = 20
 _INTERVAL_SEC = 60
+# Backoff antar percobaan saat Drive mati: membesar 5s, 15s, 30s, maks 60s.
+_BACKOFF_SEC = (5, 15, 30, 60)
+
+
+def _backoff_delay(failures: int) -> int:
+    """Penundaan retry setelah `failures` kegagalan berturut-turut."""
+    idx = min(max(failures - 1, 0), len(_BACKOFF_SEC) - 1)
+    return _BACKOFF_SEC[idx]
 
 
 async def _uploaded_names(stream_id: int, folder_id: str | None = None) -> set[str]:
@@ -62,8 +71,11 @@ async def _mark_uploaded(stream_id: int, segment_name: str, folder_id: str) -> N
         await db.commit()
 
 
-async def _camera_targets() -> list[tuple[int, str, str]]:
-    """(stream_id, nama_kamera, folder_drive_id) untuk kamera mode drive/both."""
+async def _camera_targets() -> list[tuple[int, str, str, str]]:
+    """(stream_id, nama_kamera, folder_drive_id, rec_dir) untuk kamera
+    mode drive/both. rec_dir dihitung di dalam sesi via camera_rec_dir
+    (rekaman multi-disk)."""
+    settings = get_settings()
     async with get_session_factory()() as db:
         folders = (
             (await db.execute(select(GoogleDriveFolder).order_by(GoogleDriveFolder.id)))
@@ -75,21 +87,30 @@ async def _camera_targets() -> list[tuple[int, str, str]]:
         by_id = {f.id: f.folder_id for f in folders}
         default_fid = folders[0].folder_id
         res = await db.execute(
-            select(Stream.id, Stream.name, Stream.drive_folder_id).where(
+            select(Stream).where(
                 Stream.recording_enabled.is_(True),
                 Stream.storage_mode.in_(["both", "drive"]),
             )
         )
         out = []
-        for sid, name, fid in res.all():
-            drive_fid = by_id.get(fid) if fid else None
-            out.append((sid, name or f"Kamera {sid}", drive_fid or default_fid))
+        for s in res.scalars().all():
+            drive_fid = by_id.get(s.drive_folder_id) if s.drive_folder_id else None
+            out.append(
+                (
+                    s.id,
+                    s.name or f"Kamera {s.id}",
+                    drive_fid or default_fid,
+                    camera_rec_dir(s, settings.recordings_dir),
+                )
+            )
         return out
 
 
-def _stable_segments(stream_id: int, recordings_dir: str) -> list[tuple[str, str]]:
-    """[(nama_file, path)] segmen stabil di stream dir."""
-    sdir = os.path.join(recordings_dir, f"stream_{stream_id}")
+def _stable_segments(sdir: str) -> list[tuple[str, str]]:
+    """[(nama_file, path)] segmen stabil di direktori segmen kamera.
+
+    sdir = direktori segmen sebenarnya (camera_rec_dir, multi-disk).
+    """
     if not os.path.isdir(sdir):
         return []
     now = time.time()
@@ -115,15 +136,13 @@ async def _upload_once() -> None:
     status = await gr.connection_status()
     if not status.get("connected"):
         return
-    settings = get_settings()
-    recordings_dir = settings.recordings_dir
-    for sid, cam_name, folder_id in await _camera_targets():
+    for sid, cam_name, folder_id, rec_dir in await _camera_targets():
         try:
             done = await _uploaded_names(sid, folder_id)
         except Exception as e:  # noqa: BLE001
             log.warning("uploader: baca drive_uploads gagal: %s", e)
             continue
-        for seg_name, seg_path in _stable_segments(sid, recordings_dir):
+        for seg_name, seg_path in _stable_segments(rec_dir):
             if seg_name in done:
                 continue
             remote = f"{cam_name}/{seg_name}"
@@ -137,10 +156,30 @@ async def _upload_once() -> None:
 
 
 async def upload_loop() -> None:
+    """Loop latar: tiap 60 detik coba upload segmen stabil.
+
+    Drive mati tidak mematikan loop: kegagalan satu putaran dicatat,
+    lalu retry dengan backoff yang membesar (5s, 15s, 30s, maks 60s),
+    direset ke interval normal setelah satu putaran sukses. Segmen lokal
+    TIDAK pernah dihapus di sini; yang dicatat hanya jejak ter-upload di
+    drive_uploads, jadi segmen yang gagal tetap dicoba lagi putaran
+    berikut."""
     log.info("drive_uploader: mulai")
+    failures = 0
     while True:
         try:
             await _upload_once()
+            failures = 0
         except Exception as e:  # noqa: BLE001
-            log.warning("drive_uploader: %s", e)
+            failures += 1
+            delay = _backoff_delay(failures)
+            log.warning(
+                "drive_uploader: putaran gagal (%d kali berturut-turut), "
+                "coba lagi dalam %ds: %s",
+                failures,
+                delay,
+                e,
+            )
+            await asyncio.sleep(delay)
+            continue
         await asyncio.sleep(_INTERVAL_SEC)

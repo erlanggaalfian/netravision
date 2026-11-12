@@ -239,17 +239,20 @@ class DriveUploader:
 
             from app.models.streams import Stream
 
-            q = select(Stream.id, Stream.name, Stream.drive_account_id, Stream.storage_mode)
+            q = select(Stream.id, Stream.name, Stream.drive_account_id, Stream.storage_mode, Stream.record_disk, Stream.group_name)
             rows = (await db.execute(q)).all()
             for r in rows:
                 names[r.id] = r.name
                 if self._mine(r.drive_account_id, r.storage_mode):
                     mine.add(r.id)
+        # Direktori yang dipindai: legacy recordings_dir/stream_{id} plus
+        # direktori multi-disk (camera_rec_dir) untuk kamera yang
+        # record_disk-nya terisi (segmennya tidak ada di recordings_dir).
+        targets: list[tuple[int, str, str]] = []
         try:
             entries = sorted(os.listdir(s.recordings_dir))
         except OSError:
-            return 0
-        count = 0
+            entries = []
         for entry in entries:
             m = _re.match(r"^stream_(\d+)$", entry)
             if not m:
@@ -260,7 +263,31 @@ class DriveUploader:
             d = os.path.join(s.recordings_dir, entry)
             if not os.path.isdir(d):
                 continue
-            stream_name = names.get(sid, entry)
+            targets.append((sid, names.get(sid, entry), d))
+        if db is not None:
+            from types import SimpleNamespace
+
+            from app.services.disks import camera_rec_dir
+
+            for r in rows:
+                if not getattr(r, "record_disk", None):
+                    continue
+                if r.id not in mine:
+                    continue
+                fake = SimpleNamespace(
+                    id=r.id,
+                    name=r.name,
+                    group_name=getattr(r, "group_name", None),
+                    record_disk=r.record_disk,
+                )
+                d = camera_rec_dir(fake, s.recordings_dir)
+                if not os.path.isdir(d):
+                    continue
+                if any(t[2] == d for t in targets):
+                    continue
+                targets.append((r.id, r.name, d))
+        count = 0
+        for sid, stream_name, d in targets:
             try:
                 folder_id = await self.ensure_folder(stream_name, sid)
                 files = sorted(os.listdir(d))

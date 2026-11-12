@@ -12,6 +12,7 @@ import {
   NBEmptyState,
   NBField,
   NBInput,
+  NBTextArea,
   NBTitle,
 } from "../_nb";
 
@@ -22,8 +23,36 @@ interface GDriveFolder {
   folder_name: string;
   local_path: string;
   local_path_custom: boolean;
+  retention_days: number | null;
   updated_at: string | null;
   updated_by: string;
+}
+
+interface RcloneRemote {
+  id: number | null;
+  remote_name: string;
+  label: string | null;
+  connected: boolean;
+  error?: string;
+  total_bytes?: number;
+  used_bytes?: number;
+  free_bytes?: number;
+  in_conf?: boolean;
+  in_db?: boolean;
+}
+
+interface UploadQueue {
+  pending: number;
+  last_success_at: string | null;
+  remotes: { remote_name: string; connected: boolean }[];
+}
+
+function fmtBytes(n: number | undefined | null): string {
+  if (n == null) return "-";
+  if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)} GB`;
+  if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MB`;
+  if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${n} B`;
 }
 
 interface GDriveList {
@@ -61,6 +90,17 @@ export default function AdminStoragePage() {
   const [token, setToken] = useState("");
   const [connectBusy, setConnectBusy] = useState(false);
   const [connectError, setConnectError] = useState("");
+  // Akun rclone multi-remote + antrean upload
+  const [remotes, setRemotes] = useState<RcloneRemote[]>([]);
+  const [queue, setQueue] = useState<UploadQueue | null>(null);
+  const [remoteToken, setRemoteToken] = useState("");
+  const [remoteName, setRemoteName] = useState("");
+  const [remoteLabel, setRemoteLabel] = useState("");
+  const [remoteBusy, setRemoteBusy] = useState(false);
+  const [remoteError, setRemoteError] = useState("");
+  const [deletingRemote, setDeletingRemote] = useState<RcloneRemote | null>(null);
+  const [retention, setRetention] = useState<Record<number, string>>({});
+  const [retentionBusy, setRetentionBusy] = useState<number | null>(null);
 
   function openConnect() {
     setConnectError("");
@@ -70,9 +110,34 @@ export default function AdminStoragePage() {
 
   async function load() {
     try {
-      setData(await api.get<GDriveList>("/admin/storage/google-drive"));
+      const res = await api.get<GDriveList>("/admin/storage/google-drive");
+      setData(res);
+      setRetention(
+        Object.fromEntries(
+          res.folders.map((f) => [
+            f.id,
+            f.retention_days != null ? String(f.retention_days) : "",
+          ]),
+        ),
+      );
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Gagal memuat daftar folder");
+    }
+  }
+
+  async function loadRemotes() {
+    try {
+      setRemotes(await api.get<RcloneRemote[]>("/admin/drive-remotes"));
+    } catch {
+      setRemotes([]);
+    }
+  }
+
+  async function loadQueue() {
+    try {
+      setQueue(await api.get<UploadQueue>("/admin/drive/upload-queue"));
+    } catch {
+      setQueue(null);
     }
   }
 
@@ -87,6 +152,8 @@ export default function AdminStoragePage() {
   useEffect(() => {
     load();
     loadConn();
+    loadRemotes();
+    loadQueue();
   }, []);
 
   async function connect() {
@@ -155,6 +222,68 @@ export default function AdminStoragePage() {
     }
   }
 
+  async function addRemote() {
+    if (!remoteToken.trim() || !remoteName.trim()) {
+      setRemoteError("Isi nama remote dan tempel token dari `rclone authorize`.");
+      return;
+    }
+    setRemoteError("");
+    setRemoteBusy(true);
+    try {
+      await api.post("/admin/drive-remotes", {
+        token: remoteToken.trim(),
+        remote_name: remoteName.trim(),
+        label: remoteLabel.trim() || undefined,
+      });
+      setRemoteToken("");
+      setRemoteName("");
+      setRemoteLabel("");
+      await loadRemotes();
+      await loadQueue();
+    } catch (e) {
+      setRemoteError(e instanceof ApiError ? e.message : "Gagal menambah akun");
+    } finally {
+      setRemoteBusy(false);
+    }
+  }
+
+  async function removeRemote() {
+    if (!deletingRemote) return;
+    setError("");
+    try {
+      await api.del(`/admin/drive-remotes/${deletingRemote.remote_name}`);
+      setDeletingRemote(null);
+      await loadRemotes();
+      await loadQueue();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Gagal menghapus akun");
+    }
+  }
+
+  async function saveRetention(f: GDriveFolder) {
+    const raw = (retention[f.id] ?? "").trim();
+    const days = raw === "" ? null : Number(raw);
+    if (days !== null && (!Number.isInteger(days) || days < 1)) {
+      setError("Retention harus angka bulat minimal 1 hari, atau kosong.");
+      return;
+    }
+    setError("");
+    setRetentionBusy(f.id);
+    try {
+      await api.put(`/admin/storage/google-drive/${f.id}`, {
+        folder_url: f.folder_url,
+        folder_name: f.folder_name,
+        local_path: f.local_path,
+        retention_days: days,
+      });
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Gagal menyimpan retention");
+    } finally {
+      setRetentionBusy(null);
+    }
+  }
+
   if (data === null && !error) return <Spinner />;
 
   return (
@@ -204,6 +333,126 @@ export default function AdminStoragePage() {
         </div>
       </NBCard>
 
+      {/* Antrean upload segmen ke Drive */}
+      <NBCard className="mb-6">
+        <p className="text-lg font-bold tracking-tight text-white">Antrean Upload</p>
+        {queue === null ? (
+          <p className="mt-1 text-sm text-slate-400">Status antrean belum bisa dimuat.</p>
+        ) : (
+          <>
+            <p className="mt-1 text-sm text-slate-400">
+              {queue.pending} segmen menunggu upload. Terakhir berhasil upload:{" "}
+              {queue.last_success_at
+                ? new Date(queue.last_success_at).toLocaleString("id-ID")
+                : "belum pernah"}
+              .
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {queue.remotes.length === 0 && (
+                <span className="text-sm text-slate-400">Belum ada remote rclone.</span>
+              )}
+              {queue.remotes.map((r) => (
+                <NBBadge key={r.remote_name} tone={r.connected ? "ok" : "warn"}>
+                  {r.remote_name}: {r.connected ? "terhubung" : "putus"}
+                </NBBadge>
+              ))}
+            </div>
+          </>
+        )}
+      </NBCard>
+
+      {/* Akun Rclone multi-remote */}
+      <NBCard className="mb-6">
+        <p className="text-lg font-bold tracking-tight text-white">Akun Rclone</p>
+        <p className="mt-1 text-sm text-slate-400">
+          Satu remote rclone per akun Google Drive. Tempel token dari `rclone
+          authorize &quot;drive&quot;` untuk menambah akun.
+        </p>
+        {remotes.length === 0 ? (
+          <div className="mt-4">
+            <NBEmptyState text="Belum ada akun rclone. Tambahkan di bawah." />
+          </div>
+        ) : (
+          <div className="mt-4 space-y-2">
+            {remotes.map((r) => (
+              <div
+                key={r.remote_name}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-ink-800 px-3.5 py-2.5"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-slate-100">
+                    {r.remote_name}
+                    {r.label ? (
+                      <span className="font-normal text-slate-400"> ({r.label})</span>
+                    ) : (
+                      ""
+                    )}
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    {r.connected
+                      ? "Terhubung"
+                      : `Putus${r.error ? `: ${r.error}` : ""}`}
+                    {r.total_bytes != null && r.used_bytes != null
+                      ? `, terpakai ${fmtBytes(r.used_bytes)} dari ${fmtBytes(r.total_bytes)}`
+                      : ""}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <NBBadge tone={r.connected ? "ok" : "warn"}>
+                    {r.connected ? "Terhubung" : "Putus"}
+                  </NBBadge>
+                  <NBButton
+                    variant="danger"
+                    onClick={() => setDeletingRemote(r)}
+                    className="px-3"
+                  >
+                    Hapus
+                  </NBButton>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="mt-5 space-y-4 border-t border-slate-200/10 pt-4">
+          <p className="text-sm font-semibold text-slate-200">Tambah Akun</p>
+          <NBField
+            label="Nama Remote"
+            hint="Huruf, angka, '-' dan '_' saja, mis. gdrive-2."
+          >
+            <NBInput
+              placeholder="gdrive-2"
+              value={remoteName}
+              onChange={(e) => setRemoteName(e.target.value)}
+            />
+          </NBField>
+          <NBField label="Label (opsional)">
+            <NBInput
+              placeholder="mis. akun2@mail.com"
+              value={remoteLabel}
+              onChange={(e) => setRemoteLabel(e.target.value)}
+            />
+          </NBField>
+          <NBField label="Token rclone" hint='Mulai dengan {"access_token": ...'>
+            <NBTextArea
+              rows={3}
+              placeholder='{"access_token":"ya29...","token_type":"Bearer","refresh_token":"1//...","expiry":"..."}'
+              value={remoteToken}
+              onChange={(e) => setRemoteToken(e.target.value)}
+            />
+          </NBField>
+          {remoteError && (
+            <div>
+              <ErrorBox message={remoteError} />
+            </div>
+          )}
+          <div>
+            <NBButton onClick={addRemote} disabled={remoteBusy}>
+              {remoteBusy ? "Menambah…" : "+ Tambah Akun"}
+            </NBButton>
+          </div>
+        </div>
+      </NBCard>
+
       {/* Daftar tautan: list ringkas ala menu Admin, detail di accordion */}
       <div className="mb-6">
         <h2 className="mb-1.5 px-1 text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
@@ -243,6 +492,37 @@ export default function AdminStoragePage() {
                       {f.updated_by ? ` oleh ${f.updated_by}` : ""}
                     </p>
                   )}
+                  <div className="pt-2">
+                    <NBField
+                      label="Retention (hari)"
+                      hint="Kosongkan bila tidak ada hapus otomatis. File .mp4 di folder Drive ini yang lebih tua dari nilai ini dihapus otomatis."
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="w-28">
+                          <NBInput
+                            type="number"
+                            min={1}
+                            placeholder="mis. 30"
+                            value={retention[f.id] ?? ""}
+                            onChange={(e) =>
+                              setRetention((prev) => ({
+                                ...prev,
+                                [f.id]: e.target.value,
+                              }))
+                            }
+                          />
+                        </div>
+                        <NBButton
+                          variant="secondary"
+                          onClick={() => saveRetention(f)}
+                          disabled={retentionBusy === f.id}
+                          className="px-3"
+                        >
+                          {retentionBusy === f.id ? "Menyimpan…" : "Simpan"}
+                        </NBButton>
+                      </div>
+                    </NBField>
+                  </div>
                   <div className="pt-2">
                     <NBButton
                       variant="danger"
@@ -321,6 +601,15 @@ export default function AdminStoragePage() {
           message={`Hapus "${deleting.folder_name || deleting.folder_id}"? Kamera yang memakai folder ini kembali ke default.`}
           onCancel={() => setDeleting(null)}
           onConfirm={remove}
+        />
+      )}
+
+      {deletingRemote && (
+        <NBConfirmModal
+          title="Hapus akun rclone"
+          message={`Hapus remote "${deletingRemote.remote_name}"? Token di server ikut dihapus dan upload ke akun ini berhenti.`}
+          onCancel={() => setDeletingRemote(null)}
+          onConfirm={removeRemote}
         />
       )}
 

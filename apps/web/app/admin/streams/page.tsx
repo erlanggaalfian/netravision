@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import { useCameraStatus } from "../../../hooks/useCameraStatus";
-import type { AdConfig, DriveFolder, Group, ScanPath, ScanResult, Stream } from "../../../lib/types";
+import type { AdConfig, Disk, DriveFolder, Group, ScanPath, ScanResult, Stream } from "../../../lib/types";
 import { ShareModal } from "../../../components/ShareModal";
 import { FocusModal } from "../../../components/FocusModal";
 import { ErrorBox, Modal, Spinner } from "../../../components/ui";
@@ -75,6 +75,67 @@ function coordError(lat: string, lon: string): string | null {
     return "Longitude harus angka -180 sampai 180.";
   }
   return null;
+}
+
+/* Sanitasi satu segmen path rekaman: hanya alnum, "-", "_", spasi jadi "_". */
+function sanitizePathPart(v: string): string {
+  return v.replace(/[^A-Za-z0-9\-_ ]/g, "_").replace(/ /g, "_");
+}
+
+/* Pilihan disk rekaman + info ketersediaan + path rekaman live.
+   Dipakai form Tambah dan form Ubah. */
+function DiskPicker({
+  disks,
+  value,
+  onChange,
+  groupNames,
+  cameraName,
+}: {
+  disks: Disk[];
+  value: string;
+  onChange: (v: string) => void;
+  groupNames: string[];
+  cameraName: string;
+}) {
+  const selected = disks.find((d) => d.mount === value) ?? null;
+  const defaultDisk = disks.find((d) => d.mount === "/") ?? null;
+  /* Info disk terpilih; bila Default, info disk default ("/") bila ada,
+     bila tidak ada sembunyikan baris ini. */
+  const infoDisk = selected ?? (value === "" ? defaultDisk : null);
+  const firstGroup = [...groupNames].sort((a, b) => a.localeCompare(b))[0] ?? "";
+  const diskForPath = value === "" ? "/" : value;
+  const path =
+    `${diskForPath.replace(/\/$/, "")}/recordings/` +
+    `${sanitizePathPart(firstGroup.trim() === "" ? "Default" : firstGroup)}/` +
+    `${sanitizePathPart(cameraName.trim() === "" ? "stream" : cameraName)}/`;
+  /* Nilai tersimpan yang sudah tidak ada di list disk tetap ditampilkan
+     supaya data lama tidak hilang diam-diam. */
+  const showValueAsOption = value !== "" && !selected;
+  return (
+    <div className="space-y-2">
+      <NBField label="Save to disk">
+        <NBSelect value={value} onChange={(e) => onChange(e.target.value)}>
+          <option value="">Default</option>
+          {disks.map((d) => (
+            <option key={d.mount} value={d.mount}>
+              {d.mount} ({d.avail_human} free / {d.size_human})
+            </option>
+          ))}
+          {showValueAsOption && <option value={value}>{value}</option>}
+        </NBSelect>
+      </NBField>
+      {infoDisk && (
+        <p className="text-xs text-slate-400">
+          Available: {infoDisk.avail_human} | Usage: {infoDisk.usage_pct}%
+        </p>
+      )}
+      <NBField label="Recording path">
+        <p className="break-all rounded-xl bg-ink-800 px-4 py-3 font-mono text-[13px] text-slate-300">
+          {path}
+        </p>
+      </NBField>
+    </div>
+  );
 }
 
 function CameraIcon({ className = "" }: { className?: string }) {
@@ -219,6 +280,8 @@ export default function AdminStreamsPage() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [groupMap, setGroupMap] = useState<Record<number, string[]>>({});
   const [driveFolders, setDriveFolders] = useState<DriveFolder[]>([]);
+  /* Daftar disk untuk pilihan Save to disk di form tambah/ubah. */
+  const [disks, setDisks] = useState<Disk[]>([]);
   /* Kamera yang boleh dibagikan admin biasa (can_reshare dari
      superadmin). Superadmin boleh membagikan semua kamera. */
   const [reshareIds, setReshareIds] = useState<Set<number>>(new Set());
@@ -283,6 +346,9 @@ export default function AdminStreamsPage() {
     api.get<AdConfig>("/ad-config").then(setAd).catch(() => {});
     /* Akun Drive opsional, sembunyikan field bila gagal dimuat. */
     api.get<{ folders: DriveFolder[] }>("/admin/storage/google-drive").then((d) => setDriveFolders(d.folders ?? [])).catch(() => {});
+    /* Daftar disk untuk pilihan Save to disk; diam bila gagal
+       (mis. bukan superadmin, endpoint super_admin-only). */
+    api.get<Disk[]>("/admin/disks").then(setDisks).catch(() => setDisks([]));
     loadGroups();
     /* Admin biasa: muat grant can_reshare agar tombol Bagikan hanya
        tampil di kamera yang diizinkan superadmin untuk dibagikan. */
@@ -596,6 +662,7 @@ export default function AdminStreamsPage() {
       {showAdd && (
         <AddStreamModal
           driveFolders={driveFolders}
+          disks={disks}
           onClose={() => setShowAdd(false)}
           onDone={() => {
             setShowAdd(false);
@@ -607,6 +674,8 @@ export default function AdminStreamsPage() {
         <EditStreamModal
           stream={editing}
           driveFolders={driveFolders}
+          disks={disks}
+          groupNames={groupMap[editing.id] ?? []}
           onClose={() => setEditing(null)}
           onDone={() => {
             setEditing(null);
@@ -883,10 +952,12 @@ function BulkGroupModal({
 
 function AddStreamModal({
   driveFolders,
+  disks,
   onClose,
   onDone,
 }: {
   driveFolders: DriveFolder[];
+  disks: Disk[];
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -902,6 +973,7 @@ function AddStreamModal({
   const [results, setResults] = useState<ScanResult | null>(null);
   const [picked, setPicked] = useState<ScanPath | null>(null);
   const [recordingEnabled, setRecordingEnabled] = useState(false);
+  const [recordDisk, setRecordDisk] = useState("");
   const [retentionDays, setRetentionDays] = useState("7");
   const [latitude, setLatitude] = useState("");
   const [longitude, setLongitude] = useState("");
@@ -966,6 +1038,7 @@ function AddStreamModal({
               ? null
               : parseInt(driveFolderId, 10),
           recording_enabled: recordingEnabled,
+          record_disk: recordDisk,
           retention_days: Math.min(365, Math.max(1, parseInt(retentionDays, 10) || 7)),
           latitude: lat !== null && !Number.isNaN(lat) ? lat : null,
           longitude: lon !== null && !Number.isNaN(lon) ? lon : null,
@@ -1104,6 +1177,13 @@ function AddStreamModal({
             />
             Simpan rekaman ke disk
           </label>
+          <DiskPicker
+            disks={disks}
+            value={recordDisk}
+            onChange={setRecordDisk}
+            groupNames={[]}
+            cameraName={name}
+          />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <NBField label="Retensi (hari)" hint="1-365">
               <NBInput
@@ -1244,11 +1324,15 @@ function AddStreamModal({
 function EditStreamModal({
   stream,
   driveFolders,
+  disks,
+  groupNames,
   onClose,
   onDone,
 }: {
   stream: Stream;
   driveFolders: DriveFolder[];
+  disks: Disk[];
+  groupNames: string[];
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -1259,6 +1343,7 @@ function EditStreamModal({
     stream.drive_folder_id != null ? String(stream.drive_folder_id) : "",
   );
   const [recordingEnabled, setRecordingEnabled] = useState(stream.recording_enabled);
+  const [recordDisk, setRecordDisk] = useState(stream.record_disk ?? "");
   const [retentionDays, setRetentionDays] = useState(String(stream.retention_days));
   const [latitude, setLatitude] = useState(
     stream.latitude !== null ? String(stream.latitude) : "",
@@ -1293,6 +1378,7 @@ function EditStreamModal({
         is_active: isActive,
         storage_mode: storageMode,
         recording_enabled: recordingEnabled,
+        record_disk: recordDisk,
         retention_days: Math.min(365, Math.max(1, parseInt(retentionDays, 10) || 7)),
         latitude: lat !== null && !Number.isNaN(lat) ? lat : null,
         longitude: lon !== null && !Number.isNaN(lon) ? lon : null,
@@ -1346,6 +1432,13 @@ function EditStreamModal({
             />
             Simpan rekaman ke disk
           </label>
+          <DiskPicker
+            disks={disks}
+            value={recordDisk}
+            onChange={setRecordDisk}
+            groupNames={groupNames}
+            cameraName={name}
+          />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <NBField label="Retensi (hari)" hint="1-365">
               <NBInput

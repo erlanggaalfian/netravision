@@ -56,6 +56,7 @@ def stream_to_out(stream: Stream, settings: Settings) -> StreamOut:
         drive_folder_id=stream.drive_folder_id,
         recording_enabled=stream.recording_enabled,
         retention_days=stream.retention_days,
+        record_disk=stream.record_disk,
     )
 
 
@@ -189,6 +190,7 @@ async def reconnect_stream(
 ):
     """Hapus + daftarkan ulang path MediaMTX dari main_url/sub_url tersimpan."""
     stream = await _get_stream_or_404(db, stream_id)
+    from app.services.disks import record_path_for
     from app.services.stream_paths import register_stream
 
     # Pertahankan flag record: tanpa ini rekaman per kamera mati senyap.
@@ -198,7 +200,13 @@ async def reconnect_stream(
         await mediamtx.delete_path(f"stream_{stream_id}_sub")
         source = stream.main_url or stream.rtsp_url
         if source:
-            await register_stream(mediamtx, stream_id, source, record)
+            await register_stream(
+                mediamtx, stream_id, source, record,
+                retention_days=stream.retention_days,
+                record_path=record_path_for(
+                    stream, get_settings().recordings_dir
+                ),
+            )
     except Exception as e:  # noqa: BLE001 - semua kegagalan MediaMTX -> 502, bukan 500
         log.warning("reconnect stream %s gagal: %s", stream_id, e)
         raise HTTPException(status_code=502, detail=f"MediaMTX tidak terjangkau: {e}")

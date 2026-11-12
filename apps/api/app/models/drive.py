@@ -9,10 +9,29 @@ NULL = pakai akun default (is_default).
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, Text, Uuid, func
+from sqlalchemy import Boolean, DateTime, Integer, String, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+
+
+class RcloneRemote(Base):
+    """Satu remote rclone di .rclone.conf (multi-akun Google Drive).
+
+    remote_name adalah nama section di conf (mis. gdrive, gdrive-2) dan
+    dipakai sebagai `rclone:{remote}` pada record_disk: rekaman ditulis
+    lokal dulu (staging), lalu di-upload ke remote itu. JANGAN pakai
+    `rclone mount` (FUSE) sebagai jalur utama.
+    """
+
+    __tablename__ = "rclone_remotes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    remote_name: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    label: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class DriveAccount(Base):
@@ -81,6 +100,10 @@ class GoogleDriveFolder(Base):
     # Mount point rclone untuk folder ini (mis. /mnt/gdrive-cctv).
     # Kosong = pakai env GDRIVE_RECORD_PATH (kompatibel lama).
     local_path: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    # Retensi per folder (hari): file .mp4 di folder Drive ini yang lebih
+    # tua dari nilai ini dihapus otomatis oleh cleanup_folder_retention.
+    # None = tidak ada hapus otomatis per folder.
+    retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

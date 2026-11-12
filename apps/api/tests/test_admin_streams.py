@@ -171,7 +171,7 @@ async def test_disks(app_client):
     admin, _ = await _seed(db)
     auth_as(app, admin)
     async with _client(app) as c:
-        r = await c.get("/api/admin/disks")
+        r = await c.get("/api/admin/disk-summary")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["total"] > 0 and body["free"] >= 0

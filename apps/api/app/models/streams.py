@@ -39,6 +39,10 @@ class Stream(Base, TimestampMixin):
     retention_days: Mapped[int] = mapped_column(Integer, nullable=False, default=7)
     storage_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="local")
 
+    # Disk tujuan rekaman per kamera (mount point, mis. "/mnt/disk2").
+    # Kosong/NULL = pakai recordings_dir default (perilaku lama).
+    record_disk: Mapped[str | None] = mapped_column(String(100), nullable=True, default="")
+
     # Pemilik kamera (dikelola via POST /api/admin/streams/{id}/owner).
     owner_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

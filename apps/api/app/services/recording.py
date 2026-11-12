@@ -48,6 +48,22 @@ def _stream_dir(stream_id: int, recordings_dir: str) -> str:
     return os.path.join(recordings_dir, f"stream_{stream_id}")
 
 
+def _segment_dir(
+    stream_id: int, recordings_dir: str, stream: Stream | None = None
+) -> str:
+    """Direktori segmen: via camera_rec_dir bila stream diberikan
+    (rekaman multi-disk), bila tidak legacy {recordings_dir}/stream_{id}.
+
+    Impor camera_rec_dir dilakukan di sini (bukan di atas) untuk
+    menghindari impor sirkular: disks memakai SEGMENT_RE dari modul ini.
+    """
+    if stream is not None:
+        from app.services.disks import camera_rec_dir  # noqa: PLC0415
+
+        return camera_rec_dir(stream, recordings_dir)
+    return _stream_dir(stream_id, recordings_dir)
+
+
 def parse_segment_name(name: str) -> datetime | None:
     """'2026-11-02_10-00-00-000000.mp4' -> datetime, atau None bila tak cocok."""
     m = SEGMENT_RE.match(name)
@@ -81,10 +97,15 @@ def list_segments(
     stream_id: int,
     day: date | None = None,
     recordings_dir: str | None = None,
+    stream: Stream | None = None,
 ) -> list[Segment]:
-    """Pindai segmen stream; bila `day` diisi hanya tanggal itu (waktu lokal)."""
+    """Pindai segmen stream; bila `day` diisi hanya tanggal itu (waktu lokal).
+
+    Bila `stream` diberikan, direktori dibaca via camera_rec_dir (rekaman
+    multi-disk); bila tidak, legacy {recordings_dir}/stream_{id}.
+    """
     root = _recordings_dir(recordings_dir)
-    d = _stream_dir(stream_id, root)
+    d = _segment_dir(stream_id, root, stream)
     out: list[Segment] = []
     try:
         names = os.listdir(d)
@@ -111,9 +132,10 @@ def build_timeline(
     stream_id: int,
     day: date,
     recordings_dir: str | None = None,
+    stream: Stream | None = None,
 ) -> dict:
     """Linimasa satu hari. `events` diisi modul AI (Fase 6); sekarang []."""
-    segments = list_segments(stream_id, day, recordings_dir)
+    segments = list_segments(stream_id, day, recordings_dir, stream=stream)
     return {
         "date": day.isoformat(),
         "entries": [
@@ -132,13 +154,14 @@ def find_next_playable(
     stream_id: int,
     after: datetime,
     recordings_dir: str | None = None,
+    stream: Stream | None = None,
 ) -> tuple[Segment, datetime] | None:
     """Segmen yang memuat `after`, atau segmen berikutnya. None bila tak ada."""
     if after.tzinfo is not None:
         after = after.replace(tzinfo=None)  # samakan dengan waktu lokal file
     for delta in range(SCAN_AHEAD_DAYS):
         day = (after + timedelta(days=delta)).date()
-        for seg in list_segments(stream_id, day, recordings_dir):
+        for seg in list_segments(stream_id, day, recordings_dir, stream=stream):
             end = seg.end or seg.start
             if seg.start <= after < end:
                 return seg, after
@@ -176,7 +199,7 @@ async def apply_retention(db: AsyncSession, recordings_dir: str | None = None) -
                 )
             )
             uploaded = {r[0] for r in res.all()}
-        for seg in list_segments(stream.id, None, root):
+        for seg in list_segments(stream.id, None, root, stream=stream):
             if seg.start < cutoff:
                 if uploaded is not None and seg.name not in uploaded:
                     kept_unuploaded += 1
@@ -196,7 +219,11 @@ async def apply_retention(db: AsyncSession, recordings_dir: str | None = None) -
     return deleted
 
 
-def list_dates(stream_id: int, recordings_dir: str | None = None) -> list[str]:
+def list_dates(
+    stream_id: int,
+    recordings_dir: str | None = None,
+    stream: Stream | None = None,
+) -> list[str]:
     """Tanggal-tanggal (ISO) yang punya segmen, menaik."""
-    days = {s.start.date().isoformat() for s in list_segments(stream_id, None, recordings_dir)}
+    days = {s.start.date().isoformat() for s in list_segments(stream_id, None, recordings_dir, stream=stream)}
     return sorted(days)

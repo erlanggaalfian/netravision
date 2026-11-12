@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     # Retensi lokal harian (per stream: retention_days di DB).
     retention_enabled: bool = True
 
+    # Rekaman multi-disk: bersih-bersih otomatis disk yang hampir penuh.
+    disk_cleanup_enabled: bool = True
+    disk_cleanup_threshold_pct: float = 90.0
+    disk_cleanup_target_pct: float = 85.0
+    disk_cleanup_interval_sec: int = 300
+
     # Google Drive, MODUL OPSIONAL, default nonaktif.
     drive_enabled: bool = False
     drive_credentials_file: str = "data/drive/credentials.json"

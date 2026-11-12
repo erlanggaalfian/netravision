@@ -38,7 +38,8 @@ def sub_path(stream_id: int) -> str:
     return f"stream_{stream_id}_sub"
 
 
-def main_conf(source: str, record: bool, retention_days: int | None = None) -> dict:
+def main_conf(source: str, record: bool, retention_days: int | None = None,
+              record_path: str | None = None) -> dict:
     conf = {
         "source": source,
         "rtspTransport": "tcp",
@@ -50,6 +51,10 @@ def main_conf(source: str, record: bool, retention_days: int | None = None) -> d
     # None = biarkan default MediaMTX (168 jam).
     if record and retention_days:
         conf["recordDeleteAfter"] = f"{int(retention_days) * 24}h"
+    # Rekaman multi-disk: recordPath per kamera dari record_disk-nya
+    # (record_path_for). None = biarkan default MediaMTX (recordings_dir).
+    if record and record_path:
+        conf["recordPath"] = record_path
     return conf
 
 
@@ -64,10 +69,12 @@ def sub_conf(stream_id: int) -> dict:
 
 
 async def register_stream(mediamtx, stream_id: int, source: str,
-                          record: bool, retention_days: int | None = None) -> None:
+                          record: bool, retention_days: int | None = None,
+                          record_path: str | None = None) -> None:
     """Daftarkan/selaraskan main + sub sebuah kamera (idempoten)."""
     await mediamtx.ensure_path(
-        main_path(stream_id), main_conf(source, record, retention_days)
+        main_path(stream_id),
+        main_conf(source, record, retention_days, record_path),
     )
     await mediamtx.ensure_path(sub_path(stream_id), sub_conf(stream_id))
 
@@ -81,6 +88,11 @@ def _selftest() -> None:
     assert main_conf("rtsp://x", True, 30)["recordDeleteAfter"] == "720h"
     assert "recordDeleteAfter" not in main_conf("rtsp://x", True)
     assert "recordDeleteAfter" not in main_conf("rtsp://x", False, 30)
+    rp = "/mnt/disk2/recordings/Gedung_A/Kamera_1/%path/%Y-%m-%d_%H-%M-%S-%f.mp4"
+    assert main_conf("rtsp://x", True, 30, rp)["recordPath"] == rp
+    assert "recordPath" not in main_conf("rtsp://x", True)
+    assert "recordPath" not in main_conf("rtsp://x", True, 30)
+    assert "recordPath" not in main_conf("rtsp://x", False, 30, rp)
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ from app.core.logging import setup_logging
 from app.db.session import dispose_engine, get_session_factory
 from app.routers import (
     admin_ads,
+    admin_disks,
     admin_drive,
     admin_keys,
     admin_scan,
@@ -84,6 +85,7 @@ async def _mediamtx_sync_loop() -> None:
                 existing = {p.get("name") for p in paths if isinstance(p, dict)}
             except Exception:  # noqa: BLE001 - MediaMTX down, coba lagi nanti
                 continue
+            from app.services.disks import record_path_for
             from app.services.stream_paths import register_stream
 
             wanted: set[str] = set()
@@ -92,7 +94,12 @@ async def _mediamtx_sync_loop() -> None:
                 try:
                     await register_stream(
                         mediamtx, s.id, s.main_url or s.rtsp_url or "",
-                        bool(s.recording_enabled), s.retention_days or 7)
+                        bool(s.recording_enabled),
+                        retention_days=s.retention_days or 7,
+                        record_path=record_path_for(
+                            s, get_settings().recordings_dir
+                        ),
+                    )
                 except Exception as e:  # noqa: BLE001
                     log.warning("sync path stream_%s gagal: %s", s.id, e)
             # Hapus path yatim (kamera dihapus/dinonaktifkan).
@@ -122,6 +129,9 @@ async def lifespan(app: FastAPI):
 
     if settings.retention_enabled:
         tasks.append(asyncio.create_task(_retention_loop()))
+
+    if settings.disk_cleanup_enabled:
+        tasks.append(asyncio.create_task(_disk_cleanup_loop()))
 
     if settings.drive_enabled:
         tasks.append(asyncio.create_task(_drive_loop()))
@@ -174,6 +184,68 @@ async def _retention_loop() -> None:
             except Exception as e:  # noqa: BLE001
                 log.warning("retensi gagal: %s", e)
             await asyncio.sleep(86400)
+    except asyncio.CancelledError:
+        pass
+
+
+async def _disk_cleanup_loop() -> None:
+    """Bersihkan disk rekaman yang hampir penuh, tiap interval terkonfigurasi.
+
+    Pola sama seperti _retention_loop: buka session DB baru tiap putaran,
+    panggil cleanup_full_disks, log bila ada segmen dihapus. Satu putaran
+    gagal tidak boleh mematikan loop. Tiap putaran juga membersihkan
+    remote rclone yang penuh (cleanup_rclone_remote per remote) dan
+    menjalankan retensi per folder Drive (cleanup_folder_retention)."""
+    from app.services.disks import (
+        cleanup_folder_retention,
+        cleanup_full_disks,
+        cleanup_rclone_remote,
+    )
+    from app.services.gdrive_rclone import list_remote_names
+
+    log = logging.getLogger("netravision.disk_cleanup")
+    try:
+        while True:
+            settings = get_settings()
+            try:
+                async with get_session_factory()() as db:
+                    n = await cleanup_full_disks(
+                        db,
+                        settings.recordings_dir,
+                        settings.disk_cleanup_threshold_pct,
+                        settings.disk_cleanup_target_pct,
+                    )
+                    if n:
+                        log.info("disk cleanup: %d segmen dihapus", n)
+                    for remote in list_remote_names():
+                        try:
+                            rn = await cleanup_rclone_remote(
+                                db,
+                                remote,
+                                settings.disk_cleanup_threshold_pct,
+                                settings.disk_cleanup_target_pct,
+                            )
+                        except Exception as e:  # noqa: BLE001
+                            log.warning(
+                                "disk cleanup rclone %s gagal: %s", remote, e
+                            )
+                            continue
+                        if rn:
+                            log.info(
+                                "disk cleanup rclone %s: %d file dihapus",
+                                remote,
+                                rn,
+                            )
+                    try:
+                        rfn = await cleanup_folder_retention(db)
+                    except Exception as e:  # noqa: BLE001
+                        log.warning("retensi folder gagal: %s", e)
+                    else:
+                        if rfn:
+                            log.info("retensi folder: %d file dihapus", rfn)
+            except Exception as e:  # noqa: BLE001
+                log.warning("disk cleanup gagal: %s", e)
+            await asyncio.sleep(max(settings.disk_cleanup_interval_sec, 1))
     except asyncio.CancelledError:
         pass
 
@@ -269,6 +341,11 @@ def create_app() -> FastAPI:
     app.include_router(metrics.router, prefix="/api")
     app.include_router(auth.router, prefix="/api")
     app.include_router(streams.router, prefix="/api")
+    # admin_disks SEBELUM admin_streams: keduanya mendaftarkan
+    # GET /admin/disks, dan FastAPI memakai rute yang terdaftar duluan.
+    # Rute baru (list v2.0) yang menang; disk_info lama di admin_streams
+    # tetap ada tapi terbayangi sampai diputuskan dihapus/dipindah.
+    app.include_router(admin_disks.router, prefix="/api")
     app.include_router(admin_streams.router, prefix="/api")
     app.include_router(admin_scan.router, prefix="/api")
     app.include_router(admin_users.router, prefix="/api")

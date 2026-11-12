@@ -10,6 +10,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 import time
 import uuid
@@ -17,7 +18,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select, update
@@ -26,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.rbac import get_current_user, require_roles
 from app.db.session import get_db
-from app.models.drive import DriveAccount, DriveUpload, GoogleDriveFolder
+from app.models.drive import DriveAccount, DriveUpload, GoogleDriveFolder, RcloneRemote
 from app.models.streams import Stream
 from app.models.users import User
 from app.services.drive_accounts import clear_drive_client_cache
@@ -336,6 +337,8 @@ class GoogleDriveFolderIn(BaseModel):
     folder_url: str
     folder_name: str = ""
     local_path: str = ""
+    # Retensi per folder (hari); None = tidak ada hapus otomatis.
+    retention_days: int | None = Field(default=None, ge=1)
 
 
 def parse_gdrive_folder_id(url: str) -> str:
@@ -357,6 +360,7 @@ def _gdrive_folder_dict(row) -> dict:
         "folder_name": row.folder_name,
         "local_path": row.local_path or settings.gdrive_record_path,
         "local_path_custom": bool(row.local_path),
+        "retention_days": row.retention_days,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         "updated_by": row.updated_by or "",
     }
@@ -429,6 +433,7 @@ async def add_gdrive_folder(
         folder_id=folder_id,
         folder_name=folder_name,
         local_path=(payload.local_path or "").strip(),
+        retention_days=payload.retention_days,
         updated_at=datetime.now(timezone.utc),
         updated_by=admin.username,
     )
@@ -505,6 +510,7 @@ async def update_gdrive_folder(
     row.folder_id = fid
     row.folder_name = folder_name
     row.local_path = (payload.local_path or "").strip()
+    row.retention_days = payload.retention_days
     row.updated_at = datetime.now(timezone.utc)
     row.updated_by = admin.username
     await db.commit()
@@ -606,3 +612,259 @@ async def gdrive_connect_finish(payload: GdriveCodeIn):
         return await gc.finish_session(payload.session_id, payload.code)
     except Exception as e:  # noqa: BLE001 - httpx bisa ConnectError/Timeout, bukan cuma RuntimeError
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+# ---------------------------------------------------------------------------
+# Remote rclone multi-akun (satu section per remote di .rclone.conf).
+# ---------------------------------------------------------------------------
+
+class RemoteCreate(BaseModel):
+    token: str
+    remote_name: str
+    label: str | None = Field(default=None, max_length=128)
+
+
+def _remote_out(row: RcloneRemote, status_info: dict | None = None) -> dict:
+    out = {
+        "id": row.id,
+        "remote_name": row.remote_name,
+        "label": row.label,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+    if status_info is not None:
+        out["connected"] = bool(status_info.get("connected"))
+        out["error"] = status_info.get("error", "")
+        for key in ("total_bytes", "used_bytes", "free_bytes"):
+            if key in status_info:
+                out[key] = status_info[key]
+    return out
+
+
+def _validate_remote_name_or_400(remote_name: str) -> str:
+    from app.services import gdrive_rclone as gr
+
+    try:
+        return gr.validate_remote_name(remote_name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@admin_router.get("/admin/drive-remotes")
+async def list_drive_remotes(db: AsyncSession = Depends(get_db)):
+    """Daftar remote rclone dari tabel rclone_remotes + status koneksi
+    tiap remote bila bisa dicek. Remote yang hanya ada di conf (tanpa
+    baris DB, mis. dari tombol Hubungkan lama) ikut tercantum dengan
+    in_db False supaya tidak tersembunyi."""
+    from app.services import gdrive_rclone as gr
+
+    rows = (await db.execute(
+        select(RcloneRemote).order_by(RcloneRemote.remote_name)
+    )).scalars().all()
+    try:
+        conf_names = gr.list_remote_names()
+    except Exception:  # noqa: BLE001 - conf rusak jangan gugurkan list
+        conf_names = []
+    out = []
+    seen = set()
+    for row in rows:
+        seen.add(row.remote_name)
+        try:
+            st = await gr.remote_status(row.remote_name)
+        except Exception as e:  # noqa: BLE001
+            st = {"connected": False, "error": str(e)}
+        item = _remote_out(row, st)
+        item["in_conf"] = row.remote_name in conf_names
+        item["in_db"] = True
+        out.append(item)
+    for name in conf_names:
+        if name in seen:
+            continue
+        try:
+            st = await gr.remote_status(name)
+        except Exception as e:  # noqa: BLE001
+            st = {"connected": False, "error": str(e)}
+        out.append({
+            "id": None,
+            "remote_name": name,
+            "label": None,
+            "created_at": None,
+            "connected": bool(st.get("connected")),
+            "error": st.get("error", ""),
+            "in_conf": True,
+            "in_db": False,
+        })
+    return out
+
+
+@admin_router.post("/admin/drive-remotes")
+async def create_drive_remote(
+    payload: RemoteCreate,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """Tambah (atau perbarui) satu remote rclone dari token JSON hasil
+    `rclone authorize "drive"`. Remote diverifikasi dulu via
+    `rclone about`; gagal = 400 dan conf tidak berubah. Bila sukses,
+    section remote disimpan di conf + baris DB."""
+    from app.services import gdrive_rclone as gr
+
+    remote_name = _validate_remote_name_or_400(payload.remote_name)
+    label = (payload.label or "").strip() or None
+    try:
+        await gr.save_token(payload.token, remote_name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:  # noqa: BLE001 - subprocess/IO bisa OSError
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    row = (await db.execute(
+        select(RcloneRemote).where(RcloneRemote.remote_name == remote_name)
+    )).scalars().first()
+    if row is None:
+        row = RcloneRemote(remote_name=remote_name, label=label)
+        db.add(row)
+        response.status_code = status.HTTP_201_CREATED
+    else:
+        row.label = label
+        response.status_code = status.HTTP_200_OK
+    await db.commit()
+    await db.refresh(row)
+    try:
+        st = await gr.remote_status(remote_name)
+    except Exception as e:  # noqa: BLE001
+        st = {"connected": False, "error": str(e)}
+    return _remote_out(row, st)
+
+
+@admin_router.delete("/admin/drive-remotes/{remote_name}")
+async def delete_drive_remote(
+    remote_name: str, db: AsyncSession = Depends(get_db)
+):
+    """Hapus remote: section di conf + baris DB. 404 bila tidak ada
+    di keduanya."""
+    from app.services import gdrive_rclone as gr
+
+    remote_name = _validate_remote_name_or_400(remote_name)
+    row = (await db.execute(
+        select(RcloneRemote).where(RcloneRemote.remote_name == remote_name)
+    )).scalars().first()
+    in_conf = remote_name in gr.list_remote_names()
+    if row is None and not in_conf:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "remote tidak ditemukan")
+    if row is not None:
+        await db.delete(row)
+        await db.commit()
+    if in_conf:
+        gr.delete_remote(remote_name)
+    return {"ok": True}
+
+
+@admin_router.get("/admin/drive-remotes/{remote_name}/status")
+async def drive_remote_status(
+    remote_name: str, db: AsyncSession = Depends(get_db)
+):
+    """Status koneksi + kapasitas satu remote dari `rclone about`.
+    404 bila remote tidak ada di DB. Bila rclone tidak terinstal,
+    kembalikan connected False dengan pesan jelas, bukan crash."""
+    from app.services import gdrive_rclone as gr
+
+    remote_name = _validate_remote_name_or_400(remote_name)
+    row = (await db.execute(
+        select(RcloneRemote).where(RcloneRemote.remote_name == remote_name)
+    )).scalars().first()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "remote tidak ditemukan")
+    try:
+        st = await gr.remote_status(remote_name)
+    except Exception as e:  # noqa: BLE001
+        st = {"connected": False, "error": str(e)}
+    st["remote_name"] = remote_name
+    st["label"] = row.label
+    st["rclone_found"] = bool(gr.find_rclone())
+    return st
+
+
+# ---------------------------------------------------------------------------
+# Status antrean upload segmen ke Drive (super_admin-only, via admin_router).
+# ---------------------------------------------------------------------------
+
+
+@admin_router.get("/admin/drive/upload-queue")
+async def drive_upload_queue(db: AsyncSession = Depends(get_db)):
+    """Antrean upload: segmen .mp4 stabil yang belum tercatat ter-upload.
+
+    pending = segmen stabil (lebih tua dari _STABLE_SEC uploader) di
+    direktori kamera mode drive/both yang belum ada di drive_uploads
+    (cocok stream_id + segment_name). last_success_at = uploaded_at
+    terbaru di drive_uploads, null bila belum pernah. remotes = status
+    koneksi tiap remote rclone; connected False bila rclone tidak ada
+    atau gagal, tanpa crash.
+    """
+    from app.services.disks import camera_rec_dir
+    from app.services.drive_uploader import _STABLE_SEC
+    from app.services.recording import parse_segment_name
+    from app.services import gdrive_rclone as gr
+
+    settings = get_settings()
+    now = time.time()
+    streams = (
+        await db.execute(
+            select(Stream).where(
+                Stream.recording_enabled.is_(True),
+                Stream.storage_mode.in_(["drive", "both"]),
+            )
+        )
+    ).scalars().all()
+    pending = 0
+    for s in streams:
+        uploaded = {
+            r[0]
+            for r in (
+                await db.execute(
+                    select(DriveUpload.segment_name).where(
+                        DriveUpload.stream_id == s.id
+                    )
+                )
+            ).all()
+        }
+        rec_dir = camera_rec_dir(s, settings.recordings_dir)
+        try:
+            names = os.listdir(rec_dir)
+        except OSError:
+            continue
+        for name in names:
+            if not name.endswith(".mp4"):
+                continue
+            if parse_segment_name(name) is None:
+                continue
+            if name in uploaded:
+                continue
+            path = os.path.join(rec_dir, name)
+            try:
+                if now - os.path.getmtime(path) < _STABLE_SEC:
+                    continue
+                if os.path.getsize(path) == 0:
+                    continue
+            except OSError:
+                continue
+            pending += 1
+    last = (
+        await db.execute(select(func.max(DriveUpload.uploaded_at)))
+    ).scalar()
+    try:
+        remote_names = gr.list_remote_names()
+    except Exception:  # noqa: BLE001
+        remote_names = []
+    remotes = []
+    for name in remote_names:
+        try:
+            st = await gr.remote_status(name)
+        except Exception:  # noqa: BLE001
+            st = {"connected": False}
+        remotes.append(
+            {"remote_name": name, "connected": bool(st.get("connected"))}
+        )
+    return {
+        "pending": pending,
+        "last_success_at": last.isoformat() if last else None,
+        "remotes": remotes,
+    }

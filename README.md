@@ -5,6 +5,7 @@ Sistem monitoring CCTV modern. Tulis ulang penuh dari v2.0 ("Mamura Stream") den
 ## Daftar isi
 
 - [Fitur](#fitur)
+  - [Rekaman multi-disk](#rekaman-multi-disk)
 - [Peran dan hak akses](#peran-dan-hak-akses)
 - [Teknologi](#teknologi)
 - [Struktur direktori](#struktur-direktori)
@@ -41,6 +42,16 @@ Sistem monitoring CCTV modern. Tulis ulang penuh dari v2.0 ("Mamura Stream") den
 - **Scanner** (`/admin/scanner`): pindai subnet untuk menemukan kamera RTSP/ONVIF (12 brand, termasuk Ezviz). Scan berjalan async (202 + `job_id`, polling tiap 2 detik) supaya tidak timeout di balik Cloudflare.
 - **Penyimpanan** (`/admin/storage`): tautan folder Google Drive (rclone) dan akun OAuth untuk rekaman.
 - **Akses tamu (guest)**: login tanpa password untuk pengunjung, bisa diaktifkan/dimatikan, dengan akses kamera dan iklan yang bisa diatur. Dibuat otomatis dalam posisi nonaktif bila database di-reset.
+
+### Rekaman multi-disk
+
+Setiap kamera bisa menyimpan rekaman ke disk yang berbeda lewat kolom `record_disk`. Pilih disk per kamera di menu **Kamera** (`/admin/streams`), seksi **Rekaman & lokasi**, kolom **SAVE TO DISK**. Bila kolom ini kosong, rekaman memakai `recordings_dir` default seperti sebelumnya.
+
+Path rekaman dibuat otomatis mengikuti disk yang dipilih: `{disk}/recordings/{grup}/{nama_kamera}/stream_{id}/`. MediaMTX memakai `recordPath` per kamera yang di-set lewat API, jadi rekaman langsung ditulis ke disk tersebut.
+
+Cleanup otomatis berjalan saat disk hampir penuh: ambang batas default 90 persen, target 85 persen, interval 300 detik. Cleanup hanya menghapus segmen yang sudah ter-upload, dan hanya untuk kamera mode `drive` atau `both`, supaya rekaman yang belum ter-upload ke Drive tidak hilang.
+
+Syarat Docker: disk tambahan harus di-bind-mount ke container `mediamtx` DAN `api` dengan path yang sama, supaya keduanya bisa membaca dan menulis path itu. Lihat contoh yang dikomentari di `deploy/docker-compose.yml` pada bagian `volumes` kedua service tersebut.
 
 ## Peran dan hak akses
 

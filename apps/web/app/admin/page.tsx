@@ -36,7 +36,7 @@ export default function AdminDashboard() {
     api.get<Stream[]>("/admin/streams").then(setStreams).catch(() => setStreams([]));
     api.get<User[]>("/admin/users").then(setUsers).catch(() => setUsers([]));
     api.get<{ id: number }[]>("/admin/api-keys").then(setKeys).catch(() => setKeys([]));
-    api.get<DiskRaw>("/admin/disks").then(setDisk).catch(() => setDisk(null));
+    api.get<DiskRaw>("/admin/disk-summary").then(setDisk).catch(() => setDisk(null));
     api
       .get<LogSummary>("/admin/api-access-logs/summary")
       .then(setSummary)

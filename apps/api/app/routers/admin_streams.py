@@ -84,23 +84,61 @@ async def _admin_may_see_stream(me: User, db: AsyncSession, stream_id: int) -> b
 
 async def _register_paths(
     mediamtx: MediaMTXClient, stream_id: int, main_url: str, sub_url: str | None,
-    record: bool = False,
+    record: bool = False, stream: Stream | None = None,
+    retention_days: int | None = None,
 ) -> tuple[bool, str | None]:
     """Daftarkan path ke MediaMTX. Return (ok, pesan_error).
 
-    Kamera tetap disimpan ke DB walau gagal — dengan sync berkala (poin 3
+    Kamera tetap disimpan ke DB walau gagal, dengan sync berkala (poin 3
     laporan staging), path akan terdaftar sendiri begitu MediaMTX pulih.
+    Bila `stream` diberikan, recordPath multi-disk (record_path_for) dan
+    retention_days diambil dari stream itu.
     """
+    from app.services.disks import record_path_for
     from app.services.stream_paths import register_stream
 
     try:
         # Pola v2: sub = transkode dari main (sub_url kamera tidak ditarik).
-        await register_stream(mediamtx, stream_id, main_url, record)
+        record_path = (
+            record_path_for(stream, get_settings().recordings_dir)
+            if stream is not None
+            else None
+        )
+        days = retention_days
+        if days is None and stream is not None:
+            days = stream.retention_days
+        await register_stream(
+            mediamtx, stream_id, main_url, record,
+            retention_days=days, record_path=record_path,
+        )
         return True, None
     except Exception as e:  # noqa: BLE001 - best-effort, jangan gagalkan tambah kamera
         msg = f"MediaMTX tidak terjangkau (stream {stream_id}): {e}"
         log.warning(msg)
         return False, str(e)
+
+
+async def _refresh_stream_group_names(
+    db: AsyncSession, stream_ids: set[int] | list[int],
+) -> None:
+    """Set stream.group_name = nama grup pertama (alfabet) tiap stream.
+
+    Dipakai setelah keanggotaan grup berubah. group_name dipakai sebagai
+    bagian path rekaman multi-disk (camera_rec_base), jadi harus selaras
+    dengan tabel group_streams; None bila stream tidak punya grup.
+    """
+    for sid in sorted(set(stream_ids)):
+        stream = await db.get(Stream, sid)
+        if stream is None:
+            continue
+        res = await db.execute(
+            select(StreamGroup.name)
+            .join(GroupStream, GroupStream.group_id == StreamGroup.id)
+            .where(GroupStream.stream_id == sid)
+            .order_by(StreamGroup.name)
+        )
+        names = res.scalars().all()
+        stream.group_name = names[0] if names else None
 
 
 @router.get("/admin/streams", response_model=list[StreamOut])
@@ -118,6 +156,29 @@ async def admin_list_streams(
     return out
 
 
+def _validate_record_disk(value: str | None) -> str | None:
+    """Normalisasi + validasi record_disk: "" sama dengan None (default).
+
+    Bila terisi, harus path absolut ke direktori yang ada; bila tidak,
+    400 dengan pesan jelas."""
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    if not os.path.isabs(value):
+        raise HTTPException(
+            status_code=400,
+            detail=f"record_disk harus path absolut, bukan {value!r}",
+        )
+    if not os.path.isdir(value):
+        raise HTTPException(
+            status_code=400,
+            detail=f"direktori record_disk tidak ada: {value}",
+        )
+    return value
+
+
 @router.post("/admin/streams", response_model=StreamOut, status_code=201, dependencies=[Depends(super_admin_only)])
 async def admin_create_stream(
     data: StreamCreate,
@@ -125,6 +186,7 @@ async def admin_create_stream(
     mediamtx: MediaMTXClient = Depends(get_mediamtx),
     admin: User = Depends(get_current_user),
 ):
+    record_disk = _validate_record_disk(data.record_disk)
     if data.rtsp_url:
         # URL langsung: verifikasi video dulu (kecuali force).
         try:
@@ -185,6 +247,7 @@ async def admin_create_stream(
         storage_mode=data.storage_mode,
         recording_enabled=data.recording_enabled,
         retention_days=data.retention_days,
+        record_disk=record_disk,
         latitude=data.latitude,
         longitude=data.longitude,
         created_by=admin.id,
@@ -193,7 +256,7 @@ async def admin_create_stream(
     await db.commit()
     await db.refresh(stream)
     ok, err = await _register_paths(mediamtx, stream.id, res.main_url, res.sub_url,
-                                    record=data.recording_enabled)
+                                    record=data.recording_enabled, stream=stream)
     out = stream_to_out(stream, get_settings())
     # Status registrasi MediaMTX dikembalikan ke UI (bukan 500, bukan diam).
     # A-S2: field ini bagian dari StreamOut supaya tidak dipangkas response_model.
@@ -251,6 +314,8 @@ async def admin_update_stream(
             log.warning("patch record MediaMTX stream %s gagal: %s", stream_id, e)
     if data.retention_days is not None:
         stream.retention_days = data.retention_days
+    if "record_disk" in data.model_fields_set:
+        stream.record_disk = _validate_record_disk(data.record_disk)
     await db.commit()
     await db.refresh(stream)
     # Reaktivasi (nonaktif -> aktif): daftarkan ulang path ke MediaMTX
@@ -261,7 +326,7 @@ async def admin_update_stream(
         if source:
             await _register_paths(
                 mediamtx, stream.id, source, stream.sub_url,
-                record=stream.recording_enabled)
+                record=stream.recording_enabled, stream=stream)
     return stream_to_out(stream, get_settings())
 
 
@@ -600,14 +665,28 @@ async def set_group_grants(nama_grup: str, data: StreamIdsIn, db: AsyncSession =
         missing = set(data.stream_ids) - found
         if missing:
             raise HTTPException(status_code=400, detail=f"stream tidak ada: {sorted(missing)}")
+    # Anggota lama grup ini ikut terpengaruh (kehilangan grup ini),
+    # jadi group_name mereka juga harus dihitung ulang.
+    old_ids = set(
+        (
+            await db.execute(
+                select(GroupStream.stream_id).where(
+                    GroupStream.group_id == group.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     await db.execute(delete(GroupStream).where(GroupStream.group_id == group.id))
     for sid in data.stream_ids:
         db.add(GroupStream(group_id=group.id, stream_id=sid))
+    await _refresh_stream_group_names(db, old_ids | set(data.stream_ids))
     await db.commit()
     return {"ok": True, "stream_ids": data.stream_ids}
 
 
-@router.get("/admin/disks")
+@router.get("/admin/disk-summary")
 async def disk_info(db: AsyncSession = Depends(get_db)):
     settings = get_settings()
     target = settings.recordings_dir if Path(settings.recordings_dir).exists() else "/"

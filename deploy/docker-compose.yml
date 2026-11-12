@@ -95,6 +95,10 @@ services:
       # tidak hilang saat container dibuat ulang.
       - apidata:/srv/api/data
       - gdrive_staging:/mnt/gdrive
+      # Rekaman multi-disk: disk tambahan harus di-mount di service ini DAN
+      # di mediamtx dengan path yang sama, supaya record_disk kamera bisa
+      # menunjuk ke sana. Hapus tanda # di baris bawah untuk mengaktifkan.
+      # - /mnt/cctv-storage:/mnt/cctv-storage  # disk tambahan untuk record_disk (samakan path di host dan container)
     depends_on:
       postgres:
         condition: service_healthy
@@ -125,6 +129,10 @@ services:
     volumes:
       - ./mediamtx.yml:/mediamtx.yml:ro
       - recordings:/recordings
+      # Rekaman multi-disk: disk tambahan harus di-mount di service ini DAN
+      # di api dengan path yang sama, supaya record_disk kamera bisa
+      # menunjuk ke sana. Hapus tanda # di baris bawah untuk mengaktifkan.
+      # - /mnt/cctv-storage:/mnt/cctv-storage  # disk tambahan untuk record_disk (samakan path di host dan container)
     ports:
       # Sinyal/kontrol, hanya localhost, Apache mem-proxy yang perlu diekspos.
       - "127.0.0.1:8554:8554"   # RTSP (debug / kamera lokal)

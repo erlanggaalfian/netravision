@@ -17,6 +17,7 @@ export interface Stream {
   longitude: number | null;
   recording_enabled: boolean;
   retention_days: number;
+  record_disk?: string | null;
 }
 
 export interface DriveFolder {
@@ -107,6 +108,17 @@ export interface DiskInfo {
   total: number;
   used: number;
   free: number;
+}
+
+/* Satu entri GET /api/admin/disks (bentuk list). */
+export interface Disk {
+  mount: string;
+  size_bytes: number;
+  avail_bytes: number;
+  size_human: string;
+  avail_human: string;
+  fstype: string;
+  usage_pct: number;
 }
 
 export interface ScanCandidate {

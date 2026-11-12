@@ -119,7 +119,7 @@ async def test_disks_includes_google_drive_folders(app_client, monkeypatch, tmp_
                     "local_path": str(tmp_path / "staging"),
                 },
             )
-            r = await c.get("/api/admin/disks")
+            r = await c.get("/api/admin/disk-summary")
             assert r.status_code == 200
             body = r.json()
             assert "google_drive" in body

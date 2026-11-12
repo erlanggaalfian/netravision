@@ -1,9 +1,14 @@
-"""Koneksi Google Drive via rclone, alur sederhana tanpa Cloud Console.
+"""Koneksi Google Drive via rclone, multi-remote.
 
 User menempel token JSON dari `rclone authorize "drive"` (dijalankan di
 komputer mereka yang ada browser) ke tombol "Hubungkan" di aplikasi.
-Server menyimpan token sebagai remote rclone [gdrive], lalu meng-upload
-segmen rekaman langsung via `rclone copyto`, tanpa FUSE mount, tanpa SSH.
+Server menyimpan token sebagai satu section remote di .rclone.conf
+(mis. [gdrive], [gdrive-2]), lalu meng-upload segmen rekaman langsung
+via `rclone copyto`, tanpa FUSE mount, tanpa SSH.
+
+Satu file conf boleh memuat BANYAK remote; save_token() hanya menambah
+atau memperbarui section remote yang diminta, remote lain tidak disentuh.
+Bila verifikasi remote baru gagal, conf lama dikembalikan utuh.
 
 Token berisi refresh_token sehingga rclone memperbarui access_token
 secara otomatis; koneksi tidak kedaluwarsa.
@@ -13,6 +18,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
 import stat
 from pathlib import Path
@@ -20,6 +26,19 @@ from pathlib import Path
 log = logging.getLogger("netravision.gdrive_rclone")
 
 REMOTE_NAME = "gdrive"
+
+_REMOTE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_SECTION_HDR = re.compile(r"^\s*\[([^\]]+)\]\s*$")
+
+
+def validate_remote_name(remote_name: str) -> str:
+    """Validasi nama remote rclone; raise ValueError bila tidak valid."""
+    name = (remote_name or "").strip()
+    if not _REMOTE_RE.match(name):
+        raise ValueError(
+            "remote_name hanya boleh huruf, angka, '-' dan '_', maks 64 karakter."
+        )
+    return name
 
 
 def _data_dir() -> str:
@@ -77,8 +96,9 @@ async def _run_rclone(*args: str, timeout: int = 60) -> tuple[int, str, str]:
     return proc.returncode, out.decode(errors="replace"), err.decode(errors="replace")
 
 
-def _write_conf(token_json: str) -> None:
-    """Tulis [gdrive] remote ke file config (0600)."""
+def _validate_token(token_json: str) -> dict:
+    """Parse token JSON dari `rclone authorize "drive"`; raise ValueError
+    bila bukan JSON valid atau tidak berisi refresh_token."""
     try:
         token = json.loads(token_json)
     except json.JSONDecodeError:
@@ -90,37 +110,170 @@ def _write_conf(token_json: str) -> None:
             "Token tidak berisi refresh_token. Jalankan ulang `rclone authorize \"drive\"` "
             "dan salin seluruh outputnya."
         )
-    # Simpan ulang sebagai JSON ringkas di dalam config rclone
+    return token
+
+
+def _section_text(remote_name: str, token: dict) -> str:
+    """Satu section conf untuk remote ini (token disimpan ringkas)."""
     compact = json.dumps(token, separators=(",", ":"))
-    content = (
-        f"[{REMOTE_NAME}]\n"
+    return (
+        f"[{remote_name}]\n"
         f"type = drive\n"
         f"scope = drive\n"
         f"token = {compact}\n"
     )
+
+
+def _upsert_section(content: str, remote_name: str, section: str) -> str:
+    """Ganti section remote_name bila ada, tambah di akhir bila belum ada.
+
+    Manipulasi baris per baris (bukan configparser) supaya section remote
+    lain dipertahankan byte per byte, termasuk urutan dan komentarnya.
+    """
+    lines = content.splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        m = _SECTION_HDR.match(line)
+        if m and m.group(1).strip() == remote_name:
+            start = i
+            break
+    section_lines = section.rstrip("\n").splitlines()
+    if start is None:
+        if not content.strip():
+            return section
+        return content.rstrip("\n") + "\n\n" + section
+    end = start + 1
+    while end < len(lines):
+        if _SECTION_HDR.match(lines[end]):
+            break
+        end += 1
+    return "\n".join(lines[:start] + section_lines + lines[end:]) + "\n"
+
+
+def _remove_section(content: str, remote_name: str) -> tuple[str, bool]:
+    """Hapus section remote_name; return (conf_baru, ada_yang_dihapus)."""
+    lines = content.splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        m = _SECTION_HDR.match(line)
+        if m and m.group(1).strip() == remote_name:
+            start = i
+            break
+    if start is None:
+        return content, False
+    end = start + 1
+    while end < len(lines):
+        if _SECTION_HDR.match(lines[end]):
+            break
+        end += 1
+    rest = lines[:start] + lines[end:]
+    return ("\n".join(rest) + "\n") if rest else "", True
+
+
+def _read_conf() -> str | None:
+    """Isi .rclone.conf, atau None bila file belum ada."""
+    try:
+        with open(conf_path()) as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def _write_conf_text(content: str) -> None:
+    """Tulis isi conf apa adanya (0600)."""
     path = conf_path()
     with open(path, "w") as f:
         f.write(content)
     os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
 
 
-async def save_token(token_json: str) -> dict:
-    """Simpan token + verifikasi koneksi. Return {email}."""
+def _write_conf(token_json: str, remote_name: str = REMOTE_NAME) -> None:
+    """Tulis section remote ke file config (0600), tanpa verifikasi.
+
+    Dipakai internal; alur publik sebaiknya memakai save_token() yang
+    memverifikasi dulu. Remote lain di conf dipertahankan.
+    """
+    token = _validate_token(token_json)
+    remote_name = validate_remote_name(remote_name)
+    content = _read_conf() or ""
+    _write_conf_text(_upsert_section(content, remote_name, _section_text(remote_name, token)))
+
+
+def list_remote_names() -> list[str]:
+    """Nama semua remote (section) di .rclone.conf; [] bila conf tidak ada."""
+    content = _read_conf()
+    if not content:
+        return []
+    names: list[str] = []
+    for line in content.splitlines():
+        m = _SECTION_HDR.match(line)
+        if m:
+            names.append(m.group(1).strip())
+    return names
+
+
+def delete_remote(remote_name: str) -> bool:
+    """Hapus section remote dari conf. Return True bila ada yang dihapus."""
+    try:
+        remote_name = validate_remote_name(remote_name)
+    except ValueError:
+        return False
+    content = _read_conf()
+    if not content:
+        return False
+    new_content, removed = _remove_section(content, remote_name)
+    if not removed:
+        return False
+    if new_content.strip():
+        _write_conf_text(new_content)
+    else:
+        try:
+            os.remove(conf_path())
+        except OSError:
+            pass
+    return True
+
+
+async def save_token(token_json: str, remote_name: str = REMOTE_NAME) -> dict:
+    """Simpan token sebagai section remote + verifikasi koneksi.
+
+    Remote lain di conf dipertahankan. Bila verifikasi gagal, conf lama
+    dikembalikan utuh (atau file dihapus bila sebelumnya tidak ada) dan
+    RuntimeError dilempar. Return {email}.
+    """
     token_json = (token_json or "").strip()
     if not token_json:
         raise ValueError("Token kosong.")
-    _write_conf(token_json)
-    # Verifikasi: baca info akun
-    rc, out, err = await _run_rclone("about", f"{REMOTE_NAME}:", "--json", timeout=30)
+    remote_name = validate_remote_name(remote_name)
+    token = _validate_token(token_json)
+    old_content = _read_conf()
+    _write_conf_text(
+        _upsert_section(old_content or "", remote_name, _section_text(remote_name, token))
+    )
+
+    def _restore() -> None:
+        if old_content is None:
+            try:
+                os.remove(conf_path())
+            except OSError:
+                pass
+        else:
+            _write_conf_text(old_content)
+
+    try:
+        rc, out, err = await _run_rclone("about", f"{remote_name}:", "--json", timeout=30)
+    except RuntimeError:
+        _restore()
+        raise
     if rc != 0:
-        os.path.exists(conf_path()) and os.remove(conf_path())
+        _restore()
         detail = (err or out).strip().split("\n")[-1][:200]
         raise RuntimeError(f"Token ditolak Google: {detail}")
     email = ""
     try:
         # rclone about tidak mengembalikan email; coba via backend info
         rc2, out2, _ = await _run_rclone(
-            "backend", "drives", f"{REMOTE_NAME}:", timeout=30
+            "backend", "drives", f"{remote_name}:", timeout=30
         )
         if rc2 == 0:
             email = "terhubung"
@@ -129,14 +282,49 @@ async def save_token(token_json: str) -> dict:
     return {"email": email or "terhubung"}
 
 
-async def connection_status() -> dict:
-    """{connected: bool, email: str}."""
-    if not os.path.isfile(conf_path()):
-        return {"connected": False, "email": ""}
-    rc, out, err = await _run_rclone("about", f"{REMOTE_NAME}:", "--json", timeout=20)
+async def remote_status(remote_name: str) -> dict:
+    """Status satu remote: {connected, email, remote_name, total/used/free_bytes}.
+
+    Tidak pernah raise untuk rclone yang hilang atau remote yang tidak ada:
+    kembalikan connected False dengan pesan error yang jelas, supaya
+    endpoint status tidak crash bila rclone belum terinstal.
+    """
+    try:
+        remote_name = validate_remote_name(remote_name)
+    except ValueError as e:
+        return {"connected": False, "email": "", "remote_name": remote_name, "error": str(e)}
+    if remote_name not in list_remote_names():
+        return {
+            "connected": False,
+            "email": "",
+            "remote_name": remote_name,
+            "error": f"remote '{remote_name}' tidak ada di .rclone.conf",
+        }
+    try:
+        rc, out, err = await _run_rclone("about", f"{remote_name}:", "--json", timeout=20)
+    except RuntimeError as e:
+        return {"connected": False, "email": "", "remote_name": remote_name, "error": str(e)}
     if rc != 0:
-        return {"connected": False, "email": "", "error": (err or out).strip()[:200]}
-    return {"connected": True, "email": "terhubung"}
+        return {
+            "connected": False,
+            "email": "",
+            "remote_name": remote_name,
+            "error": (err or out).strip()[:200],
+        }
+    info: dict = {"connected": True, "email": "terhubung", "remote_name": remote_name}
+    try:
+        data = json.loads(out)
+        for key in ("total", "used", "free"):
+            if isinstance(data.get(key), int):
+                info[f"{key}_bytes"] = data[key]
+    except (ValueError, TypeError):
+        pass
+    return info
+
+
+async def connection_status() -> dict:
+    """{connected: bool, email: str} untuk remote default (gdrive)."""
+    return await remote_status(REMOTE_NAME)
 
 
 async def disconnect() -> None:
@@ -144,10 +332,10 @@ async def disconnect() -> None:
         os.remove(conf_path())
 
 
-async def check_folder_access(folder_id: str) -> dict:
+async def check_folder_access(folder_id: str, remote_name: str = REMOTE_NAME) -> dict:
     """Pastikan folder bisa dibaca/ditulis akun terhubung. Return {name}."""
     rc, out, err = await _run_rclone(
-        "lsd", f"{REMOTE_NAME}:{folder_id}", "--max-depth", "0", timeout=30
+        "lsd", f"{remote_name}:{folder_id}", "--max-depth", "0", timeout=30
     )
     if rc != 0:
         detail = (err or out).strip().split("\n")[-1][:200]
@@ -157,16 +345,41 @@ async def check_folder_access(folder_id: str) -> dict:
         )
     # Ambil nama folder via lsf
     rc2, out2, _ = await _run_rclone(
-        "lsf", f"{REMOTE_NAME}:{folder_id}", "--max-depth", "0", "--format", "p",
+        "lsf", f"{remote_name}:{folder_id}", "--max-depth", "0", "--format", "p",
         timeout=30,
     )
     return {"name": out2.strip() if rc2 == 0 and out2.strip() else ""}
 
 
-async def upload_segment(local_path: str, folder_id: str, remote_name: str) -> None:
-    """Upload satu file segmen ke folder Drive. Raise RuntimeError bila gagal."""
+async def upload_segment(
+    local_path: str,
+    folder_id: str,
+    remote_name: str = REMOTE_NAME,
+    dest_name: str | None = None,
+) -> None:
+    """Upload satu file segmen ke folder Drive di remote yang diminta.
+
+    remote_name adalah nama remote rclone (mis. gdrive, gdrive-2), BUKAN
+    nama file. Bila dest_name diisi, file disimpan sebagai
+    {folder_id}/{dest_name} di remote itu; bila tidak diisi, namanya
+    basename(local_path).
+
+    Kompatibilitas lama: drive_uploader.py memanggil dengan argumen ketiga
+    berupa jalur tujuan "NamaKamera/nama-segmen.mp4" (mengandung "/").
+    Bila argumen ketiga mengandung "/", anggap itu jalur tujuan lama dan
+    pakai remote default. Raise RuntimeError bila gagal.
+    """
+    if dest_name is not None:
+        remote = validate_remote_name(remote_name)
+        dest = dest_name
+    elif "/" in (remote_name or ""):
+        remote = REMOTE_NAME
+        dest = remote_name
+    else:
+        remote = validate_remote_name(remote_name)
+        dest = os.path.basename(local_path)
     rc, out, err = await _run_rclone(
-        "copyto", local_path, f"{REMOTE_NAME}:{folder_id}/{remote_name}",
+        "copyto", local_path, f"{remote}:{folder_id}/{dest}",
         "--transfers", "1",
         timeout=300,
     )

@@ -25,6 +25,7 @@ class StreamOut(BaseModel):
     drive_account_id: uuid.UUID | None = None
     recording_enabled: bool = False
     retention_days: int = 7
+    record_disk: str | None = None
     # Kredensial RTSP: hanya diisi endpoint admin (sudah di-masking per v2.0).
     rtsp_url: str | None = None
     drive_folder_id: int | None = None
@@ -48,6 +49,7 @@ class StreamCreate(BaseModel):
     retention_days: int = Field(default=7, ge=1, le=365)
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
+    record_disk: str | None = Field(default=None, max_length=100)
     force: bool = False  # simpan walau verifikasi video gagal (kamera sedang mati)
 
 
@@ -61,6 +63,7 @@ class StreamUpdate(BaseModel):
     longitude: float | None = Field(default=None, ge=-180, le=180)
     recording_enabled: bool | None = None
     retention_days: int | None = Field(default=None, ge=1, le=365)
+    record_disk: str | None = Field(default=None, max_length=100)
 
 
 class GroupCreate(BaseModel):
