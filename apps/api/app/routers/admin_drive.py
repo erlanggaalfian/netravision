@@ -659,11 +659,20 @@ def _validate_remote_name_or_400(remote_name: str) -> str:
 
 
 @admin_router.get("/admin/drive-remotes")
-async def list_drive_remotes(db: AsyncSession = Depends(get_db)):
+async def list_drive_remotes(
+    db: AsyncSession = Depends(get_db), status: str = "full"
+):
     """Daftar remote rclone dari tabel rclone_remotes + status koneksi
     tiap remote bila bisa dicek. Remote yang hanya ada di conf (tanpa
     baris DB, mis. dari tombol Hubungkan lama) ikut tercantum dengan
-    in_db False supaya tidak tersembunyi."""
+    in_db False supaya tidak tersembunyi.
+
+    status=quick: lewati `rclone about` (panggilan jaringan lambat ke
+    Google) supaya daftar tampil seketika; connected diisi optimistis
+    (True bila remote ada di conf) dan kapasitas dibiarkan kosong.
+    Frontend lalu melengkapi status tiap remote lewat
+    GET /admin/drive-remotes/{name}/status di latar belakang.
+    """
     from app.services import gdrive_rclone as gr
 
     rows = (await db.execute(
@@ -675,12 +684,16 @@ async def list_drive_remotes(db: AsyncSession = Depends(get_db)):
         conf_names = []
     out = []
     seen = set()
+    quick = status == "quick"
     for row in rows:
         seen.add(row.remote_name)
-        try:
-            st = await gr.remote_status(row.remote_name)
-        except Exception as e:  # noqa: BLE001
-            st = {"connected": False, "error": str(e)}
+        if quick:
+            st = {"connected": row.remote_name in conf_names, "error": ""}
+        else:
+            try:
+                st = await gr.remote_status(row.remote_name)
+            except Exception as e:  # noqa: BLE001
+                st = {"connected": False, "error": str(e)}
         item = _remote_out(row, st)
         item["in_conf"] = row.remote_name in conf_names
         item["in_db"] = True
@@ -688,10 +701,13 @@ async def list_drive_remotes(db: AsyncSession = Depends(get_db)):
     for name in conf_names:
         if name in seen:
             continue
-        try:
-            st = await gr.remote_status(name)
-        except Exception as e:  # noqa: BLE001
-            st = {"connected": False, "error": str(e)}
+        if quick:
+            st = {"connected": True, "error": ""}
+        else:
+            try:
+                st = await gr.remote_status(name)
+            except Exception as e:  # noqa: BLE001
+                st = {"connected": False, "error": str(e)}
         out.append({
             "id": None,
             "remote_name": name,

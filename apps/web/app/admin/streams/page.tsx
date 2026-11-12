@@ -1230,7 +1230,7 @@ function AddStreamModal({
             >
               {driveFolders.length === 0 ? (
                 <p className="rounded-xl bg-ink-800 px-4 py-3 text-sm leading-relaxed text-slate-300">
-                  Belum ada folder Google Drive. Tambah tautan folder dulu di
+                  Belum ada folder Google Drive. Tambah akun Google dulu di
                   menu Penyimpanan, lalu pilih di sini.
                 </p>
               ) : (
@@ -1241,8 +1241,9 @@ function AddStreamModal({
                   <option value="">Default (folder pertama)</option>
                   {driveFolders.map((f) => (
                     <option key={f.id} value={String(f.id)}>
-                      {f.folder_name || f.folder_id}
-                      {f.remote_name ? ` (${f.remote_label || f.remote_name})` : ""}
+                      {f.remote_name
+                        ? f.remote_label || f.remote_name
+                        : f.folder_name || f.folder_id}
                     </option>
                   ))}
                 </NBSelect>
@@ -1487,7 +1488,7 @@ function EditStreamModal({
             >
               {driveFolders.length === 0 ? (
                 <p className="rounded-xl bg-ink-800 px-4 py-3 text-sm leading-relaxed text-slate-300">
-                  Belum ada folder Google Drive. Tambah tautan folder dulu di
+                  Belum ada folder Google Drive. Tambah akun Google dulu di
                   menu Penyimpanan, lalu pilih di sini.
                 </p>
               ) : (
@@ -1498,8 +1499,9 @@ function EditStreamModal({
                   <option value="">Default (folder pertama)</option>
                   {driveFolders.map((f) => (
                     <option key={f.id} value={String(f.id)}>
-                      {f.folder_name || f.folder_id}
-                      {f.remote_name ? ` (${f.remote_label || f.remote_name})` : ""}
+                      {f.remote_name
+                        ? f.remote_label || f.remote_name
+                        : f.folder_name || f.folder_id}
                     </option>
                   ))}
                 </NBSelect>

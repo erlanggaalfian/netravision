@@ -99,6 +99,7 @@ export default function AdminStoragePage() {
   const [data, setData] = useState<GDriveList | null>(null);
   const [conn, setConn] = useState<GDriveConn | null>(null);
   const [remotes, setRemotes] = useState<RcloneRemote[]>([]);
+  const [remotesLoaded, setRemotesLoaded] = useState(false);
   const [queue, setQueue] = useState<UploadQueue | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -236,9 +237,34 @@ export default function AdminStoragePage() {
 
   async function loadRemotes() {
     try {
-      setRemotes(await api.get<RcloneRemote[]>("/admin/drive-remotes"));
+      // Daftar cepat dulu (tanpa rclone about yang lambat) supaya kartu
+      // akun langsung tampil; status + kapasitas dilengkapkan di latar
+      // belakang lewat endpoint status per remote.
+      const quick = await api.get<RcloneRemote[]>(
+        "/admin/drive-remotes?status=quick"
+      );
+      setRemotes(quick);
+      setRemotesLoaded(true);
+      const withStatus = await Promise.all(
+        quick.map(async (r) => {
+          try {
+            const st = await api.get<{
+              connected: boolean;
+              error?: string;
+              total_bytes?: number;
+              used_bytes?: number;
+              free_bytes?: number;
+            }>(`/admin/drive-remotes/${r.remote_name}/status`);
+            return { ...r, ...st };
+          } catch {
+            return r;
+          }
+        })
+      );
+      setRemotes(withStatus);
     } catch {
       setRemotes([]);
+      setRemotesLoaded(true);
     }
   }
 
@@ -414,7 +440,11 @@ export default function AdminStoragePage() {
   if (data === null && !error) return <Spinner />;
 
   const connectedCount = remotes.filter((r) => r.connected).length;
-  const folderCount = data?.folders.length ?? 0;
+  // Folder "netravision" milik akun disembunyikan: rekaman langsung masuk
+  // ke sana tanpa perlu dilihat/dikelola di sini. Hanya tautan folder
+  // manual yang tampil.
+  const visibleFolders = (data?.folders ?? []).filter((f) => !f.remote_name);
+  const folderCount = visibleFolders.length;
 
   return (
     <div>
@@ -446,9 +476,11 @@ export default function AdminStoragePage() {
               className={`h-2.5 w-2.5 rounded-full ${connectedCount > 0 ? "bg-ok-400" : "bg-bad-400"}`}
             />
             <span className="font-semibold text-slate-100">
-              {connectedCount > 0
-                ? `${connectedCount} akun Google terhubung`
-                : "Belum ada akun Google terhubung"}
+              {!remotesLoaded
+                ? "Memuat akun Google…"
+                : connectedCount > 0
+                  ? `${connectedCount} akun Google terhubung`
+                  : "Belum ada akun Google terhubung"}
             </span>
           </span>
           <span className="text-slate-400">
@@ -474,7 +506,11 @@ export default function AdminStoragePage() {
         <h2 className="mb-1.5 px-1 text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
           Akun Google
         </h2>
-        {remotes.length === 0 ? (
+        {!remotesLoaded ? (
+          <NBCard className="!p-4">
+            <p className="text-sm text-slate-400">Memuat akun Google…</p>
+          </NBCard>
+        ) : remotes.length === 0 ? (
           <NBEmptyState text="Belum ada akun Google. Tambahkan akun di bawah supaya rekaman bisa di-upload." />
         ) : (
           <div className="space-y-3">
@@ -698,7 +734,7 @@ export default function AdminStoragePage() {
           <NBEmptyState text="Belum ada folder. Tempel tautan folder Google Drive di bawah." />
         ) : (
           <div className="space-y-3">
-            {data?.folders.map((f, i) => (
+            {visibleFolders.map((f, i) => (
               <NBCard key={f.id} className="!p-4">
                 <div className="flex items-start gap-3">
                   <svg
@@ -793,7 +829,7 @@ export default function AdminStoragePage() {
                         <p className="break-all font-mono">ID: {f.folder_id}</p>
                         <p className="break-all font-mono">
                           Mount: {f.local_path || "-"}
-                          {!f.local_path_custom && data.staging_default && " (default)"}
+                          {!f.local_path_custom && data?.staging_default && " (default)"}
                         </p>
                         {f.updated_at && (
                           <p>

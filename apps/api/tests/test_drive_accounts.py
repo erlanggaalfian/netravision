@@ -87,7 +87,9 @@ async def test_fernet_wrong_key(drive_env, monkeypatch):
 
 
 async def test_fernet_no_key(monkeypatch):
-    monkeypatch.delenv("DRIVE_TOKEN_KEY", raising=False)
+    # Set kosong (bukan delenv): .env demo berisi DRIVE_TOKEN_KEY, dan
+    # env var kosong mengalahkan nilai .env di pydantic-settings.
+    monkeypatch.setenv("DRIVE_TOKEN_KEY", "")
     get_settings.cache_clear()
     try:
         with pytest.raises(RuntimeError, match="DRIVE_TOKEN_KEY"):

@@ -263,6 +263,29 @@ async def test_drive_remotes_endpoints(app_client, monkeypatch):
         r = await c.get("/api/admin/drive-remotes/tidak-ada/status")
         assert r.status_code == 404
 
+        # status=quick: daftar kembali seketika tanpa memanggil
+        # remote_status (rclone about) — connected optimistis dari conf,
+        # kapasitas kosong sampai status per remote dicek.
+        calls = {"n": 0}
+
+        async def _counting_status(remote_name):
+            calls["n"] += 1
+            return await _fake_status(remote_name)
+
+        monkeypatch.setattr(gr, "remote_status", _counting_status)
+        # Mock save_token tidak menulis conf asli; simulasikan conf
+        # berisi gdrive-2 supaya connected optimistis bernilai True.
+        _real_list = gr.list_remote_names
+        monkeypatch.setattr(gr, "list_remote_names", lambda: ["gdrive-2"])
+        r = await c.get("/api/admin/drive-remotes?status=quick")
+        assert r.status_code == 200
+        assert calls["n"] == 0
+        body = r.json()
+        assert [x["remote_name"] for x in body] == ["gdrive-2"]
+        assert body[0]["connected"] is True
+        assert "total_bytes" not in body[0]
+        monkeypatch.setattr(gr, "list_remote_names", _real_list)
+
         r = await c.delete("/api/admin/drive-remotes/tidak-ada")
         assert r.status_code == 404
 
