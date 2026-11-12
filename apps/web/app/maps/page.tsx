@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { createRoot } from "react-dom/client";
 import "leaflet/dist/leaflet.css";
+import "leaflet.markercluster/dist/MarkerCluster.css";
 import type * as LType from "leaflet";
 import { AppShell } from "../../components/AppShell";
 import { FocusModal } from "../../components/FocusModal";
@@ -32,6 +33,18 @@ function markerIcon(L: typeof LType, online: boolean): LType.DivIcon {
     iconSize: [hit, hit],
     iconAnchor: [half, half],
     popupAnchor: [0, -half - 1],
+  });
+}
+
+/* Ikon klaster: lingkaran berisi jumlah kamera di titik itu. Saat zoom
+   out, kamera yang lokasinya berdekatan digabung jadi satu titik ini;
+   saat zoom in, klaster pecah kembali jadi marker tunggal. */
+function clusterIcon(L: typeof LType, count: number): LType.DivIcon {
+  return L.divIcon({
+    html: `<span>${count}</span>`,
+    className: "nv-cluster",
+    iconSize: [44, 44],
+    iconAnchor: [22, 22],
   });
 }
 
@@ -198,6 +211,7 @@ export default function MapsPage() {
     let cancelled = false;
     (async () => {
       const L = await import("leaflet");
+      await import("leaflet.markercluster");
       if (cancelled || !containerRef.current || mapRef.current) return;
       LRef.current = L;
       const map = L.map(containerRef.current, {
@@ -210,7 +224,18 @@ export default function MapsPage() {
           '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
         maxZoom: 19,
       }).addTo(map);
-      layerRef.current = L.layerGroup().addTo(map);
+      /* Klaster marker: kamera berdekatan digabung jadi satu titik berisi
+         jumlah kamera saat zoom out. Klik klaster memperbesar peta ke
+         titik itu; di zoom maksimal, marker menyebar (spiderfy) supaya
+         tiap kamera tetap bisa diklik. Marker tunggal tetap membuka
+         popup dan bisa di-drag (super_admin) seperti biasa. */
+      layerRef.current = L.markerClusterGroup({
+        showCoverageOnHover: false,
+        zoomToBoundsOnClick: true,
+        spiderfyOnMaxZoom: true,
+        iconCreateFunction: (cluster) =>
+          clusterIcon(L, cluster.getChildCount()),
+      }).addTo(map);
       mapRef.current = map;
     })();
     return () => {
