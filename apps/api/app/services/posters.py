@@ -17,6 +17,11 @@ log = logging.getLogger("netravision.posters")
 
 _FFMPEG_WARNED = False
 
+# JPEG poster abu-abu polos (solid gray 800x448, q=4) hanya ~2-3 KB,
+# sedangkan foto asli 28 KB ke atas. Bila hasil tangkap di bawah ambang
+# ini dan poster lama sudah ada, jangan timpa poster lama yang masih bagus.
+_MIN_POSTER_BYTES = 8192
+
 
 def capture_poster(
     stream_id: int,
@@ -34,6 +39,14 @@ def capture_poster(
             [
                 "ffmpeg", "-y", "-v", "error",
                 "-rtsp_transport", "tcp",
+                # Hanya decode keyframe. Tanpa ini, frame pertama yang
+                # keluar dari decoder HEVC sering abu-abu polos: decoder
+                # belum melihat keyframe sehingga gagal cari reference
+                # ("Could not find ref with POC") lalu mengeluarkan frame
+                # kosong bernilai gray 128. Kamera yang URL-nya tertulis
+                # H.264 pun ternyata mengirim HEVC (terbukti di 356/358/
+                # 360/361), jadi ini bukan masalah codec semata.
+                "-skip_frame", "nokey",
                 "-i", rtsp_url,
                 "-frames:v", "1",
                 "-q:v", "4",
@@ -45,6 +58,17 @@ def capture_poster(
             capture_output=True,
         )
         if r.returncode == 0 and os.path.getsize(tmp) > 0:
+            if (
+                os.path.getsize(tmp) < _MIN_POSTER_BYTES
+                and os.path.exists(out_path)
+            ):
+                log.info(
+                    "poster stream %s dicurigai abu-abu (%s byte) — "
+                    "poster lama dipertahankan",
+                    stream_id, os.path.getsize(tmp),
+                )
+                os.remove(tmp)
+                return False
             os.replace(tmp, out_path)
             return True
         log.info(
