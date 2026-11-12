@@ -90,7 +90,7 @@ pathDefaults:
   recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f.mp4
   recordFormat: fmp4
   recordPartDuration: 1s
-  recordSegmentDuration: 3600s
+  recordSegmentDuration: 600s
   # Retensi default lokal 7 hari; per-kamera bisa dioverride via API (Fase 3).
   recordDeleteAfter: 168h
 
