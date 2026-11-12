@@ -343,18 +343,51 @@ export default function MapsPage() {
       /* leaflet.markercluster (UMD) mengharapkan Leaflet sebagai global
          window.L; tanpa ini L.markerClusterGroup tidak terdaftar. */
       (window as unknown as { L?: typeof L }).L = L;
-      if (cancelled || !containerRef.current || mapRef.current) return;
+      /* Jangan jadikan mapRef sebagai penjaga: bila cleanup mount
+         sebelumnya tidak men-null-kannya, penjaga ini memblokir init
+         ulang dan peta tidak pernah jadi saat kembali lewat navigasi
+         client-side (marker hilang, klik tidak jalan). */
+      if (cancelled || !containerRef.current) return;
+      const container = containerRef.current;
+      /* React bisa memakai ulang node DOM container saat navigasi
+         client-side. Leaflet menolak L.map bila _leaflet_id lama masih
+         menempel ("Map container is already initialized"), jadi
+         bersihkan dulu. */
+      const containerWithId = container as unknown as {
+        _leaflet_id?: unknown;
+      };
+      if (containerWithId._leaflet_id != null) {
+        delete containerWithId._leaflet_id;
+      }
       LRef.current = L;
       /* Peta dibuat DULU, sebelum plugin klaster dicoba. Bila pembuatan
          klaster gagal (pernah terjadi di staging: tile tampil tapi
          mapRef tidak pernah diset, marker tidak muncul dan klik nama
          kamera tidak menggeser peta), peta tetap jadi, mapRef terisi,
          dan marker tetap ditambahkan lewat layer biasa. */
-      const map = L.map(containerRef.current, {
-        center: DEFAULT_CENTER,
-        zoom: DEFAULT_ZOOM,
-        zoomControl: false, // kontrol zoom React sendiri (44px) di wadah kiri atas
-      });
+      let map: LType.Map;
+      try {
+        map = L.map(container, {
+          center: DEFAULT_CENTER,
+          zoom: DEFAULT_ZOOM,
+          zoomControl: false, // kontrol zoom React sendiri (44px) di wadah kiri atas
+        });
+      } catch {
+        /* Coba sekali lagi setelah membersihkan _leaflet_id. */
+        delete containerWithId._leaflet_id;
+        map = L.map(container, {
+          center: DEFAULT_CENTER,
+          zoom: DEFAULT_ZOOM,
+          zoomControl: false,
+        });
+      }
+      if (cancelled) {
+        map.remove();
+        return;
+      }
+      /* Isi mapRef segera supaya klik nama kamera (flyTo) tetap jalan
+         walau pembuatan layer di bawah gagal. */
+      mapRef.current = map;
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution:
           '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -423,9 +456,17 @@ export default function MapsPage() {
         layer = null;
       }
       if (!layer) layer = L.layerGroup();
-      layer.addTo(map);
+      /* addTo bisa melempar bila layer klaster tidak cocok dengan
+         instance Leaflet peta (terjadi saat navigasi client-side);
+         bila itu terjadi, pakai layer biasa supaya titik tetap tampil.
+         mapRef sudah terisi di atas, dan mapReady tetap diset. */
+      try {
+        layer.addTo(map);
+      } catch {
+        layer = L.layerGroup();
+        layer.addTo(map);
+      }
       layerRef.current = layer;
-      mapRef.current = map;
       setMapReady(true);
     })();
     return () => {
@@ -433,8 +474,27 @@ export default function MapsPage() {
       popupRootsRef.current.forEach((r) => r.unmount());
       popupRootsRef.current.clear();
       markersRef.current.clear();
-      mapRef.current?.remove();
+      try {
+        mapRef.current?.remove();
+      } catch {
+        /* abaikan: peta mungkin sudah rusak/hilang */
+      }
       mapRef.current = null;
+      layerRef.current = null;
+      LRef.current = null;
+      fittedRef.current = false;
+      /* Bersihkan _leaflet_id container supaya navigasi kembali bisa
+         membuat peta baru di node DOM yang sama. */
+      const c = containerRef.current as unknown as {
+        _leaflet_id?: unknown;
+      } | null;
+      if (c && c._leaflet_id != null) {
+        try {
+          delete c._leaflet_id;
+        } catch {
+          /* abaikan */
+        }
+      }
     };
   }, []);
 
