@@ -11,6 +11,12 @@ interface Props {
   stream: Stream;
   onExpand: (stream: Stream) => void;
   ad?: AdConfig | null;
+  /* Layar penuh grid Monitor: iklan masuk ke dalam frame (overlay di
+     bawah area video), bukan di bawah video. */
+  adInFrame?: boolean;
+  /* Layar penuh grid Monitor: tile mengisi sel grid (stage fleksibel)
+     supaya semua baris muat dan nama kamera tidak terpotong. */
+  fillCell?: boolean;
 }
 
 /* Tile kamera: TIDAK PERNAH dilipat (aturan yang dikunci).
@@ -18,7 +24,7 @@ interface Props {
    Kontrol overlay: tap-toggle di layar sentuh (class vk-touch-toggle).
    Visual konsol NVR: rounded-2xl, ring status 2px (ok/warn/bad),
    scrim netral untuk kontrol, empty/offline state rapi (ikon SVG + teks). */
-export function CameraTile({ stream, onExpand, ad }: Props) {
+export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell = false }: Props) {
   const boxRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -146,7 +152,7 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
       className={`vk-touch-toggle ${showControls ? "cam-show-controls" : ""} group relative select-none overflow-hidden transition-all duration-300 ${
         fs
           ? "fixed inset-0 z-[70] border-0 bg-black"
-          : "rounded-2xl bg-ink-900 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.35)]"
+          : `rounded-2xl bg-ink-900 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.35)] ${fillCell ? "flex h-full flex-col" : ""}`
       }`}
     >
       {/* Area video: selalu gelap (nv-stage), di kedua tema. Klik di sini
@@ -157,7 +163,7 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
           toggleControls();
           setAdClickTick((t) => t + 1);
         }}
-        className={`nv-stage relative bg-black ${cssRotate ? "nv-rot" : ""} ${fs ? "h-full" : "aspect-video"}`}
+        className={`nv-stage relative bg-black ${cssRotate ? "nv-rot" : ""} ${fs ? "h-full" : fillCell ? "min-h-0 flex-1" : "aspect-video"}`}
       >
       <div className="nv-rot-inner relative h-full w-full">
       {stream.is_online && !failed ? (
@@ -166,7 +172,7 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
             ref={videoRef}
             muted
             playsInline
-            className={`h-full w-full ${fs ? "object-contain" : "object-cover"}`}
+            className={`h-full w-full ${fs || fillCell ? "object-contain" : "object-cover"}`}
           />
           {!playing &&
             (posterSrc ? (
@@ -275,7 +281,7 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
       )}
 
       {/* Overlay kontrol: hanya tombol aksi (nama + status ada di footer kartu) */}
-      <div className={`cam-controls absolute inset-x-0 bottom-0 flex items-center justify-end gap-2 bg-gradient-to-t from-black/85 via-black/40 to-transparent px-3 pb-3 pt-8 ${controlsVisible ? "visible" : "invisible"}`}>
+      <div className={`cam-controls absolute inset-x-0 bottom-0 z-30 flex items-center justify-end gap-2 bg-gradient-to-t from-black/85 via-black/40 to-transparent px-3 pb-3 pt-8 ${controlsVisible ? "visible" : "invisible"}`}>
         <div className="flex shrink-0 items-center gap-2">
           {fs && (
             <button
@@ -348,10 +354,21 @@ export function CameraTile({ stream, onExpand, ad }: Props) {
         </div>
       </div>
       </div>
+      {/* Iklan di dalam frame (overlay) saat layar penuh grid Monitor:
+          menempel di bawah area video, di dalam 16:9. */}
+      {adInFrame && ad?.is_active && (
+        <AdBanner
+          config={ad}
+          hovered={tileHovered}
+          clickTick={adClickTick}
+          placement="overlay"
+        />
+      )}
       </div>
       {/* Iklan di bawah video (di luar area 16:9), bukan overlay, supaya
-          tidak menutupi tombol. Disembunyikan saat layar penuh. */}
-      {!fs && ad?.is_active && (
+          tidak menutupi tombol. Disembunyikan saat layar penuh dan saat
+          iklan dipindah ke dalam frame (adInFrame). */}
+      {!fs && !adInFrame && ad?.is_active && (
         <AdBanner
           config={ad}
           hovered={tileHovered}

@@ -159,6 +159,7 @@ function GroupSections({
   onExpand,
   onRetry,
   ad,
+  isFullscreen = false,
 }: {
   groups: { id: number; name: string; stream_ids: number[] }[] | null;
   loading: boolean;
@@ -170,6 +171,7 @@ function GroupSections({
   onExpand: (s: Stream) => void;
   onRetry: () => void;
   ad?: AdConfig | null;
+  isFullscreen?: boolean;
 }) {
   const [openSections, setOpenSections] = useState<Set<number>>(new Set());
   /* D-S7: seksi grup terbuka secara default (kunci = daftar id seksi,
@@ -304,7 +306,13 @@ function GroupSections({
             {open && (
               <div className={`grid gap-4 ${colsClass}`}>
                 {sec.streams.map((s) => (
-                  <CameraTile key={s.id} stream={s} onExpand={onExpand} ad={ad} />
+                  <CameraTile
+                    key={s.id}
+                    stream={s}
+                    onExpand={onExpand}
+                    ad={ad}
+                    adInFrame={isFullscreen}
+                  />
                 ))}
               </div>
             )}
@@ -678,13 +686,28 @@ export default function MonitorsPage() {
                   onExpand={setFocus}
                   onRetry={loadGroups}
                   ad={ad}
+                  isFullscreen={isFullscreen}
                 />
               ) : (
                 <div
-                  className={`grid gap-4 ${COLS_CLASS[openLayout.cols] ?? COLS_CLASS[2]}`}
+                  className={`grid gap-4 ${COLS_CLASS[openLayout.cols] ?? COLS_CLASS[2]} ${isFullscreen ? "h-dvh" : ""}`}
+                  style={
+                    isFullscreen
+                      ? {
+                          gridTemplateRows: `repeat(${Math.max(1, Math.ceil(openStreams.length / (openLayout.cols || 2)))}, minmax(0, 1fr))`,
+                        }
+                      : undefined
+                  }
                 >
                   {openStreams.map((s) => (
-                    <CameraTile key={s.id} stream={s} onExpand={setFocus} ad={ad} />
+                    <CameraTile
+                      key={s.id}
+                      stream={s}
+                      onExpand={setFocus}
+                      ad={ad}
+                      adInFrame={isFullscreen}
+                      fillCell={isFullscreen}
+                    />
                   ))}
                 </div>
               )}
