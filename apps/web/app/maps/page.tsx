@@ -53,10 +53,22 @@ function MarkerPopup({
   s,
   onClose,
   onLive,
+  isSuperAdmin,
+  editing,
+  pendingCoords,
+  onEditLocation,
+  onSaveLocation,
+  onCancelLocation,
 }: {
   s: Stream;
   onClose: () => void;
   onLive: () => void;
+  isSuperAdmin: boolean;
+  editing: boolean;
+  pendingCoords: string | null;
+  onEditLocation: () => void;
+  onSaveLocation: () => void;
+  onCancelLocation: () => void;
 }) {
   const coords =
     s.latitude != null && s.longitude != null
@@ -95,6 +107,35 @@ function MarkerPopup({
       {coords ? (
         <div className="mb-3 text-xs text-neutral-400">{coords}</div>
       ) : null}
+      {/* Edit lokasi (super_admin): marker baru bisa diseret setelah
+          tombol ini diklik; tombol berubah jadi Save Lokasi. */}
+      {isSuperAdmin && (
+        <div className="mb-2">
+          {editing ? (
+            <div className="flex flex-col gap-2">
+              {pendingCoords ? (
+                <div className="text-xs font-medium text-accent-400">
+                  Posisi baru: {pendingCoords}
+                </div>
+              ) : (
+                <div className="text-xs text-neutral-400">
+                  Seret marker ke posisi baru.
+                </div>
+              )}
+              <Button variant="primary" className="w-full" onClick={onSaveLocation}>
+                Save Lokasi
+              </Button>
+              <Button variant="subtle" className="w-full" onClick={onCancelLocation}>
+                Batal
+              </Button>
+            </div>
+          ) : (
+            <Button variant="subtle" className="w-full" onClick={onEditLocation}>
+              Edit Lokasi
+            </Button>
+          )}
+        </div>
+      )}
       <Button variant="primary" className="w-full" onClick={onLive}>
         Lihat live
       </Button>
@@ -159,6 +200,16 @@ export default function MapsPage() {
   const [error, setError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<number | null>(null);
+  /* Edit lokasi: hanya satu kamera dalam mode edit; marker tidak bisa
+     diseret sebelum tombol Edit Lokasi diklik. */
+  const [editingLocationId, setEditingLocationId] = useState<number | null>(
+    null,
+  );
+  const [pendingPos, setPendingPos] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
+  const editOriginRef = useRef<{ lat: number; lng: number } | null>(null);
   const [focus, setFocus] = useState<Stream | null>(null);
   const [mapQuery, setMapQuery] = useState("");
   const [locating, setLocating] = useState(false);
@@ -187,6 +238,74 @@ export default function MapsPage() {
   /* D-T1: drag/penempatan marker hanya super_admin; backend
      PUT /admin/streams hanya super_admin, admin biasa selalu 403. */
   const isSuperAdmin = user?.role === "super_admin";
+
+  /* Mulai edit lokasi: simpan posisi asal (untuk Batal), aktifkan drag
+     pada marker ini saja. Bila kamera lain sedang diedit, kembalikan
+     dulu marker itu ke posisi asalnya. */
+  const startEditLocation = (s: Stream) => {
+    if (editingLocationId !== null && editingLocationId !== s.id) {
+      const prev = markersRef.current.get(editingLocationId);
+      if (prev && editOriginRef.current) {
+        prev.setLatLng([editOriginRef.current.lat, editOriginRef.current.lng]);
+      }
+      prev?.dragging?.disable();
+    }
+    editOriginRef.current =
+      s.latitude != null && s.longitude != null
+        ? { lat: s.latitude, lng: s.longitude }
+        : null;
+    setPendingPos(null);
+    setEditingLocationId(s.id);
+    markersRef.current.get(s.id)?.dragging?.enable();
+  };
+
+  /* Simpan posisi marker yang sedang diedit (posisi hasil seret). */
+  const saveLocation = async (s: Stream) => {
+    const marker = markersRef.current.get(s.id);
+    const pos =
+      pendingPos ??
+      (marker
+        ? { lat: marker.getLatLng().lat, lng: marker.getLatLng().lng }
+        : null);
+    if (!pos) return;
+    setSavingId(s.id);
+    setSaveError(null);
+    try {
+      await api.put(`/admin/streams/${s.id}`, {
+        latitude: pos.lat,
+        longitude: pos.lng,
+      });
+      setStreams((prev) =>
+        prev.map((p) =>
+          p.id === s.id
+            ? { ...p, latitude: pos.lat, longitude: pos.lng }
+            : p,
+        ),
+      );
+      setEditingLocationId(null);
+      setPendingPos(null);
+      editOriginRef.current = null;
+      marker?.dragging?.disable();
+    } catch (e) {
+      setSaveError(
+        `Gagal menyimpan posisi ${s.name}: ${e instanceof ApiError ? e.message : "unknown"}`,
+      );
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  /* Batal edit: kembalikan marker ke posisi asal, matikan drag. */
+  const cancelLocation = (s: Stream) => {
+    const marker = markersRef.current.get(s.id);
+    if (marker && editOriginRef.current) {
+      marker.setLatLng([editOriginRef.current.lat, editOriginRef.current.lng]);
+    }
+    marker?.dragging?.disable();
+    setEditingLocationId(null);
+    setPendingPos(null);
+    editOriginRef.current = null;
+  };
 
   const load = useCallback(async () => {
     setFetching(true);
@@ -309,10 +428,13 @@ export default function MapsPage() {
       bounds.push([lat, lng]);
       const existing = markersRef.current.get(s.id);
       if (existing) {
-        existing.setLatLng([lat, lng]);
+        /* Saat kamera ini sedang diedit, jangan kembalikan posisi marker
+           ke koordinat lama (hasil seret harus dipertahankan). */
+        if (editingLocationId !== s.id) existing.setLatLng([lat, lng]);
         existing.setIcon(markerIcon(L, s.is_online));
-        existing.options.draggable = isSuperAdmin;
-        if (isSuperAdmin) existing.dragging?.enable();
+        const canDrag = isSuperAdmin && editingLocationId === s.id;
+        existing.options.draggable = canDrag;
+        if (canDrag) existing.dragging?.enable();
         else existing.dragging?.disable();
         popupRootsRef.current.get(s.id)?.render(
           <MarkerPopup
@@ -322,6 +444,16 @@ export default function MapsPage() {
               map.closePopup();
               focusRef.current(s);
             }}
+            isSuperAdmin={isSuperAdmin}
+            editing={editingLocationId === s.id}
+            pendingCoords={
+              editingLocationId === s.id && pendingPos
+                ? `${pendingPos.lat.toFixed(5)}, ${pendingPos.lng.toFixed(5)}`
+                : null
+            }
+            onEditLocation={() => startEditLocation(s)}
+            onSaveLocation={() => saveLocation(s)}
+            onCancelLocation={() => cancelLocation(s)}
           />,
         );
         continue;
@@ -329,7 +461,7 @@ export default function MapsPage() {
 
       const marker = L.marker([lat, lng], {
         icon: markerIcon(L, s.is_online),
-        draggable: isSuperAdmin,
+        draggable: isSuperAdmin && editingLocationId === s.id,
         title: s.name,
       });
 
@@ -343,36 +475,27 @@ export default function MapsPage() {
             map.closePopup();
             focusRef.current(s);
           }}
+          isSuperAdmin={isSuperAdmin}
+          editing={editingLocationId === s.id}
+          pendingCoords={
+            editingLocationId === s.id && pendingPos
+              ? `${pendingPos.lat.toFixed(5)}, ${pendingPos.lng.toFixed(5)}`
+              : null
+          }
+          onEditLocation={() => startEditLocation(s)}
+          onSaveLocation={() => saveLocation(s)}
+          onCancelLocation={() => cancelLocation(s)}
         />,
       );
       popupRootsRef.current.set(s.id, popupRoot);
       marker.bindPopup(el, { closeButton: false });
 
       if (isSuperAdmin) {
-        marker.on("dragend", async () => {
+        /* Seret hanya mencatat posisi baru; penyimpanan terjadi saat
+           tombol Save Lokasi diklik. */
+        marker.on("dragend", () => {
           const ll = marker.getLatLng();
-          setSavingId(s.id);
-          setSaveError(null);
-          try {
-            await api.put(`/admin/streams/${s.id}`, {
-              latitude: ll.lat,
-              longitude: ll.lng,
-            });
-            setStreams((prev) =>
-              prev.map((p) =>
-                p.id === s.id
-                  ? { ...p, latitude: ll.lat, longitude: ll.lng }
-                  : p,
-              ),
-            );
-          } catch (e) {
-            setSaveError(
-              `Gagal menyimpan posisi ${s.name}: ${e instanceof ApiError ? e.message : "unknown"}`,
-            );
-            marker.setLatLng([lat, lng]); // kembalikan
-          } finally {
-            setSavingId(null);
-          }
+          setPendingPos({ lat: ll.lat, lng: ll.lng });
         });
       }
 
@@ -384,7 +507,7 @@ export default function MapsPage() {
       map.fitBounds(L.latLngBounds(bounds).pad(0.25));
       fittedRef.current = true;
     }
-  }, [mappedShown, isSuperAdmin, mapReady]);
+  }, [mappedShown, isSuperAdmin, mapReady, editingLocationId, pendingPos]);
 
   /* Admin: tandai kamera belum-dipetakan di tengah peta. */
   const placeAtCenter = async (s: Stream) => {
@@ -480,7 +603,7 @@ export default function MapsPage() {
           title="Peta Kamera"
           desc={
             isSuperAdmin
-              ? "Lokasi semua kamera. Seret marker untuk memindahkan posisi (super admin)."
+              ? "Lokasi semua kamera. Klik marker, lalu Edit Lokasi untuk memindahkan posisi (super admin)."
               : "Lokasi semua kamera."
           }
           action={
@@ -526,13 +649,13 @@ export default function MapsPage() {
           )}
           {isSuperAdmin && (
             <div className="nv-frost absolute left-1/2 top-3 z-10 -translate-x-1/2 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs text-neutral-300">
-              Seret marker untuk memindahkan posisi kamera
+              Klik marker, lalu Edit Lokasi untuk memindahkan posisi
             </div>
           )}
           {/* Kontrol peta kiri atas: zoom, lokasi saya, dan pesan hasil
               dalam satu wadah bertumpuk (tanpa angka posisi tetap).
               Di HP untuk admin wadah turun sedikit supaya tidak menutupi
-              pil petunjuk "Seret marker" di tengah atas. */}
+              pil petunjuk di tengah atas. */}
           <div
             className={`absolute left-2.5 z-10 flex flex-col items-start gap-2.5 ${isSuperAdmin ? "top-14 md:top-2.5" : "top-2.5"}`}
           >
