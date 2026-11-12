@@ -43,7 +43,14 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
     videoRef,
   );
 
-  const url = stream.whep_sub_url || stream.whep_main_url;
+  /* Grid SELALU pakai sub stream (aturan user 2026-11-13): tile grid /
+     monitor tidak pernah pakai main stream. Bila whep_sub_url kosong,
+     tile menampilkan "URL stream tidak tersedia" (bukan diam-diam
+     memutar main). Sub stream dibuat selalu menyala 24/7 di backend
+     (runOnReady path main), jadi URL sub selalu tersedia untuk kamera
+     yang online. FocusModal (popup) dikecualikan: ia memakai sub dulu
+     lalu main (HD), dan tidak memakai komponen ini. */
+  const url = stream.whep_sub_url;
   /* Poster lewat blob object URL (header Authorization), bukan ?token= di URL. */
   const posterSrc = usePosterUrl(stream.poster_url);
 

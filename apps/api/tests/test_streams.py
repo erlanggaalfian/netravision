@@ -71,10 +71,18 @@ async def test_reconnect_ok(app_client):
     assert r.json() == {"ok": True}
     assert fake.paths["stream_1"] == "rtsp://cam/1"
     # Pola v2: sub = transkode ffmpeg dari main, bukan URL sub kamera.
+    # Always-on (aturan user 2026-11-13): ffmpeg dijalankan runOnReady
+    # path main (bukan runOnDemand path sub), sub tidak pernah mati.
+    main = fake.confs["stream_1"]
+    assert main["sourceOnDemand"] is False
+    assert "rtsp://127.0.0.1:$RTSP_PORT/stream_1 " in main["runOnReady"]
+    assert main["runOnReady"].endswith(
+        "rtsp://127.0.0.1:$RTSP_PORT/stream_1_sub"
+    )
+    assert main["runOnReadyRestart"] is True
     sub = fake.confs["stream_1_sub"]
     assert sub["source"] == "publisher"
-    assert "rtsp://127.0.0.1:$RTSP_PORT/stream_1 " in sub["runOnDemand"]
-    assert fake.confs["stream_1"]["sourceOnDemand"] is False
+    assert sub["runOnDemand"] == ""
 
 
 async def test_reconnect_pertahankan_record(app_client):
