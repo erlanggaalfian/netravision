@@ -110,6 +110,17 @@ function PlaybackPanel({
   const [downloading, setDownloading] = useState(false);
   const [urlLoading, setUrlLoading] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  /* Object URL segmen yang sedang diputar (blob via apiFetch): dicabut
+     saat ganti segmen / unmount supaya tidak bocor memori. */
+  const videoObjectUrlRef = useRef<string | null>(null);
+  const revokeVideoObjectUrl = useCallback(() => {
+    if (videoObjectUrlRef.current) {
+      URL.revokeObjectURL(videoObjectUrlRef.current);
+      videoObjectUrlRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => revokeVideoObjectUrl, [revokeVideoObjectUrl]);
   /* Nomor urutan: hanya respons terbaru load linimasa / fetch URL
      playback yang dipakai, respons kedaluwarsa diabaikan. */
   const loadSeqRef = useRef(0);
@@ -163,6 +174,7 @@ function PlaybackPanel({
     async (entry: TimelineEntry) => {
       const mySeq = ++playSeqRef.current;
       setActive(entry);
+      revokeVideoObjectUrl();
       setVideoSrc(null);
       setVideoError(null);
       setUrlLoading(true);
@@ -176,7 +188,18 @@ function PlaybackPanel({
           setVideoError("Tautan rekaman sudah kedaluwarsa, coba putar lagi segmen ini.");
           return;
         }
-        setVideoSrc(p.url);
+        /* <video> tidak bisa mengirim header Authorization (token ada di
+           localStorage), jadi segmen diunduh lewat apiFetch lalu diputar
+           dari blob object URL. Pola yang sama dengan poster kamera,
+           bukan ?token= di URL. */
+        const path = p.url.startsWith("/api/") ? p.url.slice(4) : p.url;
+        const res = await apiFetch(path);
+        if (!res.ok) throw new ApiError(res.status, `HTTP ${res.status}`);
+        const blob = await res.blob();
+        if (mySeq !== playSeqRef.current) return;
+        const objectUrl = URL.createObjectURL(blob);
+        videoObjectUrlRef.current = objectUrl;
+        setVideoSrc(objectUrl);
       } catch (e) {
         if (mySeq !== playSeqRef.current) return;
         setError(
@@ -186,7 +209,7 @@ function PlaybackPanel({
         if (mySeq === playSeqRef.current) setUrlLoading(false);
       }
     },
-    [streamId],
+    [streamId, revokeVideoObjectUrl],
   );
 
   const downloadActive = useCallback(async () => {
