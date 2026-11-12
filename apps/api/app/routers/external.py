@@ -245,11 +245,17 @@ def _whep_url_sub(
     return f"{base}{wbase}/stream_{stream_id}_sub/whep?session={quote(session)}"
 
 
-async def _ad_config_dict(db: AsyncSession, base_url: str) -> dict | None:
+async def _ad_config_dict(
+    db: AsyncSession, base_url: str, key: ApiKey | None = None
+) -> dict | None:
     """Konfigurasi iklan penuh (16 field v2.0); None bila tidak aktif.
 
-    Akses API key bukan user login -> show_ads dianggap boleh tampil (v2.0).
+    Bila kunci API punya show_ads=False, embed kunci itu tanpa iklan
+    (None). Tanpa kunci, atau show_ads True, perilaku lama: tampil
+    bila config aktif.
     """
+    if key is not None and key.show_ads is False:
+        return None
     result = await db.execute(select(AdConfig).where(AdConfig.key == "default"))
     row = result.scalars().first()
     cfg = dict(_AD_DEFAULTS)
@@ -351,7 +357,7 @@ async def external_stream(
     expires_at = _now() + timedelta(minutes=ttl)
     url = _whep_url(request, target, token)
     base = _public_base(request)
-    ad_cfg = await _ad_config_dict(db, base)
+    ad_cfg = await _ad_config_dict(db, base, key_rec)
     coords = None
     if stream.latitude is not None and stream.longitude is not None:
         coords = f"{stream.latitude},{stream.longitude}"

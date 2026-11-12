@@ -18,8 +18,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.rbac import _user_from_token, bearer_scheme, require_roles
+from app.core.security import decode_token
 from app.db.session import get_db
+from app.models.keys import ApiKey
 from app.models.misc import AdConfig
 from app.models.users import User
 
@@ -116,6 +119,32 @@ async def _group_ads_enabled(db: AsyncSession, group_name: str | None) -> bool |
     return None
 
 
+async def _embed_key_show_ads(db: AsyncSession, raw: str) -> bool | None:
+    """show_ads milik API key dari token sesi embed; None bila bukan token embed.
+
+    Token embed (role "embed", sub "key:<id>") gagal di _user_from_token
+    dan dianggap tamu; fungsi ini membaca setelan kuncinya langsung.
+    """
+    try:
+        payload = decode_token(raw, get_settings())
+    except ValueError:
+        return None
+    if payload.get("role") != "embed":
+        return None
+    sub = str(payload.get("sub") or "")
+    if not sub.startswith("key:"):
+        return None
+    try:
+        kid = int(sub[4:])
+    except ValueError:
+        return None
+    res = await db.execute(select(ApiKey).where(ApiKey.id == kid))
+    key = res.scalars().first()
+    if key is None:
+        return None
+    return bool(key.show_ads)
+
+
 @router.get("/ad-config")
 async def public_ad_config(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
@@ -131,6 +160,10 @@ async def public_ad_config(
             user = await _user_from_token(raw, db)
         except HTTPException:
             user = None
+    # Token sesi embed: hormati setelan show_ads kunci itu; False ->
+    # config nonaktif (embed kunci itu tanpa iklan).
+    if user is None and raw and await _embed_key_show_ads(db, raw) is False:
+        return _inactive_config()
     cfg = await _get_value(db, "default")
     # A-S10: setelan iklan per grup menimpa default untuk anggota grup itu.
     group_ads = await _group_ads_enabled(db, user.admin_group if user else None)

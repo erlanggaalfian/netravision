@@ -32,6 +32,7 @@ class ApiKeyCreate(BaseModel):
     session_limit_min: int | None = Field(default=None, ge=1, le=1440)
     custom_camera_name: str | None = None
     include_playback: bool | None = None
+    show_ads: bool | None = None
 
 
 class ApiKeyUpdate(BaseModel):
@@ -43,6 +44,7 @@ class ApiKeyUpdate(BaseModel):
     is_active: bool | None = None
     custom_camera_name: str | None = None
     include_playback: bool | None = None
+    show_ads: bool | None = None
 
 
 def _key_to_out(key: ApiKey, stream_ids: list[int]) -> dict:
@@ -55,6 +57,7 @@ def _key_to_out(key: ApiKey, stream_ids: list[int]) -> dict:
         "stream_ids": stream_ids,
         "custom_camera_name": key.custom_camera_name or "",
         "include_playback": key.include_playback,
+        "show_ads": key.show_ads,
         "session_limit_min": key.session_ttl_mnt,
     }
 
@@ -126,6 +129,7 @@ async def create_key(data: ApiKeyCreate, db: AsyncSession = Depends(get_db)):
         session_ttl_mnt=data.session_limit_min,
         custom_camera_name=(data.custom_camera_name or "").strip(),
         include_playback=data.include_playback if data.include_playback is not None else True,
+        show_ads=data.show_ads if data.show_ads is not None else True,
     )
     db.add(key)
     await db.flush()
@@ -152,6 +156,8 @@ async def update_key(key_id: int, data: ApiKeyUpdate, db: AsyncSession = Depends
         key.custom_camera_name = data.custom_camera_name.strip()
     if data.include_playback is not None:
         key.include_playback = data.include_playback
+    if data.show_ads is not None:
+        key.show_ads = data.show_ads
     if data.session_limit_min is not None:
         # A-S1: simpan TTL sesi embed supaya benar-benar mengikuti setelan.
         key.session_ttl_mnt = data.session_limit_min

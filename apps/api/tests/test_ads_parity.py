@@ -97,6 +97,69 @@ async def test_ad_config_respects_show_ads(app_client):
         assert r.json()["is_active"] is True
 
 
+async def test_ad_config_respects_api_key_show_ads(app_client):
+    """Iklan per API key: kunci show_ads=False -> embed tanpa iklan."""
+    from urllib.parse import parse_qs, urlparse
+
+    from app.models.streams import Stream
+
+    app, _, db = app_client
+    admin = make_user(role="super_admin")
+    db.add(admin)
+    db.add(Stream(id=1, name="Cam 1", rtsp_url="rtsp://x/1",
+                  main_url="rtsp://x/1", is_active=True))
+    await db.commit()
+    auth_as(app, admin)
+    async with _client(app) as c:
+        # config aktif dengan marquee
+        r = await c.post(
+            "/api/admin/ad-config",
+            json={"marquee_text": "Promo!", "is_active": True},
+        )
+        assert r.status_code == 200, r.text
+
+        # kunci tanpa iklan
+        r = await c.post(
+            "/api/admin/api-keys",
+            json={"name": "Tanpa Iklan", "stream_ids": [1], "show_ads": False},
+        )
+        assert r.status_code == 201, r.text
+        assert r.json()["show_ads"] is False
+        raw_noads = r.json()["key"]
+
+        # kunci dengan iklan (default juga True)
+        r = await c.post(
+            "/api/admin/api-keys",
+            json={"name": "Dengan Iklan", "stream_ids": [1]},
+        )
+        assert r.status_code == 201, r.text
+        assert r.json()["show_ads"] is True
+        raw_yesads = r.json()["key"]
+
+        # /external/stream kunci tanpa iklan -> ad null
+        r = await c.get("/api/external/stream", params={"key": raw_noads, "camera": 1})
+        assert r.status_code == 200, r.text
+        assert r.json()["ad"] is None
+        tok_noads = parse_qs(urlparse(r.json()["url"]).query)["session"][0]
+
+        # token sesi embed kunci tanpa iklan -> config nonaktif
+        r = await c.get("/api/ad-config", params={"token": tok_noads})
+        assert r.json()["is_active"] is False
+        assert r.json()["marquee_text"] == ""
+
+        # /external/stream kunci dengan iklan -> ad tampil
+        r = await c.get("/api/external/stream", params={"key": raw_yesads, "camera": 1})
+        assert r.status_code == 200, r.text
+        assert r.json()["ad"] is not None
+        assert r.json()["ad"]["is_active"] is True
+        tok_yesads = parse_qs(urlparse(r.json()["url"]).query)["session"][0]
+
+        # token sesi embed kunci dengan iklan -> config aktif
+        r = await c.get("/api/ad-config", params={"token": tok_yesads})
+        assert r.json()["is_active"] is True
+        assert r.json()["marquee_text"] == "Promo!"
+
+
 async def test_ad_config_roundtrip_new_fields(app_client):
     app, _, db = app_client
     admin = make_user(role="super_admin")

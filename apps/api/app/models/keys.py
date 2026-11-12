@@ -27,6 +27,8 @@ class ApiKey(Base, TimestampMixin):
     # Opsi embed ala v2.0.
     custom_camera_name: Mapped[str | None] = mapped_column(String(128), nullable=True, default="")
     include_playback: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Opsi iklan per kunci: False -> embed kunci ini tanpa iklan.
+    show_ads: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
 class ApiKeyStream(Base):

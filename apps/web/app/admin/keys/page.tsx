@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import type { AdConfig, ApiKey, Stream } from "../../../lib/types";
-import { ErrorBox, Modal, Spinner } from "../../../components/ui";
+import { ErrorBox, Modal, Spinner, Switch } from "../../../components/ui";
 import {
   NBAccordion,
   NBBadge,
@@ -226,6 +226,9 @@ export default function AdminKeysPage() {
                       {!k.include_playback && (
                         <NBBadge tone="muted">Tanpa playback</NBBadge>
                       )}
+                      {!k.show_ads && (
+                        <NBBadge tone="muted">Tanpa iklan</NBBadge>
+                      )}
                     </p>
                     {k.custom_camera_name && (
                       <p className="text-xs text-slate-400">
@@ -274,6 +277,9 @@ export default function AdminKeysPage() {
                         )}
                         {!k.include_playback && (
                           <NBBadge tone="muted">Tanpa playback</NBBadge>
+                        )}
+                        {!k.show_ads && (
+                          <NBBadge tone="muted">Tanpa iklan</NBBadge>
                         )}
                       </p>
                       {k.custom_camera_name && (
@@ -681,6 +687,7 @@ function KeyFormModal({
   const [password, setPassword] = useState("");
   const [customName, setCustomName] = useState("");
   const [includePlayback, setIncludePlayback] = useState(true);
+  const [showAds, setShowAds] = useState(true);
   const [ordered, setOrdered] = useState<number[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -716,6 +723,7 @@ function KeyFormModal({
         password: password || null,
         custom_camera_name: customName.trim() || null,
         include_playback: includePlayback,
+        show_ads: showAds,
       });
       onCreated(res);
     } catch (e) {
@@ -780,6 +788,21 @@ function KeyFormModal({
             onChange={(e) => setIncludePlayback(e.target.checked)}
             className="h-5 w-5 shrink-0 accent-accent-500"
             aria-label="Sertakan playback"
+          />
+        </label>
+        <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3">
+          <span>
+            <span className="block text-sm font-medium text-white">
+              Tampilkan Iklan
+            </span>
+            <span className="block text-xs text-slate-400">
+              Banner iklan tampil di embed kunci ini
+            </span>
+          </span>
+          <Switch
+            checked={showAds}
+            onChange={setShowAds}
+            label="Tampilkan Iklan"
           />
         </label>
         <NBField label={`Kamera yang boleh diakses${ordered.length ? ` (${ordered.length})` : ""}`}>

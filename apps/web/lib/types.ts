@@ -98,6 +98,7 @@ export interface ApiKey {
   stream_ids: number[];
   custom_camera_name: string;
   include_playback: boolean;
+  show_ads: boolean;
 }
 
 export interface DiskInfo {
