@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import { ErrorBox, Spinner } from "../../../components/ui";
 import {
@@ -117,9 +117,100 @@ export default function AdminStoragePage() {
   const [accountLabel, setAccountLabel] = useState("");
   const [accountToken, setAccountToken] = useState("");
   const [showHowTo, setShowHowTo] = useState(false);
+  const [showManual, setShowManual] = useState(false);
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountError, setAccountError] = useState("");
   const [deletingRemote, setDeletingRemote] = useState<RcloneRemote | null>(null);
+
+  // Hubungkan akun via `rclone authorize` di server
+  interface AuthorizeJob {
+    job_id: string;
+    remote_name: string;
+    label: string;
+    status: "waiting" | "done" | "error";
+    auth_url: string | null;
+    token: string | null;
+    error: string | null;
+  }
+  const [authJob, setAuthJob] = useState<AuthorizeJob | null>(null);
+  const [authBusy, setAuthBusy] = useState(false);
+  const authLabelRef = useRef("");
+
+  async function startAuthorize() {
+    if (!accountLabel.trim()) {
+      setAccountError("Isi dulu nama akun, mis. CCTV Gudang.");
+      return;
+    }
+    setAccountError("");
+    setAuthBusy(true);
+    try {
+      const res = await api.post<{
+        job_id: string;
+        remote_name: string;
+        label: string;
+      }>("/admin/drive-remotes/authorize", { label: accountLabel.trim() });
+      authLabelRef.current = res.label;
+      setAuthJob({
+        ...res,
+        status: "waiting",
+        auth_url: null,
+        token: null,
+        error: null,
+      });
+    } catch (e) {
+      setAccountError(e instanceof ApiError ? e.message : "Gagal memulai hubungkan akun");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  // Poll status authorize; bila done, simpan token lewat endpoint yang ada.
+  useEffect(() => {
+    if (!authJob || authJob.status !== "waiting") return;
+    const jobId = authJob.job_id;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await api.get<AuthorizeJob>(
+          `/admin/drive-remotes/authorize/${jobId}`,
+        );
+        if (cancelled) return;
+        setAuthJob(res);
+        if (res.status === "done" && res.token) {
+          try {
+            await api.post("/admin/drive-remotes", {
+              token: res.token,
+              remote_name: res.remote_name,
+              label: authLabelRef.current,
+            });
+            setNotice(`Akun "${authLabelRef.current}" berhasil terhubung.`);
+            setAccountLabel("");
+            setAccountToken("");
+            setAuthJob(null);
+            setShowAddAccount(false);
+            await loadRemotes();
+            await loadQueue();
+          } catch (e) {
+            setAccountError(
+              e instanceof ApiError ? e.message : "Gagal menyimpan akun",
+            );
+            setAuthJob((prev) =>
+              prev ? { ...prev, status: "error", error: "Gagal menyimpan akun" } : prev,
+            );
+          }
+        }
+      } catch {
+        // Abaikan satu poll gagal, coba lagi.
+      }
+    };
+    poll();
+    const timer = setInterval(poll, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authJob?.job_id, authJob?.status]);
 
   async function load() {
     try {
@@ -412,49 +503,124 @@ export default function AdminStoragePage() {
                   onChange={(e) => setAccountLabel(e.target.value)}
                 />
               </NBField>
-              <NBField
-                label="Kode dari rclone"
-                hint='Tempel seluruh kode yang muncul setelah menjalankan rclone authorize. Kode dimulai dengan {"access_token": ...'
-              >
-                <NBTextArea
-                  rows={3}
-                  placeholder='{"access_token":"ya29...","token_type":"Bearer","refresh_token":"1//...","expiry":"..."}'
-                  value={accountToken}
-                  onChange={(e) => setAccountToken(e.target.value)}
-                />
-              </NBField>
+
+              {authJob === null ? (
+                <div>
+                  <NBButton onClick={startAuthorize} disabled={authBusy}>
+                    {authBusy ? "Menyiapkan…" : "Hubungkan dengan Google"}
+                  </NBButton>
+                  <p className="mt-2 text-xs text-slate-400">
+                    Server menjalankan rclone authorize, Anda tinggal klik link
+                    yang muncul lalu login Google.
+                  </p>
+                </div>
+              ) : authJob.status === "waiting" ? (
+                <div className="rounded-xl bg-ink-800 p-4">
+                  <p className="text-sm font-semibold text-slate-200">
+                    {authJob.auth_url
+                      ? "Klik link di bawah, lalu login Google:"
+                      : "Menyiapkan link login Google…"}
+                  </p>
+                  {authJob.auth_url && (
+                    <a
+                      href={authJob.auth_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-2 block break-all rounded-lg bg-ink-900 px-3 py-2 font-mono text-xs text-accent-400 underline underline-offset-2"
+                    >
+                      {authJob.auth_url}
+                    </a>
+                  )}
+                  <p className="mt-2 text-xs text-slate-400">
+                    Link mengarah ke port 53682 di server. Bila browser tidak
+                    bisa membukanya, teruskan port itu lewat SSH (ganti
+                    alamat-server dengan alamat server Anda):
+                    <code className="mt-1 block rounded bg-ink-900 px-2 py-1 font-mono text-xs">
+                      ssh -L 53682:127.0.0.1:53682 root@alamat-server
+                    </code>
+                    127.0.0.1 di perintah itu adalah localhost di server
+                    (tempat rclone jalan), bukan laptop. Atau pakai cara
+                    tempel kode manual di bawah. Setelah Anda izinkan di
+                    Google, akun terhubung otomatis di sini.
+                  </p>
+                  <div className="mt-3">
+                    <NBButton variant="secondary" onClick={() => setAuthJob(null)}>
+                      Batal
+                    </NBButton>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-xl bg-bad-400/15 p-4 text-sm font-medium text-bad-400 ring-1 ring-bad-400/30">
+                  {authJob.error || "Gagal menghubungkan akun."}
+                  <div className="mt-3">
+                    <NBButton variant="secondary" onClick={() => setAuthJob(null)}>
+                      Coba lagi
+                    </NBButton>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <button
                   type="button"
-                  onClick={() => setShowHowTo((v) => !v)}
-                  className="text-sm font-medium text-accent-400 underline underline-offset-2"
+                  onClick={() => setShowManual((v) => !v)}
+                  className="text-sm font-medium text-slate-400 underline underline-offset-2"
                 >
-                  {showHowTo ? "Sembunyikan cara mendapatkan kode" : "Cara mendapatkan kode"}
+                  {showManual ? "Sembunyikan cara manual" : "atau tempel kode manual"}
                 </button>
-                {showHowTo && (
-                  <ol className="mt-3 list-decimal space-y-2 rounded-xl bg-ink-800 p-4 pl-8 text-sm text-slate-400">
-                    <li>
-                      Di <b>komputer/laptop Anda</b>, pasang rclone sekali dari{" "}
-                      <a
-                        href="https://rclone.org/downloads/"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-accent-400 underline"
+                {showManual && (
+                  <div className="mt-3 space-y-4">
+                    <NBField
+                      label="Kode dari rclone"
+                      hint='Tempel seluruh kode yang muncul setelah menjalankan rclone authorize. Kode dimulai dengan {"access_token": ...'
+                    >
+                      <NBTextArea
+                        rows={3}
+                        placeholder='{"access_token":"ya29...","token_type":"Bearer","refresh_token":"1//...","expiry":"..."}'
+                        value={accountToken}
+                        onChange={(e) => setAccountToken(e.target.value)}
+                      />
+                    </NBField>
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => setShowHowTo((v) => !v)}
+                        className="text-sm font-medium text-accent-400 underline underline-offset-2"
                       >
-                        rclone.org/downloads
-                      </a>
-                      .
-                    </li>
-                    <li>
-                      Jalankan perintah ini, lalu izinkan di browser:
-                      <code className="mt-1 block rounded bg-ink-900 px-2 py-1 font-mono text-xs">
-                        rclone authorize &quot;drive&quot;
-                      </code>
-                    </li>
-                    <li>
-                      Salin <b>seluruh kode</b> yang muncul, tempel di atas, lalu Simpan.
-                    </li>
-                  </ol>
+                        {showHowTo ? "Sembunyikan cara mendapatkan kode" : "Cara mendapatkan kode"}
+                      </button>
+                      {showHowTo && (
+                        <ol className="mt-3 list-decimal space-y-2 rounded-xl bg-ink-800 p-4 pl-8 text-sm text-slate-400">
+                          <li>
+                            Di <b>komputer/laptop Anda</b>, pasang rclone sekali dari{" "}
+                            <a
+                              href="https://rclone.org/downloads/"
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-accent-400 underline"
+                            >
+                              rclone.org/downloads
+                            </a>
+                            .
+                          </li>
+                          <li>
+                            Jalankan perintah ini, lalu izinkan di browser:
+                            <code className="mt-1 block rounded bg-ink-900 px-2 py-1 font-mono text-xs">
+                              rclone authorize &quot;drive&quot;
+                            </code>
+                          </li>
+                          <li>
+                            Salin <b>seluruh kode</b> yang muncul, tempel di atas, lalu Simpan.
+                          </li>
+                        </ol>
+                      )}
+                    </div>
+                    <div>
+                      <NBButton onClick={addAccount} disabled={accountBusy}>
+                        {accountBusy ? "Menyimpan…" : "Simpan Akun"}
+                      </NBButton>
+                    </div>
+                  </div>
                 )}
               </div>
               {accountError && (
@@ -463,11 +629,14 @@ export default function AdminStoragePage() {
                 </div>
               )}
               <div className="flex gap-2">
-                <NBButton onClick={addAccount} disabled={accountBusy}>
-                  {accountBusy ? "Menyimpan…" : "Simpan Akun"}
-                </NBButton>
-                <NBButton variant="secondary" onClick={() => setShowAddAccount(false)}>
-                  Batal
+                <NBButton
+                  variant="secondary"
+                  onClick={() => {
+                    setShowAddAccount(false);
+                    setAuthJob(null);
+                  }}
+                >
+                  Tutup
                 </NBButton>
               </div>
             </div>

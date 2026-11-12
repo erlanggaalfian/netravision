@@ -21,6 +21,8 @@ import os
 import re
 import shutil
 import stat
+import time
+import uuid
 from pathlib import Path
 
 log = logging.getLogger("netravision.gdrive_rclone")
@@ -386,3 +388,115 @@ async def upload_segment(
     if rc != 0:
         detail = (err or out).strip().split("\n")[-1][:200]
         raise RuntimeError(f"upload gagal: {detail}")
+
+
+# ---------------------------------------------------------------------------
+# Alur hubungkan akun via `rclone authorize` yang dijalankan server.
+#
+# Server menjalankan `rclone authorize "drive" --auth-no-open-browser`,
+# lalu mencetak link http://127.0.0.1:53682/auth?state=... Pengguna
+# membuka link itu di browser (butuh akses ke port 53682 server, mis.
+# lewat SSH forward `ssh -L 53682:127.0.0.1:53682`), login Google,
+# izinkan, lalu rclone menerima kode dan mencetak token JSON.
+#
+# Token TIDAK langsung disimpan di sini; job hanya menangkapnya. Frontend
+# yang memanggil POST /admin/drive-remotes (yang sudah ada) untuk
+# menyimpan token + membuat baris DB. Satu authorize dalam satu waktu
+# karena port 53682 dipakai bersama. Job kedaluwarsa 10 menit.
+# ---------------------------------------------------------------------------
+
+_AUTHORIZE_JOBS: dict[str, dict] = {}
+_AUTHORIZE_TIMEOUT_SEC = 600
+_AUTH_URL_RE = re.compile(r"https?://127\.0\.0\.1:53682/auth\?state=\S+")
+
+
+def authorize_job(job_id: str) -> dict | None:
+    """Satu job authorize (atau None bila tidak ada)."""
+    return _AUTHORIZE_JOBS.get(job_id)
+
+
+async def start_authorize(remote_name: str) -> dict:
+    """Mulai `rclone authorize "drive"` di background. Return {job_id}."""
+    remote_name = validate_remote_name(remote_name)
+    binary = find_rclone()
+    if not binary:
+        raise RuntimeError("rclone belum terinstal di server.")
+    for job in _AUTHORIZE_JOBS.values():
+        if job["status"] == "waiting":
+            raise RuntimeError(
+                "Masih ada proses hubungkan akun yang berjalan. Selesaikan dulu."
+            )
+    job_id = uuid.uuid4().hex[:12]
+    job: dict = {
+        "job_id": job_id,
+        "remote_name": remote_name,
+        "status": "waiting",
+        "auth_url": None,
+        "token": None,
+        "error": None,
+        "started_at": time.time(),
+    }
+    _AUTHORIZE_JOBS[job_id] = job
+    asyncio.create_task(_run_authorize(job, binary))
+    return {"job_id": job_id}
+
+
+async def _run_authorize(job: dict, binary: str) -> None:
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            binary,
+            "authorize",
+            "drive",
+            "--auth-no-open-browser",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+    except Exception as e:  # noqa: BLE001 - proses gagal start
+        job["status"] = "error"
+        job["error"] = f"Gagal menjalankan rclone authorize: {e}"
+        return
+    output_lines: list[str] = []
+    try:
+        while True:
+            line = await asyncio.wait_for(
+                proc.stdout.readline(), timeout=_AUTHORIZE_TIMEOUT_SEC
+            )
+            if not line:
+                break
+            text = line.decode(errors="replace").rstrip()
+            output_lines.append(text)
+            if job["auth_url"] is None:
+                m = _AUTH_URL_RE.search(text)
+                if m:
+                    job["auth_url"] = m.group(0)
+            if proc.returncode is not None:
+                break
+    except asyncio.TimeoutError:
+        job["status"] = "error"
+        job["error"] = "Waktu habis (10 menit). Klik lagi untuk mengulang."
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        return
+    await proc.wait()
+    if proc.returncode != 0:
+        job["status"] = "error"
+        job["error"] = "rclone authorize gagal. Coba lagi."
+        return
+    token_json = None
+    for line in reversed(output_lines):
+        line = line.strip()
+        if line.startswith("{") and '"access_token"' in line:
+            try:
+                json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            token_json = line
+            break
+    if not token_json:
+        job["status"] = "error"
+        job["error"] = "Token tidak ditemukan di output rclone."
+        return
+    job["token"] = token_json
+    job["status"] = "done"

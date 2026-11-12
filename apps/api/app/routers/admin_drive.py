@@ -696,6 +696,72 @@ async def list_drive_remotes(db: AsyncSession = Depends(get_db)):
     return out
 
 
+class AuthorizeStart(BaseModel):
+    label: str = Field(default="", max_length=128)
+
+
+def _next_remote_name(taken: set[str]) -> str:
+    """Nama remote kosong pertama: gdrive, gdrive-2, gdrive-3, ..."""
+    if "gdrive" not in taken:
+        return "gdrive"
+    i = 2
+    while f"gdrive-{i}" in taken:
+        i += 1
+    return f"gdrive-{i}"
+
+
+@admin_router.post("/admin/drive-remotes/authorize")
+async def start_drive_authorize(
+    payload: AuthorizeStart,
+    db: AsyncSession = Depends(get_db),
+):
+    """Mulai alur hubungkan akun via `rclone authorize` di server.
+
+    Server menjalankan `rclone authorize "drive"`, frontend mem-poll
+    GET /admin/drive-remotes/authorize/{job_id} untuk mendapat link
+    http://127.0.0.1:53682/auth?state=... Pengguna membuka link itu
+    (butuh akses ke port 53682 server, mis. SSH forward
+    `ssh -L 53682:127.0.0.1:53682`), login Google, izinkan. Token
+    ditangkap server; frontend lalu menyimpan lewat POST
+    /admin/drive-remotes yang sudah ada."""
+    from app.services import gdrive_rclone as gr
+
+    label = (payload.label or "").strip()
+    if not label:
+        raise HTTPException(status_code=400, detail="Isi dulu nama akun.")
+    rows = (await db.execute(select(RcloneRemote.remote_name))).scalars().all()
+    taken = set(rows) | set(gr.list_remote_names())
+    remote_name = _next_remote_name(taken)
+    try:
+        job = await gr.start_authorize(remote_name)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {
+        "job_id": job["job_id"],
+        "remote_name": remote_name,
+        "label": label,
+    }
+
+
+@admin_router.get("/admin/drive-remotes/authorize/{job_id}")
+async def get_drive_authorize(job_id: str):
+    """Status satu job authorize: waiting (auth_url bila sudah ada),
+    done (token bila sudah didapat), atau error."""
+    from app.services import gdrive_rclone as gr
+
+    job = gr.authorize_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job authorize tidak ditemukan.")
+    return {
+        "job_id": job["job_id"],
+        "remote_name": job["remote_name"],
+        "status": job["status"],
+        "auth_url": job.get("auth_url"),
+        "token": job.get("token"),
+        "error": job.get("error"),
+    }
+
+
 @admin_router.post("/admin/drive-remotes")
 async def create_drive_remote(
     payload: RemoteCreate,

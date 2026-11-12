@@ -287,3 +287,44 @@ async def test_drive_remote_create_token_invalid(app_client, monkeypatch):
             "token": "bukan-json", "remote_name": "gdrive-2",
         })
         assert r.status_code == 400
+
+
+async def test_drive_authorize_endpoints(app_client, monkeypatch):
+    app, _, _ = app_client
+    auth_as(app, make_user(role="super_admin"))
+
+    async def _fake_start(remote_name):
+        job = {
+            "job_id": "abc123",
+            "remote_name": remote_name,
+            "status": "waiting",
+            "auth_url": "http://127.0.0.1:53682/auth?state=x",
+            "token": None,
+            "error": None,
+        }
+        gr._AUTHORIZE_JOBS["abc123"] = job
+        return {"job_id": "abc123"}
+
+    monkeypatch.setattr(gr, "start_authorize", _fake_start)
+    monkeypatch.setattr(gr, "find_rclone", lambda: "/usr/bin/rclone")
+    async with _client(app) as c:
+        # Tanpa label -> 400.
+        r = await c.post("/api/admin/drive-remotes/authorize", json={"label": ""})
+        assert r.status_code == 400
+
+        # Mulai authorize -> 200, nama remote pertama gdrive.
+        r = await c.post("/api/admin/drive-remotes/authorize", json={"label": "Akun Tes"})
+        assert r.status_code == 200
+        assert r.json()["job_id"] == "abc123"
+        assert r.json()["remote_name"] == "gdrive"
+        assert r.json()["label"] == "Akun Tes"
+
+        # Poll job -> waiting + auth_url.
+        r = await c.get("/api/admin/drive-remotes/authorize/abc123")
+        assert r.status_code == 200
+        assert r.json()["status"] == "waiting"
+        assert r.json()["auth_url"].startswith("http://127.0.0.1:53682/auth?state=")
+
+        # Job tidak dikenal -> 404.
+        r = await c.get("/api/admin/drive-remotes/authorize/tidak-ada")
+        assert r.status_code == 404
