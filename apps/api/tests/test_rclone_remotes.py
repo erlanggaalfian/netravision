@@ -9,6 +9,7 @@ import json
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.core.config import get_settings
 from app.models.drive import GoogleDriveFolder
 from app.services import disks as disks_mod
 from app.services import gdrive_rclone as gr
@@ -645,3 +646,63 @@ async def test_authorize_proxy_inactive_outside_docker(monkeypatch):
 
     monkeypatch.setattr(gr, "_in_docker", lambda: False)
     await asyncio.wait_for(gr.authorize_proxy_loop(), timeout=5)
+
+
+async def test_camera_targets_pakai_nama_folder_bukan_id(app_client, monkeypatch, tmp_path):
+    """Regresi: uploader memakai NAMA folder sebagai jalur rclone.
+
+    ID Drive yang dipakai sebagai jalur membuat rclone membuat folder baru
+    bernama ID itu (bukan masuk ke folder netravision yang dimaksud).
+    """
+    from app.models.drive import GoogleDriveFolder
+    from app.models.streams import Stream
+    from app.services import drive_uploader as du
+    from tests.conftest import make_user
+
+    app, _, db = app_client
+    monkeypatch.setattr(get_settings(), "recordings_dir", str(tmp_path))
+    # _camera_targets memakai get_session_factory global; arahkan ke DB test.
+    class _FakeCM:
+        def __init__(self, session):
+            self.session = session
+
+        async def __aenter__(self):
+            return self.session
+
+        async def __aexit__(self, *args):
+            return False
+
+    monkeypatch.setattr(
+        du, "get_session_factory", lambda: (lambda: _FakeCM(db))
+    )
+    admin = make_user()
+    db.add(admin)
+    folder = GoogleDriveFolder(
+        folder_url="https://drive.google.com/drive/folders/1kxvzYWIDWHF8rp3KPhKkrMRaCO3qWxBN",
+        folder_id="1kxvzYWIDWHF8rp3KPhKkrMRaCO3qWxBN",
+        folder_name="netravision",
+        remote_name="gdrive",
+    )
+    db.add(folder)
+    await db.commit()
+    s = Stream(
+        name="Cam 1",
+        rtsp_url="rtsp://x/1",
+        main_url="rtsp://x/1",
+        is_active=True,
+        recording_enabled=True,
+        storage_mode="drive",
+        drive_folder_id=folder.id,
+        created_by=admin.id,
+    )
+    db.add(s)
+    await db.commit()
+
+    targets = await du._camera_targets()
+    assert len(targets) == 1
+    sid, cam_name, folder_path, rec_dir = targets[0]
+    assert sid == s.id
+    assert cam_name == "Cam 1"
+    # Jalur rclone = NAMA folder, bukan ID Drive.
+    assert folder_path == "netravision"
+    assert folder_path != "1kxvzYWIDWHF8rp3KPhKkrMRaCO3qWxBN"

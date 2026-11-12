@@ -72,9 +72,16 @@ async def _mark_uploaded(stream_id: int, segment_name: str, folder_id: str) -> N
 
 
 async def _camera_targets() -> list[tuple[int, str, str, str]]:
-    """(stream_id, nama_kamera, folder_drive_id, rec_dir) untuk kamera
+    """(stream_id, nama_kamera, folder_drive_nama, rec_dir) untuk kamera
     mode drive/both. rec_dir dihitung di dalam sesi via camera_rec_dir
-    (rekaman multi-disk)."""
+    (rekaman multi-disk).
+
+    folder_drive_nama adalah NAMA folder (mis. netravision), BUKAN ID Drive.
+    rclone membaca jalur sebagai nama folder; ID Drive yang dipakai sebagai
+    jalur justru membuat rclone membuat folder baru bernama ID itu.
+    Nama yang sama dipakai sebagai kunci jejak di drive_uploads, supaya
+    ganti folder memicu re-upload ke folder yang benar.
+    """
     settings = get_settings()
     async with get_session_factory()() as db:
         folders = (
@@ -84,8 +91,8 @@ async def _camera_targets() -> list[tuple[int, str, str, str]]:
         )
         if not folders:
             return []
-        by_id = {f.id: f.folder_id for f in folders}
-        default_fid = folders[0].folder_id
+        by_id = {f.id: (f.folder_name or "") for f in folders}
+        default_name = folders[0].folder_name or ""
         res = await db.execute(
             select(Stream).where(
                 Stream.recording_enabled.is_(True),
@@ -94,12 +101,19 @@ async def _camera_targets() -> list[tuple[int, str, str, str]]:
         )
         out = []
         for s in res.scalars().all():
-            drive_fid = by_id.get(s.drive_folder_id) if s.drive_folder_id else None
+            drive_name = by_id.get(s.drive_folder_id) if s.drive_folder_id else None
+            drive_name = drive_name or default_name
+            if not drive_name:
+                log.warning(
+                    "uploader: kamera %s tanpa nama folder Drive, dilewati",
+                    s.name,
+                )
+                continue
             out.append(
                 (
                     s.id,
                     s.name or f"Kamera {s.id}",
-                    drive_fid or default_fid,
+                    drive_name,
                     camera_rec_dir(s, settings.recordings_dir),
                 )
             )
@@ -136,9 +150,9 @@ async def _upload_once() -> None:
     status = await gr.connection_status()
     if not status.get("connected"):
         return
-    for sid, cam_name, folder_id, rec_dir in await _camera_targets():
+    for sid, cam_name, folder_name, rec_dir in await _camera_targets():
         try:
-            done = await _uploaded_names(sid, folder_id)
+            done = await _uploaded_names(sid, folder_name)
         except Exception as e:  # noqa: BLE001
             log.warning("uploader: baca drive_uploads gagal: %s", e)
             continue
@@ -147,8 +161,8 @@ async def _upload_once() -> None:
                 continue
             remote = f"{cam_name}/{seg_name}"
             try:
-                await gr.upload_segment(seg_path, folder_id, remote)
-                await _mark_uploaded(sid, seg_name, folder_id)
+                await gr.upload_segment(seg_path, folder_name, remote)
+                await _mark_uploaded(sid, seg_name, folder_name)
                 log.info("uploader: %s -> drive (%s)", seg_name, cam_name)
             except Exception as e:  # noqa: BLE001
                 log.warning("uploader: gagal %s: %s", seg_name, e)

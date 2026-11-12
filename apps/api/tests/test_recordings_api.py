@@ -184,7 +184,10 @@ async def test_playback_baca_drive_rclone(app_client, monkeypatch, tmp_path):
 
     async def _fake_list(remote_name, path):
         assert remote_name == "gdrive"
-        assert path == "folder-abc/Cam 1"
+        # Jalur rclone memakai NAMA folder (netravision), bukan ID Drive:
+        # ID yang dipakai sebagai jalur membuat rclone membuat folder baru
+        # bernama ID itu.
+        assert path == "netravision/Cam 1"
         return [
             {"name": "2026-11-02_10-00-00-000000.mp4", "size": 5000, "id": "f1"},
             {"name": "2026-11-02_10-10-00-000000.mp4", "size": 6000, "id": "f2"},
@@ -193,7 +196,7 @@ async def test_playback_baca_drive_rclone(app_client, monkeypatch, tmp_path):
 
     async def _fake_stream(remote_name, path, start, end):
         assert remote_name == "gdrive"
-        assert path == "folder-abc/Cam 1/2026-11-02_10-00-00-000000.mp4"
+        assert path == "netravision/Cam 1/2026-11-02_10-00-00-000000.mp4"
         return b"v" * (end - start + 1)
 
     monkeypatch.setattr(gr, "list_rclone_files", _fake_list)

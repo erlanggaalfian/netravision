@@ -128,10 +128,10 @@ async def _rclone_segments(
     except Exception as e:  # noqa: BLE001
         log.warning("rclone folder kamera %s gagal: %s", stream.name, e)
         return out
-    if row is None or not row.folder_id or not row.remote_name:
+    if row is None or not row.folder_name or not row.remote_name:
         return out
     cam_name = stream.name or f"Kamera {stream.id}"
-    base = f"{row.folder_id}/{cam_name}"
+    base = f"{row.folder_name}/{cam_name}"
     try:
         items = await gr.list_rclone_files(row.remote_name, base)
     except Exception as e:  # noqa: BLE001 - Drive opsional, jangan gagalkan timeline
