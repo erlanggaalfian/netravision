@@ -355,6 +355,87 @@ async def _trimmed_segment_file(
             _cleanup(tmp_in)
 
 
+def _cleanup_many(paths: list[str]) -> None:
+    for p in paths:
+        _cleanup(p)
+
+
+async def _segment_part_file(
+    stream: Stream, seg: Segment, part_start: datetime, part_end: datetime,
+    db: AsyncSession,
+) -> tuple[str | None, bool]:
+    """File lokal untuk bagian segmen [part_start, part_end].
+
+    Return (path, is_temp). None bila segmen tidak bisa disiapkan.
+    Dipakai unduh rentang: bagian utuh dari file lokal dipakai langsung,
+    sisanya dipotong via ffmpeg (Drive diunduh dulu ke temp).
+    """
+    seg_end = seg.end or seg.start
+    if (
+        part_start <= seg.start
+        and part_end >= seg_end
+        and seg.path
+        and os.path.exists(seg.path)
+    ):
+        return seg.path, False
+    trimmed = await _trimmed_segment_file(stream, seg, part_start, part_end, db)
+    if trimmed is not None:
+        return trimmed, True
+    # _trimmed_segment_file mengembalikan None bila tidak perlu dipotong.
+    if seg.path and os.path.exists(seg.path):
+        return seg.path, False
+    # Segmen Drive tanpa potong: unduh utuh ke temp.
+    if seg.rclone_remote and seg.rclone_path:
+        from app.services import gdrive_rclone as gr
+
+        fd, tmp = tempfile.mkstemp(suffix=".mp4")
+        os.close(fd)
+        try:
+            data = await gr.download_rclone_file(
+                seg.rclone_remote, seg.rclone_path
+            )
+            with open(tmp, "wb") as f:
+                f.write(data)
+            return tmp, True
+        except Exception as e:  # noqa: BLE001
+            log.warning("rclone unduh segmen %s gagal: %s", seg.name, e)
+            _cleanup(tmp)
+            return None, False
+    from app.services.drive_accounts import uploader_for_stream
+
+    up = await uploader_for_stream(db, stream)
+    if up is None:
+        return None, False
+    try:
+        file_id = seg.drive_file_id
+        if not file_id:
+            folder_id = await up.ensure_folder(stream.name, stream.id)
+            file_id = await up.find_file(folder_id, seg.name)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Drive lookup segmen %s gagal: %s", seg.name, e)
+        return None, False
+    if not file_id:
+        return None, False
+    fd, tmp = tempfile.mkstemp(suffix=".mp4")
+    os.close(fd)
+    try:
+        pos = 0
+        with open(tmp, "wb") as f:
+            while True:
+                chunk = await up.stream_drive_file(file_id, pos, pos + CHUNK - 1)
+                if not chunk:
+                    break
+                f.write(chunk)
+                if len(chunk) < CHUNK:
+                    break
+                pos += CHUNK
+        return tmp, True
+    except Exception as e:  # noqa: BLE001
+        log.warning("Drive unduh segmen %s gagal: %s", seg.name, e)
+        _cleanup(tmp)
+        return None, False
+
+
 async def _serve_segment(
     stream: Stream, seg: Segment, download: bool, db: AsyncSession,
     request: Request | None = None,
@@ -645,6 +726,130 @@ async def download_file(
     return await _serve_segment(
         stream, seg, download=True, db=db, request=request, start=start, end=end
     )
+
+
+MAX_DOWNLOAD_RANGE = timedelta(hours=2)
+
+
+@router.get("/recordings/{stream_id}/download-range")
+async def download_range(
+    stream_id: int,
+    start: datetime,
+    end: datetime,
+    _user: User = Depends(user_or_above),
+    _access: User = Depends(require_camera_playback_access()),
+    db: AsyncSession = Depends(get_db),
+):
+    """Unduh rekaman rentang [start, end] sebagai satu file MP4.
+
+    Segmen yang tumpang tindih dengan rentang dipotong ke rentang lalu
+    digabung via ffmpeg (stream copy, tanpa re-encode). Maksimal 2 jam
+    per unduhan; celah antar segmen (kamera mati) tidak diisi, video
+    langsung melompat ke segmen berikutnya.
+    """
+    if start.tzinfo is not None:
+        start = start.replace(tzinfo=None)
+    if end.tzinfo is not None:
+        end = end.replace(tzinfo=None)
+    if end <= start:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "end harus setelah start"
+        )
+    if end - start > MAX_DOWNLOAD_RANGE:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "rentang maksimal 2 jam per unduhan",
+        )
+    if not shutil.which("ffmpeg"):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "ffmpeg tidak tersedia di server",
+        )
+    stream = await _get_stream(stream_id, db)
+    segs = [
+        s
+        for s in await _all_segments(stream, None, db)
+        if s.start < end and (s.end or s.start) > start
+    ]
+    if not segs:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "tidak ada rekaman pada rentang itu"
+        )
+    parts: list[str] = []
+    temps: list[str] = []
+    try:
+        for seg in segs:
+            seg_end = seg.end or seg.start
+            p_start = max(seg.start, start)
+            p_end = min(seg_end, end)
+            if p_end <= p_start:
+                continue
+            path, is_temp = await _segment_part_file(
+                stream, seg, p_start, p_end, db
+            )
+            if path is None:
+                log.warning(
+                    "download-range: segmen %s dilewati (tidak bisa disiapkan)",
+                    seg.name,
+                )
+                continue
+            parts.append(path)
+            if is_temp:
+                temps.append(path)
+        if not parts:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, "tidak ada rekaman pada rentang itu"
+            )
+        fd, list_path = tempfile.mkstemp(suffix=".txt")
+        os.close(fd)
+        temps.append(list_path)
+        with open(list_path, "w") as f:
+            for p in parts:
+                # Jalur harus absolut: concat demuxer membaca jalur relatif
+                # terhadap lokasi file list (di /tmp), bukan cwd API,
+                # jadi jalur relatif data/recordings/... tidak ketemu.
+                safe = os.path.abspath(p).replace("'", "'\\''")
+                f.write(f"file '{safe}'\n")
+        fd, out_path = tempfile.mkstemp(suffix=".mp4")
+        os.close(fd)
+        temps.append(out_path)
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-y", "-v", "error",
+            "-f", "concat", "-safe", "0", "-i", list_path,
+            "-c", "copy", "-movflags", "+faststart", out_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, err = await asyncio.wait_for(proc.communicate(), timeout=300)
+        if proc.returncode != 0:
+            log.warning(
+                "download-range gabung gagal: %s",
+                err.decode(errors="replace").strip()[:200],
+            )
+            raise HTTPException(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "gagal menggabung rekaman",
+            )
+        name = (
+            f"rekaman-{stream_id}-"
+            f"{start.strftime('%Y%m%d-%H%M')}-sd-{end.strftime('%Y%m%d-%H%M')}.mp4"
+        )
+        return FileResponse(
+            out_path,
+            media_type="video/mp4",
+            filename=name,
+            background=BackgroundTask(_cleanup_many, temps),
+        )
+    except HTTPException:
+        _cleanup_many(temps)
+        raise
+    except Exception as e:  # noqa: BLE001
+        _cleanup_many(temps)
+        log.warning("download-range gagal: %s", e)
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "gagal mengunduh rentang",
+        ) from e
 
 
 async def _find_next_drive_aware(

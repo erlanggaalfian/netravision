@@ -57,6 +57,16 @@ function fmtTime(iso: string): string {
   return d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
 }
 
+/* ISO -> nilai input datetime-local (waktu lokal, YYYY-MM-DDTHH:MM). */
+function toLocalInput(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  );
+}
+
 /* Kartu kosong: panel modern, ikon gradient + glow. Pakai nested=true bila
    sudah berada di dalam panel, supaya tidak ada panel ganda. */
 function EmptyCard({ title, desc, nested = false }: { title: string; desc: string; nested?: boolean }) {
@@ -109,6 +119,11 @@ function PlaybackPanel({
   const [videoError, setVideoError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [urlLoading, setUrlLoading] = useState(false);
+  /* Unduh rentang: jam mulai/selesai (datetime-local), default mengikuti
+     segmen aktif. */
+  const [rangeStart, setRangeStart] = useState("");
+  const [rangeEnd, setRangeEnd] = useState("");
+  const [rangeDownloading, setRangeDownloading] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   /* Object URL segmen yang sedang diputar (blob via apiFetch): dicabut
      saat ganti segmen / unmount supaya tidak bocor memori. */
@@ -121,6 +136,24 @@ function PlaybackPanel({
   }, []);
 
   useEffect(() => revokeVideoObjectUrl, [revokeVideoObjectUrl]);
+  /* Putar berkelanjutan: segmen habis langsung lanjut ke segmen berikut
+     tanpa jeda (default nyala). Segmen berikut diunduh duluan (prefetch)
+     selagi segmen aktif diputar, supaya pindah segmen nyaris tanpa jeda. */
+  const [continuous, setContinuous] = useState(true);
+  const prefetchRef = useRef<{
+    start: string;
+    promise: Promise<string>;
+  } | null>(null);
+  /* Cabut prefetch yang tidak jadi dipakai (mis. user pindah segmen). */
+  const dropPrefetch = useCallback(() => {
+    const pre = prefetchRef.current;
+    prefetchRef.current = null;
+    if (pre) {
+      pre.promise.then((u) => URL.revokeObjectURL(u)).catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => dropPrefetch, [dropPrefetch]);
   /* Nomor urutan: hanya respons terbaru load linimasa / fetch URL
      playback yang dipakai, respons kedaluwarsa diabaikan. */
   const loadSeqRef = useRef(0);
@@ -170,6 +203,53 @@ function PlaybackPanel({
     load();
   }, [load]);
 
+  /* Unduh satu segmen jadi blob object URL (dipakai putar + prefetch).
+     <video> tidak bisa mengirim header Authorization (token ada di
+     localStorage), jadi segmen diunduh lewat apiFetch lalu diputar dari
+     blob object URL. Pola yang sama dengan poster kamera, bukan ?token=
+     di URL. */
+  const fetchSegmentBlob = useCallback(
+    async (entry: TimelineEntry): Promise<string> => {
+      const p = await api.get<PlaybackUrl>(
+        `/recordings/${streamId}/playback-url?time=${encodeURIComponent(entry.start)}`,
+      );
+      /* Hormati expires_at: URL yang sudah kedaluwarsa jangan dipakai. */
+      if (p.expires_at && new Date(p.expires_at).getTime() <= Date.now()) {
+        throw new ApiError(
+          410,
+          "Tautan rekaman sudah kedaluwarsa, coba putar lagi segmen ini.",
+        );
+      }
+      const path = p.url.startsWith("/api/") ? p.url.slice(4) : p.url;
+      const res = await apiFetch(path);
+      if (!res.ok) throw new ApiError(res.status, `HTTP ${res.status}`);
+      const blob = await res.blob();
+      return URL.createObjectURL(blob);
+    },
+    [streamId],
+  );
+
+  /* Unduh segmen berikut di latar belakang selagi segmen aktif diputar. */
+  const prefetchNext = useCallback(
+    (entry: TimelineEntry) => {
+      if (!timeline) return;
+      const idx = timeline.entries.findIndex((e) => e.start === entry.start);
+      const next = timeline.entries[idx + 1];
+      if (!next) return;
+      if (prefetchRef.current?.start === next.start) return;
+      const promise = fetchSegmentBlob(next);
+      prefetchRef.current = { start: next.start, promise };
+      promise.catch(() => {
+        if (prefetchRef.current?.start === next.start) {
+          prefetchRef.current = null;
+        }
+        /* Prefetch gagal: segmen berikut tetap bisa diputar, diunduh
+           saat dipilih. */
+      });
+    },
+    [timeline, fetchSegmentBlob],
+  );
+
   const playEntry = useCallback(
     async (entry: TimelineEntry) => {
       const mySeq = ++playSeqRef.current;
@@ -179,27 +259,24 @@ function PlaybackPanel({
       setVideoError(null);
       setUrlLoading(true);
       try {
-        const p = await api.get<PlaybackUrl>(
-          `/recordings/${streamId}/playback-url?time=${encodeURIComponent(entry.start)}`,
-        );
-        if (mySeq !== playSeqRef.current) return;
-        /* Hormati expires_at: URL yang sudah kedaluwarsa jangan dipakai. */
-        if (p.expires_at && new Date(p.expires_at).getTime() <= Date.now()) {
-          setVideoError("Tautan rekaman sudah kedaluwarsa, coba putar lagi segmen ini.");
+        let objectUrl: string;
+        /* Pakai hasil prefetch bila segmen ini sudah diunduh duluan. */
+        const pre = prefetchRef.current;
+        if (pre && pre.start === entry.start) {
+          prefetchRef.current = null;
+          objectUrl = await pre.promise;
+        } else {
+          /* Prefetch lama tidak dipakai lagi (user pindah segmen). */
+          dropPrefetch();
+          objectUrl = await fetchSegmentBlob(entry);
+        }
+        if (mySeq !== playSeqRef.current) {
+          URL.revokeObjectURL(objectUrl);
           return;
         }
-        /* <video> tidak bisa mengirim header Authorization (token ada di
-           localStorage), jadi segmen diunduh lewat apiFetch lalu diputar
-           dari blob object URL. Pola yang sama dengan poster kamera,
-           bukan ?token= di URL. */
-        const path = p.url.startsWith("/api/") ? p.url.slice(4) : p.url;
-        const res = await apiFetch(path);
-        if (!res.ok) throw new ApiError(res.status, `HTTP ${res.status}`);
-        const blob = await res.blob();
-        if (mySeq !== playSeqRef.current) return;
-        const objectUrl = URL.createObjectURL(blob);
         videoObjectUrlRef.current = objectUrl;
         setVideoSrc(objectUrl);
+        prefetchNext(entry);
       } catch (e) {
         if (mySeq !== playSeqRef.current) return;
         setError(
@@ -209,8 +286,17 @@ function PlaybackPanel({
         if (mySeq === playSeqRef.current) setUrlLoading(false);
       }
     },
-    [streamId, revokeVideoObjectUrl],
+    [fetchSegmentBlob, prefetchNext, dropPrefetch, revokeVideoObjectUrl],
   );
+
+  /* Segmen habis: lanjut otomatis ke segmen berikut bila putar
+     berkelanjutan nyala. */
+  const handleVideoEnded = useCallback(() => {
+    if (!continuous || !timeline || !active) return;
+    const idx = timeline.entries.findIndex((e) => e.start === active.start);
+    const next = timeline.entries[idx + 1];
+    if (next) playEntry(next);
+  }, [continuous, timeline, active, playEntry]);
 
   const downloadActive = useCallback(async () => {
     if (!active) return;
@@ -235,6 +321,55 @@ function PlaybackPanel({
       setDownloading(false);
     }
   }, [active, streamId]);
+
+  /* Jam rentang mengikuti segmen aktif saat segmen berganti. */
+  useEffect(() => {
+    if (!active) return;
+    setRangeStart(toLocalInput(active.start));
+    setRangeEnd(toLocalInput(active.end));
+  }, [active]);
+
+  const downloadRange = useCallback(async () => {
+    if (!rangeStart || !rangeEnd) {
+      setError("Isi jam mulai dan jam selesai dulu.");
+      return;
+    }
+    if (new Date(rangeEnd).getTime() <= new Date(rangeStart).getTime()) {
+      setError("Jam selesai harus setelah jam mulai.");
+      return;
+    }
+    if (
+      new Date(rangeEnd).getTime() - new Date(rangeStart).getTime() >
+      2 * 60 * 60 * 1000
+    ) {
+      setError("Rentang maksimal 2 jam per unduhan.");
+      return;
+    }
+    setRangeDownloading(true);
+    try {
+      const res = await apiFetch(
+        `/recordings/${streamId}/download-range?start=${encodeURIComponent(rangeStart)}&end=${encodeURIComponent(rangeEnd)}`,
+      );
+      if (!res.ok) {
+        const msg =
+          res.status === 404
+            ? "Tidak ada rekaman pada rentang itu."
+            : `HTTP ${res.status}`;
+        throw new ApiError(res.status, msg);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `rekaman-${streamId}-${rangeStart.replace(/[:.]/g, "-")}-sd-${rangeEnd.replace(/[:.]/g, "-")}.mp4`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Gagal mengunduh rentang");
+    } finally {
+      setRangeDownloading(false);
+    }
+  }, [rangeStart, rangeEnd, streamId]);
 
   const dayStart = useMemo(() => new Date(`${date}T00:00:00`).getTime(), [date]);
   const frac = useCallback(
@@ -404,6 +539,17 @@ function PlaybackPanel({
                 </span>
               )}
             </div>
+            {/* Putar berkelanjutan: segmen habis langsung lanjut ke segmen
+                berikut tanpa jeda. */}
+            <label className="flex cursor-pointer items-center gap-2 border-b border-ink-800 px-4 py-2.5 text-xs font-medium text-slate-300">
+              <input
+                type="checkbox"
+                checked={continuous}
+                onChange={(e) => setContinuous(e.target.checked)}
+                className="h-4 w-4 shrink-0 accent-accent-500"
+              />
+              Putar berkelanjutan (otomatis lanjut ke segmen berikut)
+            </label>
             {/* Area video: klik atau fokus keyboard di sini menaikkan
                 sinyal klik iklan, klik tombol/segmen/unduh tidak. */}
             <div
@@ -435,6 +581,8 @@ function PlaybackPanel({
                   src={videoSrc}
                   controls
                   playsInline
+                  autoPlay
+                  onEnded={handleVideoEnded}
                   onError={() =>
                     setVideoError(
                       "Video gagal dimuat, segmen mungkin sudah terhapus atau tautannya kedaluwarsa.",
@@ -488,6 +636,49 @@ function PlaybackPanel({
                 </Button>
               </div>
             )}
+            {/* Unduh rentang: dari jam sekian ke jam sekian, digabung jadi
+                satu file MP4. */}
+            <div className="border-t border-ink-800 px-4 py-3">
+              <p className="mb-2 text-xs font-bold text-slate-200">
+                Unduh rentang waktu
+              </p>
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="flex min-w-0 flex-1 flex-col gap-1">
+                  <span className="text-[11px] font-medium text-slate-400">
+                    Dari
+                  </span>
+                  <input
+                    type="datetime-local"
+                    value={rangeStart}
+                    onChange={(e) => setRangeStart(e.target.value)}
+                    className="h-11 min-w-0 rounded-xl border border-ink-700 bg-ink-800 px-3 text-sm text-slate-100"
+                  />
+                </label>
+                <label className="flex min-w-0 flex-1 flex-col gap-1">
+                  <span className="text-[11px] font-medium text-slate-400">
+                    Sampai
+                  </span>
+                  <input
+                    type="datetime-local"
+                    value={rangeEnd}
+                    onChange={(e) => setRangeEnd(e.target.value)}
+                    className="h-11 min-w-0 rounded-xl border border-ink-700 bg-ink-800 px-3 text-sm text-slate-100"
+                  />
+                </label>
+                <Button
+                  variant="primary"
+                  className="shrink-0"
+                  onClick={downloadRange}
+                  disabled={rangeDownloading || !rangeStart || !rangeEnd}
+                >
+                  {rangeDownloading ? "Mengunduh…" : "Unduh rentang"}
+                </Button>
+              </div>
+              <p className="mt-2 text-[11px] text-slate-400">
+                Maksimal 2 jam per unduhan. Segmen yang ada digabung jadi satu
+                file MP4.
+              </p>
+            </div>
           </div>
         </>
       )}

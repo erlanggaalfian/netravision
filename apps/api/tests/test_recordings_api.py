@@ -266,3 +266,144 @@ async def test_playback_both_utamakan_lokal(app_client, monkeypatch, tmp_path):
         # 10:00 dari lokal (size 2048), 10:10 dari Drive (size 6000).
         assert segs[0]["size_bytes"] == 2048
         assert segs[1]["size_bytes"] == 6000
+
+
+def _mp4_seg(root, stream_id, name, seconds=10, mtime=None):
+    """Segmen MP4 asli (testsrc) supaya ffmpeg concat/trim bisa jalan."""
+    import subprocess
+
+    d = os.path.join(root, f"stream_{stream_id}")
+    os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, name)
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error",
+         "-f", "lavfi", "-i",
+         f"testsrc=duration={seconds}:size=128x72:rate=10",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-g", "10",
+         "-movflags", "+faststart", p],
+        check=True,
+    )
+    if mtime is not None:
+        os.utime(p, (mtime, mtime))
+    return p
+
+
+def _mp4_duration(path):
+    import subprocess
+
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", path],
+        capture_output=True, text=True, check=True,
+    )
+    return float(out.stdout.strip())
+
+
+async def test_download_range_gabung_dan_potong(app_client, monkeypatch, tmp_path):
+    """Unduh rentang: 3 segmen lokal digabung, ujung dipotong ke rentang."""
+    import shutil
+    from datetime import datetime as dt
+
+    import pytest
+
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg tidak tersedia")
+    app, _, db = app_client
+    s = await _seed(app, db, monkeypatch, tmp_path)
+
+    def ts(h, mi, sec):
+        return dt(2026, 11, 2, h, mi, sec).timestamp()
+
+    _mp4_seg(str(tmp_path), s.id, "2026-11-02_10-00-00-000000.mp4",
+             mtime=ts(10, 0, 10))
+    _mp4_seg(str(tmp_path), s.id, "2026-11-02_10-00-10-000000.mp4",
+             mtime=ts(10, 0, 20))
+    _mp4_seg(str(tmp_path), s.id, "2026-11-02_10-00-20-000000.mp4",
+             mtime=ts(10, 0, 30))
+
+    async with _client(app) as c:
+        r = await c.get(
+            f"/api/recordings/{s.id}/download-range",
+            params={"start": "2026-11-02T10:00:05", "end": "2026-11-02T10:00:25"},
+        )
+        assert r.status_code == 200, r.text
+        assert r.headers["content-type"].startswith("video/mp4")
+        assert "rekaman-" in r.headers.get("content-disposition", "")
+        out = tmp_path / "range.mp4"
+        out.write_bytes(r.content)
+        dur = _mp4_duration(str(out))
+        # 5 + 10 + 5 detik, toleransi seek keyframe.
+        assert 18 <= dur <= 22, dur
+
+
+async def test_download_range_validasi_dan_kosong(app_client, monkeypatch, tmp_path):
+    """Rentang invalid (400) dan tanpa rekaman (404)."""
+    from datetime import datetime as dt
+
+    app, _, db = app_client
+    s = await _seed(app, db, monkeypatch, tmp_path)
+    p = _seg(str(tmp_path), s.id, "2026-11-02_10-00-00-000000.mp4")
+    # Segmen tunggal: end diambil dari mtime, jadi set ke 10:10 supaya
+    # tidak dianggap menjangkau 12:00.
+    t = dt(2026, 11, 2, 10, 10, 0).timestamp()
+    os.utime(p, (t, t))
+
+    async with _client(app) as c:
+        r = await c.get(
+            f"/api/recordings/{s.id}/download-range",
+            params={"start": "2026-11-02T10:00:00", "end": "2026-11-02T10:00:00"},
+        )
+        assert r.status_code == 400, r.text
+        r = await c.get(
+            f"/api/recordings/{s.id}/download-range",
+            params={"start": "2026-11-02T10:00:00", "end": "2026-11-02T12:00:01"},
+        )
+        assert r.status_code == 400, r.text
+        r = await c.get(
+            f"/api/recordings/{s.id}/download-range",
+            params={"start": "2026-11-02T12:00:00", "end": "2026-11-02T12:10:00"},
+        )
+        assert r.status_code == 404, r.text
+
+
+async def test_download_range_recordings_dir_relatif(app_client, monkeypatch, tmp_path):
+    """Regresi: recordings_dir relatif (produksi) harus tetap bisa digabung.
+
+    Concat demuxer membaca jalur relatif terhadap lokasi file list (/tmp),
+    bukan cwd API, jadi jalur segmen harus dijadikan absolut dulu.
+    """
+    import shutil
+    from datetime import datetime as dt
+
+    import pytest
+
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg tidak tersedia")
+    # Simulasi produksi: cwd = tmp_path, recordings_dir relatif "rec".
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(get_settings(), "recordings_dir", "rec")
+    app, _, db = app_client
+    s = await _seed(app, db, monkeypatch, tmp_path)
+    # _seed menimpa recordings_dir ke tmp_path absolut, kembalikan ke "rec".
+    monkeypatch.setattr(get_settings(), "recordings_dir", "rec")
+
+    def ts(h, mi, sec):
+        return dt(2026, 11, 2, h, mi, sec).timestamp()
+
+    _mp4_seg(str(tmp_path / "rec"), s.id, "2026-11-02_10-00-00-000000.mp4",
+             mtime=ts(10, 0, 10))
+    _mp4_seg(str(tmp_path / "rec"), s.id, "2026-11-02_10-00-10-000000.mp4",
+             mtime=ts(10, 0, 20))
+    _mp4_seg(str(tmp_path / "rec"), s.id, "2026-11-02_10-00-20-000000.mp4",
+             mtime=ts(10, 0, 30))
+
+    async with _client(app) as c:
+        r = await c.get(
+            f"/api/recordings/{s.id}/download-range",
+            params={"start": "2026-11-02T10:00:05", "end": "2026-11-02T10:00:25"},
+        )
+        assert r.status_code == 200, r.text
+        out = tmp_path / "range-rel.mp4"
+        out.write_bytes(r.content)
+        dur = _mp4_duration(str(out))
+        assert 18 <= dur <= 22, dur
