@@ -56,8 +56,15 @@ from __future__ import annotations
 # siap ditangani MediaMTX via runOnAvailableRestart (restart ffmpeg bila
 # exit), bukan via flag ffmpeg.
 # Codec/parameter transcode TIDAK berubah (480x270, 8 fps, 120 kbps, GOP 16).
+# DARURAT WebRTC 2026-11-13: 40 transcode selalu-menyala membebani CPU
+# (container mediamtx ~372%, load 7.11/8 core) sehingga MediaMTX
+# kekurangan CPU untuk memproses ICE/STUN -> "deadline exceeded".
+# `nice -n 10` menurunkan prioritas ffmpeg supaya MediaMTX (dan proses
+# lain) didahulukan saat CPU padat; transcode tetap jalan, hanya
+# mengalah bila ada yang lebih penting. `-loglevel error` membuang
+# baris progres frame= yang membanjiri log MediaMTX.
 SUB_FFMPEG = (
-    "ffmpeg -rtsp_transport tcp -i rtsp://127.0.0.1:$RTSP_PORT/{main} "
+    "nice -n 10 ffmpeg -loglevel error -rtsp_transport tcp -i rtsp://127.0.0.1:$RTSP_PORT/{main} "
     "-vf scale=480:270 -c:v libx264 -preset ultrafast -tune zerolatency "
     "-b:v 120k -maxrate 120k -bufsize 240k "
     "-r 8 -g 16 -an -f rtsp rtsp://127.0.0.1:$RTSP_PORT/{sub}"

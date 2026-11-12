@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { playWhep, stopWhep } from "../lib/whep";
+import { playHls, stopHls, type HlsHandle } from "../lib/hls";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { usePosterUrl } from "../lib/api";
 import { AdBanner } from "./AdBanner";
@@ -28,6 +29,7 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
   const boxRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  const hlsRef = useRef<HlsHandle | null>(null);
   const [playing, setPlaying] = useState(false);
   const [failed, setFailed] = useState(false);
   const [failMsg, setFailMsg] = useState<string | null>(null);
@@ -51,6 +53,11 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
      yang online. FocusModal (popup) dikecualikan: ia memakai sub dulu
      lalu main (HD), dan tidak memakai komponen ini. */
   const url = stream.whep_sub_url;
+  /* HLS fallback (sub yang sama, via Apache /hls/*, HTTP/TCP): dipakai
+     bila WebRTC/WHEP tidak tersambung karena jaringan memblokir UDP
+     (NAT/CGNAT tanpa forwarding UDP 8189). URL relatif supaya ikut
+     origin yang sama di produksi maupun demo. */
+  const hlsUrl = `/hls/stream_${stream.id}_sub/index.m3u8`;
   /* Poster lewat blob object URL (header Authorization), bukan ?token= di URL. */
   const posterSrc = usePosterUrl(stream.poster_url);
 
@@ -59,6 +66,8 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
      ulang tanpa reload penuh. Effect WHEP di bawah memakai `failed`
      sebagai dependensi, jadi reset ini memicu percobaan ulang. */
   useEffect(() => {
+    stopHls(hlsRef.current);
+    hlsRef.current = null;
     setFailed(false);
     setFailMsg(null);
     setDisconnected(false);
@@ -84,14 +93,47 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
       if (cancelled) return;
       stopWhep(pcRef.current);
       pcRef.current = null;
+      stopHls(hlsRef.current);
+      hlsRef.current = null;
       setPlaying(false);
       setFailed(true);
       setFailMsg(msg);
     };
+    /* Fallback HLS bila WebRTC/WHEP gagal tersambung (UDP diblokir).
+       HLS memakai sub stream yang sama via HTTP, jadi grid tetap
+       menampilkan sub (bukan main). Bila HLS juga gagal, baru fail. */
+    const tryHls = () => {
+      if (cancelled || hlsRef.current) return;
+      const v = videoRef.current;
+      if (!v) {
+        fail("Stream tidak dapat diputar");
+        return;
+      }
+      try {
+        v.srcObject = null;
+      } catch {
+        /* abaikan */
+      }
+      try {
+        const handle = playHls(v, hlsUrl, () => {
+          if (cancelled) return;
+          fail("Stream tidak dapat diputar");
+        });
+        hlsRef.current = handle;
+        const onPlaying = () => {
+          if (cancelled) return;
+          setDisconnected(false);
+          setPlaying(true);
+        };
+        v.addEventListener("playing", onPlaying, { once: true });
+      } catch {
+        fail("Stream tidak dapat diputar");
+      }
+    };
     const io = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
-        if (entry.isIntersecting && !pcRef.current && !cancelled) {
+        if (entry.isIntersecting && !pcRef.current && !hlsRef.current && !cancelled) {
           playWhep(
             video,
             url,
@@ -115,11 +157,14 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
               setPlaying(true);
             })
             .catch(() => {
-              fail("Stream tidak dapat diputar");
+              /* WebRTC gagal (biasanya UDP diblokir): coba HLS. */
+              tryHls();
             });
-        } else if (!entry.isIntersecting && pcRef.current) {
+        } else if (!entry.isIntersecting && (pcRef.current || hlsRef.current)) {
           stopWhep(pcRef.current);
           pcRef.current = null;
+          stopHls(hlsRef.current);
+          hlsRef.current = null;
           setPlaying(false);
         }
       },
@@ -131,8 +176,10 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
       io.disconnect();
       stopWhep(pcRef.current);
       pcRef.current = null;
+      stopHls(hlsRef.current);
+      hlsRef.current = null;
     };
-  }, [url, stream.is_online, stream.id, failed, disconnected, retryTick]);
+  }, [url, hlsUrl, stream.is_online, stream.id, failed, disconnected, retryTick]);
 
   const toggleControls = () => setShowControls((v) => !v);
 

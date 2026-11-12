@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "hls.js": "^1.7.4",
     "leaflet": "^1.9.4",
     "leaflet.markercluster": "^1.5.3",
     "next": "^15.5.0",

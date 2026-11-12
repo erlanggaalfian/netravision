@@ -40,6 +40,14 @@ webrtcAddress: :8889
 webrtcAdditionalHosts: []
 # Jangan iklankan IP internal Docker ke browser.
 webrtcIPsFromInterfaces: no
+# STUN publik (Google): supaya MediaMTX juga menghasilkan kandidat srflx
+# (server-reflexive) bila kandidat host tidak bisa dijangkau browser.
+# Tidak mengganti kandidat host di atas; browser mencoba semua kandidat
+# dan memakai yang berhasil. Darurat WebRTC 2026-11-13 (NAT tidak
+# meneruskan UDP 8189; kandidat host 103.210.52.66 tidak sampai).
+# Format: list string URL (bukan objek); MediaMTX v1.21.3 menolak objek.
+webrtcICEServers:
+  - stun:stun.l.google.com:19302
 
 # Control API: dipakai service api untuk register/unregister path kamera.
 # Di dalam container listen di semua interface agar reachable via network
