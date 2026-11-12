@@ -120,20 +120,22 @@ echo "    mengembalikannya dari dump Fase A, perintahnya:"
 echo
 echo "      mysql -u <v2_user> -p <v2_db> < /backup/netravision-v2-<TANGGAL>.sql"
 echo
-read -r -p "    Tampilkan panduan restore detail? [y/N] " jawab
-if [[ "$jawab" =~ ^[Yy]$ ]]; then
+read -r -p "    Tampilkan panduan restore detail? [y/N] " jawab || true
+if [[ "${jawab:-}" =~ ^[Yy]$ ]]; then
     echo
     echo "    1. Pastikan dump Fase A ada, mis. /backup/netravision-v2-20261102.sql"
     echo "    2. Hentikan aplikasi v2.0 dulu bila masih berjalan."
     echo "    3. mysql -u <v2_user> -p <v2_db> < /backup/netravision-v2-20261102.sql"
     echo "    4. Verifikasi: buka https://netra.mamura.net.id dan login v2.0."
     echo
-    read -r -p "    Jalankan restore SEKARANG? Tindakan ini DESTRUKTIF. [y/N] " jawab2
-    if [[ "$jawab2" =~ ^[Yy]$ ]]; then
-        read -r -p "    Path file dump: " dump
-        read -r -p "    User MariaDB v2.0: " dbuser
-        read -r -p "    Nama database v2.0: " dbname
-        [ -f "$dump" ] || fail "File dump tidak ditemukan: $dump"
+    read -r -p "    Jalankan restore SEKARANG? Tindakan ini DESTRUKTIF. [y/N] " jawab2 || true
+    if [[ "${jawab2:-}" =~ ^[Yy]$ ]]; then
+        command -v mysql >/dev/null 2>&1 || fail "Perintah 'mysql' tidak ditemukan - instal klien MariaDB dulu."
+        read -r -p "    Path file dump: " dump || true
+        read -r -p "    User MariaDB v2.0: " dbuser || true
+        read -r -p "    Nama database v2.0: " dbname || true
+        [ -f "${dump:-}" ] || fail "File dump tidak ditemukan: ${dump:-}"
+        [ -n "${dbuser:-}" ] && [ -n "${dbname:-}" ] || fail "User dan nama database wajib diisi."
         # shellcheck disable=SC2086
         mysql -u "$dbuser" -p "$dbname" < "$dump" \
             && ok "Restore database v2.0 selesai." \

@@ -26,6 +26,11 @@
 
 set -euo pipefail
 
+# Cek root PALING AWAL, sebelum langkah 0 (Apache/preflight) yang butuh
+# root juga; bila terlambat, pengguna non-root mendapat error membingungkan
+# dulu baru diberitahu harus sudo.
+[ "$EUID" -eq 0 ] || { echo -e "\033[1;31m[ FAIL ]\033[0m Jalankan sebagai root (sudo ./deploy/install.sh)." >&2; exit 1; }
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEPLOY_DIR="$REPO_ROOT/deploy"
 COMPOSE_FILE="$DEPLOY_DIR/docker-compose.yml"
@@ -67,7 +72,6 @@ ok "Preflight lolos."
 
 # ---------------------------------------------------------------- 1. prasyarat
 step "1/6 - Cek prasyarat"
-[ "$EUID" -eq 0 ] || fail "Jalankan sebagai root (sudo ./deploy/install.sh)."
 command -v docker >/dev/null 2>&1 || fail "docker belum terinstal. Instal dulu: https://docs.docker.com/engine/install/"
 docker compose version >/dev/null 2>&1 || fail "docker compose plugin belum ada. Instal 'docker-compose-plugin'."
 command -v apache2 >/dev/null 2>&1 || fail "apache2 belum terinstal di server ini."
@@ -91,7 +95,12 @@ gen_secret() { # $1 = nama var, $2 = panjang hex
     val="$(grep -E "^${var}=" "$ENV_FILE" | cut -d= -f2-)"
     if [ "$val" = "CHANGE_ME_GENERATED_BY_INSTALL_SH" ] || [ -z "$val" ]; then
         val="$(openssl rand -hex "$len")"
-        sed -i -E "s|^${var}=.*|${var}=${val}|" "$ENV_FILE"
+        if grep -qE "^${var}=" "$ENV_FILE"; then
+            sed -i -E "s|^${var}=.*|${var}=${val}|" "$ENV_FILE"
+        else
+            # Baris belum ada (mis. .env.example lama): tambahkan, bukan diam.
+            printf '%s=%s\n' "$var" "$val" >> "$ENV_FILE"
+        fi
         ok "$var dibuat acak."
     else
         ok "$var sudah terisi - tidak diubah."
@@ -113,7 +122,11 @@ gen_fernet_key() { # DRIVE_TOKEN_KEY: kunci Fernet (base64 urlsafe 32 byte)
             val="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '\n')"
         fi
         [ "${#val}" -eq 44 ] || fail "Gagal membuat DRIVE_TOKEN_KEY (panjang ${#val}, harus 44)."
-        sed -i -E "s|^${var}=.*|${var}=${val}|" "$ENV_FILE"
+        if grep -qE "^${var}=" "$ENV_FILE"; then
+            sed -i -E "s|^${var}=.*|${var}=${val}|" "$ENV_FILE"
+        else
+            printf '%s=%s\n' "$var" "$val" >> "$ENV_FILE"
+        fi
         ok "$var dibuat acak."
     else
         ok "$var sudah terisi - tidak diubah."
@@ -162,7 +175,10 @@ done
 
 # ------------------------------------------------- 4. migrasi database
 step "4/6 - Migrasi database (alembic upgrade head)"
-docker compose -f "$COMPOSE_FILE" exec -T api alembic upgrade head \
+# Samakan dengan update.sh: -w dan PYTHONPATH eksplisit supaya alembic
+# menemukan modul 'app' apa pun WORKDIR default image-nya.
+docker compose -f "$COMPOSE_FILE" exec -T -w /srv/api \
+    -e PYTHONPATH=/srv/api api alembic upgrade head \
     || fail "Migrasi gagal. Cek: docker compose -f $COMPOSE_FILE logs api"
 ok "Migrasi selesai."
 
@@ -201,10 +217,13 @@ if [ -f "$VHOST_DST" ]; then
     cp "$VHOST_DST" "$VHOST_DST.bak-$(date +%Y%m%d%H%M%S)"
     warn "Vhost lama dibackup sebelum ditimpa."
 fi
-# Sesuaikan ServerName dengan domain yang dipakai - HANYA baris ServerName.
-# (G-S2: sed global dulu ikut mengganti path sertifikat
-# /etc/letsencrypt/live/<domain>/... sehingga configtest gagal.)
+# Sesuaikan ServerName dengan domain yang dipakai - HANYA baris ServerName,
+# lalu path sertifikat ikut domain (certbot membuat sertifikat per domain).
+# (G-S2: dulu sed global mengganti path sertifikat tapi sertifikat domain
+# baru belum ada sehingga configtest gagal belakangan; di sini keberadaan
+# sertifikat dicek LANGSUNG di bawah, jadi gagalnya dini dan pesannya jelas.)
 sed -E "s|^([[:space:]]*ServerName[[:space:]]+)netra\.mamura\.net\.id|\1${DOMAIN}|" "$VHOST_SRC" > "$VHOST_DST"
+sed -i -E "s|/etc/letsencrypt/live/netra\.mamura\.net\.id/|/etc/letsencrypt/live/${DOMAIN}/|g" "$VHOST_DST"
 # Samakan port proxy API dengan API_PORT yang dipakai compose.
 sed -i -E "s|127\.0\.0\.1:8100|127.0.0.1:${API_PORT}|g" "$VHOST_DST"
 # Validasi sertifikat ADA dulu sebelum vhost ini dipakai (G-S2): bila

@@ -64,6 +64,8 @@ if [ -f "$REPO_ROOT/apps/web/package.json" ]; then
         # Tanpa rsync: hapus dulu isi DocumentRoot supaya file build lama
         # yang sudah dihapus di apps/web/out tidak tetap tersaji
         # (setara --delete pada rsync di atas).
+        # Pengaman: jangan pernah hapus bila DOCROOT kosong atau root (/).
+        [ -n "$DOCROOT" ] && [ "$DOCROOT" != "/" ] || fail "DOCROOT tidak aman: '$DOCROOT'."
         find "$DOCROOT" -mindepth 1 -delete
         cp -a "$REPO_ROOT/apps/web/out/." "$DOCROOT/"
     fi
@@ -96,11 +98,19 @@ fi
 
 # ------------------------------------------------- 5. health check
 step "5/5 - Health check"
-sleep 5
-if curl -sf -o /dev/null --max-time 10 "http://127.0.0.1:${API_PORT}/api/health"; then
+# API butuh waktu start; coba ulang sampai 60 detik, bukan sekali tembak.
+HEALTH_OK=""
+for i in $(seq 1 12); do
+    if curl -sf -o /dev/null --max-time 5 "http://127.0.0.1:${API_PORT}/api/health"; then
+        HEALTH_OK="1"
+        break
+    fi
+    sleep 5
+done
+if [ -n "$HEALTH_OK" ]; then
     ok "GET /api/health -> OK"
 else
-    fail "Health check GAGAL. Cek: docker compose -f $COMPOSE_FILE logs api"
+    fail "Health check GAGAL setelah 60 dtk. Cek: docker compose -f $COMPOSE_FILE logs api"
 fi
 
 echo -e "\n\033[1;32m==============================================\033[0m"
