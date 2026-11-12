@@ -35,13 +35,13 @@ def test_parse_segment_name():
 
 def test_list_segments_filter_dan_urut(tmp_path):
     r = str(tmp_path)
-    _mk(tmp_path, 1, "2026-11-02_10-00-00-000000.mp4")
+    _mk(tmp_path, 1, "2026-11-02_09-10-00-000000.mp4")
     _mk(tmp_path, 1, "2026-11-02_09-00-00-000000.mp4")
-    _mk(tmp_path, 1, "2026-11-01_10-00-00-000000.mp4")
+    _mk(tmp_path, 1, "2026-11-01_09-00-00-000000.mp4")
     _mk(tmp_path, 1, "bukan-segmen.mp4")
 
     segs = list_segments(1, date(2026, 11, 2), r)
-    assert [s.start.hour for s in segs] == [9, 10]
+    assert [(s.start.hour, s.start.minute) for s in segs] == [(9, 0), (9, 10)]
     assert all(s.size == 100 for s in segs)
     assert segs[0].end == segs[1].start  # end = awal segmen berikut
 
@@ -62,15 +62,16 @@ def test_build_timeline(tmp_path):
 def test_find_next_playable(tmp_path):
     r = str(tmp_path)
     _mk(tmp_path, 3, "2026-11-02_10-00-00-000000.mp4")
-    _mk(tmp_path, 3, "2026-11-02_12-00-00-000000.mp4")
+    _mk(tmp_path, 3, "2026-11-02_10-20-00-000000.mp4")
 
     # di dalam segmen -> segmen itu, waktu = after
-    seg, t = find_next_playable(3, datetime(2026, 11, 2, 10, 30), r)
-    assert seg.start.hour == 10 and t == datetime(2026, 11, 2, 10, 30)
+    seg, t = find_next_playable(3, datetime(2026, 11, 2, 10, 5), r)
+    assert seg.start.hour == 10 and seg.start.minute == 0
+    assert t == datetime(2026, 11, 2, 10, 5)
 
     # di antara segmen -> segmen berikut
-    seg, t = find_next_playable(3, datetime(2026, 11, 2, 11, 0), r)
-    assert seg.start.hour == 12 and t == seg.start
+    seg, t = find_next_playable(3, datetime(2026, 11, 2, 10, 15), r)
+    assert seg.start.hour == 10 and seg.start.minute == 20 and t == seg.start
 
     # setelah semua -> None
     assert find_next_playable(3, datetime(2026, 11, 5), r) is None
