@@ -93,7 +93,14 @@ export default function LivePage() {
   const [ad, setAd] = useState<AdConfig | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<StatusFilter>("all");
-  const [gridKey, setGridKey] = useState("2x2");
+  /* Default grid: 3x3 di PC (9 kamera per halaman), 2x2 di HP (dipetakan
+     ke 4 kamera). Ditentukan sekali saat halaman dimuat. */
+  const [gridKey, setGridKey] = useState(() =>
+    typeof window !== "undefined" &&
+    window.matchMedia("(min-width: 768px)").matches
+      ? "3x3"
+      : "2x2",
+  );
   const [page, setPage] = useState(1);
   const isDesktop = useIsDesktop();
   /* Panel kontrol dilipat di HP (tombol filter), selalu tampil di desktop. */
