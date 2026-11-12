@@ -574,3 +574,115 @@ async def _run_authorize(job: dict, binary: str) -> None:
         return
     job["token"] = token_json
     job["status"] = "done"
+
+
+_AUTHORIZE_PORT = 53682
+
+
+def _in_docker() -> bool:
+    """True bila proses jalan di dalam container Docker."""
+    return os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
+
+
+def _external_ip() -> str | None:
+    """IP non-loopback utama (IP container di Docker). Dipakai proxy
+    authorize supaya bisa di-bind tanpa bentrok dengan rclone yang
+    sudah memakai 127.0.0.1:53682."""
+    import socket
+
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+        finally:
+            s.close()
+        if ip and not ip.startswith("127."):
+            return ip
+    except OSError:
+        pass
+    try:
+        ip = socket.gethostbyname(socket.gethostname())
+        if ip and not ip.startswith("127."):
+            return ip
+    except OSError:
+        pass
+    return None
+
+
+async def _proxy_relay(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    """Teruskan satu arah stream ke writer; tutup bila selesai."""
+    try:
+        while True:
+            chunk = await reader.read(65536)
+            if not chunk:
+                break
+            writer.write(chunk)
+            await writer.drain()
+    except (asyncio.CancelledError, ConnectionError, BrokenPipeError):
+        pass
+    finally:
+        try:
+            writer.close()
+        except Exception:
+            pass
+
+
+async def _proxy_handle(
+    client_reader: asyncio.StreamReader, client_writer: asyncio.StreamWriter
+) -> None:
+    """Satu koneksi masuk di IP container:53682 -> teruskan ke rclone
+    di 127.0.0.1:53682, lalu relay dua arah sampai salah satu menutup."""
+    try:
+        rclone_reader, rclone_writer = await asyncio.open_connection(
+            "127.0.0.1", _AUTHORIZE_PORT
+        )
+    except (OSError, asyncio.TimeoutError):
+        try:
+            client_writer.close()
+        except Exception:
+            pass
+        return
+    await asyncio.gather(
+        _proxy_relay(client_reader, rclone_writer),
+        _proxy_relay(rclone_reader, client_writer),
+        return_exceptions=True,
+    )
+    try:
+        client_writer.close()
+    except Exception:
+        pass
+    try:
+        rclone_writer.close()
+    except Exception:
+        pass
+
+
+async def authorize_proxy_loop() -> None:
+    """Penerus TCP permanen untuk `rclone authorize` di Docker.
+
+    `rclone authorize` hanya listen di 127.0.0.1:53682, jadi docker-proxy
+    (yang meneruskan ke IP container) tidak sampai. Proxy ini listen di
+    IP container:53682 dan meneruskan tiap koneksi ke 127.0.0.1:53682.
+    Hanya jalan di Docker; di deploy native SSH forward langsung sampai
+    ke rclone tanpa proxy. Gagal bind hanya dicatat, API tetap jalan."""
+    if not _in_docker():
+        log.info("proxy authorize 53682 nonaktif (bukan Docker)")
+        return
+    ip = _external_ip()
+    if not ip:
+        log.warning("proxy authorize 53682 nonaktif (IP container tak ditemukan)")
+        return
+    try:
+        server = await asyncio.start_server(
+            _proxy_handle, ip, _AUTHORIZE_PORT
+        )
+    except OSError as e:
+        log.warning("proxy authorize 53682 gagal bind %s: %s", ip, e)
+        return
+    log.info("proxy authorize 53682 listen di %s:%d", ip, _AUTHORIZE_PORT)
+    async with server:
+        try:
+            await server.serve_forever()
+        except asyncio.CancelledError:
+            pass

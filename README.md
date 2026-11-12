@@ -154,7 +154,7 @@ netravision/
 | `postgres` | postgres:18-alpine | Database utama. Tidak ada port publik, hanya diakses dari dalam network. Volume `pgdata`. |
 | `redis` | redis:7-alpine | Cache/queue. Tidak ada port publik. Volume `redisdata`. |
 | `migrate` | (image api) | Menjalankan `alembic upgrade head` sekali saat compose up. |
-| `api` | (build `apps/api`) | FastAPI di `127.0.0.1:8100` (host) ke `:8000` (container). |
+| `api` | (build `apps/api`) | FastAPI di `127.0.0.1:8100` (host) ke `:8000` (container). Port `127.0.0.1:53682` juga dipetakan untuk `rclone authorize` (Hubungkan Google): API menjalankan proxy TCP di IP container:53682 karena rclone hanya listen di 127.0.0.1 di dalam container. |
 | `mediamtx` | bluenviron/mediamtx:latest-ffmpeg | RTSP/WebRTC. UDP 8189 (WebRTC) dan port API/WHEP. Volume `recordings`. |
 | `netravision` | (opsional) | Service tambahan bila didefinisikan di compose. |
 

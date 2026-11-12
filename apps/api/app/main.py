@@ -155,6 +155,13 @@ async def lifespan(app: FastAPI):
     # Sinkronisasi path kamera ke MediaMTX (hilang saat MediaMTX restart).
     tasks.append(asyncio.create_task(_mediamtx_sync_loop()))
 
+    # Penerus TCP port 53682 untuk `rclone authorize` di Docker: rclone
+    # hanya listen di 127.0.0.1, docker-proxy meneruskan ke IP container.
+    # Tanpa proxy ini, SSH forward ke host:53682 tidak sampai ke rclone.
+    from app.services.gdrive_rclone import authorize_proxy_loop
+
+    tasks.append(asyncio.create_task(authorize_proxy_loop()))
+
     try:
         yield
     finally:

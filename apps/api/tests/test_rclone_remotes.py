@@ -408,3 +408,46 @@ async def test_drive_authorize_active_restores_after_refresh(app_client, monkeyp
         assert r.json()["job_id"] == "xyz"
         assert r.json()["label"] == "Akun Pulih"
         assert r.json()["auth_url"].startswith("http://127.0.0.1:53682/auth?state=")
+
+
+async def test_authorize_proxy_forwards_to_rclone(monkeypatch):
+    """Proxy authorize meneruskan koneksi di IP container:53682 ke
+    rclone di 127.0.0.1:53682 (simulasi Docker)."""
+    import asyncio
+
+    async def _fake_rclone(reader, writer):
+        data = await reader.read(4096)
+        assert b"GET /auth" in data
+        writer.write(b"HTTP/1.1 307 Temporary Redirect\r\nLocation: https://accounts.google.com/\r\nContent-Length: 0\r\n\r\n")
+        await writer.drain()
+        writer.close()
+
+    rclone_server = await asyncio.start_server(_fake_rclone, "127.0.0.1", 53682)
+    monkeypatch.setattr(gr, "_in_docker", lambda: True)
+    monkeypatch.setattr(gr, "_external_ip", lambda: "127.0.0.2")
+    proxy_task = asyncio.create_task(gr.authorize_proxy_loop())
+    await asyncio.sleep(0.5)
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.2", 53682)
+        writer.write(b"GET /auth?state=x HTTP/1.1\r\nHost: 127.0.0.1:53682\r\n\r\n")
+        await writer.drain()
+        resp = await reader.read(4096)
+        assert b"307" in resp
+        assert b"accounts.google.com" in resp
+        writer.close()
+    finally:
+        proxy_task.cancel()
+        try:
+            await proxy_task
+        except asyncio.CancelledError:
+            pass
+        rclone_server.close()
+        await rclone_server.wait_closed()
+
+
+async def test_authorize_proxy_inactive_outside_docker(monkeypatch):
+    """Di luar Docker, proxy langsung kembali tanpa bind apa pun."""
+    import asyncio
+
+    monkeypatch.setattr(gr, "_in_docker", lambda: False)
+    await asyncio.wait_for(gr.authorize_proxy_loop(), timeout=5)
