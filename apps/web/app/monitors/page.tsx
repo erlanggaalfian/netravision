@@ -333,7 +333,12 @@ export default function MonitorsPage() {
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  /* Layout grup yang dibuka dari daftar (bukan monitor tersimpan):
+     sementara, tidak disimpan ke localStorage. */
+  const [openGroupLayout, setOpenGroupLayout] =
+    useState<MonitorLayout | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedGroupId, setExpandedGroupId] = useState<number | null>(null);
   const [editing, setEditing] = useState<MonitorLayout | null>(null);
   const [focus, setFocus] = useState<Stream | null>(null);
   const [groupMode, setGroupMode] = useState(false);
@@ -555,9 +560,32 @@ export default function MonitorsPage() {
     setGroupMode((v) => !v);
   };
 
+  /* Buka satu grup kamera sebagai monitor (layout sementara, tidak
+     tersimpan): tampilkan semua kamera grup itu dalam kisi. */
+  const openGroup = (g: { id: number; name: string; stream_ids: number[] }) => {
+    setOpenGroupLayout({
+      id: `group-${g.id}`,
+      name: g.name,
+      cols: 2,
+      streamIds: g.stream_ids,
+    });
+    setOpenId(`group-${g.id}`);
+    setGroupMode(false);
+  };
+
+  /* Grup kamera di daftar (sebelum buka monitor tersimpan): muat sekali
+     saat halaman dibuka, hanya untuk admin/super_admin. */
+  useEffect(() => {
+    if (!user) return;
+    if (!isAdminRole(user.role)) return;
+    if (groups !== null) return;
+    loadGroups();
+  }, [user, groups, loadGroups]);
+
   /* D-S9: toggleFullscreen kini dari hook useFullscreen (lihat atas). */
 
-  const openLayout = layouts.find((l) => l.id === openId) ?? null;
+  const openLayout =
+    openGroupLayout ?? layouts.find((l) => l.id === openId) ?? null;
   const openStreams = openLayout
     ? openLayout.streamIds
         .map((id) => byId.get(id))
@@ -591,7 +619,10 @@ export default function MonitorsPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
                     variant="subtle"
-                    onClick={() => setOpenId(null)}
+                    onClick={() => {
+                      setOpenId(null);
+                      setOpenGroupLayout(null);
+                    }}
                     aria-label="Kembali ke daftar monitor"
                   >
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
@@ -874,6 +905,93 @@ export default function MonitorsPage() {
         ) : (
           /* ===== Daftar layout ===== */
           <div>
+            {/* Grup kamera (admin/super_admin): buka satu grup langsung
+                sebagai monitor, tanpa harus membuat layout tersimpan dulu. */}
+            {isAdminRole(user?.role) && (
+              <div className="mb-6">
+                <SectionTitle
+                  title="Grup kamera"
+                  desc="Buka monitor per grup"
+                />
+                {groupsLoading && groups === null ? (
+                  <div className="flex flex-col gap-3">
+                    {Array.from({ length: 2 }).map((_, i) => (
+                      <div
+                        key={i}
+                        className="h-24 animate-pulse rounded-2xl bg-ink-800 motion-reduce:animate-none"
+                      />
+                    ))}
+                  </div>
+                ) : groupsError ? (
+                  <div className="nv-panel-modern flex flex-col items-center gap-3 px-6 py-8 text-center">
+                    <p className="text-sm text-neutral-400">{groupsError}</p>
+                    <Button variant="subtle" onClick={loadGroups}>
+                      Coba lagi
+                    </Button>
+                  </div>
+                ) : groups && groups.length > 0 ? (
+                  <div className="flex flex-col gap-3">
+                    {groups.map((g) => {
+                      const expanded = expandedGroupId === g.id;
+                      const existing = g.stream_ids
+                        .map((id) => byId.get(id))
+                        .filter((s): s is Stream => !!s);
+                      const count = existing.length;
+                      const onlineN = existing.filter(
+                        (s) => s.is_online,
+                      ).length;
+                      const groupLayout: MonitorLayout = {
+                        id: `group-${g.id}`,
+                        name: g.name,
+                        cols: 2,
+                        streamIds: g.stream_ids,
+                      };
+                      return (
+                        <div
+                          key={g.id}
+                          className="nv-panel-modern overflow-hidden"
+                        >
+                          <button
+                            onClick={() =>
+                              setExpandedGroupId(expanded ? null : g.id)
+                            }
+                            aria-expanded={expanded}
+                            className="block w-full px-4 py-4 text-left transition hover:bg-ink-800 active:scale-[0.995] sm:px-5"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-base font-semibold text-white">
+                                  {g.name}
+                                </div>
+                                <div className="mt-0.5 text-xs text-neutral-400">
+                                  {count} kamera ·{" "}
+                                  <span className="text-ok-400">
+                                    {onlineN} online
+                                  </span>{" "}
+                                  · Grup kamera
+                                </div>
+                              </div>
+                              <Chevron open={expanded} />
+                            </div>
+                            <MiniPreview layout={groupLayout} byId={byId} />
+                          </button>
+                          {expanded && (
+                            <div className="flex gap-2 border-t border-ink-800 px-4 py-3 sm:px-5">
+                              <Button
+                                onClick={() => openGroup(g)}
+                                className="flex-1"
+                              >
+                                Buka
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            )}
             <SectionTitle
               title="Monitor tersimpan"
               action={
@@ -961,7 +1079,13 @@ export default function MonitorsPage() {
                       {/* Aksi, hanya setelah expand */}
                       {expanded && (
                         <div className="flex gap-2 border-t border-ink-800 px-4 py-3 sm:px-5">
-                          <Button onClick={() => setOpenId(l.id)} className="flex-1">
+                          <Button
+                            onClick={() => {
+                              setOpenGroupLayout(null);
+                              setOpenId(l.id);
+                            }}
+                            className="flex-1"
+                          >
                             Buka
                           </Button>
                           <Button variant="subtle" onClick={() => startEdit(l)} className="flex-1">
