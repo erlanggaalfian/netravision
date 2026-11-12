@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { isAdminRole, useAuth } from "../lib/auth";
 import { useCameraStatus } from "../hooks/useCameraStatus";
+import { useIdleLogout } from "../hooks/useIdleLogout";
 import { ThemeToggle } from "./ThemeToggle";
 
 interface NavItem {
@@ -73,6 +74,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { user, logout } = useAuth();
   const { connected } = useCameraStatus();
+  /* Diam 1 jam tanpa gerakan -> minta login lagi; selama masih ada
+     pengoperasian, sesi tidak putus. */
+  useIdleLogout();
 
   const items = NAV.filter((n) => !n.adminOnly || isAdminRole(user?.role));
 
