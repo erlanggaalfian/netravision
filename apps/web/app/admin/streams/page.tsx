@@ -1242,6 +1242,7 @@ function AddStreamModal({
                   {driveFolders.map((f) => (
                     <option key={f.id} value={String(f.id)}>
                       {f.folder_name || f.folder_id}
+                      {f.remote_name ? ` (${f.remote_label || f.remote_name})` : ""}
                     </option>
                   ))}
                 </NBSelect>
@@ -1498,6 +1499,7 @@ function EditStreamModal({
                   {driveFolders.map((f) => (
                     <option key={f.id} value={String(f.id)}>
                       {f.folder_name || f.folder_id}
+                      {f.remote_name ? ` (${f.remote_label || f.remote_name})` : ""}
                     </option>
                   ))}
                 </NBSelect>

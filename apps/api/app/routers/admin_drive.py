@@ -351,7 +351,7 @@ def parse_gdrive_folder_id(url: str) -> str:
     return m.group(1) if m else ""
 
 
-def _gdrive_folder_dict(row) -> dict:
+def _gdrive_folder_dict(row, remote_label: str | None = None) -> dict:
     settings = get_settings()
     return {
         "id": row.id,
@@ -361,6 +361,8 @@ def _gdrive_folder_dict(row) -> dict:
         "local_path": row.local_path or settings.gdrive_record_path,
         "local_path_custom": bool(row.local_path),
         "retention_days": row.retention_days,
+        "remote_name": row.remote_name or "",
+        "remote_label": remote_label or "",
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         "updated_by": row.updated_by or "",
     }
@@ -372,8 +374,15 @@ async def list_gdrive_folders(db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(GoogleDriveFolder).order_by(GoogleDriveFolder.id))
     rows = res.scalars().all()
     settings = get_settings()
+    # Label akun tiap remote, supaya pemilih folder bisa menampilkan
+    # "netravision (disk1)" bukan "netravision (gdrive)".
+    remotes = (await db.execute(select(RcloneRemote))).scalars().all()
+    labels = {r.remote_name: (r.label or "") for r in remotes}
     return {
-        "folders": [_gdrive_folder_dict(r) for r in rows],
+        "folders": [
+            _gdrive_folder_dict(r, labels.get(r.remote_name or ""))
+            for r in rows
+        ],
         "staging_default": settings.gdrive_record_path,
         "quota_tb": settings.gdrive_quota_tb,
     }
@@ -797,6 +806,59 @@ async def cancel_drive_authorize(job_id: str):
     return {"ok": True, "status": job["status"]}
 
 
+def _remote_folder_url(remote_name: str) -> str:
+    """Penanda folder root satu akun: folder google_drive_folders yang
+    mewakili seluruh Drive akun ini (bukan satu tautan folder spesifik)."""
+    return f"rclone:{remote_name}"
+
+
+async def _ensure_remote_folder(
+    db: AsyncSession, remote_name: str, label: str | None
+) -> GoogleDriveFolder:
+    """Buatkan entri folder untuk akun rclone bila belum ada, supaya akun
+    muncul di pemilih 'Folder Google Drive tujuan' di form kamera.
+
+    Folder sungguhan bernama 'netravision' dibuat di root Drive akun itu
+    (rclone mkdir, idempotent) dan ID-nya disimpan, jadi rekaman nanti
+    tersimpan di folder tersebut. Bila pembuatan folder gagal (mis. rclone
+    bermasalah), jatuh kembali ke entri root (folder_url penanda
+    rclone:{nama}) supaya penambahan akun tidak gagal."""
+    from app.services import gdrive_rclone as gr
+
+    row = (await db.execute(
+        select(GoogleDriveFolder).where(
+            GoogleDriveFolder.remote_name == remote_name
+        )
+    )).scalars().first()
+    if row is not None:
+        return row
+    try:
+        info = await gr.ensure_netravision_folder(remote_name)
+        row = GoogleDriveFolder(
+            folder_url=info["folder_url"],
+            folder_id=info["folder_id"],
+            folder_name=info["folder_name"],
+            local_path="",
+            remote_name=remote_name,
+        )
+    except Exception as e:  # noqa: BLE001 - folder gagal dibuat, pakai entri root
+        log.warning(
+            "folder netravision untuk %s gagal dibuat (%s), pakai entri root",
+            remote_name, e,
+        )
+        row = GoogleDriveFolder(
+            folder_url=_remote_folder_url(remote_name),
+            folder_id="",
+            folder_name=(label or "").strip() or remote_name,
+            local_path="",
+            remote_name=remote_name,
+        )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
 @admin_router.post("/admin/drive-remotes")
 async def create_drive_remote(
     payload: RemoteCreate,
@@ -806,7 +868,12 @@ async def create_drive_remote(
     """Tambah (atau perbarui) satu remote rclone dari token JSON hasil
     `rclone authorize "drive"`. Remote diverifikasi dulu via
     `rclone about`; gagal = 400 dan conf tidak berubah. Bila sukses,
-    section remote disimpan di conf + baris DB."""
+    section remote disimpan di conf + baris DB.
+
+    Sekaligus buatkan entri folder untuk akun ini (_ensure_remote_folder)
+    supaya akun langsung bisa dipilih sebagai 'Folder Google Drive tujuan'
+    di form kamera tanpa harus tambah tautan folder dulu.
+    """
     from app.services import gdrive_rclone as gr
 
     remote_name = _validate_remote_name_or_400(payload.remote_name)
@@ -829,6 +896,9 @@ async def create_drive_remote(
         response.status_code = status.HTTP_200_OK
     await db.commit()
     await db.refresh(row)
+    # Akun baru/baru diperbarui: pastikan ada entri folder untuk akun ini
+    # supaya langsung muncul di pemilih folder tujuan di form kamera.
+    await _ensure_remote_folder(db, remote_name, label)
     try:
         st = await gr.remote_status(remote_name)
     except Exception as e:  # noqa: BLE001
@@ -853,6 +923,28 @@ async def delete_drive_remote(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "remote tidak ditemukan")
     if row is not None:
         await db.delete(row)
+        await db.commit()
+    # Hapus juga entri folder akun ini (bila ada): kamera yang menunjuk
+    # ke sana kembali ke default, sama seperti hapus folder biasa.
+    frow = (await db.execute(
+        select(GoogleDriveFolder).where(
+            GoogleDriveFolder.remote_name == remote_name
+        )
+    )).scalars().first()
+    if frow is None:
+        # Kompatibel lama: entri root penanda rclone:{nama}.
+        frow = (await db.execute(
+            select(GoogleDriveFolder).where(
+                GoogleDriveFolder.folder_url == _remote_folder_url(remote_name)
+            )
+        )).scalars().first()
+    if frow is not None:
+        await db.execute(
+            update(Stream).where(Stream.drive_folder_id == frow.id).values(
+                drive_folder_id=None
+            )
+        )
+        await db.delete(frow)
         await db.commit()
     if in_conf:
         gr.delete_remote(remote_name)

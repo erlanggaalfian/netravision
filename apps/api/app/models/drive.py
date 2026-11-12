@@ -104,6 +104,10 @@ class GoogleDriveFolder(Base):
     # tua dari nilai ini dihapus otomatis oleh cleanup_folder_retention.
     # None = tidak ada hapus otomatis per folder.
     retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    # Nama remote rclone pemilik folder ini (mis. gdrive). Terisi untuk
+    # folder "netravision" yang dibuat otomatis saat akun terhubung;
+    # kosong untuk tautan folder manual.
+    remote_name: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -334,6 +334,46 @@ async def disconnect() -> None:
         os.remove(conf_path())
 
 
+async def ensure_netravision_folder(remote_name: str = REMOTE_NAME) -> dict:
+    """Buatkan folder 'netravision' di root Drive remote ini bila belum ada,
+    lalu kembalikan {folder_id, folder_url, folder_name}.
+
+    `rclone mkdir` idempotent (tidak gagal bila folder sudah ada). ID folder
+    diambil dari `rclone lsjson` root (--dirs-only). Raise RuntimeError
+    bila rclone gagal atau folder tidak ditemukan setelah dibuat."""
+    folder_name = "netravision"
+    rc, _out, err = await _run_rclone(
+        "mkdir", f"{remote_name}:{folder_name}", timeout=60
+    )
+    if rc != 0:
+        detail = (err or "").strip().split("\n")[-1][:200]
+        raise RuntimeError(
+            f"Gagal membuat folder {folder_name} di Drive: {detail}"
+        )
+    rc2, out2, err2 = await _run_rclone(
+        "lsjson", f"{remote_name}:", "--dirs-only", timeout=60
+    )
+    if rc2 != 0:
+        detail = (err2 or "").strip().split("\n")[-1][:200]
+        raise RuntimeError(f"Gagal membaca Drive: {detail}")
+    try:
+        entries = json.loads(out2)
+    except ValueError:
+        entries = []
+    for e in entries:
+        if e.get("Name") == folder_name:
+            fid = (e.get("ID") or "").strip()
+            if fid:
+                return {
+                    "folder_id": fid,
+                    "folder_url": f"https://drive.google.com/drive/folders/{fid}",
+                    "folder_name": folder_name,
+                }
+    raise RuntimeError(
+        f"Folder {folder_name} tidak ditemukan setelah dibuat di Drive"
+    )
+
+
 async def check_folder_access(folder_id: str, remote_name: str = REMOTE_NAME) -> dict:
     """Pastikan folder bisa dibaca/ditulis akun terhubung. Return {name}."""
     rc, out, err = await _run_rclone(

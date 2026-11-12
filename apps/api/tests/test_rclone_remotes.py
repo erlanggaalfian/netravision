@@ -274,6 +274,104 @@ async def test_drive_remotes_endpoints(app_client, monkeypatch):
         assert r.json() == []
 
 
+async def test_drive_remote_create_auto_creates_folder(app_client, monkeypatch):
+    """Tambah akun (remote) otomatis buatkan folder 'netravision' di Drive
+    akun itu, supaya langsung muncul di pemilih 'Folder Google Drive tujuan'
+    di form kamera. Hapus akun ikut menghapus entri foldernya."""
+    app, _, _ = app_client
+    auth_as(app, make_user(role="super_admin"))
+
+    async def _fake_save(token_json, remote_name="gdrive"):
+        return {"email": "terhubung"}
+
+    async def _fake_status(remote_name):
+        return {"connected": True, "email": "terhubung",
+                "remote_name": remote_name, "total_bytes": 1000,
+                "used_bytes": 100, "free_bytes": 900}
+
+    async def _fake_ensure(remote_name="gdrive"):
+        return {
+            "folder_id": "abc123",
+            "folder_url": "https://drive.google.com/drive/folders/abc123",
+            "folder_name": "netravision",
+        }
+
+    monkeypatch.setattr(gr, "save_token", _fake_save)
+    monkeypatch.setattr(gr, "remote_status", _fake_status)
+    monkeypatch.setattr(gr, "ensure_netravision_folder", _fake_ensure)
+    monkeypatch.setattr(gr, "find_rclone", lambda: "/usr/bin/rclone")
+    async with _client(app) as c:
+        r = await c.get("/api/admin/storage/google-drive")
+        assert r.status_code == 200
+        assert r.json()["folders"] == []
+
+        r = await c.post("/api/admin/drive-remotes", json={
+            "token": TOKEN, "remote_name": "gdrive", "label": "disk1",
+        })
+        assert r.status_code == 201
+
+        r = await c.get("/api/admin/storage/google-drive")
+        assert r.status_code == 200
+        folders = r.json()["folders"]
+        assert len(folders) == 1
+        assert folders[0]["folder_name"] == "netravision"
+        assert folders[0]["folder_id"] == "abc123"
+        assert folders[0]["folder_url"] == "https://drive.google.com/drive/folders/abc123"
+        assert folders[0]["remote_name"] == "gdrive"
+        assert folders[0]["remote_label"] == "disk1"
+
+        # Simpan ulang akun yang sama: jangan duplikat folder.
+        r = await c.post("/api/admin/drive-remotes", json={
+            "token": TOKEN, "remote_name": "gdrive", "label": "disk1",
+        })
+        assert r.status_code == 200
+        r = await c.get("/api/admin/storage/google-drive")
+        assert len(r.json()["folders"]) == 1
+
+        # Hapus akun: entri folder ikut hilang.
+        r = await c.delete("/api/admin/drive-remotes/gdrive")
+        assert r.status_code == 200
+        r = await c.get("/api/admin/storage/google-drive")
+        assert r.json()["folders"] == []
+
+
+async def test_ensure_netravision_folder_creates_and_finds(monkeypatch):
+    """ensure_netravision_folder: mkdir lalu ambil ID dari lsjson root."""
+    calls = []
+
+    async def _fake_run(*args, timeout=60):
+        calls.append(args)
+        if args[0] == "mkdir":
+            return (0, "", "")
+        if args[0] == "lsjson":
+            import json as _json
+            return (0, _json.dumps([
+                {"Name": "lain", "ID": "zzz"},
+                {"Name": "netravision", "ID": "nv123"},
+            ]), "")
+        return (1, "", "tidak dikenal")
+
+    monkeypatch.setattr(gr, "_run_rclone", _fake_run)
+    info = await gr.ensure_netravision_folder("gdrive")
+    assert info == {
+        "folder_id": "nv123",
+        "folder_url": "https://drive.google.com/drive/folders/nv123",
+        "folder_name": "netravision",
+    }
+    assert calls[0][0] == "mkdir"
+    assert calls[0][1] == "gdrive:netravision"
+
+
+async def test_ensure_netravision_folder_mkdir_fails(monkeypatch):
+    """mkdir gagal = RuntimeError (pemanggil jatuh kembali ke entri root)."""
+    async def _fake_run(*args, timeout=60):
+        return (1, "", "some rclone error")
+
+    monkeypatch.setattr(gr, "_run_rclone", _fake_run)
+    with pytest.raises(RuntimeError, match="Gagal membuat folder netravision"):
+        await gr.ensure_netravision_folder("gdrive")
+
+
 async def test_drive_remote_create_token_invalid(app_client, monkeypatch):
     app, _, _ = app_client
     auth_as(app, make_user(role="super_admin"))

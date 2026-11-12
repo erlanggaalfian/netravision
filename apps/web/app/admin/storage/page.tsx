@@ -23,6 +23,8 @@ interface GDriveFolder {
   local_path: string;
   local_path_custom: boolean;
   retention_days: number | null;
+  remote_name: string;
+  remote_label: string;
   updated_at: string | null;
   updated_by: string;
 }
@@ -723,6 +725,11 @@ export default function AdminStoragePage() {
                           Default
                         </NBBadge>
                       )}
+                      {f.remote_name && (
+                        <NBBadge size="sm" tone="ok">
+                          Akun Google
+                        </NBBadge>
+                      )}
                     </div>
                     <p className="mt-0.5 text-sm text-slate-400">
                       Simpan rekaman: {retentionLabel(f.retention_days)}
@@ -750,14 +757,20 @@ export default function AdminStoragePage() {
                       })}
                     </div>
                     <div className="mt-2.5 flex flex-wrap items-center gap-3 text-sm">
-                      <a
-                        href={f.folder_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="font-medium text-accent-400 underline underline-offset-2"
-                      >
-                        Buka di Drive
-                      </a>
+                      {f.folder_url ? (
+                        <a
+                          href={f.folder_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-medium text-accent-400 underline underline-offset-2"
+                        >
+                          Buka di Drive
+                        </a>
+                      ) : (
+                        <span className="text-slate-400">
+                          Seluruh Drive akun ini (root)
+                        </span>
+                      )}
                       <button
                         type="button"
                         onClick={() =>

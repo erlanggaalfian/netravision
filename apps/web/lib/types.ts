@@ -27,6 +27,9 @@ export interface DriveFolder {
   folder_name: string;
   local_path: string;
   local_path_custom: boolean;
+  retention_days?: number | null;
+  remote_name?: string;
+  remote_label?: string;
   updated_at: string | null;
   updated_by: string;
 }
