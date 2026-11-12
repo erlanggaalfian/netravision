@@ -92,6 +92,7 @@ services:
       # hanya listen di 127.0.0.1 di dalam container, API menjalankan
       # proxy TCP di IP container:53682 (authorize_proxy_loop) supaya
       # SSH forward ke host:53682 sampai ke rclone. Hanya localhost.
+      - "127.0.0.1:53682:53682"
     volumes:
       # B-K1/B-T6: read-write (bukan :ro) agar retensi API bisa menghapus.
       - recordings:/recordings
