@@ -616,7 +616,7 @@ export default function AdminUsersPage() {
                     <button
                       onClick={() => toggleGroup(name)}
                       aria-expanded={open}
-                      className="flex min-w-0 flex-1 cursor-pointer flex-col items-start gap-0.5 rounded-lg text-left transition-colors hover:bg-ink-700/40 md:hidden"
+                      className="flex min-w-0 flex-1 cursor-pointer flex-col items-start gap-0.5 rounded-lg text-left md:hidden"
                     >
                       <span className="flex items-center gap-1.5">
                         <NBBadge tone="info">Grup</NBBadge>
@@ -634,7 +634,7 @@ export default function AdminUsersPage() {
                     <button
                       onClick={() => toggleGroup(name)}
                       aria-expanded={open}
-                      className="hidden min-w-0 flex-1 cursor-pointer flex-col items-start gap-0.5 rounded-lg px-2 py-1 text-left transition-colors hover:bg-ink-700/40 md:flex"
+                      className="hidden min-w-0 flex-1 cursor-pointer flex-col items-start gap-0.5 rounded-lg px-2 py-1 text-left md:flex"
                     >
                       <span className="flex items-center gap-1.5">
                         <NBBadge tone="info">Grup</NBBadge>
