@@ -341,36 +341,15 @@ export default function MapsPage() {
     (async () => {
       const L = await import("leaflet");
       /* leaflet.markercluster (UMD) mengharapkan Leaflet sebagai global
-         window.L; tanpa ini L.markerClusterGroup tidak terdaftar dan
-         init peta gagal diam-diam setelah tile dimuat (marker tidak
-         pernah ditambahkan, fitBounds tidak jalan). */
+         window.L; tanpa ini L.markerClusterGroup tidak terdaftar. */
       (window as unknown as { L?: typeof L }).L = L;
-      const mc = await import("leaflet.markercluster");
-      /* Jangan hanya mengandalkan efek samping global: UMD menempelkan
-         class klaster di exports modul juga. Bila bundel mengeksekusi
-         plugin sebelum window.L siap (atau memakai salinan L lain),
-         L.markerClusterGroup tidak ada dan init peta melempar
-         "markerClusterGroup is not a function". Pasang factory-nya
-         sendiri dari class exports bila belum menempel. */
-      const MarkerClusterGroup =
-        (L as unknown as { MarkerClusterGroup?: unknown }).MarkerClusterGroup ??
-        (mc as unknown as { MarkerClusterGroup?: unknown }).MarkerClusterGroup ??
-        (mc as unknown as { default?: { MarkerClusterGroup?: unknown } }).default
-          ?.MarkerClusterGroup;
-      if (
-        typeof (L as unknown as { markerClusterGroup?: unknown }).markerClusterGroup !==
-          "function" &&
-        MarkerClusterGroup
-      ) {
-        (L as unknown as { markerClusterGroup: unknown }).markerClusterGroup = (
-          options: unknown,
-        ) =>
-          new (
-            MarkerClusterGroup as new (options: unknown) => unknown
-          )(options);
-      }
       if (cancelled || !containerRef.current || mapRef.current) return;
       LRef.current = L;
+      /* Peta dibuat DULU, sebelum plugin klaster dicoba. Bila pembuatan
+         klaster gagal (pernah terjadi di staging: tile tampil tapi
+         mapRef tidak pernah diset, marker tidak muncul dan klik nama
+         kamera tidak menggeser peta), peta tetap jadi, mapRef terisi,
+         dan marker tetap ditambahkan lewat layer biasa. */
       const map = L.map(containerRef.current, {
         center: DEFAULT_CENTER,
         zoom: DEFAULT_ZOOM,
@@ -385,12 +364,18 @@ export default function MapsPage() {
          jumlah kamera saat zoom out. Klik klaster memperbesar peta ke
          titik itu; di zoom maksimal, marker menyebar (spiderfy) supaya
          tiap kamera tetap bisa diklik. Marker tunggal tetap membuka
-         popup dan bisa di-drag (super_admin) seperti biasa. */
-      layerRef.current = L.markerClusterGroup({
+         popup dan bisa di-drag (super_admin) seperti biasa. Bila plugin
+         tidak bisa dipakai (factory global hilang, class exports tidak
+         ketemu, atau import melempar), pakai L.layerGroup biasa supaya
+         titik kamera tetap tampil, hanya tanpa pengelompokan. */
+      const clusterOptions = {
         showCoverageOnHover: false,
         zoomToBoundsOnClick: true,
         spiderfyOnMaxZoom: true,
-        iconCreateFunction: (cluster) => {
+        iconCreateFunction: (cluster: {
+          getAllChildMarkers: () => unknown[];
+          getChildCount: () => number;
+        }) => {
           /* Warna klaster dari status kamera di dalamnya (dibaca dari
              properti _nvOnline tiap marker). */
           const markers = cluster.getAllChildMarkers();
@@ -406,7 +391,40 @@ export default function MapsPage() {
                 : "warn";
           return clusterIcon(L, cluster.getChildCount(), status);
         },
-      }).addTo(map);
+      };
+      let layer: LType.LayerGroup | null = null;
+      try {
+        const mc = await import("leaflet.markercluster");
+        /* Jangan hanya mengandalkan efek samping global: UMD menempelkan
+           class klaster di exports modul juga. Ambil class dari
+           mana pun yang menyediakannya. */
+        const MarkerClusterGroup =
+          (L as unknown as { MarkerClusterGroup?: unknown })
+            .MarkerClusterGroup ??
+          (mc as unknown as { MarkerClusterGroup?: unknown })
+            .MarkerClusterGroup ??
+          (mc as unknown as { default?: { MarkerClusterGroup?: unknown } })
+            .default?.MarkerClusterGroup;
+        if (
+          typeof (L as unknown as { markerClusterGroup?: unknown })
+            .markerClusterGroup === "function"
+        ) {
+          layer = (
+            L as unknown as {
+              markerClusterGroup: (o: unknown) => LType.LayerGroup;
+            }
+          ).markerClusterGroup(clusterOptions);
+        } else if (MarkerClusterGroup) {
+          layer = new (
+            MarkerClusterGroup as new (o: unknown) => LType.LayerGroup
+          )(clusterOptions);
+        }
+      } catch {
+        layer = null;
+      }
+      if (!layer) layer = L.layerGroup();
+      layer.addTo(map);
+      layerRef.current = layer;
       mapRef.current = map;
       setMapReady(true);
     })();
