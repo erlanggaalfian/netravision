@@ -721,9 +721,10 @@ async def start_drive_authorize(
     GET /admin/drive-remotes/authorize/{job_id} untuk mendapat link
     http://127.0.0.1:53682/auth?state=... Pengguna membuka link itu
     (butuh akses ke port 53682 server, mis. SSH forward
-    `ssh -L 53682:127.0.0.1:53682`), login Google, izinkan. Token
-    ditangkap server; frontend lalu menyimpan lewat POST
-    /admin/drive-remotes yang sudah ada."""
+    `ssh -L 53682:127.0.0.1:53682 root@alamat-server`), login Google,
+    izinkan. Token ditangkap server; frontend lalu menyimpan lewat POST
+    /admin/drive-remotes yang sudah ada. Job lama yang masih menunggu
+    dibatalkan otomatis supaya tidak ada yang tertahan."""
     from app.services import gdrive_rclone as gr
 
     label = (payload.label or "").strip()
@@ -733,7 +734,7 @@ async def start_drive_authorize(
     taken = set(rows) | set(gr.list_remote_names())
     remote_name = _next_remote_name(taken)
     try:
-        job = await gr.start_authorize(remote_name)
+        job = await gr.start_authorize(remote_name, label)
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {
@@ -743,10 +744,31 @@ async def start_drive_authorize(
     }
 
 
+@admin_router.get("/admin/drive-remotes/authorize/active")
+async def get_active_drive_authorize():
+    """Job authorize yang masih menunggu, bila ada. Dipakai frontend
+    untuk memulihkan tampilan (link + tombol Batalkan) setelah refresh,
+    supaya job tidak menggantung tanpa bisa dibatalkan."""
+    from app.services import gdrive_rclone as gr
+
+    for job in gr._AUTHORIZE_JOBS.values():
+        if job["status"] == "waiting":
+            return {
+                "job_id": job["job_id"],
+                "remote_name": job["remote_name"],
+                "label": job.get("label", ""),
+                "status": job["status"],
+                "auth_url": job.get("auth_url"),
+                "token": None,
+                "error": None,
+            }
+    return {"job_id": None}
+
+
 @admin_router.get("/admin/drive-remotes/authorize/{job_id}")
 async def get_drive_authorize(job_id: str):
     """Status satu job authorize: waiting (auth_url bila sudah ada),
-    done (token bila sudah didapat), atau error."""
+    done (token bila sudah didapat), cancelled, atau error."""
     from app.services import gdrive_rclone as gr
 
     job = gr.authorize_job(job_id)
@@ -755,11 +777,24 @@ async def get_drive_authorize(job_id: str):
     return {
         "job_id": job["job_id"],
         "remote_name": job["remote_name"],
+        "label": job.get("label", ""),
         "status": job["status"],
         "auth_url": job.get("auth_url"),
         "token": job.get("token"),
         "error": job.get("error"),
     }
+
+
+@admin_router.delete("/admin/drive-remotes/authorize/{job_id}")
+async def cancel_drive_authorize(job_id: str):
+    """Batalkan satu job authorize yang masih menunggu: matikan proses
+    rclone authorize-nya supaya tidak ada yang tertahan."""
+    from app.services import gdrive_rclone as gr
+
+    job = await gr.cancel_authorize(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job authorize tidak ditemukan.")
+    return {"ok": True, "status": job["status"]}
 
 
 @admin_router.post("/admin/drive-remotes")

@@ -415,25 +415,93 @@ def authorize_job(job_id: str) -> dict | None:
     return _AUTHORIZE_JOBS.get(job_id)
 
 
-async def start_authorize(remote_name: str) -> dict:
-    """Mulai `rclone authorize "drive"` di background. Return {job_id}."""
+async def cancel_authorize(job_id: str) -> dict | None:
+    """Batalkan satu job authorize yang masih menunggu: matikan proses
+    rclone authorize-nya lalu tandai dibatalkan. Return job atau None."""
+    job = _AUTHORIZE_JOBS.get(job_id)
+    if job is None:
+        return None
+    proc = job.get("proc")
+    if proc is not None and proc.returncode is None:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+    if job["status"] == "waiting":
+        job["status"] = "cancelled"
+        job["error"] = "Dibatalkan."
+    return job
+
+
+def _find_authorize_pids() -> list[int]:
+    """PID semua proses `rclone authorize` yang sedang berjalan."""
+    pids: list[int] = []
+    try:
+        names = [p for p in os.listdir("/proc") if p.isdigit()]
+    except OSError:
+        return pids
+    for pid in names:
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as fh:
+                parts = fh.read().split(b"\0")
+        except OSError:
+            continue
+        args = [p.decode(errors="replace") for p in parts if p]
+        if len(args) >= 2 and "rclone" in os.path.basename(args[0]) and "authorize" in args:
+            pids.append(int(pid))
+    return pids
+
+
+def _kill_stale_authorize() -> int:
+    """Matikan proses `rclone authorize` yang tertinggal (yatim, mis.
+    dari API yang sudah restart) supaya port 53682 bebas dan authorize
+    baru tidak langsung gagal. Return jumlah proses yang dimatikan."""
+    import signal
+
+    pids = _find_authorize_pids()
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            continue
+    for _ in range(4):
+        if not _find_authorize_pids():
+            break
+        time.sleep(0.5)
+    else:
+        for pid in _find_authorize_pids():
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                continue
+        time.sleep(0.5)
+    return len(pids)
+
+
+async def start_authorize(remote_name: str, label: str = "") -> dict:
+    """Mulai `rclone authorize "drive"` di background. Return {job_id}.
+
+    Job lama yang masih menunggu dibatalkan dulu, dan proses `rclone
+    authorize` yatim yang menahan port 53682 dimatikan dulu, supaya
+    tidak ada yang tertahan: pengguna selalu bisa memulai lagi."""
     remote_name = validate_remote_name(remote_name)
     binary = find_rclone()
     if not binary:
         raise RuntimeError("rclone belum terinstal di server.")
-    for job in _AUTHORIZE_JOBS.values():
-        if job["status"] == "waiting":
-            raise RuntimeError(
-                "Masih ada proses hubungkan akun yang berjalan. Selesaikan dulu."
-            )
+    _kill_stale_authorize()
+    for old in list(_AUTHORIZE_JOBS.values()):
+        if old["status"] == "waiting":
+            await cancel_authorize(old["job_id"])
     job_id = uuid.uuid4().hex[:12]
     job: dict = {
         "job_id": job_id,
         "remote_name": remote_name,
+        "label": label,
         "status": "waiting",
         "auth_url": None,
         "token": None,
         "error": None,
+        "proc": None,
         "started_at": time.time(),
     }
     _AUTHORIZE_JOBS[job_id] = job
@@ -451,9 +519,11 @@ async def _run_authorize(job: dict, binary: str) -> None:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
+        job["proc"] = proc
     except Exception as e:  # noqa: BLE001 - proses gagal start
-        job["status"] = "error"
-        job["error"] = f"Gagal menjalankan rclone authorize: {e}"
+        if job["status"] == "waiting":
+            job["status"] = "error"
+            job["error"] = f"Gagal menjalankan rclone authorize: {e}"
         return
     output_lines: list[str] = []
     try:
@@ -472,14 +542,18 @@ async def _run_authorize(job: dict, binary: str) -> None:
             if proc.returncode is not None:
                 break
     except asyncio.TimeoutError:
-        job["status"] = "error"
-        job["error"] = "Waktu habis (10 menit). Klik lagi untuk mengulang."
+        if job["status"] == "waiting":
+            job["status"] = "error"
+            job["error"] = "Waktu habis (10 menit). Klik lagi untuk mengulang."
         try:
             proc.kill()
         except ProcessLookupError:
             pass
         return
     await proc.wait()
+    # Bila job sudah dibatalkan selagi task berjalan, jangan timpa statusnya.
+    if job["status"] != "waiting":
+        return
     if proc.returncode != 0:
         job["status"] = "error"
         job["error"] = "rclone authorize gagal. Coba lagi."

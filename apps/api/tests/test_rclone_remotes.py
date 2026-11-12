@@ -293,10 +293,11 @@ async def test_drive_authorize_endpoints(app_client, monkeypatch):
     app, _, _ = app_client
     auth_as(app, make_user(role="super_admin"))
 
-    async def _fake_start(remote_name):
+    async def _fake_start(remote_name, label=""):
         job = {
             "job_id": "abc123",
             "remote_name": remote_name,
+            "label": label,
             "status": "waiting",
             "auth_url": "http://127.0.0.1:53682/auth?state=x",
             "token": None,
@@ -328,3 +329,82 @@ async def test_drive_authorize_endpoints(app_client, monkeypatch):
         # Job tidak dikenal -> 404.
         r = await c.get("/api/admin/drive-remotes/authorize/tidak-ada")
         assert r.status_code == 404
+
+
+async def test_drive_authorize_second_cancels_first(app_client, monkeypatch):
+    """Authorize kedua membatalkan job pertama yang masih menunggu,
+    supaya tidak ada yang tertahan."""
+    import uuid
+
+    app, _, _ = app_client
+    auth_as(app, make_user(role="super_admin"))
+
+    async def _fake_start(remote_name, label=""):
+        # Tiru perilaku asli: batalkan job waiting yang ada dulu.
+        for old in list(gr._AUTHORIZE_JOBS.values()):
+            if old["status"] == "waiting":
+                await gr.cancel_authorize(old["job_id"])
+        job_id = uuid.uuid4().hex[:12]
+        gr._AUTHORIZE_JOBS[job_id] = {
+            "job_id": job_id,
+            "remote_name": remote_name,
+            "label": label,
+            "status": "waiting",
+            "auth_url": None,
+            "token": None,
+            "error": None,
+            "proc": None,
+        }
+        return {"job_id": job_id}
+
+    monkeypatch.setattr(gr, "start_authorize", _fake_start)
+    monkeypatch.setattr(gr, "find_rclone", lambda: "/usr/bin/rclone")
+    async with _client(app) as c:
+        r = await c.post("/api/admin/drive-remotes/authorize", json={"label": "Satu"})
+        assert r.status_code == 200
+        first = r.json()["job_id"]
+        # Authorize kedua langsung berhasil (job pertama dibatalkan).
+        r = await c.post("/api/admin/drive-remotes/authorize", json={"label": "Dua"})
+        assert r.status_code == 200
+        second = r.json()["job_id"]
+        assert second != first
+        r = await c.get(f"/api/admin/drive-remotes/authorize/{first}")
+        assert r.json()["status"] == "cancelled"
+
+        # DELETE batalkan job kedua.
+        r = await c.delete(f"/api/admin/drive-remotes/authorize/{second}")
+        assert r.status_code == 200
+        assert r.json()["status"] == "cancelled"
+        r = await c.get(f"/api/admin/drive-remotes/authorize/{second}")
+        assert r.json()["status"] == "cancelled"
+
+        # DELETE job tidak dikenal -> 404.
+        r = await c.delete("/api/admin/drive-remotes/authorize/tidak-ada")
+        assert r.status_code == 404
+
+
+async def test_drive_authorize_active_restores_after_refresh(app_client, monkeypatch):
+    """GET /authorize/active mengembalikan job waiting (untuk pulihkan
+    tampilan setelah refresh); bila tidak ada, job_id None."""
+    app, _, _ = app_client
+    auth_as(app, make_user(role="super_admin"))
+    monkeypatch.setattr(gr, "find_rclone", lambda: "/usr/bin/rclone")
+    async with _client(app) as c:
+        r = await c.get("/api/admin/drive-remotes/authorize/active")
+        assert r.status_code == 200
+        assert r.json()["job_id"] is None
+
+        gr._AUTHORIZE_JOBS["xyz"] = {
+            "job_id": "xyz",
+            "remote_name": "gdrive",
+            "label": "Akun Pulih",
+            "status": "waiting",
+            "auth_url": "http://127.0.0.1:53682/auth?state=y",
+            "token": None,
+            "error": None,
+        }
+        r = await c.get("/api/admin/drive-remotes/authorize/active")
+        assert r.status_code == 200
+        assert r.json()["job_id"] == "xyz"
+        assert r.json()["label"] == "Akun Pulih"
+        assert r.json()["auth_url"].startswith("http://127.0.0.1:53682/auth?state=")

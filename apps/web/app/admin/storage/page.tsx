@@ -127,7 +127,7 @@ export default function AdminStoragePage() {
     job_id: string;
     remote_name: string;
     label: string;
-    status: "waiting" | "done" | "error";
+    status: "waiting" | "done" | "error" | "cancelled";
     auth_url: string | null;
     token: string | null;
     error: string | null;
@@ -135,6 +135,17 @@ export default function AdminStoragePage() {
   const [authJob, setAuthJob] = useState<AuthorizeJob | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
   const authLabelRef = useRef("");
+
+  async function cancelAuthorize() {
+    if (authJob) {
+      try {
+        await api.del(`/admin/drive-remotes/authorize/${authJob.job_id}`);
+      } catch {
+        // Abaikan, job mungkin sudah selesai sendiri.
+      }
+    }
+    setAuthJob(null);
+  }
 
   async function startAuthorize() {
     if (!accountLabel.trim()) {
@@ -252,8 +263,39 @@ export default function AdminStoragePage() {
     loadConn();
   }
 
+  async function loadActiveAuthorize() {
+    // Pulihkan job authorize yang masih menunggu (mis. setelah refresh),
+    // supaya link + tombol Batalkan tetap tampil dan job tidak menggantung.
+    try {
+      const res = await api.get<{
+        job_id: string | null;
+        remote_name?: string;
+        label?: string;
+        status?: string;
+        auth_url?: string | null;
+      }>("/admin/drive-remotes/authorize/active");
+      if (res.job_id) {
+        authLabelRef.current = res.label ?? "";
+        setAccountLabel(res.label ?? "");
+        setShowAddAccount(true);
+        setAuthJob({
+          job_id: res.job_id,
+          remote_name: res.remote_name ?? "",
+          label: res.label ?? "",
+          status: "waiting",
+          auth_url: res.auth_url ?? null,
+          token: null,
+          error: null,
+        });
+      }
+    } catch {
+      // Abaikan, tidak ada job aktif.
+    }
+  }
+
   useEffect(() => {
     refreshAll();
+    loadActiveAuthorize();
   }, []);
 
   function nextRemoteName(): string {
@@ -533,19 +575,20 @@ export default function AdminStoragePage() {
                   )}
                   <p className="mt-2 text-xs text-slate-400">
                     Link mengarah ke port 53682 di server. Bila browser tidak
-                    bisa membukanya, teruskan port itu lewat SSH (ganti
-                    alamat-server dengan alamat server Anda):
+                    bisa membukanya, teruskan port itu lewat SSH ke server ini
+                    (127.0.0.1 di perintah itu adalah localhost di server,
+                    tempat rclone jalan):
                     <code className="mt-1 block rounded bg-ink-900 px-2 py-1 font-mono text-xs">
-                      ssh -L 53682:127.0.0.1:53682 root@alamat-server
+                      ssh -L 53682:127.0.0.1:53682 root@{typeof window !== "undefined" ? window.location.hostname : "alamat-server"}
                     </code>
-                    127.0.0.1 di perintah itu adalah localhost di server
-                    (tempat rclone jalan), bukan laptop. Atau pakai cara
-                    tempel kode manual di bawah. Setelah Anda izinkan di
-                    Google, akun terhubung otomatis di sini.
+                    Perintah di atas butuh akses SSH ke server. Bila server
+                    tidak bisa di-SSH (mis. demo ini), pakai cara tempel kode
+                    manual di bawah. Setelah Anda izinkan di Google, akun
+                    terhubung otomatis di sini.
                   </p>
                   <div className="mt-3">
-                    <NBButton variant="secondary" onClick={() => setAuthJob(null)}>
-                      Batal
+                    <NBButton variant="secondary" onClick={cancelAuthorize}>
+                      Batalkan
                     </NBButton>
                   </div>
                 </div>
@@ -632,8 +675,8 @@ export default function AdminStoragePage() {
                 <NBButton
                   variant="secondary"
                   onClick={() => {
+                    cancelAuthorize();
                     setShowAddAccount(false);
-                    setAuthJob(null);
                   }}
                 >
                   Tutup
