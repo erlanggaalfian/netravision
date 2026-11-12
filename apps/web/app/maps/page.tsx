@@ -163,6 +163,9 @@ export default function MapsPage() {
   const [mapQuery, setMapQuery] = useState("");
   const [locating, setLocating] = useState(false);
   const [locateMsg, setLocateMsg] = useState<string | null>(null);
+  /* Peta + klaster siap: sinkronisasi marker menunggu ini, supaya tidak
+     jalan saat layer klaster belum dibuat (balapan dengan pemuatan data). */
+  const [mapReady, setMapReady] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LType.Map | null>(null);
@@ -237,6 +240,7 @@ export default function MapsPage() {
           clusterIcon(L, cluster.getChildCount()),
       }).addTo(map);
       mapRef.current = map;
+      setMapReady(true);
     })();
     return () => {
       cancelled = true;
@@ -286,7 +290,7 @@ export default function MapsPage() {
     const L = LRef.current;
     const map = mapRef.current;
     const layer = layerRef.current;
-    if (!L || !map || !layer) return;
+    if (!L || !map || !layer || !mapReady) return;
     const wanted = new Map(mappedShown.map((s) => [s.id, s]));
 
     for (const [id, marker] of markersRef.current) {
@@ -380,7 +384,7 @@ export default function MapsPage() {
       map.fitBounds(L.latLngBounds(bounds).pad(0.25));
       fittedRef.current = true;
     }
-  }, [mappedShown, isSuperAdmin]);
+  }, [mappedShown, isSuperAdmin, mapReady]);
 
   /* Admin: tandai kamera belum-dipetakan di tengah peta. */
   const placeAtCenter = async (s: Stream) => {
