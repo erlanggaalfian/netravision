@@ -94,6 +94,7 @@ export default function LivePage() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [gridKey, setGridKey] = useState("2x2");
+  const [page, setPage] = useState(1);
   const isDesktop = useIsDesktop();
   /* Panel kontrol dilipat di HP (tombol filter), selalu tampil di desktop. */
   const [filterOpen, setFilterOpen] = useState(false);
@@ -198,9 +199,21 @@ export default function LivePage() {
   }, [merged, query, filter]);
 
   const gridCols = isDesktop ? (activeOpt.cols ?? 2) : 1;
-  const visibleStreams = isDesktop
-    ? filtered
-    : filtered.slice(0, activeOpt.count ?? 4);
+  /* Jumlah kamera per halaman mengikuti bentuk grid: 1x1 = 1, 2x2 = 4,
+     3x3 = 9, 4x4 = 16 (PC); di HP mengikuti jumlah yang dipilih (2/4/6/9).
+     Jadi grid benar-benar 2x2, bukan 2 kolom x semua kamera. */
+  const perPage = isDesktop ? gridCols * gridCols : (activeOpt.count ?? 4);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
+  const safePage = Math.min(page, totalPages);
+  const visibleStreams = filtered.slice(
+    (safePage - 1) * perPage,
+    safePage * perPage,
+  );
+
+  /* Ganti grid / filter / pencarian / perangkat: kembali ke halaman 1. */
+  useEffect(() => {
+    setPage(1);
+  }, [gridKey, filter, query, isDesktop]);
 
   const onlineCount = merged.filter((s) => s.is_online).length;
   const counts: Record<StatusFilter, number> = {
@@ -455,10 +468,7 @@ export default function LivePage() {
             menggantikan seluruh grid. Panel error penuh hanya bila
             belum pernah ada data sama sekali. */}
         {fetching && streams.length === 0 ? (
-          <SkeletonGrid
-            cols={gridCols}
-            count={isDesktop ? gridCols * 2 : (activeOpt.count ?? 4)}
-          />
+          <SkeletonGrid cols={gridCols} count={perPage} />
         ) : error && streams.length === 0 ? (
           <div className="nv-panel-modern flex flex-col items-center gap-4 px-6 py-16 text-center">
             <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-bad-500/10">
@@ -532,11 +542,40 @@ export default function LivePage() {
             </p>
           </div>
         ) : (
-          <div className={`grid gap-4 ${GRID_CLASS[gridCols] ?? GRID_CLASS[2]}`}>
-            {visibleStreams.map((s) => (
-              <CameraTile key={s.id} stream={s} onExpand={setFocus} ad={ad} />
-            ))}
-          </div>
+          <>
+            <div
+              className={`grid gap-4 ${GRID_CLASS[gridCols] ?? GRID_CLASS[2]}`}
+            >
+              {visibleStreams.map((s) => (
+                <CameraTile key={s.id} stream={s} onExpand={setFocus} ad={ad} />
+              ))}
+            </div>
+            {totalPages > 1 && (
+              <div className="mt-4 flex items-center justify-center gap-2">
+                <Button
+                  variant="subtle"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={safePage <= 1}
+                  aria-label="Halaman sebelumnya"
+                  className="rounded-full"
+                >
+                  ‹ Sebelumnya
+                </Button>
+                <span className="text-sm font-semibold text-slate-300">
+                  Halaman {safePage} dari {totalPages}
+                </span>
+                <Button
+                  variant="subtle"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={safePage >= totalPages}
+                  aria-label="Halaman berikutnya"
+                  className="rounded-full"
+                >
+                  Berikutnya ›
+                </Button>
+              </div>
+            )}
+          </>
             )}
           </>
         )}
