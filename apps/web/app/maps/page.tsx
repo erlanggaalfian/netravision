@@ -333,6 +333,11 @@ export default function MapsPage() {
     let cancelled = false;
     (async () => {
       const L = await import("leaflet");
+      /* leaflet.markercluster (UMD) mengharapkan Leaflet sebagai global
+         window.L; tanpa ini L.markerClusterGroup tidak terdaftar dan
+         init peta gagal diam-diam setelah tile dimuat (marker tidak
+         pernah ditambahkan, fitBounds tidak jalan). */
+      (window as unknown as { L?: typeof L }).L = L;
       await import("leaflet.markercluster");
       if (cancelled || !containerRef.current || mapRef.current) return;
       LRef.current = L;
