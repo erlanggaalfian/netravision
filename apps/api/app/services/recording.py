@@ -38,6 +38,11 @@ class Segment:
     name: str = ""
     end: datetime | None = field(default=None)
     drive_file_id: str | None = field(default=None)  # terisi bila dari Drive
+    # Terisi bila dari Drive rclone (bukan OAuth): nama remote + jalur file
+    # di remote itu, mis. rclone_remote="gdrive",
+    # rclone_path="{folder_id}/Nama Kamera/2026-11-12_10-00-00-000000.mp4".
+    rclone_remote: str | None = field(default=None)
+    rclone_path: str | None = field(default=None)
 
 
 def _recordings_dir(explicit: str | None = None) -> str:

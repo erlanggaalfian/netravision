@@ -102,6 +102,61 @@ async def _folder_link_segments(
     return out
 
 
+async def _rclone_segments(
+    stream: Stream, day: date | None, db: AsyncSession
+) -> list[Segment]:
+    """Segmen dari folder Drive rclone kamera ini (akun disk1 dsb.).
+
+    Uploader rclone menulis ke `{remote}:{folder_id}/{nama_kamera}/nama-segmen.mp4`,
+    jadi daftar dibaca dari jalur itu via `rclone lsjson`. Hanya folder yang
+    punya remote_name (folder akun) yang bisa dibaca cara ini; tautan folder
+    manual tanpa remote dilewati.
+    """
+    from app.models.drive import GoogleDriveFolder
+    from app.services import gdrive_rclone as gr
+
+    out: list[Segment] = []
+    try:
+        if stream.drive_folder_id:
+            row = await db.get(GoogleDriveFolder, stream.drive_folder_id)
+        else:
+            row = (
+                await db.execute(
+                    select(GoogleDriveFolder).order_by(GoogleDriveFolder.id)
+                )
+            ).scalars().first()
+    except Exception as e:  # noqa: BLE001
+        log.warning("rclone folder kamera %s gagal: %s", stream.name, e)
+        return out
+    if row is None or not row.folder_id or not row.remote_name:
+        return out
+    cam_name = stream.name or f"Kamera {stream.id}"
+    base = f"{row.folder_id}/{cam_name}"
+    try:
+        items = await gr.list_rclone_files(row.remote_name, base)
+    except Exception as e:  # noqa: BLE001 - Drive opsional, jangan gagalkan timeline
+        log.warning("rclone list %s gagal: %s", stream.name, e)
+        return out
+    for f in items:
+        name = f.get("name", "")
+        if not name.endswith(".mp4"):
+            continue
+        start = parse_segment_name(name)
+        if start is None or (day is not None and start.date() != day):
+            continue
+        out.append(
+            Segment(
+                start=start,
+                path="",
+                size=int(f.get("size") or 0),
+                name=name,
+                rclone_remote=row.remote_name,
+                rclone_path=f"{base}/{name}",
+            )
+        )
+    return out
+
+
 async def _all_segments(
     stream: Stream, day: date | None, db: AsyncSession
 ) -> list[Segment]:
@@ -121,6 +176,14 @@ async def _all_segments(
                     segs.append(s)
         except Exception as e:  # noqa: BLE001
             log.warning("drive folder-link %s gagal: %s", stream.name, e)
+        # Drive rclone (akun disk1 dsb.): lokal menang bila nama sama.
+        try:
+            for s in await _rclone_segments(stream, day, db):
+                if s.name not in names:
+                    names.add(s.name)
+                    segs.append(s)
+        except Exception as e:  # noqa: BLE001
+            log.warning("drive rclone %s gagal: %s", stream.name, e)
     if stream.storage_mode in ("drive", "both") and settings.drive_enabled:
         try:
             from app.services.drive_accounts import uploader_for_stream
@@ -218,6 +281,23 @@ async def _trimmed_segment_file(
     try:
         if seg.path and os.path.exists(seg.path):
             src = seg.path
+        elif seg.rclone_remote and seg.rclone_path:
+            # Segmen Drive rclone: unduh dulu ke temp, lalu potong.
+            from app.services import gdrive_rclone as gr
+
+            fd, tmp_in = tempfile.mkstemp(suffix=".mp4")
+            os.close(fd)
+            try:
+                data = await gr.download_rclone_file(
+                    seg.rclone_remote, seg.rclone_path
+                )
+                with open(tmp_in, "wb") as f:
+                    f.write(data)
+            except Exception as e:  # noqa: BLE001
+                log.warning("rclone unduh segmen %s gagal: %s", seg.name, e)
+                _cleanup(tmp_in)
+                return None
+            src = tmp_in
         else:
             # Segmen Drive: unduh dulu ke temp, lalu potong.
             from app.services.drive_accounts import uploader_for_stream
@@ -301,6 +381,57 @@ async def _serve_segment(
                 filename=seg.name,
             )
         return FileResponse(seg.path, media_type="video/mp4")
+    # Segmen Drive rclone (akun disk1 dsb.): stream via rclone cat.
+    if seg.rclone_remote and seg.rclone_path:
+        from app.services import gdrive_rclone as gr
+
+        total = seg.size or 0
+        r_start, r_end, has_range = _parse_range(
+            request.headers.get("range") if request is not None else None, total
+        )
+        headers = {"Accept-Ranges": "bytes"}
+        status_code = 200
+        if has_range:
+            headers["Content-Range"] = f"bytes {r_start}-{r_end}/{total}"
+            headers["Content-Length"] = str(r_end - r_start + 1)
+            status_code = 206
+        elif total > 0:
+            headers["Content-Length"] = str(total)
+        if download:
+            headers["Content-Disposition"] = (
+                f'attachment; filename="{seg.name}"'
+            )
+
+        async def gen_rclone():
+            pos = r_start
+            while True:
+                if has_range and pos > r_end:
+                    break
+                chunk_end = pos + CHUNK - 1
+                if has_range:
+                    chunk_end = min(chunk_end, r_end)
+                try:
+                    chunk = await gr.stream_rclone_file(
+                        seg.rclone_remote, seg.rclone_path, pos, chunk_end
+                    )
+                except Exception as e:  # noqa: BLE001
+                    log.warning(
+                        "rclone stream segmen %s gagal: %s", seg.name, e
+                    )
+                    break
+                if not chunk:
+                    break
+                yield chunk
+                if len(chunk) < CHUNK:
+                    break
+                pos += CHUNK
+
+        return StreamingResponse(
+            gen_rclone(),
+            media_type="application/octet-stream" if download else "video/mp4",
+            headers=headers,
+            status_code=status_code,
+        )
     # Fallback Drive, via akun kamera ini.
     from app.services.drive_accounts import uploader_for_stream
 

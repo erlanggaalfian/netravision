@@ -98,6 +98,79 @@ async def _run_rclone(*args: str, timeout: int = 60) -> tuple[int, str, str]:
     return proc.returncode, out.decode(errors="replace"), err.decode(errors="replace")
 
 
+async def _run_rclone_bytes(*args: str, timeout: int = 120) -> tuple[int, bytes, str]:
+    """Seperti _run_rclone tapi stdout mentah (bytes) untuk file biner."""
+    binary = find_rclone()
+    if not binary:
+        raise RuntimeError(
+            "rclone tidak ditemukan di server. Minta admin menginstal rclone."
+        )
+    cmd = [binary, "--config", conf_path(), *args]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        raise RuntimeError("rclone timeout")
+    return proc.returncode, out, err.decode(errors="replace")
+
+
+async def list_rclone_files(remote_name: str, path: str) -> list[dict]:
+    """Daftar file di `{remote}:{path}` via `rclone lsjson --files-only`.
+
+    Return list dict {name, size, id}. Raise RuntimeError bila gagal.
+    Dipakai Putar Ulang untuk membaca segmen rekaman dari Drive rclone.
+    """
+    remote_name = validate_remote_name(remote_name)
+    rc, out, err = await _run_rclone(
+        "lsjson", f"{remote_name}:{path}", "--files-only", timeout=60
+    )
+    if rc != 0:
+        detail = (err or out).strip().split("\n")[-1][:200]
+        raise RuntimeError(f"rclone lsjson gagal: {detail}")
+    try:
+        items = json.loads(out)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"rclone lsjson bukan JSON: {e}") from e
+    return items if isinstance(items, list) else []
+
+
+async def stream_rclone_file(
+    remote_name: str, path: str, start: int, end: int
+) -> bytes:
+    """Baca bytes [start..end] dari file rclone via `rclone cat`.
+
+    Dipakai Putar Ulang untuk streaming segmen Drive (dukung HTTP Range).
+    """
+    remote_name = validate_remote_name(remote_name)
+    count = max(0, end - start + 1)
+    rc, out, err = await _run_rclone_bytes(
+        "cat", f"{remote_name}:{path}",
+        "--offset", str(start), "--count", str(count),
+        timeout=120,
+    )
+    if rc != 0:
+        detail = err.strip().split("\n")[-1][:200]
+        raise RuntimeError(f"rclone cat gagal: {detail}")
+    return out
+
+
+async def download_rclone_file(remote_name: str, path: str) -> bytes:
+    """Unduh utuh satu file rclone via `rclone cat` (untuk potong ffmpeg)."""
+    remote_name = validate_remote_name(remote_name)
+    rc, out, err = await _run_rclone_bytes(
+        "cat", f"{remote_name}:{path}", timeout=300
+    )
+    if rc != 0:
+        detail = err.strip().split("\n")[-1][:200]
+        raise RuntimeError(f"rclone cat gagal: {detail}")
+    return out
+
+
 def _validate_token(token_json: str) -> dict:
     """Parse token JSON dari `rclone authorize "drive"`; raise ValueError
     bila bukan JSON valid atau tidak berisi refresh_token."""

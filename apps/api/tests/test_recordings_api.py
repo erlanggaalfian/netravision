@@ -158,3 +158,108 @@ async def test_today_default_date(app_client, monkeypatch, tmp_path):
         r = await c.get(f"/api/recordings/{s.id}/timeline")
         assert r.json()["date"] == today
         assert len(r.json()["entries"]) == 1
+
+
+async def test_playback_baca_drive_rclone(app_client, monkeypatch, tmp_path):
+    """Putar Ulang baca segmen Drive rclone (disk1) bila storage drive.
+
+    Lokal menang bila nama sama (mode both). File disajikan via rclone cat.
+    """
+    from app.models.drive import GoogleDriveFolder
+    from app.services import gdrive_rclone as gr
+
+    app, _, db = app_client
+    s = await _seed(app, db, monkeypatch, tmp_path)
+    s.storage_mode = "drive"
+    folder = GoogleDriveFolder(
+        folder_url="https://drive.google.com/drive/folders/folder-abc",
+        folder_id="folder-abc",
+        folder_name="netravision",
+        remote_name="gdrive",
+    )
+    db.add(folder)
+    await db.commit()
+    s.drive_folder_id = folder.id
+    await db.commit()
+
+    async def _fake_list(remote_name, path):
+        assert remote_name == "gdrive"
+        assert path == "folder-abc/Cam 1"
+        return [
+            {"name": "2026-11-02_10-00-00-000000.mp4", "size": 5000, "id": "f1"},
+            {"name": "2026-11-02_10-10-00-000000.mp4", "size": 6000, "id": "f2"},
+            {"name": "bukan-segmen.txt", "size": 10, "id": "f3"},
+        ]
+
+    async def _fake_stream(remote_name, path, start, end):
+        assert remote_name == "gdrive"
+        assert path == "folder-abc/Cam 1/2026-11-02_10-00-00-000000.mp4"
+        return b"v" * (end - start + 1)
+
+    monkeypatch.setattr(gr, "list_rclone_files", _fake_list)
+    monkeypatch.setattr(gr, "stream_rclone_file", _fake_stream)
+
+    async with _client(app) as c:
+        # Timeline memuat 2 segmen rclone.
+        r = await c.get(
+            f"/api/recordings/{s.id}/timeline", params={"date": "2026-11-02"}
+        )
+        assert r.status_code == 200, r.text
+        assert len(r.json()["entries"]) == 2
+
+        # Segmen: URL file tersedia.
+        r = await c.get(
+            f"/api/recordings/{s.id}/segments", params={"date": "2026-11-02"}
+        )
+        assert r.status_code == 200, r.text
+        segs = r.json()
+        assert len(segs) == 2
+        assert segs[0]["size_bytes"] == 5000
+
+        # File disajikan via rclone cat (Range).
+        url = segs[0]["url"]
+        r = await c.get(url, headers={"Range": "bytes=0-99"})
+        assert r.status_code == 206, r.text
+        assert len(r.content) == 100
+        assert r.headers.get("Content-Range") == "bytes 0-99/5000"
+
+
+async def test_playback_both_utamakan_lokal(app_client, monkeypatch, tmp_path):
+    """Mode both: segmen lokal menang bila nama sama dengan Drive."""
+    from app.models.drive import GoogleDriveFolder
+    from app.services import gdrive_rclone as gr
+
+    app, _, db = app_client
+    s = await _seed(app, db, monkeypatch, tmp_path)
+    s.storage_mode = "both"
+    folder = GoogleDriveFolder(
+        folder_url="https://drive.google.com/drive/folders/folder-abc",
+        folder_id="folder-abc",
+        folder_name="netravision",
+        remote_name="gdrive",
+    )
+    db.add(folder)
+    await db.commit()
+    s.drive_folder_id = folder.id
+    await db.commit()
+    # Lokal punya segmen 10:00, Drive punya 10:00 + 10:10.
+    _seg(str(tmp_path), s.id, "2026-11-02_10-00-00-000000.mp4", size=2048)
+
+    async def _fake_list(remote_name, path):
+        return [
+            {"name": "2026-11-02_10-00-00-000000.mp4", "size": 5000, "id": "f1"},
+            {"name": "2026-11-02_10-10-00-000000.mp4", "size": 6000, "id": "f2"},
+        ]
+
+    monkeypatch.setattr(gr, "list_rclone_files", _fake_list)
+
+    async with _client(app) as c:
+        r = await c.get(
+            f"/api/recordings/{s.id}/segments", params={"date": "2026-11-02"}
+        )
+        assert r.status_code == 200, r.text
+        segs = r.json()
+        assert len(segs) == 2
+        # 10:00 dari lokal (size 2048), 10:10 dari Drive (size 6000).
+        assert segs[0]["size_bytes"] == 2048
+        assert segs[1]["size_bytes"] == 6000
