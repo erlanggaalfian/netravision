@@ -129,6 +129,10 @@ services:
     image: bluenviron/mediamtx:latest-ffmpeg
     restart: unless-stopped
     environment:
+      # TZ: zona waktu container ikut WIB supaya timestamp log dan
+      # rekaman mediamtx benar. Patch ini dulu hanya ada di file server
+      # dan hilang tertimpa deploy (rsync), jadi dipindah ke repo.
+      TZ: Asia/Jakarta
       # M1: IP/domain publik server untuk kandidat ICE WebRTC, diisi dari
       # deploy/.env (WEBRTC_ADDITIONAL_HOST). Compose gagal dengan pesan jelas
       # bila belum di-set; JANGAN tulis IP hardcoded di mediamtx.yml.
@@ -136,6 +140,10 @@ services:
     volumes:
       - ./mediamtx.yml:/mediamtx.yml:ro
       - recordings:/recordings
+      # Zona waktu host supaya TZ di atas benar-benar terbaca (image
+      # mediamtx minimal, tidak membawa database zona waktu sendiri).
+      - /etc/localtime:/etc/localtime:ro
+      - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
       # Rekaman multi-disk: disk tambahan harus di-mount di service ini DAN
       # di api dengan path yang sama, supaya record_disk kamera bisa
       # menunjuk ke sana. Hapus tanda # di baris bawah untuk mengaktifkan.
