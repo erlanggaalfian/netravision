@@ -244,9 +244,9 @@ export function FocusModal({ stream, onClose, ad }: Props) {
   return (
     <div
       /* Backdrop blur disamakan di semua popup (FocusModal, Modal ui.tsx,
-         Modal _nb.tsx): backdrop-blur-md. Opasitas dilonggarkan 70 ke 60
-         supaya blur di balik video tetap terbaca. */
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/60 backdrop-blur-md p-3 sm:p-6"
+         Modal _nb.tsx): backdrop-blur-sm, tipis dan modern. Opasitas
+         dilonggarkan 70 ke 60 supaya blur di balik video tetap terbaca. */
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/60 backdrop-blur-sm p-3 sm:p-6"
       onClick={onClose}
     >
       <div
