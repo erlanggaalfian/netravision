@@ -39,6 +39,7 @@ def test_candidate_paths_unik_dan_lengkap():
         "/cam/realmonitor?channel=1&subtype=0",
         "/unicast/c1/s0/live", "/stream1", "/stream2",
         "/h264Preview_01_main", "/H.264", "/H.264_sub", "/live.sdp",
+        "/live/0/MAIN", "/live/0/SUB",
     ):
         assert p in paths, f"hilang: {p}"
 
@@ -89,6 +90,7 @@ def test_classify_path_name_main_sub():
         "/stream1",
         "/h264Preview_01_main",
         "/live/ch00_0",
+        "/live/0/MAIN",
         "/av0_0",
         "/0",
         "/11",
@@ -102,6 +104,7 @@ def test_classify_path_name_main_sub():
         "/h264Preview_01_sub",
         "/H.264_sub",
         "/live/ch00_1",
+        "/live/0/SUB",
         "/av0_1",
         "/1",
         "/12",
@@ -223,6 +226,36 @@ async def test_discover_host_verifikasi_dan_pilih_main_sub(monkeypatch):
     assert by_path["/live"].status == "auth_failed"
     assert by_path["/live.sdp"].status == "not_found"
     assert "video" in disc.ringkasan()
+
+
+async def test_discover_host_live_0_main_sub(monkeypatch):
+    """Pola /live/0/MAIN (main) + /live/0/SUB (sub) ikut di-scan dan
+    dikenali sebagai best_main/best_sub (resolusi + nama sepakat)."""
+    async def fake_probe(url, timeout=3.0):
+        if url.endswith(("/live/0/MAIN", "/live/0/SUB")):
+            return "open"
+        return "not_found"
+
+    async def fake_ffprobe(url, timeout=10.0):
+        if url.endswith("/live/0/MAIN"):
+            return VideoProbe(status="video", codec="h264",
+                              width=1920, height=1080, fps=25.0, gop_seconds=2.0)
+        return VideoProbe(status="video", codec="h264",
+                          width=640, height=360, fps=15.0, gop_seconds=1.0)
+
+    monkeypatch.setattr(rtsp_discovery, "probe_path", fake_probe)
+    monkeypatch.setattr(rtsp_discovery, "_run_ffprobe", fake_ffprobe)
+    disc = await rtsp_discovery.discover_host("192.168.34.197", 554, "admin", "pw")
+    assert disc.reachable is True
+    assert disc.best_main is not None and disc.best_main.endswith("/live/0/MAIN")
+    assert disc.best_sub is not None and disc.best_sub.endswith("/live/0/SUB")
+    by_path = {p.path: p for p in disc.paths}
+    assert by_path["/live/0/MAIN"].status == "video"
+    assert by_path["/live/0/MAIN"].width == 1920
+    assert by_path["/live/0/MAIN"].role == "main"
+    assert by_path["/live/0/SUB"].status == "video"
+    assert by_path["/live/0/SUB"].width == 640
+    assert by_path["/live/0/SUB"].role == "sub"
 
 
 # ---------- endpoint /admin/scan ----------

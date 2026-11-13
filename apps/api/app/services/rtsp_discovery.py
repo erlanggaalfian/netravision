@@ -72,6 +72,8 @@ _COMMON_PATHS: tuple[str, ...] = (
     "/live",
     "/live/ch00_0",
     "/live/ch00_1",
+    "/live/0/MAIN",
+    "/live/0/SUB",
     "/ch01.264",
     "/11",
     "/12",
