@@ -7,6 +7,15 @@ ffprobe baca frame video nyata dari path yang DESCRIBE-nya OK. Jalur
 cepat: kamera yang sudah terdaftar + sedang online di database
 dilewati ffprobe-nya bila path main yang dikenal terbuka di DESCRIBE.
 
+Klasifikasi main/sub PINTAR (perintah user 2026-11-13 19:19 WIB):
+resolusi ffprobe adalah sinyal terkuat (terbesar = main, lebih kecil
+= sub); bila beberapa path beresolusi sama (kamera menjawab path apa
+pun dengan stream yang sama), nama path dipakai sebagai tiebreaker
+(pola umum lintas merek: 101/102, subtype=0/1, stream1/2, s0/s1,
+main/sub, ch00_0/1, av0_0/1, /0 vs /1, /11 vs /12). Path terpilih
+ditandai role 'main'/'sub' di PathResult supaya API + UI bisa
+menampilkan keduanya dengan jelas.
+
 Status per path: video | no_video | auth_failed | not_found | timeout | error.
 """
 
@@ -132,6 +141,10 @@ class PathResult:
     height: int | None = None
     fps: float | None = None
     gop_seconds: float | None = None
+    # Peran stream bila path ini terpilih: 'main' | 'sub' | None.
+    # Diisi select_main_sub (atau jalur cepat kamera dikenal); hanya
+    # path video yang bisa punya peran.
+    role: str | None = None
 
 
 @dataclass
@@ -298,8 +311,75 @@ async def _tcp_alive(host: str, port: int) -> bool:
         return False
 
 
+def _path_segments(path: str) -> list[str]:
+    """Segmen path (tanpa query), mis. '/Streaming/Channels/101' ->
+    ['streaming', 'channels', '101']. Dipakai supaya angka seperti
+    '101' hanya cocok sebagai segmen utuh, bukan di dalam '1101'
+    atau 'ch01'."""
+    base = path.split("?", 1)[0]
+    return [s for s in base.lower().split("/") if s]
+
+
+def classify_path_name(path: str) -> str | None:
+    """Petunjuk main/sub dari NAMA path saja (tanpa info video).
+
+    Pola umum lintas merek (Hikvision, Dahua, generik):
+      main: subtype=0, segmen 101, 'main', stream1, s0, ch00_0,
+        av0_0, segmen 0, segmen 11
+      sub:  subtype=1, segmen 102, 'sub', stream2, s1, ch00_1,
+        av0_1, segmen 1, segmen 12
+    Kembalikan 'main' | 'sub' | None (tanpa petunjuk, mis. '/live',
+    '/H.264', '/media/video1'). Urutan penting: 'subtype=0' dicek
+    sebelum 'sub' generik karena keduanya mengandung kata 'sub'.
+    """
+    p = path.lower()
+    if "subtype=0" in p:
+        return "main"
+    if "subtype=1" in p:
+        return "sub"
+    segs = _path_segments(p)
+    if "101" in segs:
+        return "main"
+    if "102" in segs:
+        return "sub"
+    if "main" in p:
+        return "main"
+    if "sub" in p:
+        return "sub"
+    if "stream1" in p:
+        return "main"
+    if "stream2" in p:
+        return "sub"
+    if "s0" in segs or "ch00_0" in p or "av0_0" in p:
+        return "main"
+    if "s1" in segs or "ch00_1" in p or "av0_1" in p:
+        return "sub"
+    if "0" in segs:
+        return "main"
+    if "1" in segs:
+        return "sub"
+    if "11" in segs:
+        return "main"
+    if "12" in segs:
+        return "sub"
+    return None
+
+
 def select_main_sub(paths: list[PathResult]) -> tuple[str | None, str | None]:
-    """main = video resolusi terbesar; sub = video resolusi terkecil != main."""
+    """main = video resolusi terbesar; sub = video resolusi terkecil
+    yang benar-benar lebih kecil (atau, bila semua resolusi sama,
+    path yang namanya menandai sub).
+
+    Sinyal (terkuat dulu): (1) resolusi ffprobe — main selalu yang
+    terbesar, sub yang lebih kecil; (2) nama path — tiebreaker saat
+    resolusi seri (kamera menjawab banyak path dengan stream yang
+    sama: /stream1 vs /stream2, 101 vs 102, subtype=0 vs 1) dan
+    untuk memilih sub terkecil saat ada beberapa kandidat;
+    (3) fps, lalu urutan kandidat. Juga menandai role ('main'/'sub')
+    pada PathResult yang terpilih supaya pemanggil (API) bisa
+    menampilkan keduanya. Tanpa sub bila hanya satu video, atau bila
+    semua resolusi sama dan tidak ada nama yang menandai sub (tanpa
+    sub palsu beresolusi sama)."""
     vids = [p for p in paths if p.status == "video"]
     if not vids:
         return None, None
@@ -307,12 +387,35 @@ def select_main_sub(paths: list[PathResult]) -> tuple[str | None, str | None]:
     def area(p: PathResult) -> int:
         return (p.width or 0) * (p.height or 0)
 
-    # max/min mengambil yang PERTAMA bila seri -> urutan kandidat (template
-    # brand dulu) menang. Banyak kamera menjawab path apa pun dengan stream
-    # yang sama: sub hanya sah bila resolusinya benar-benar lebih kecil.
-    main = max(vids, key=lambda p: (area(p), p.fps or 0.0))
-    subs = [p for p in vids if area(p) < area(main)]
-    sub = min(subs, key=lambda p: (area(p), -(p.fps or 0.0))) if subs else None
+    # max/min mengambil yang PERTAMA bila seri -> urutan kandidat
+    # (template brand dulu) menang bila area dan petunjuk nama seri.
+    main = max(vids, key=lambda p: (
+        area(p),
+        1 if classify_path_name(p.path) == "main" else 0,
+        p.fps or 0.0,
+    ))
+    main.role = "main"
+    smaller = [p for p in vids if p is not main and area(p) < area(main)]
+    sub: PathResult | None = None
+    if smaller:
+        # Resolusi terkecil dulu; seri -> yang namanya menandai sub,
+        # lalu fps tertinggi.
+        sub = min(smaller, key=lambda p: (
+            area(p),
+            0 if classify_path_name(p.path) == "sub" else 1,
+            -(p.fps or 0.0),
+        ))
+    else:
+        # Semua resolusi sama: sub hanya sah bila namanya menandai
+        # sub (tanpa ini, kamera yang menjawab semua path dengan
+        # stream sama akan dapat sub palsu).
+        named = [
+            p for p in vids
+            if p is not main and classify_path_name(p.path) == "sub"
+        ]
+        sub = named[0] if named else None
+    if sub is not None:
+        sub.role = "sub"
     return main.url, (sub.url if sub else None)
 
 
@@ -372,11 +475,13 @@ async def _discover(
         known_main = by_path.get(known_paths[0])
         if known_main is not None:
             known_main.status = "video"
+            known_main.role = "main"
             known_sub = None
             if known_paths[1]:
                 known_sub = by_path.get(known_paths[1])
                 if known_sub is not None:
                     known_sub.status = "video"
+                    known_sub.role = "sub"
             kept = [pr for pr in probed if pr.status != "open"]
             return DiscoveryResult(
                 host=host, port=port, reachable=True, paths=kept,

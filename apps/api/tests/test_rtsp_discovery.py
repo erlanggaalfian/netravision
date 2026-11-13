@@ -9,6 +9,7 @@ from app.services import rtsp_discovery
 from app.services.rtsp_discovery import (
     PathResult,
     VideoProbe,
+    classify_path_name,
     parse_ffprobe_output,
     select_main_sub,
 )
@@ -77,6 +78,74 @@ def test_select_main_sub():
     alias1 = PathResult(path="/x", url="rtsp://h/x", status="video", width=800, height=448)
     alias2 = PathResult(path="/y", url="rtsp://h/y", status="video", width=800, height=448)
     assert select_main_sub([alias1, alias2]) == ("rtsp://h/x", None)
+
+
+def test_classify_path_name_main_sub():
+    """Pola nama lintas merek: main vs sub, generik tanpa petunjuk."""
+    main_paths = [
+        "/Streaming/Channels/101",  # Hikvision main
+        "/cam/realmonitor?channel=1&subtype=0",  # Dahua main
+        "/unicast/c1/s0/live",
+        "/stream1",
+        "/h264Preview_01_main",
+        "/live/ch00_0",
+        "/av0_0",
+        "/0",
+        "/11",
+        "/ch1/main",
+    ]
+    sub_paths = [
+        "/Streaming/Channels/102",  # Hikvision sub
+        "/cam/realmonitor?channel=1&subtype=1",  # Dahua sub
+        "/unicast/c1/s1/live",
+        "/stream2",
+        "/h264Preview_01_sub",
+        "/H.264_sub",
+        "/live/ch00_1",
+        "/av0_1",
+        "/1",
+        "/12",
+        "/ch1/sub",
+    ]
+    for p in main_paths:
+        assert classify_path_name(p) == "main", f"harus main: {p}"
+    for p in sub_paths:
+        assert classify_path_name(p) == "sub", f"harus sub: {p}"
+    # Generik tanpa petunjuk (bukan main maupun sub).
+    for p in ("/live", "/live.sdp", "/H.264", "/H.265", "/h264",
+              "/media/video1", "/onvif1", "/video1", "/ch01.264"):
+        assert classify_path_name(p) is None, f"tanpa petunjuk: {p}"
+    # 'subtype=0' mengandung kata 'sub' tapi tetap main (urutan cek).
+    assert classify_path_name("/cam/realmonitor?channel=1&subtype=0") == "main"
+
+
+def test_select_main_sub_nama_saat_resolusi_sama():
+    """Resolusi seri -> nama path yang membedakan main/sub, dan role
+    ditandai di PathResult yang terpilih."""
+    p1 = PathResult(path="/stream1", url="rtsp://h/stream1",
+                    status="video", width=1920, height=1080, fps=25.0)
+    p2 = PathResult(path="/stream2", url="rtsp://h/stream2",
+                    status="video", width=1920, height=1080, fps=15.0)
+    p3 = PathResult(path="/live", url="rtsp://h/live",
+                    status="video", width=1920, height=1080, fps=25.0)
+    assert select_main_sub([p2, p3, p1]) == (
+        "rtsp://h/stream1", "rtsp://h/stream2")
+    assert p1.role == "main"
+    assert p2.role == "sub"
+    assert p3.role is None
+
+
+def test_select_main_sub_resolusi_lebih_kuat_dari_nama():
+    """Resolusi adalah sinyal terkuat: path bernama 'sub' yang
+    resolusinya lebih besar tetap jadi main, dan sebaliknya."""
+    big_sub = PathResult(path="/stream2", url="rtsp://h/stream2",
+                         status="video", width=1920, height=1080, fps=25.0)
+    small_main = PathResult(path="/stream1", url="rtsp://h/stream1",
+                            status="video", width=640, height=360, fps=15.0)
+    assert select_main_sub([small_main, big_sub]) == (
+        "rtsp://h/stream2", "rtsp://h/stream1")
+    assert big_sub.role == "main"
+    assert small_main.role == "sub"
 
 
 # ---------- verifikasi URL tunggal ----------

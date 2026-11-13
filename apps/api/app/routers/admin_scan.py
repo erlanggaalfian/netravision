@@ -23,10 +23,19 @@ pintar"):
 
 IP yang gagal tahap 1 dicatat status 'unreachable', yang gagal tahap 2
 dicatat status BARU 'port_closed' (port RTSP tertutup). Keduanya tetap
-muncul di hasil (bukan disaring), paths kosong, dan tidak masuk
-candidates. Frontend sudah punya fallback (status tak dikenal tampil
-"Gagal"), tapi label 'port_closed' ditambahkan di scanner/page.tsx
-supaya tampil "Port RTSP tertutup".
+dikembalikan API (bukan disaring) supaya hitungan funnel tetap benar,
+tapi FRONTEND tidak menampilkan baris 'unreachable' (hanya noise saat
+scan /24) — jumlahnya tetap tampil di ringkasan sebagai "tidak
+terjangkau (disembunyikan)". Frontend sudah punya fallback (status tak
+dikenal tampil "Gagal"), tapi label 'port_closed' ditambahkan di
+scanner/page.tsx supaya tampil "Port RTSP tertutup".
+
+Klasifikasi main/sub PINTAR (perintah user 2026-11-13 19:19 WIB):
+rtsp_discovery memilih main/sub dari resolusi ffprobe (terbesar =
+main, lebih kecil = sub) + pola nama path sebagai tiebreaker saat
+resolusi seri (101/102, subtype=0/1, stream1/2, s0/s1, main/sub,
+ch00_0/1, av0_0/1, /0 vs /1, /11 vs /12), dan menandai role
+'main'/'sub' di tiap path terpilih supaya UI menampilkan keduanya.
 
 Scan berjalan ASYNC: POST langsung mengembalikan 202 + job_id dan
 pemindaian jalan di background sebagai asyncio task, supaya request
@@ -382,8 +391,9 @@ async def _scan_host(
             path=p.path, url=p.url, status=p.status, codec=p.codec,
             width=p.width, height=p.height, fps=p.fps,
             gop_seconds=p.gop_seconds,
-            role="main" if p.url == disc.best_main
-            else ("sub" if p.url == disc.best_sub else None),
+            # Peran main/sub sudah diklasifikasikan secara pintar di
+            # rtsp_discovery (resolusi ffprobe + pola nama path).
+            role=p.role,
         )
         for p in disc.paths
     ]
@@ -513,8 +523,10 @@ async def _run_scan(
         # Urutkan hasil mengikuti urutan subnet, bukan urutan selesai.
         order = {h: i for i, h in enumerate(hosts)}
         job.hosts.sort(key=lambda h: order.get(h.host, 0))
-        # A-R6: host unreachable / port_closed tetap muncul di hasil
-        # (bukan disaring); candidates hanya host yang punya video.
+        # A-R6: host unreachable / port_closed tetap dikembalikan API
+        # (bukan disaring) supaya hitungan funnel benar; frontend yang
+        # menyembunyikan baris 'unreachable' dari tampilan.
+        # Candidates hanya host yang punya video.
         job.candidates = [
             SubnetCandidate(
                 host=h.host, port=h.port, brand="auto",

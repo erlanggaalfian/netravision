@@ -406,6 +406,89 @@ async def test_discover_host_jalur_cepat_kamera_dikenal(monkeypatch):
     assert len(calls) == 1, "fallback harus memverifikasi via ffprobe"
 
 
+async def test_discover_host_tandai_role_main_sub_resolusi_sama(monkeypatch):
+    """Resolusi seri -> nama path yang membedakan: /stream1 = main,
+    /stream2 = sub, role ditandai di PathResult dan best_* terisi."""
+    async def fake_alive(host: str, port: int) -> bool:
+        return True
+
+    async def fake_probe(url: str, timeout: float = 3.0) -> str:
+        return "open" if url.endswith(("/stream1", "/stream2")) else "not_found"
+
+    async def fake_ffprobe(url: str, timeout: float = 10.0) -> VideoProbe:
+        # Kamera menjawab kedua path dengan stream yang SAMA.
+        return VideoProbe(status="video", codec="h264",
+                          width=1920, height=1080, fps=25.0, gop_seconds=2.0)
+
+    monkeypatch.setattr(rtsp_discovery, "_tcp_alive", fake_alive)
+    monkeypatch.setattr(rtsp_discovery, "probe_path", fake_probe)
+    monkeypatch.setattr(rtsp_discovery, "_run_ffprobe", fake_ffprobe)
+
+    disc = await rtsp_discovery.discover_host("192.168.1.10", 554, "admin", "pw")
+    assert disc.best_main is not None
+    assert disc.best_main.endswith("/stream1")
+    assert disc.best_sub is not None
+    assert disc.best_sub.endswith("/stream2")
+    by_path = {p.path: p for p in disc.paths}
+    assert by_path["/stream1"].role == "main"
+    assert by_path["/stream2"].role == "sub"
+    assert by_path["/stream1"].width == 1920
+    assert by_path["/stream2"].width == 1920
+
+
+async def test_scan_subnet_api_kembalikan_role_main_sub(
+    scan_client, monkeypatch,
+):
+    """HTTP: hasil scan kamera membawa role main/sub di paths dan
+    best_main/best_sub terisi, supaya UI bisa menampilkan keduanya."""
+    app = await _login_admin(scan_client)
+
+    async def fake_reachable(host: str, port: int) -> bool:
+        return host == "192.168.1.10"
+
+    async def fake_port_open(host: str, port: int) -> bool:
+        return host == "192.168.1.10"
+
+    async def fake_probe(url: str, timeout: float = 3.0) -> str:
+        return "open" if url.endswith(("/stream1", "/stream2")) else "not_found"
+
+    async def fake_ffprobe(url: str, timeout: float = 10.0) -> VideoProbe:
+        if url.endswith("/stream1"):
+            return VideoProbe(status="video", codec="h264",
+                              width=1920, height=1080, fps=25.0)
+        return VideoProbe(status="video", codec="h264",
+                          width=640, height=360, fps=15.0)
+
+    monkeypatch.setattr(admin_scan, "_host_reachable", fake_reachable)
+    monkeypatch.setattr(admin_scan, "_port_open", fake_port_open)
+    monkeypatch.setattr(rtsp_discovery, "probe_path", fake_probe)
+    monkeypatch.setattr(rtsp_discovery, "_run_ffprobe", fake_ffprobe)
+
+    async with _client(app) as c:
+        r = await c.post(
+            "/api/admin/scan-subnet",
+            json={"ip_range": "192.168.1.8/30", "port": 554},  # .9, .10
+        )
+        assert r.status_code == 202, r.text
+        body = await _poll_done(c, r.json()["job_id"])
+        assert body["status"] == "done"
+        by_host = {h["host"]: h for h in body["hosts"]}
+        h = by_host["192.168.1.10"]
+        assert h["status"] == "video"
+        assert h["best_main"].endswith("/stream1")
+        assert h["best_sub"].endswith("/stream2")
+        roles = {p["path"]: p["role"] for p in h["paths"] if p["status"] == "video"}
+        assert roles["/stream1"] == "main"
+        assert roles["/stream2"] == "sub"
+        main_row = next(p for p in h["paths"] if p["role"] == "main")
+        assert (main_row["width"], main_row["height"]) == (1920, 1080)
+        sub_row = next(p for p in h["paths"] if p["role"] == "sub")
+        assert (sub_row["width"], sub_row["height"]) == (640, 360)
+        # API tetap mengembalikan host unreachable (frontend yang
+        # menyembunyikannya dari tampilan).
+        assert by_host["192.168.1.9"]["status"] == "unreachable"
+
+
 async def test_scan_subnet_kamera_dikenal_ditandai_dan_jalur_cepat(
     scan_client, monkeypatch,
 ):

@@ -55,6 +55,17 @@ function mainInfo(h: SubnetHost): string {
   return parts.join(" · ");
 }
 
+/* Info sub stream (role 'sub' dari klasifikasi pintar backend):
+   resolusi + fps bila ada, atau path-nya bila tanpa info video
+   (mis. jalur cepat kamera dikenal). */
+function subInfo(h: SubnetHost): string {
+  const p = h.paths.find((x) => x.role === "sub");
+  if (!p?.width || !p.height) return p?.path ?? "";
+  const parts = [`${p.width}×${p.height}`];
+  if (p.fps) parts.push(`${p.fps} fps`);
+  return parts.join(" · ");
+}
+
 export default function AdminScannerPage() {
   const [ipRange, setIpRange] = useState("192.168.1.0/24");
   const [port, setPort] = useState("554");
@@ -82,6 +93,14 @@ export default function AdminScannerPage() {
   }, []);
 
   const key = (h: SubnetHost) => `${h.host}:${h.port}`;
+  /* Host 'unreachable' (IP mati) TIDAK ditampilkan di daftar hasil:
+     hanya noise saat scan /24. Jumlahnya tetap dihitung dan tampil di
+     ringkasan sebagai "tidak terjangkau (disembunyikan)". API tetap
+     mengembalikannya supaya hitungan funnel benar. */
+  const visibleHosts = (hosts ?? []).filter(
+    (h) => h.status !== "unreachable",
+  );
+  const hiddenUnreachable = (hosts ?? []).length - visibleHosts.length;
   /* Kamera yang sudah terdaftar tidak ditawarkan untuk ditambah lagi
      (cegah duplikat): hanya host video yang BELUM dikenal yang bisa
      dipilih. */
@@ -226,8 +245,13 @@ export default function AdminScannerPage() {
             {h.host}:{h.port}
           </p>
           <p className="mt-0.5 truncate text-xs text-slate-400">
-            {h.best_main ? mainInfo(h) : "tanpa video"}
+            {h.best_main ? `Main: ${mainInfo(h)}` : "tanpa video"}
           </p>
+          {h.best_sub && (
+            <p className="mt-0.5 truncate text-xs text-slate-400">
+              Sub: {subInfo(h)}
+            </p>
+          )}
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             <NBBadge tone={st.tone}>{st.label}</NBBadge>
             {h.known && <NBBadge tone="info">Sudah terdaftar</NBBadge>}
@@ -255,7 +279,21 @@ export default function AdminScannerPage() {
         <NBTd className="max-w-[280px] truncate font-mono text-xs">
           {h.best_main ?? "-"}
         </NBTd>
-        <NBTd className="text-xs">{mainInfo(h)}</NBTd>
+        <NBTd className="max-w-[280px] truncate font-mono text-xs">
+          {h.best_sub ?? "-"}
+        </NBTd>
+        <NBTd className="text-xs">
+          {h.best_main && (
+            <span className="block leading-relaxed">
+              <span className="block">Main: {mainInfo(h)}</span>
+              {h.best_sub && (
+                <span className="block text-slate-400">
+                  Sub: {subInfo(h)}
+                </span>
+              )}
+            </span>
+          )}
+        </NBTd>
       </NBTr>
     );
   }
@@ -357,7 +395,7 @@ export default function AdminScannerPage() {
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <h3 className="text-sm font-semibold text-white">
               Host terdeteksi{" "}
-              <span className="text-slate-400">({hosts.length})</span>
+              <span className="text-slate-400">({visibleHosts.length})</span>
             </h3>
             {selectable.length > 0 && (
               <NBButton
@@ -371,14 +409,16 @@ export default function AdminScannerPage() {
               </NBButton>
             )}
           </div>
-          {!scanning && hosts.length > 0 && (
+          {!scanning && visibleHosts.length > 0 && (
             <p className="mb-3 text-xs text-slate-400">
               {progress.reachable} IP terjangkau · {progress.portOpen}{" "}
               port RTSP terbuka ·{" "}
-              {hosts.filter((h) => h.status === "video").length} dengan
+              {visibleHosts.filter((h) => h.status === "video").length} dengan
               video
-              {hosts.some((h) => h.known) &&
-                ` · ${hosts.filter((h) => h.known).length} sudah terdaftar`}
+              {visibleHosts.some((h) => h.known) &&
+                ` · ${visibleHosts.filter((h) => h.known).length} sudah terdaftar`}
+              {hiddenUnreachable > 0 &&
+                ` · ${hiddenUnreachable} tidak terjangkau (disembunyikan)`}
             </p>
           )}
           {added > 0 && (
@@ -386,11 +426,15 @@ export default function AdminScannerPage() {
               {added} kamera berhasil ditambahkan. Lihat di tab Kamera.
             </p>
           )}
-          {hosts.length === 0 ? (
+          {visibleHosts.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-400">
               {scanning
                 ? "Memindai… hasil muncul di sini begitu ditemukan."
-                : "Tidak ada kamera yang merespons di subnet ini."}
+                : `Tidak ada kamera yang merespons di subnet ini.${
+                    hiddenUnreachable > 0
+                      ? ` (${hiddenUnreachable} IP tidak terjangkau, disembunyikan.)`
+                      : ""
+                  }`}
             </p>
           ) : (
             <>
@@ -408,7 +452,7 @@ export default function AdminScannerPage() {
                 </label>
               )}
               <ul className="space-y-2 md:hidden">
-                {hosts.map((h) => (
+                {visibleHosts.map((h) => (
                   <HostCard key={key(h)} h={h} />
                 ))}
               </ul>
@@ -434,11 +478,12 @@ export default function AdminScannerPage() {
                       <NBTh>Port</NBTh>
                       <NBTh>Status</NBTh>
                       <NBTh>Path main</NBTh>
+                      <NBTh>Path sub</NBTh>
                       <NBTh>Video</NBTh>
                     </NBTr>
                   </thead>
                   <tbody>
-                    {hosts.map((h) => (
+                    {visibleHosts.map((h) => (
                       <HostRow key={key(h)} h={h} />
                     ))}
                   </tbody>
