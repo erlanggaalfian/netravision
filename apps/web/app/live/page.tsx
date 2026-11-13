@@ -316,11 +316,12 @@ export default function LivePage() {
             </span>
           </div>
 
-          {/* Kontrol: satu baris di PC lebar (search + grid + refresh +
-              status), bertumpuk di HP/tablet; dilipat di HP */}
-          <div className="mt-4 flex flex-col gap-4 border-t border-ink-800 pt-4 xl:flex-row xl:items-center xl:gap-3">
-            <div className="flex items-center gap-2 xl:min-w-0 xl:flex-1">
-              <div className="relative min-w-0 flex-1 xl:max-w-xs">
+          {/* Kontrol: pencarian selalu tampil; grid + refresh + status +
+              grup bertumpuk rapi (flex-wrap, tidak pernah nowrap supaya
+              tidak meluber/terpotong); dilipat di HP */}
+          <div className="mt-4 flex flex-col gap-4 border-t border-ink-800 pt-4">
+            <div className="flex items-center gap-2">
+              <div className="relative min-w-0 flex-1 md:max-w-sm">
               <svg
                 width="17"
                 height="17"
@@ -377,11 +378,13 @@ export default function LivePage() {
             </button>
           </div>
 
-          {/* Kontrol grid + refresh + status: dilipat di HP, tampil di desktop */}
+          {/* Kontrol grid + refresh + status + grup: dilipat di HP, tampil
+              di desktop. Baris boleh melipat (flex-wrap) di lebar sedang
+              supaya tidak ada yang terpotong. */}
           <div
             className={`${filterOpen ? "nv-pop block" : "hidden"} md:block`}
           >
-            <div className="flex flex-wrap items-center gap-3 xl:flex-nowrap">
+            <div className="flex flex-wrap items-center gap-3">
               {/* Grid selebar penuh di HP: 4 tombol (2/4/6/9) butuh
                   ~228px minimum; bila dipaksa sebaris dengan Muat ulang
                   di layar sempit, tombol terakhir terpotong. */}
@@ -502,37 +505,57 @@ export default function LivePage() {
                   </button>
                 ))}
               </div>
-              {/* Filter grup: pola visual sama seperti filter status
-                  (tablist + jumlah per grup). */}
-              <div
-                className="nv-scroll-x flex w-full items-center gap-1 overflow-x-auto rounded-full bg-ink-800 p-1 shadow-sm sm:w-auto"
-                role="tablist"
-                aria-label="Filter grup kamera"
-              >
-                {["Semua", ...groups].map((g) => (
-                  <button
-                    key={g}
-                    role="tab"
-                    aria-selected={groupFilter === g}
-                    onClick={() => setGroupFilter(g)}
-                    className={`flex h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm font-semibold transition-all duration-200 active:scale-95 sm:px-5 lg:flex-none ${
-                      groupFilter === g
+              {/* Filter grup: dropdown (bukan tab) supaya tidak meluber
+                  saat grup banyak atau namanya panjang. Native <select>:
+                  picker native di HP, tanpa logika buka/tutup sendiri;
+                  pola yang sama dipakai pemilih kamera di Playback. */}
+              <div className="flex min-w-0 items-center gap-2 max-sm:w-full">
+                <label
+                  htmlFor="live-group-filter"
+                  className="hidden shrink-0 text-xs font-semibold text-slate-400 sm:block"
+                >
+                  Grup:
+                </label>
+                <div className="relative min-w-0 max-sm:flex-1">
+                  <select
+                    id="live-group-filter"
+                    value={groupFilter}
+                    onChange={(e) => setGroupFilter(e.target.value)}
+                    aria-label="Filter grup kamera"
+                    className={`h-11 w-full appearance-none rounded-full pl-4 pr-10 text-sm font-semibold shadow-sm outline-none transition-all duration-200 focus:ring-2 focus:ring-accent-500/30 sm:w-auto sm:min-w-[190px] sm:max-w-[260px] ${
+                      groupFilter !== "Semua"
                         ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
-                        : "text-neutral-400 hover:bg-ink-700 hover:text-slate-200"
+                        : "bg-ink-800 text-slate-100"
                     }`}
                   >
-                    {g}
-                    <span
-                      className={`rounded-full px-1.5 py-0.5 text-xs font-bold leading-none ${
-                        groupFilter === g
-                          ? "bg-black/20 text-onaccent"
-                          : "bg-ink-500/25 text-neutral-300"
-                      }`}
-                    >
-                      {groupCounts[g] ?? 0}
-                    </span>
-                  </button>
-                ))}
+                    <option value="Semua">
+                      Semua grup · {groupCounts["Semua"] ?? 0}
+                    </option>
+                    {groups.map((g) => (
+                      <option key={g} value={g}>
+                        {g} · {groupCounts[g] ?? 0}
+                      </option>
+                    ))}
+                  </select>
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                    className={`pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 ${
+                      groupFilter !== "Semua"
+                        ? "text-onaccent"
+                        : "text-neutral-400"
+                    }`}
+                  >
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </div>
               </div>
             </div>
           </div>
