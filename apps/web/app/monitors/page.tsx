@@ -10,6 +10,7 @@ import {
   ConfirmModal,
   ErrorBox,
   GridIcon,
+  Modal,
   SectionTitle,
   Spinner,
 } from "../../components/ui";
@@ -386,7 +387,10 @@ export default function MonitorsPage() {
     }
     setFormError(null);
     const cols = Math.min(4, Math.max(1, formCols));
-    if (editing && editing.id) {
+    /* Grup (id "group-*") adalah layout sementara, bukan tersimpan:
+       menyimpan hasil ubahnya membuat monitor tersimpan BARU, bukan
+       memperbarui apa pun (tidak ada layout tersimpan dengan id itu). */
+    if (editing && editing.id && !editing.id.startsWith("group-")) {
       persist(
         layouts.map((l) =>
           l.id === editing.id
@@ -488,6 +492,10 @@ export default function MonitorsPage() {
 
   const openLayout =
     openGroupLayout ?? layouts.find((l) => l.id === openId) ?? null;
+  /* Edit grup (id "group-*"): kamera grup terkunci, tidak bisa
+     ditambah atau dikurangi; yang bisa diubah hanya grid (kolom)
+     dan urutan kamera. */
+  const isGroupEdit = !!editing?.id.startsWith("group-");
   const openStreams = openLayout
     ? openLayout.streamIds
         .map((id) => byId.get(id))
@@ -539,6 +547,7 @@ export default function MonitorsPage() {
                     onClick={() => {
                       setOpenId(null);
                       setOpenGroupLayout(null);
+                      setEditing(null);
                     }}
                     aria-label="Kembali ke daftar monitor"
                   >
@@ -555,11 +564,7 @@ export default function MonitorsPage() {
                   </Button>
                   <Button
                     variant="subtle"
-                    onClick={() => {
-                      const l = openLayout;
-                      setOpenId(null);
-                      startEdit(l);
-                    }}
+                    onClick={() => startEdit(openLayout)}
                   >
                     Ubah
                   </Button>
@@ -665,164 +670,6 @@ export default function MonitorsPage() {
                   )}
                 </div>
               )}
-            </div>
-          </div>
-        ) : editing ? (
-          /* ===== Form buat/ubah ===== */
-          <div className="mx-auto max-w-2xl">
-            <SectionTitle
-              title={editing.id ? "Ubah monitor" : "Monitor baru"}
-            />
-            <div className="nv-panel-modern p-5">
-              <label className="mb-1.5 block text-sm font-medium text-neutral-300">
-                Nama monitor
-              </label>
-              <input
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
-                placeholder="cth. Lantai 1"
-                className="mb-5 h-11 w-full rounded-xl bg-ink-800 px-3.5 text-base text-white shadow-sm outline-none placeholder:text-neutral-400 focus:ring-2 focus:ring-accent-500/30"
-              />
-
-              <div className="mb-5 flex flex-wrap items-center gap-2">
-                <span className="flex min-h-11 items-center text-sm font-medium text-neutral-300">
-                  Kolom:
-                </span>
-                {[1, 2, 3, 4].map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => setFormCols(c)}
-                    aria-pressed={formCols === c}
-                    aria-label={`${c} kolom`}
-                    title={`${c} kolom`}
-                    className={`flex h-11 min-w-[52px] items-center justify-center rounded-full text-sm font-semibold transition active:scale-95 ${
-                      formCols === c
-                        ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
-                        : "bg-ink-800 text-neutral-300 shadow-sm hover:bg-ink-700"
-                    }`}
-                  >
-                    <GridIcon cols={c} />
-                  </button>
-                ))}
-              </div>
-
-              <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
-                <span className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-medium text-neutral-300">
-                    Pilih kamera ({formIds.length})
-                  </span>
-                  <Button
-                    type="button"
-                    variant="subtle"
-                    onClick={() => setFormIds(streams.map((s) => s.id))}
-                    disabled={streams.length === 0 || formIds.length === streams.length}
-                    className="min-h-11 px-3 text-xs"
-                  >
-                    Pilih semua
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="subtle"
-                    onClick={() => setFormIds([])}
-                    disabled={formIds.length === 0}
-                    className="min-h-11 px-3 text-xs"
-                  >
-                    Bersihkan
-                  </Button>
-                </span>
-                <span className="text-[11px] text-neutral-400">
-                  Urutan bisa digeser
-                </span>
-              </div>
-              <div className="mb-5 flex max-h-72 flex-col gap-1.5 overflow-y-auto rounded-xl bg-ink-800 p-2 shadow-sm">
-                {/* D-R3: titik status memakai merged (override WebSocket),
-                    bukan snapshot API lama. */}
-                {merged.map((s) => {
-                  const checked = formIds.includes(s.id);
-                  return (
-                    <div
-                      key={s.id}
-                      className={`flex items-center gap-3 rounded-xl px-3.5 py-3 transition active:scale-[0.99] ${
-                        checked
-                          ? "bg-accent-600/15"
-                          : "hover:bg-ink-700"
-                      }`}
-                    >
-                      <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleId(s.id)}
-                          className="h-5 w-5 shrink-0 accent-accent-500"
-                        />
-                        <span
-                          className={`h-2 w-2 shrink-0 rounded-full ${s.is_online ? "bg-ok-400" : "bg-bad-400"}`}
-                        />
-                        <span className="min-w-0 flex-1 truncate text-sm text-neutral-200">
-                          {s.name}
-                        </span>
-                      </label>
-                      {checked && (
-                        <span className="flex shrink-0 items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => moveId(s.id, -1)}
-                            disabled={formIds.indexOf(s.id) === 0}
-                            className="flex h-11 w-11 items-center justify-center rounded-lg bg-ink-700 text-neutral-300 transition hover:bg-ink-600 active:scale-95 disabled:opacity-30"
-                            aria-label={`Geser ${s.name} ke atas`}
-                          >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-                              <path
-                                d="M8 13V3M4 7l4-4 4 4"
-                                stroke="currentColor"
-                                strokeWidth="1.8"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              />
-                            </svg>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => moveId(s.id, 1)}
-                            disabled={formIds.indexOf(s.id) === formIds.length - 1}
-                            className="flex h-11 w-11 items-center justify-center rounded-lg bg-ink-700 text-neutral-300 transition hover:bg-ink-600 active:scale-95 disabled:opacity-30"
-                            aria-label={`Geser ${s.name} ke bawah`}
-                          >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-                              <path
-                                d="M8 3v10M4 9l4 4 4-4"
-                                stroke="currentColor"
-                                strokeWidth="1.8"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              />
-                            </svg>
-                          </button>
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-                {streams.length === 0 && !fetching && (
-                  <div className="p-3 text-center text-xs text-neutral-400">
-                    Belum ada kamera.
-                  </div>
-                )}
-              </div>
-
-              {formError && (
-                <div className="mb-4">
-                  <ErrorBox message={formError} />
-                </div>
-              )}
-              <div className="flex gap-2">
-                <Button variant="subtle" onClick={cancelEdit} className="flex-1">
-                  Batal
-                </Button>
-                <Button onClick={saveForm} className="flex-1">
-                  Simpan
-                </Button>
-              </div>
             </div>
           </div>
         ) : (
@@ -1027,6 +874,171 @@ export default function MonitorsPage() {
           </div>
         )}
       </div>
+
+      {editing && (
+        <Modal
+          title={editing.id ? "Ubah monitor" : "Monitor baru"}
+          onClose={cancelEdit}
+          wide
+        >
+          <label className="mb-1.5 block text-sm font-medium text-neutral-300">
+            Nama monitor
+          </label>
+          <input
+            value={formName}
+            onChange={(e) => setFormName(e.target.value)}
+            placeholder="cth. Lantai 1"
+            className="mb-5 h-11 w-full rounded-xl bg-ink-800 px-3.5 text-base text-white shadow-sm outline-none placeholder:text-neutral-400 focus:ring-2 focus:ring-accent-500/30"
+          />
+
+          <div className="mb-5 flex flex-wrap items-center gap-2">
+            <span className="flex min-h-11 items-center text-sm font-medium text-neutral-300">
+              Kolom:
+            </span>
+            {[1, 2, 3, 4].map((c) => (
+              <button
+                key={c}
+                onClick={() => setFormCols(c)}
+                aria-pressed={formCols === c}
+                aria-label={`${c} kolom`}
+                title={`${c} kolom`}
+                className={`flex h-11 min-w-[52px] items-center justify-center rounded-full text-sm font-semibold transition active:scale-95 ${
+                  formCols === c
+                    ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
+                    : "bg-ink-800 text-neutral-300 shadow-sm hover:bg-ink-700"
+                }`}
+              >
+                <GridIcon cols={c} />
+              </button>
+            ))}
+          </div>
+
+          <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+            <span className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-medium text-neutral-300">
+                Pilih kamera ({formIds.length})
+              </span>
+              <Button
+                type="button"
+                variant="subtle"
+                onClick={() => setFormIds(streams.map((s) => s.id))}
+                disabled={isGroupEdit || streams.length === 0 || formIds.length === streams.length}
+                className="min-h-11 px-3 text-xs"
+              >
+                Pilih semua
+              </Button>
+              <Button
+                type="button"
+                variant="subtle"
+                onClick={() => setFormIds([])}
+                disabled={isGroupEdit || formIds.length === 0}
+                className="min-h-11 px-3 text-xs"
+              >
+                Bersihkan
+              </Button>
+            </span>
+            <span className="text-[11px] text-neutral-400">
+              Urutan bisa digeser
+            </span>
+          </div>
+          {isGroupEdit && (
+            <div className="mb-2 rounded-xl bg-ink-800 px-3.5 py-2.5 text-xs leading-relaxed text-neutral-400">
+              Kamera grup tidak bisa ditambah atau dikurangi di sini. Yang
+              bisa diubah hanya grid dan urutan kamera.
+            </div>
+          )}
+          <div className="mb-5 flex max-h-72 flex-col gap-1.5 overflow-y-auto rounded-xl bg-ink-800 p-2 shadow-sm">
+            {/* D-R3: titik status memakai merged (override WebSocket),
+                bukan snapshot API lama. */}
+            {merged.map((s) => {
+              const checked = formIds.includes(s.id);
+              return (
+                <div
+                  key={s.id}
+                  className={`flex items-center gap-3 rounded-xl px-3.5 py-3 transition active:scale-[0.99] ${
+                    checked
+                      ? "bg-accent-600/15"
+                      : "hover:bg-ink-700"
+                  }`}
+                >
+                  <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleId(s.id)}
+                      disabled={isGroupEdit}
+                      className="h-5 w-5 shrink-0 accent-accent-500 disabled:opacity-40"
+                    />
+                    <span
+                      className={`h-2 w-2 shrink-0 rounded-full ${s.is_online ? "bg-ok-400" : "bg-bad-400"}`}
+                    />
+                    <span className="min-w-0 flex-1 truncate text-sm text-neutral-200">
+                      {s.name}
+                    </span>
+                  </label>
+                  {checked && (
+                    <span className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => moveId(s.id, -1)}
+                        disabled={formIds.indexOf(s.id) === 0}
+                        className="flex h-11 w-11 items-center justify-center rounded-lg bg-ink-700 text-neutral-300 transition hover:bg-ink-600 active:scale-95 disabled:opacity-30"
+                        aria-label={`Geser ${s.name} ke atas`}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+                          <path
+                            d="M8 13V3M4 7l4-4 4 4"
+                            stroke="currentColor"
+                            strokeWidth="1.8"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveId(s.id, 1)}
+                        disabled={formIds.indexOf(s.id) === formIds.length - 1}
+                        className="flex h-11 w-11 items-center justify-center rounded-lg bg-ink-700 text-neutral-300 transition hover:bg-ink-600 active:scale-95 disabled:opacity-30"
+                        aria-label={`Geser ${s.name} ke bawah`}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+                          <path
+                            d="M8 3v10M4 9l4 4 4-4"
+                            stroke="currentColor"
+                            strokeWidth="1.8"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </button>
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+            {streams.length === 0 && !fetching && (
+              <div className="p-3 text-center text-xs text-neutral-400">
+                Belum ada kamera.
+              </div>
+            )}
+          </div>
+
+          {formError && (
+            <div className="mb-4">
+              <ErrorBox message={formError} />
+            </div>
+          )}
+          <div className="mt-6 grid gap-2.5 sm:flex sm:justify-end">
+            <Button variant="subtle" onClick={cancelEdit} className="min-h-[48px] w-full sm:w-auto">
+              Batal
+            </Button>
+            <Button onClick={saveForm} className="min-h-[48px] w-full sm:w-auto">
+              Simpan
+            </Button>
+          </div>
+        </Modal>
+      )}
 
       <FocusModal stream={focus} onClose={() => setFocus(null)} ad={ad} />
 
