@@ -127,6 +127,69 @@ function MiniPreviewCell({ stream }: { stream: Stream | undefined }) {
   );
 }
 
+/* Satu thumbnail kecil di dalam sel sisa: poster kamera saja, tanpa
+   label nama dan titik status (terlalu kecil untuk itu). Komponen
+   sendiri supaya usePosterUrl dipanggil per thumbnail (hook tidak
+   boleh dipanggil di dalam loop .map). Bila tidak ada poster,
+   thumbnail tetap gelap seperti sel biasa. */
+function MiniPreviewRestThumb({ stream }: { stream: Stream | undefined }) {
+  const posterSrc = usePosterUrl(stream?.poster_url);
+  return (
+    <div
+      title={stream?.name ?? "Tanpa nama"}
+      className="relative overflow-hidden bg-ink-800"
+    >
+      {posterSrc && (
+        <img
+          src={posterSrc}
+          alt=""
+          aria-hidden
+          loading="lazy"
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      )}
+    </div>
+  );
+}
+
+/* Sel sisa "+N": bukan hitam polos lagi, melainkan mini-grid berisi
+   poster kamera-kamera berikutnya (maks 4), dengan lencana jumlah
+   sisa total di sudut kanan bawah supaya fotonya tetap terlihat dan
+   jumlah sisanya tetap jelas. Grid menyesuaikan jumlah foto: 1 foto
+   penuh, 2 foto berdampingan, 3-4 foto jadi 2x2. */
+function MiniPreviewRestCell({
+  streamIds,
+  byId,
+  rest,
+}: {
+  streamIds: number[];
+  byId: Map<number, Stream>;
+  rest: number;
+}) {
+  const thumbs = streamIds.slice(0, 4);
+  const gridClass =
+    thumbs.length <= 1
+      ? "grid-cols-1 grid-rows-1"
+      : thumbs.length === 2
+        ? "grid-cols-2 grid-rows-1"
+        : "grid-cols-2 grid-rows-2";
+  return (
+    <div
+      title={`+${rest} kamera lagi`}
+      className="relative aspect-video overflow-hidden rounded-lg bg-ink-800"
+    >
+      <div className={`grid h-full w-full gap-px ${gridClass}`}>
+        {thumbs.map((id) => (
+          <MiniPreviewRestThumb key={id} stream={byId.get(id)} />
+        ))}
+      </div>
+      <span className="absolute bottom-1 right-1 rounded-full bg-black/70 px-1.5 py-0.5 text-[11px] font-semibold leading-none text-white ring-1 ring-white/25">
+        +{rest}
+      </span>
+    </div>
+  );
+}
+
 /* Pratinjau mini isi layout: sel kecil per kamera + status, sisa diringkas +N.
    Jumlah kolom mengikuti cols layout; tidak ada sel kosong. */
 function MiniPreview({
@@ -157,12 +220,11 @@ function MiniPreview({
         <MiniPreviewCell key={id} stream={byId.get(id)} />
       ))}
       {rest > 0 && (
-        <div
-          title={`+${rest} kamera lagi`}
-          className="flex aspect-video items-center justify-center rounded-lg bg-ink-800 text-sm font-semibold text-neutral-300"
-        >
-          +{rest}
-        </div>
+        <MiniPreviewRestCell
+          streamIds={streamIds.slice(shownCount)}
+          byId={byId}
+          rest={rest}
+        />
       )}
     </div>
   );
