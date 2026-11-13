@@ -15,6 +15,8 @@ const SCAN_STATUS: Record<string, { label: string; tone: Tone }> = {
   timeout: { label: "Timeout", tone: "muted" },
   error: { label: "Gagal", tone: "muted" },
   unreachable: { label: "Tidak terjangkau", tone: "muted" },
+  /* Funnel 3 tahap: IP hidup tapi port RTSP tertutup (gagal tahap 2). */
+  port_closed: { label: "Port RTSP tertutup", tone: "muted" },
 };
 
 type ScanJobStatus = {

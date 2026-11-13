@@ -1,13 +1,37 @@
 """Router admin: network subnet scan (CIDR) untuk tab Camera Scanner.
 
 POST /api/admin/scan-subnet, pindai satu subnet (maks 256 host, pola v2.0):
-cek TCP singkat per host, lalu discovery path RTSP + verifikasi video
+funnel 3 tahap, baru discovery path RTSP + verifikasi video
 (rtsp_discovery). Rate limit sama seperti /admin/scan (10/menit).
+
+Alur 3 tahap (perintah user 2026-11-13 17:57 WIB, "buat scanner lebih
+pintar"):
+  Tahap 1, IP reachable: cek cepat tiap host, ICMP ping singkat
+    (timeout 1 detik). Banyak kamera memblokir ICMP, jadi bila ping
+    tidak menjawab JANGAN langsung buang host itu: fallback TCP connect
+    singkat (1 detik) ke port RTSP yang diminta, lalu ke port 80 (UI web
+    kamera). Lolos bila salah satu menjawab.
+  Tahap 2, port RTSP: hanya dari IP yang lolos tahap 1, cek port RTSP
+    (port yang diminta, default 554) via TCP connect singkat (2 detik).
+  Tahap 3, cek kamera: HANYA IP yang lolos tahap 1 DAN 2 menjalani
+    discovery kamera penuh (rtsp_discovery.discover_host, termasuk
+    verifikasi video, timeout 45 detik per host).
+
+IP yang gagal tahap 1 dicatat status 'unreachable', yang gagal tahap 2
+dicatat status BARU 'port_closed' (port RTSP tertutup). Keduanya tetap
+muncul di hasil (bukan disaring), paths kosong, dan tidak masuk
+candidates. Frontend sudah punya fallback (status tak dikenal tampil
+"Gagal"), tapi label 'port_closed' ditambahkan di scanner/page.tsx
+supaya tampil "Port RTSP tertutup".
 
 Scan berjalan ASYNC: POST langsung mengembalikan 202 + job_id dan
 pemindaian jalan di background sebagai asyncio task, supaya request
 tidak kena timeout Cloudflare 100 detik (HTTP 524) saat diakses via
 domain. Progres dan hasil diambil lewat GET /admin/scan-subnet/{job_id}.
+GET juga mengembalikan `stage` (reachability | port_check | discovery |
+done), `reachable_count` (lolos tahap 1) dan `port_open_count` (lolos
+tahap 2) supaya UI bisa menampilkan funnel-nya; field baru ini
+opsional (default) sehingga klien lama tetap jalan.
 """
 
 import asyncio
@@ -33,10 +57,19 @@ log = logging.getLogger("netravision.admin_scan")
 
 _MAX_HOSTS = 256
 _HOST_CONCURRENCY = 4
-_HOST_TIMEOUT = 45.0  # detik maksimum discovery per host
+_HOST_TIMEOUT = 45.0  # detik maksimum discovery per host (tahap 3)
 # H1: batas waktu global seluruh scan, satu /24 tak boleh menggantung
 # request sampai ~48 menit walau tiap host dibatasi 45 detik.
 _SCAN_GLOBAL_TIMEOUT = 300.0  # detik
+# Funnel tahap 1-2: probe singkat + konkurensi tinggi supaya /24 penuh
+# selesai dalam hitungan detik, bukan menit.
+_STAGE1_CONCURRENCY = 32
+_STAGE2_CONCURRENCY = 32
+_PING_TIMEOUT = 1.0  # detik per host (ICMP, satu echo)
+_TCP_FALLBACK_TIMEOUT = 1.0  # detik per TCP connect fallback tahap 1
+_PORT_TIMEOUT = 2.0  # detik TCP connect port RTSP (tahap 2)
+_FALLBACK_HTTP_PORT = 80  # UI web kamera, fallback kedua tahap 1
+
 
 class SubnetScanRequest(BaseModel):
     ip_range: str = Field(min_length=1)  # CIDR, mis. "192.168.1.0/24"
@@ -58,7 +91,10 @@ class SubnetCandidate(BaseModel):
 class SubnetHost(BaseModel):
     host: str
     port: int
-    status: str  # video | no_video | auth_failed | not_found | timeout | error | unreachable
+    # video | no_video | auth_failed | not_found | timeout | error |
+    # unreachable (tahap 1 gagal: IP tak menjawab ping maupun TCP) |
+    # port_closed (tahap 2 gagal: IP hidup tapi port RTSP tertutup)
+    status: str
     best_main: str | None
     best_sub: str | None
     paths: list[ScanPath]
@@ -75,6 +111,11 @@ class SubnetScanJobStatus(BaseModel):
     hosts: list[SubnetHost]
     candidates: list[SubnetCandidate]
     error: str | None = None
+    # Progres funnel 3 tahap (field baru, default 0/"reachability"
+    # supaya klien lama tetap bisa membaca respons ini).
+    stage: str = "reachability"  # reachability | port_check | discovery | done
+    reachable_count: int = 0  # host lolos tahap 1 (IP reachable)
+    port_open_count: int = 0  # host lolos tahap 2 (port RTSP terbuka)
 
 
 @dataclass
@@ -88,6 +129,9 @@ class _ScanJob:
     error: str | None = None
     created_at: float = field(default_factory=time.monotonic)
     finished_at: float | None = None
+    stage: str = "reachability"  # reachability | port_check | discovery | done
+    reachable_count: int = 0
+    port_open_count: int = 0
 
 
 # Job scan disimpan di memori proses saja (cukup untuk deployment
@@ -137,6 +181,80 @@ def _host_status(disc: rtsp_discovery.DiscoveryResult) -> str:
     return "error"
 
 
+def _dead_host(host: str, port: int, status: str) -> SubnetHost:
+    """Host yang tersaring funnel (tahap 1/2) atau kehabisan waktu:
+    tetap muncul di hasil, tanpa paths dan tanpa discovery."""
+    return SubnetHost(
+        host=host, port=port, status=status,
+        best_main=None, best_sub=None, paths=[],
+    )
+
+
+async def _ping_alive(host: str, timeout: float = _PING_TIMEOUT) -> bool:
+    """Satu ICMP echo (ping -c 1). False bila tak menjawab, timeout,
+    atau ping tak tersedia / tak diizinkan (mis. tanpa CAP_NET_RAW):
+    pemanggil wajib lanjut ke fallback TCP, bukan membuang host."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ping", "-c", "1", "-W", str(max(1, int(timeout))), host,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+    except (FileNotFoundError, OSError):
+        return False
+    except Exception:  # noqa: BLE001 - ping bukan penentu akhir
+        return False
+    try:
+        rc = await asyncio.wait_for(proc.wait(), timeout=timeout + 0.5)
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+        except Exception:  # noqa: BLE001
+            pass
+        await proc.wait()
+        return False
+    return rc == 0
+
+
+async def _tcp_connect(host: str, port: int, timeout: float) -> bool:
+    """TCP connect singkat. True bila ada yang menerima koneksi."""
+    try:
+        _reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=timeout
+        )
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:  # noqa: BLE001
+            pass
+        return True
+    except Exception:  # noqa: BLE001 - connect gagal = port tertutup/mati
+        return False
+
+
+async def _host_reachable(host: str, port: int) -> bool:
+    """Tahap 1: IP hidup? Ping dulu; bila diam, fallback TCP connect
+    singkat ke port RTSP yang diminta lalu port 80. Kamera yang
+    memblokir ICMP tetap lolos lewat TCP, jadi tahap ini tidak
+    membuang kamera yang valid (hanya IP yang benar-benar diam di
+    semua probe yang tersaring)."""
+    if await _ping_alive(host):
+        return True
+    if await _tcp_connect(host, port, _TCP_FALLBACK_TIMEOUT):
+        return True
+    if port != _FALLBACK_HTTP_PORT and await _tcp_connect(
+        host, _FALLBACK_HTTP_PORT, _TCP_FALLBACK_TIMEOUT
+    ):
+        return True
+    return False
+
+
+async def _port_open(host: str, port: int) -> bool:
+    """Tahap 2: port RTSP terbuka? TCP connect singkat ke port yang
+    diminta. Hanya dipanggil untuk host yang lolos tahap 1."""
+    return await _tcp_connect(host, port, _PORT_TIMEOUT)
+
+
 async def _scan_host(
     host: str,
     port: int,
@@ -153,17 +271,11 @@ async def _scan_host(
                 timeout=_HOST_TIMEOUT,
             )
         except asyncio.TimeoutError:
-            return SubnetHost(
-                host=host, port=port, status="timeout",
-                best_main=None, best_sub=None, paths=[],
-            )
+            return _dead_host(host, port, "timeout")
         except Exception as e:  # noqa: BLE001 - A-R6: satu host error tak
             # boleh menggugurkan seluruh scan; laporkan sebagai error.
             log.warning("scan host %s gagal: %s", host, e)
-            return SubnetHost(
-                host=host, port=port, status="error",
-                best_main=None, best_sub=None, paths=[],
-            )
+            return _dead_host(host, port, "error")
     paths = [
         ScanPath(
             path=p.path, url=p.url, status=p.status, codec=p.codec,
@@ -189,44 +301,91 @@ async def _run_scan(
 ) -> None:
     """Jalankan pemindaian di background sebagai asyncio task.
 
-    Perbaikan H1 tetap berlaku di sini: timeout global, batas host sudah
+    Funnel 3 tahap: (1) reachability cepat per host, (2) port RTSP
+    hanya untuk yang lolos tahap 1, (3) discovery penuh hanya untuk
+    yang lolos tahap 1 dan 2. Host yang gagal tahap 1/2 langsung
+    dicatat (unreachable / port_closed) tanpa discovery penuh.
+    Perbaikan H1 tetap berlaku: timeout global, batas host sudah
     ditegakkan di POST sebelum job dibuat, dan satu host error tidak
-    menggugurkan scan (return_exceptions setara: tiap task dijamin
-    menghasilkan SubnetHost). Hasil parsial ditulis ke job selagi jalan
-    supaya GET bisa menampilkan progres."""
-    sem = asyncio.Semaphore(_HOST_CONCURRENCY)
-    tasks = [
-        asyncio.create_task(
-            _scan_host(h, port, username, password, sem)
-        )
-        for h in hosts
-    ]
-    try:
-        async def _collect() -> None:
-            for coro in asyncio.as_completed(tasks):
-                result = await coro
-                async with _jobs_lock:
-                    job.hosts.append(result)
-                    job.scanned += 1
+    menggugurkan scan (tiap task dijamin menghasilkan SubnetHost).
+    Hasil parsial ditulis ke job selagi jalan supaya GET bisa
+    menampilkan progres, termasuk hitungan tiap tahap funnel."""
+    recorded: set[str] = set()
 
-        await asyncio.wait_for(_collect(), timeout=_SCAN_GLOBAL_TIMEOUT)
-    except asyncio.TimeoutError:
-        # H1: timeout global, kembalikan hasil parsial, sisanya timeout.
-        for h, t in zip(hosts, tasks):
-            if not t.done():
-                t.cancel()
-                async with _jobs_lock:
-                    job.hosts.append(SubnetHost(
-                        host=h, port=port, status="timeout",
-                        best_main=None, best_sub=None, paths=[],
-                    ))
-                    job.scanned += 1
-        await asyncio.gather(*tasks, return_exceptions=True)
+    async def record(result: SubnetHost) -> None:
+        async with _jobs_lock:
+            job.hosts.append(result)
+            job.scanned += 1
+        recorded.add(result.host)
+
+    try:
+        # ---- Tahap 1: IP reachable (cepat, konkurensi tinggi) ----
+        sem1 = asyncio.Semaphore(_STAGE1_CONCURRENCY)
+
+        async def check_reachable(h: str) -> tuple[str, bool]:
+            async with sem1:
+                return h, await _host_reachable(h, port)
+
+        reachable: list[str] = []
+        for h, ok in await asyncio.gather(
+            *(check_reachable(h) for h in hosts)
+        ):
+            if ok:
+                reachable.append(h)
+            else:
+                await record(_dead_host(h, port, "unreachable"))
+        async with _jobs_lock:
+            job.reachable_count = len(reachable)
+            job.stage = "port_check"
+
+        # ---- Tahap 2: port RTSP (hanya yang lolos tahap 1) ----
+        sem2 = asyncio.Semaphore(_STAGE2_CONCURRENCY)
+
+        async def check_port(h: str) -> tuple[str, bool]:
+            async with sem2:
+                return h, await _port_open(h, port)
+
+        port_open: list[str] = []
+        for h, ok in await asyncio.gather(
+            *(check_port(h) for h in reachable)
+        ):
+            if ok:
+                port_open.append(h)
+            else:
+                await record(_dead_host(h, port, "port_closed"))
+        async with _jobs_lock:
+            job.port_open_count = len(port_open)
+            job.stage = "discovery"
+
+        # ---- Tahap 3: discovery penuh (hanya yang lolos 1 dan 2) ----
+        sem = asyncio.Semaphore(_HOST_CONCURRENCY)
+        tasks = [
+            asyncio.create_task(
+                _scan_host(h, port, username, password, sem)
+            )
+            for h in port_open
+        ]
+        # Sisa anggaran global: tahap 1-2 sudah memakai sebagian.
+        remaining = _SCAN_GLOBAL_TIMEOUT - (
+            time.monotonic() - job.created_at
+        )
+        try:
+            async def _collect() -> None:
+                for coro in asyncio.as_completed(tasks):
+                    await record(await coro)
+
+            await asyncio.wait_for(_collect(), timeout=max(1.0, remaining))
+        except asyncio.TimeoutError:
+            # H1: timeout global, kembalikan hasil parsial, sisanya timeout.
+            for h, t in zip(port_open, tasks):
+                if not t.done():
+                    t.cancel()
+                    await record(_dead_host(h, port, "timeout"))
+            await asyncio.gather(*tasks, return_exceptions=True)
+    except asyncio.CancelledError:
+        raise
     except Exception as e:  # noqa: BLE001 - pengaman terakhir job
         log.warning("scan-subnet job %s gagal: %s", job.job_id, e)
-        for t in tasks:
-            t.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
         async with _jobs_lock:
             job.status = "error"
             job.error = str(e) or "Scan gagal"
@@ -236,21 +395,24 @@ async def _run_scan(
         # Urutkan hasil mengikuti urutan subnet, bukan urutan selesai.
         order = {h: i for i, h in enumerate(hosts)}
         job.hosts.sort(key=lambda h: order.get(h.host, 0))
-        # A-R6: host unreachable tetap muncul di hasil (bukan disaring).
-        found = [h for h in job.hosts if h.status != "unreachable"]
+        # A-R6: host unreachable / port_closed tetap muncul di hasil
+        # (bukan disaring); candidates hanya host yang punya video.
         job.candidates = [
             SubnetCandidate(
                 host=h.host, port=h.port, brand="auto",
                 main_url=h.best_main or "", sub_url=h.best_sub,
             )
-            for h in found
+            for h in job.hosts
             if h.best_main
         ]
+        job.stage = "done"
         job.status = "done"
         job.finished_at = time.monotonic()
     log.info(
-        "scan-subnet job %s: %d host terjangkau, %d dengan video",
-        job.job_id, len(found), len(job.candidates),
+        "scan-subnet job %s: %d/%d reachable, %d/%d port RTSP terbuka, "
+        "%d dengan video",
+        job.job_id, job.reachable_count, job.total,
+        job.port_open_count, job.reachable_count, len(job.candidates),
     )
 
 
@@ -310,7 +472,8 @@ async def scan_subnet(data: SubnetScanRequest):
 )
 async def scan_subnet_status(job_id: str):
     """Status + hasil satu job scan. Saat running, hosts/candidates
-    berisi hasil parsial sejauh ini (boleh kosong)."""
+    berisi hasil parsial sejauh ini (boleh kosong); stage,
+    reachable_count dan port_open_count menunjukkan progres funnel."""
     async with _jobs_lock:
         _prune_jobs_locked()
         job = _jobs.get(job_id)
@@ -325,4 +488,7 @@ async def scan_subnet_status(job_id: str):
             hosts=list(job.hosts),
             candidates=list(job.candidates),
             error=job.error,
+            stage=job.stage,
+            reachable_count=job.reachable_count,
+            port_open_count=job.port_open_count,
         )

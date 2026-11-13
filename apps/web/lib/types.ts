@@ -156,7 +156,7 @@ export interface ScanResult {
 export interface SubnetHost {
   host: string;
   port: number;
-  status: string; // video | no_video | auth_failed | not_found | timeout | error | unreachable
+  status: string; // video | no_video | auth_failed | not_found | timeout | error | unreachable | port_closed
   best_main: string | null;
   best_sub: string | null;
   paths: ScanPath[];
