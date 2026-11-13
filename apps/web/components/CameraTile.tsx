@@ -35,13 +35,12 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
   const [failMsg, setFailMsg] = useState<string | null>(null);
   const [disconnected, setDisconnected] = useState(false);
   const [retryTick, setRetryTick] = useState(0);
-  /* Auto-retry: bila tile gagal (mis. gangguan sesaat seperti ffmpeg sub
-     restart atau muxer HLS dingin), coba lagi otomatis beberapa kali
-     dengan jeda, supaya user tidak harus refresh halaman manual.
-     Dibatasi supaya tidak berputar selamanya bila memang ada masalah
-     menetap; tombol "Coba lagi" tetap tersedia. */
-  const [autoRetryCount, setAutoRetryCount] = useState(0);
-  const MAX_AUTO_RETRY = 3;
+  /* Auto-retry TANPA BATAS (keputusan user 2026-11-13): bila tile gagal
+     atau koneksi putus di tengah jalan (mis. ffmpeg sub restart, muxer
+     HLS dingin, atau kamera RTSP putus sesaat), coba lagi otomatis
+     tiap 10 dtk selama kamera masih online, sampai berhasil. Tidak ada
+     lagi batas percobaan; tombol "Coba lagi" tetap tersedia untuk coba
+     ulang manual seketika. */
   const AUTO_RETRY_DELAY_MS = 10000;
   const [showControls, setShowControls] = useState(false);
   /* Sinyal iklan: hover tile + tiap klik tile (perilaku marquee hover/click). */
@@ -80,24 +79,27 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
     setFailMsg(null);
     setDisconnected(false);
     setPlaying(false);
-    setAutoRetryCount(0);
   }, [stream.id, stream.is_online, url]);
 
-  /* Auto-retry tile yang gagal: bila kamera masih online (is_online)
-     tapi pemutaran gagal (gangguan sesaat), coba lagi otomatis setelah
-     jeda, hingga batas. Reset bila kamera berganti/offline (effect di
-     atas) atau bila berhasil memutar (onPlaying di tryHls). */
+  /* Auto-retry tile yang gagal ATAU terputus, TANPA BATAS: bila kamera
+     masih online (is_online) tapi pemutaran gagal (failed) atau WHEP
+     putus di tengah jalan (disconnected), coba lagi otomatis setelah
+     jeda 10 dtk, terus menerus sampai berhasil. Reset bila kamera
+     berganti/offline (effect di atas) atau bila berhasil memutar
+     (onPlaying di tryHls / .then playWhep).
+     Tidak ada URL WHEP sama sekali ("URL stream tidak tersedia") tidak
+     ikut loop: tidak ada yang bisa dicoba sampai URL tersedia. */
   useEffect(() => {
-    if (!failed || !stream.is_online) return;
-    if (autoRetryCount >= MAX_AUTO_RETRY) return;
+    if ((!failed && !disconnected) || !stream.is_online) return;
+    if (failMsg === "URL stream tidak tersedia") return;
     const t = setTimeout(() => {
-      setAutoRetryCount((c) => c + 1);
       setFailed(false);
       setFailMsg(null);
+      setDisconnected(false);
       setRetryTick((v) => v + 1);
     }, AUTO_RETRY_DELAY_MS);
     return () => clearTimeout(t);
-  }, [failed, stream.is_online, autoRetryCount]);
+  }, [failed, disconnected, stream.is_online, failMsg]);
 
   useEffect(() => {
     if (!stream.is_online) return;
@@ -175,7 +177,6 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
           if (cancelled) return;
           setDisconnected(false);
           setPlaying(true);
-          setAutoRetryCount(0);
         };
         v.addEventListener("playing", onPlaying, { once: true });
       } catch {
@@ -321,7 +322,6 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
                 onClick={(e) => {
                   e.stopPropagation();
                   setDisconnected(false);
-                  setAutoRetryCount(0);
                   setRetryTick((t) => t + 1);
                 }}
                 className="mt-1 flex h-11 items-center rounded-xl bg-white/10 px-4 text-xs font-bold text-white transition hover:bg-white/25 active:scale-95"
@@ -384,7 +384,6 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
                 e.stopPropagation();
                 setFailed(false);
                 setFailMsg(null);
-                setAutoRetryCount(0);
                 setRetryTick((t) => t + 1);
               }}
               className="relative mt-1 flex h-11 items-center rounded-xl bg-white/10 px-4 text-xs font-bold text-white transition hover:bg-white/25 active:scale-95"

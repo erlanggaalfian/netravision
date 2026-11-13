@@ -32,6 +32,14 @@ export function FocusModal({ stream, onClose, ad }: Props) {
   const [failed, setFailed] = useState(false);
   const [failMsg, setFailMsg] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [retryTick, setRetryTick] = useState(0);
+  /* Auto-retry TANPA BATAS (keputusan user 2026-11-13), sama seperti
+     CameraTile: bila gagal atau putus di tengah jalan, coba lagi tiap
+     10 dtk selama kamera masih online sampai berhasil. Sebelum ini
+     FocusModal TIDAK punya auto-retry sama sekali dan putus di tengah
+     jalan ("disconnected") bahkan tidak ditangani: video beku tanpa
+     pemulihan sampai modal ditutup lalu dibuka lagi. */
+  const AUTO_RETRY_DELAY_MS = 10000;
   const [vRatio, setVRati] = useState<string | null>(null);
   const [quality, setQuality] = useState<"LQ" | "HQ">("LQ");
   const isDesktop = () =>
@@ -79,6 +87,13 @@ export function FocusModal({ stream, onClose, ad }: Props) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const fail = (msg?: string) => {
       if (cancelled) return;
+      /* Gagal/putus: batalkan upgrade HQ yang tertunda dan switch yang
+         masih jalan, supaya tidak ada sesi tersembunyi yang menukar
+         srcObject saat modal sudah menampilkan error. */
+      clearTimeout(timer);
+      hqTimerRef.current = undefined;
+      cancelSwitchRef.current?.();
+      cancelSwitchRef.current = null;
       if (msg) setFailMsg(msg);
       setFailed(true);
     };
@@ -107,7 +122,18 @@ export function FocusModal({ stream, onClose, ad }: Props) {
         myCancelled = true;
       };
       cancelSwitchRef.current = cancelMine;
-      playWhep(hidden, url)
+      /* Setelah swap, koneksi ini jadi koneksi live: putus/gagal di tengah
+         jalan harus memicu fail + auto-retry seperti koneksi utama.
+         Sebelum swap (masih tersembunyi), putus diabaikan supaya stream
+         lama tetap jalan. Sebelum perbaikan ini, koneksi hasil switch
+         (termasuk upgrade otomatis LQ ke HQ) tidak punya handler sama
+         sekali, jadi putusnya tidak terdeteksi. */
+      let isLive = false;
+      const onSwitchConnFail = () => {
+        if (cancelled || myCancelled || !isLive) return;
+        fail();
+      };
+      playWhep(hidden, url, onSwitchConnFail, undefined, onSwitchConnFail)
         .then((pc) => {
           if (cancelled || myCancelled) return stopWhep(pc);
           pending = pc;
@@ -118,6 +144,7 @@ export function FocusModal({ stream, onClose, ad }: Props) {
             stopWhep(pcRef.current);
             pcRef.current = pc;
             pending = null;
+            isLive = true;
             if (cancelSwitchRef.current === cancelMine) {
               cancelSwitchRef.current = null;
             }
@@ -145,7 +172,11 @@ export function FocusModal({ stream, onClose, ad }: Props) {
     };
 
     if (want === "LQ" || !main || !sub) {
-      playWhep(video, (want === "HQ" ? main : sub) || main || sub!, fail)
+      /* Putus di tengah jalan ("disconnected") diperlakukan sama seperti
+         gagal: tampilkan error lalu auto-retry tanpa batas (effect di
+         bawah). Sebelumnya argumen onDisconnect tidak diisi, jadi putus
+         di tengah jalan tidak terdeteksi sama sekali. */
+      playWhep(video, (want === "HQ" ? main : sub) || main || sub!, fail, undefined, () => fail())
         .then((pc) => {
           if (cancelled) return stopWhep(pc);
           pcRef.current = pc;
@@ -153,7 +184,7 @@ export function FocusModal({ stream, onClose, ad }: Props) {
         })
         .catch(() => fail());
     } else {
-      playWhep(video, sub, fail)
+      playWhep(video, sub, fail, undefined, () => fail())
         .then((pc) => {
           if (cancelled) return stopWhep(pc);
           pcRef.current = pc;
@@ -176,7 +207,23 @@ export function FocusModal({ stream, onClose, ad }: Props) {
       pcRef.current = null;
       switchRef.current = null;
     };
-  }, [stream, want]);
+  }, [stream, want, retryTick]);
+
+  /* Auto-retry TANPA BATAS: bila gagal (termasuk putus di tengah jalan,
+     yang dipetakan ke fail) dan kamera masih online serta ada URL WHEP,
+     coba lagi tiap 10 dtk sampai berhasil. Tanpa URL sama sekali
+     ("URL stream tidak tersedia") tidak ikut loop. Berhenti bila modal
+     ditutup (unmount, timeout dibersihkan) atau kamera offline. */
+  useEffect(() => {
+    if (!failed || !stream?.is_online) return;
+    if (failMsg === "URL stream tidak tersedia") return;
+    const t = setTimeout(() => {
+      setFailed(false);
+      setFailMsg(null);
+      setRetryTick((v) => v + 1);
+    }, AUTO_RETRY_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [failed, failMsg, stream?.is_online]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
