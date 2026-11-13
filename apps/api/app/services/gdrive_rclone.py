@@ -411,9 +411,17 @@ async def save_token(token_json: str, remote_name: str = REMOTE_NAME) -> dict:
             _write_conf_text(old_content)
 
     try:
-        rc, out, err = await _run_rclone("about", f"{remote_name}:", "--json", timeout=30)
-    except RuntimeError:
+        # Verifikasi ke Google bisa lambat (rclone about sering >10 dtk
+        # di layanan lain); beri 60 dtk supaya tambah akun tidak gagal
+        # hanya karena jaringan sesaat lambat.
+        rc, out, err = await _run_rclone("about", f"{remote_name}:", "--json", timeout=60)
+    except RuntimeError as e:
         _restore()
+        if "timeout" in str(e).lower():
+            raise RuntimeError(
+                "Verifikasi ke Google timeout (60 detik). Koneksi server "
+                "ke Google sedang lambat; coba lagi."
+            ) from e
         raise
     if rc != 0:
         _restore()

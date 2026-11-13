@@ -631,6 +631,7 @@ class RemoteCreate(BaseModel):
     token: str
     remote_name: str
     label: str | None = Field(default=None, max_length=128)
+    update_existing: bool = False
 
 
 def _remote_out(row: RcloneRemote, status_info: dict | None = None) -> dict:
@@ -884,7 +885,11 @@ async def create_drive_remote(
     """Tambah (atau perbarui) satu remote rclone dari token JSON hasil
     `rclone authorize "drive"`. Remote diverifikasi dulu via
     `rclone about`; gagal = 400 dan conf tidak berubah. Bila sukses,
-    section remote disimpan di conf + baris DB.
+    section remote disimpan di conf + baris DB. Bila remote_name yang
+    diminta sudah terpakai dan update_existing False, dipakai nama
+    kosong berikutnya (gdrive-2, ...) supaya akun baru tidak pernah
+    menimpa akun lama; update_existing True = sengaja memperbarui
+    remote yang sama (re-auth).
 
     Sekaligus buatkan entri folder untuk akun ini (_ensure_remote_folder)
     supaya akun langsung bisa dipilih sebagai 'Folder Google Drive tujuan'
@@ -894,6 +899,24 @@ async def create_drive_remote(
 
     remote_name = _validate_remote_name_or_400(payload.remote_name)
     label = (payload.label or "").strip() or None
+    # Tambah akun baru tidak boleh menimpa remote yang sudah ada: bila
+    # nama yang diminta sudah terpakai (di DB atau di conf) dan ini bukan
+    # update yang disengaja, alokasikan nama kosong berikutnya. Ini
+    # menutup celah frontend yang menghitung nama dari state `remotes`
+    # yang belum termuat (mengirim 'gdrive' lagi untuk akun kedua) yang
+    # sebelumnya diam-diam menimpa token + label akun pertama. Re-auth
+    # yang disengaja tetap bisa lewat update_existing=True.
+    if not payload.update_existing:
+        taken = set(
+            (await db.execute(select(RcloneRemote.remote_name))).scalars().all()
+        ) | set(gr.list_remote_names())
+        if remote_name in taken:
+            new_name = _next_remote_name(taken)
+            log.info(
+                "tambah akun: remote %s sudah terpakai, pakai %s",
+                remote_name, new_name,
+            )
+            remote_name = new_name
     try:
         await gr.save_token(payload.token, remote_name)
     except ValueError as e:

@@ -344,9 +344,11 @@ async def test_drive_remote_create_auto_creates_folder(app_client, monkeypatch):
         assert folders[0]["remote_name"] == "gdrive"
         assert folders[0]["remote_label"] == "disk1"
 
-        # Simpan ulang akun yang sama: jangan duplikat folder.
+        # Simpan ulang akun yang sama (re-auth yang disengaja):
+        # update_existing=True supaya diperbarui, jangan duplikat folder.
         r = await c.post("/api/admin/drive-remotes", json={
             "token": TOKEN, "remote_name": "gdrive", "label": "disk1",
+            "update_existing": True,
         })
         assert r.status_code == 200
         r = await c.get("/api/admin/storage/google-drive")
@@ -357,6 +359,63 @@ async def test_drive_remote_create_auto_creates_folder(app_client, monkeypatch):
         assert r.status_code == 200
         r = await c.get("/api/admin/storage/google-drive")
         assert r.json()["folders"] == []
+
+
+async def test_drive_remote_create_taken_name_allocates_next(app_client, monkeypatch):
+    """Tambah akun kedua dengan remote_name yang sudah terpakai (mis.
+    frontend menghitung nama dari state `remotes` yang belum termuat lalu
+    mengirim 'gdrive' lagi) TIDAK boleh menimpa akun pertama: backend
+    mengalokasikan nama kosong berikutnya (gdrive-2) dan membuat akun
+    baru. Re-auth yang disengaja tetap lewat update_existing=True."""
+    app, _, _ = app_client
+    auth_as(app, make_user(role="super_admin"))
+
+    async def _fake_save(token_json, remote_name="gdrive"):
+        return {"email": "terhubung"}
+
+    async def _fake_status(remote_name):
+        return {"connected": True, "email": "terhubung",
+                "remote_name": remote_name, "total_bytes": 1000,
+                "used_bytes": 100, "free_bytes": 900}
+
+    async def _fake_ensure(remote_name="gdrive"):
+        return {
+            "folder_id": f"folder-{remote_name}",
+            "folder_url": f"https://drive.google.com/drive/folders/{remote_name}",
+            "folder_name": "netravision",
+        }
+
+    monkeypatch.setattr(gr, "save_token", _fake_save)
+    monkeypatch.setattr(gr, "remote_status", _fake_status)
+    monkeypatch.setattr(gr, "ensure_netravision_folder", _fake_ensure)
+    monkeypatch.setattr(gr, "find_rclone", lambda: "/usr/bin/rclone")
+    async with _client(app) as c:
+        r = await c.post("/api/admin/drive-remotes", json={
+            "token": TOKEN, "remote_name": "gdrive", "label": "disk1",
+        })
+        assert r.status_code == 201
+        assert r.json()["remote_name"] == "gdrive"
+
+        # Akun kedua dikirim dengan nama 'gdrive' lagi (state basi):
+        # harus dialokasikan gdrive-2, bukan menimpa gdrive.
+        r = await c.post("/api/admin/drive-remotes", json={
+            "token": TOKEN2, "remote_name": "gdrive", "label": "disk2",
+        })
+        assert r.status_code == 201
+        assert r.json()["remote_name"] == "gdrive-2"
+        assert r.json()["label"] == "disk2"
+
+        r = await c.get("/api/admin/drive-remotes")
+        assert [x["remote_name"] for x in r.json()] == ["gdrive", "gdrive-2"]
+        first = [x for x in r.json() if x["remote_name"] == "gdrive"][0]
+        assert first["label"] == "disk1"
+
+        # Akun ketiga dengan nama yang sama lagi -> gdrive-3.
+        r = await c.post("/api/admin/drive-remotes", json={
+            "token": TOKEN2, "remote_name": "gdrive", "label": "disk3",
+        })
+        assert r.status_code == 201
+        assert r.json()["remote_name"] == "gdrive-3"
 
 
 async def test_ensure_netravision_folder_creates_and_finds(monkeypatch):
