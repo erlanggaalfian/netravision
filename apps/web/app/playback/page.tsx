@@ -898,8 +898,12 @@ export default function PlaybackPage() {
       return;
     }
     if (user) {
+      /* Hanya kamera yang benar-benar punya rekaman (playback) yang
+         bisa dipilih, lewat /recordings/cameras (bukan semua /streams).
+         Dropdown kamera tunggal dan chip multi-kamera sama-sama memakai
+         `streams` di bawah, jadi keduanya otomatis terfilter. */
       api
-        .get<Stream[]>("/streams")
+        .get<Stream[]>("/recordings/cameras")
         .then((s) => {
           setStreams(s);
           if (s.length > 0) {

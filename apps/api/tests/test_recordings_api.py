@@ -70,6 +70,46 @@ async def test_cameras_timeline_segments_dates(app_client, monkeypatch, tmp_path
         assert r.json() == {"dates": ["2026-11-02"]}
 
 
+async def test_cameras_hanya_yang_punya_segmen(app_client, monkeypatch, tmp_path):
+    """GET /recordings/cameras hanya kembalikan kamera yang punya segmen.
+
+    - recording aktif + ada segmen -> tampil.
+    - recording aktif tapi tanpa segmen -> tidak tampil (belum ada playback).
+    - recording mati tapi punya segmen lama -> tampil (masih bisa diputar).
+    """
+    app, _, db = app_client
+    a = await _seed(app, db, monkeypatch, tmp_path)
+    _seg(str(tmp_path), a.id, "2026-11-02_10-00-00-000000.mp4")
+    b = Stream(
+        name="Cam tanpa segmen",
+        rtsp_url="rtsp://x/2",
+        main_url="rtsp://x/2",
+        is_active=True,
+        recording_enabled=True,
+        created_by=1,
+    )
+    db.add(b)
+    c = Stream(
+        name="Cam rekaman lama",
+        rtsp_url="rtsp://x/3",
+        main_url="rtsp://x/3",
+        is_active=True,
+        recording_enabled=False,
+        created_by=1,
+    )
+    db.add(c)
+    await db.commit()
+    _seg(str(tmp_path), c.id, "2026-11-01_09-00-00-000000.mp4")
+
+    async with _client(app) as cl:
+        r = await cl.get("/api/recordings/cameras")
+        assert r.status_code == 200, r.text
+        ids = {k["id"] for k in r.json()}
+        assert a.id in ids
+        assert b.id not in ids
+        assert c.id in ids
+
+
 async def test_stream_file_playbackurl_nextplayable(app_client, monkeypatch, tmp_path):
     app, _, db = app_client
     s = await _seed(app, db, monkeypatch, tmp_path)

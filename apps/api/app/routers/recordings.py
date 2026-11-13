@@ -592,15 +592,29 @@ async def recording_cameras(
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    """Kamera yang boleh diakses user dan punya rekaman aktif."""
+    """Kamera yang boleh diakses user dan benar-benar punya rekaman.
+
+    Hanya kamera yang punya minimal satu segmen rekaman (lokal atau Drive)
+    yang dikembalikan, supaya pemilih kamera di Putar Ulang tidak menampilkan
+    kamera yang tidak bisa diputar. `recording_enabled` saja tidak cukup:
+    kamera yang baru diaktifkan belum tentu punya segmen, dan kamera yang
+    rekamannya sudah dimatikan masih bisa punya rekaman lama yang bisa
+    diputar. Lokal dicek dulu (murah, satu listdir); Drive hanya dicek bila
+    lokal kosong dan kamera memakai storage Drive.
+    """
     from app.routers.streams import _visible_streams, stream_to_out
 
     streams = await _visible_streams(user, db)
-    return [
-        stream_to_out(s, settings)
-        for s in streams
-        if s.recording_enabled
-    ]
+    out: list[StreamOut] = []
+    for s in streams:
+        if list_segments(s.id, None, settings.recordings_dir):
+            out.append(stream_to_out(s, settings))
+            continue
+        if s.storage_mode in ("drive", "both"):
+            segs = await _all_segments(s, None, db)
+            if segs:
+                out.append(stream_to_out(s, settings))
+    return out
 
 
 @router.get("/recordings/{stream_id}/timeline", response_model=TimelineOut)
