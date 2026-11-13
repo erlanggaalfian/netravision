@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState, type ReactNode } from "react";
+import { Dropdown, selectChildrenToOptions } from "./Dropdown";
 
 /* Komponen UI bersama, "ruang kendali siaran": permukaan bertingkat,
    hairline white/8, radius 12-16px, satu aksen biru. API tidak berubah. */
@@ -173,8 +174,34 @@ export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`${inputCls} ${props.className ?? ""}`} />;
 }
 
+/* Adapter di atas Dropdown bersama (dipakai di mana pun, saat ini
+   belum ada call site; export dipertahankan, Zero Deprecation).
+   API LAMA <select> dipertahankan: value, onChange(e.target.value),
+   children <option>, className, disabled. Value yang tidak ada di
+   opsi ditambahkan sebagai opsi ekstra dengan label = value-nya. */
 export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select {...props} className={`${inputCls} ${props.className ?? ""}`} />;
+  const options = selectChildrenToOptions(props.children);
+  const cur = props.value == null ? "" : String(props.value);
+  const finalOptions =
+    cur === "" || options.some((o) => o.value === cur)
+      ? options
+      : [...options, { value: cur, label: cur }];
+  return (
+    <Dropdown
+      variant="field"
+      options={finalOptions}
+      value={cur}
+      onChange={(v) =>
+        props.onChange?.({
+          target: { value: v },
+        } as unknown as React.ChangeEvent<HTMLSelectElement>)
+      }
+      ariaLabel={props["aria-label"]}
+      className={props.className ?? ""}
+      disabled={props.disabled}
+      id={props.id}
+    />
+  );
 }
 
 export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {

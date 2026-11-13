@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "../../components/AppShell";
 import { CameraTile } from "../../components/CameraTile";
 import { FocusModal } from "../../components/FocusModal";
 import { Button, GridIcon, Spinner } from "../../components/ui";
+import { Dropdown } from "../../components/Dropdown";
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { useCameraStatus } from "../../hooks/useCameraStatus";
@@ -99,14 +100,10 @@ export default function LivePage() {
   /* Filter grup: nilai "Semua" atau nama grup (termasuk "Tanpa grup"
      untuk kamera tanpa group_name). Client-side seperti filter status. */
   const [groupFilter, setGroupFilter] = useState("Semua");
-  /* Dropdown grup custom: state buka/tutup, indeks aktif untuk navigasi
-     keyboard, dan arah buka (ke bawah atau ke atas bila ruang bawah
-     tidak cukup) supaya panel tidak keluar viewport. */
-  const [groupOpen, setGroupOpen] = useState(false);
-  const [groupActive, setGroupActive] = useState(0);
-  const [groupOpenUp, setGroupOpenUp] = useState(false);
-  const groupBtnRef = useRef<HTMLButtonElement | null>(null);
-  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  /* Filter grup kini memakai Dropdown bersama (components/Dropdown.tsx):
+     pemicu pill, panel, keyboard, dan ARIA yang sama persis dengan
+     dropdown custom lama di halaman ini (panel kini lewat portal,
+     jadi tidak terpotong wadah scroll). */
   /* Default grid: 3x3 di PC (9 kamera per halaman), 2x2 di HP (dipetakan
      ke 4 kamera). Ditentukan sekali saat halaman dimuat. */
   const [gridKey, setGridKey] = useState(() =>
@@ -277,74 +274,6 @@ export default function LivePage() {
   /* Opsi dropdown grup: "Semua" (reset) + daftar grup dari data kamera
      (bukan hardcode, jadi grup baru otomatis muncul). */
   const groupOptions = useMemo(() => ["Semua", ...groups], [groups]);
-
-  const closeGroupMenu = useCallback((refocus = false) => {
-    setGroupOpen(false);
-    if (refocus) groupBtnRef.current?.focus();
-  }, []);
-
-  const openGroupMenu = useCallback(() => {
-    const idx = Math.max(0, groupOptions.indexOf(groupFilter));
-    setGroupActive(idx);
-    /* Buka ke atas bila ruang di bawah pemicu tidak cukup untuk panel. */
-    const el = groupBtnRef.current;
-    if (el) {
-      const rect = el.getBoundingClientRect();
-      const estH = Math.min(groupOptions.length, 7) * 48 + 16;
-      setGroupOpenUp(rect.bottom + estH > window.innerHeight - 8);
-    }
-    setGroupOpen(true);
-    /* Fokus ke opsi terpilih supaya panah keyboard langsung jalan. */
-    requestAnimationFrame(() => optionRefs.current[idx]?.focus());
-  }, [groupOptions, groupFilter]);
-
-  const selectGroup = useCallback(
-    (g: string) => {
-      setGroupFilter(g);
-      closeGroupMenu(true);
-    },
-    [closeGroupMenu],
-  );
-
-  const onGroupTriggerKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
-    if (
-      e.key === "ArrowDown" ||
-      e.key === "ArrowUp" ||
-      e.key === "Enter" ||
-      e.key === " "
-    ) {
-      e.preventDefault();
-      openGroupMenu();
-    }
-  };
-
-  const onGroupPanelKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const n = groupOptions.length;
-    if (e.key === "Escape") {
-      e.preventDefault();
-      closeGroupMenu(true);
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      const next = (groupActive + 1) % n;
-      setGroupActive(next);
-      optionRefs.current[next]?.focus();
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      const prev = (groupActive - 1 + n) % n;
-      setGroupActive(prev);
-      optionRefs.current[prev]?.focus();
-    } else if (e.key === "Home") {
-      e.preventDefault();
-      setGroupActive(0);
-      optionRefs.current[0]?.focus();
-    } else if (e.key === "End") {
-      e.preventDefault();
-      setGroupActive(n - 1);
-      optionRefs.current[n - 1]?.focus();
-    } else if (e.key === "Tab") {
-      closeGroupMenu(false);
-    }
-  };
 
   if (loading || (!user && !loading)) {
     return (
@@ -585,144 +514,30 @@ export default function LivePage() {
                   </button>
                 ))}
               </div>
-              {/* Filter grup: dropdown CUSTOM (bukan <select> native)
-                  supaya daftar opsi bisa di-style mengikuti tema gelap
-                  aplikasi; opsi native dirender OS (latar putih +
-                  highlight biru bawaan) sehingga bentrok dengan tema.
-                  Daftar grup tetap diturunkan dari data kamera. */}
+              {/* Filter grup: dropdown custom BERSAMA
+                  (components/Dropdown.tsx, variant pill). Daftar grup
+                  tetap diturunkan dari data kamera; opsi terpilih
+                  gradient accent solid + teks putih seperti tab status. */}
               <div className="flex min-w-0 items-center gap-2 max-sm:w-full">
                 <span className="hidden shrink-0 text-xs font-semibold text-slate-400 sm:block">
                   Grup:
                 </span>
-                <div className="relative min-w-0 max-sm:flex-1">
-                  <button
-                    ref={groupBtnRef}
-                    type="button"
-                    onClick={() =>
-                      groupOpen ? closeGroupMenu() : openGroupMenu()
-                    }
-                    onKeyDown={onGroupTriggerKeyDown}
-                    aria-haspopup="listbox"
-                    aria-expanded={groupOpen}
-                    aria-controls="live-group-listbox"
-                    aria-label={`Filter grup kamera: ${
+                <div className="min-w-0 max-sm:flex-1">
+                  <Dropdown
+                    variant="pill"
+                    options={groupOptions.map((g) => ({
+                      value: g,
+                      label: g === "Semua" ? "Semua grup" : g,
+                      badge: groupCounts[g] ?? 0,
+                    }))}
+                    value={groupFilter}
+                    onChange={setGroupFilter}
+                    ariaLabel={`Filter grup kamera: ${
                       groupFilter === "Semua"
                         ? `Semua grup, ${groupCounts["Semua"] ?? 0} kamera`
                         : `${groupFilter}, ${groupCounts[groupFilter] ?? 0} kamera`
                     }`}
-                    className={`flex h-11 w-full items-center justify-between gap-2 rounded-full pl-4 pr-3 text-sm font-semibold shadow-sm outline-none transition-all duration-200 focus:ring-2 focus:ring-accent-500/30 active:scale-[0.98] sm:w-auto sm:min-w-[190px] sm:max-w-[260px] ${
-                      groupFilter !== "Semua"
-                        ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
-                        : "bg-ink-800 text-slate-100"
-                    }`}
-                  >
-                    <span className="min-w-0 truncate">
-                      {groupFilter === "Semua"
-                        ? `Semua grup · ${groupCounts["Semua"] ?? 0}`
-                        : `${groupFilter} · ${groupCounts[groupFilter] ?? 0}`}
-                    </span>
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden
-                      className={`shrink-0 transition-transform duration-200 ${
-                        groupOpen ? "rotate-180" : ""
-                      } ${
-                        groupFilter !== "Semua"
-                          ? "text-onaccent"
-                          : "text-neutral-400"
-                      }`}
-                    >
-                      <path d="M6 9l6 6 6-6" />
-                    </svg>
-                  </button>
-                  {groupOpen && (
-                    <>
-                      {/* Lapisan penutup: klik di luar menutup menu. */}
-                      <div
-                        className="fixed inset-0 z-20 cursor-default"
-                        onClick={() => closeGroupMenu()}
-                        aria-hidden
-                      />
-                      <div
-                        id="live-group-listbox"
-                        role="listbox"
-                        aria-label="Pilih grup kamera"
-                        onKeyDown={onGroupPanelKeyDown}
-                        className={`absolute left-0 right-0 z-30 max-h-[320px] overflow-y-auto rounded-2xl bg-ink-900 p-1.5 shadow-[0_16px_40px_-8px_rgba(0,0,0,0.55)] ring-1 ring-ink-600/20 sm:left-auto sm:right-0 sm:w-[260px] ${
-                          groupOpenUp
-                            ? "bottom-[calc(100%+8px)]"
-                            : "top-[calc(100%+8px)]"
-                        }`}
-                      >
-                        {groupOptions.map((g, i) => {
-                          const selected = g === groupFilter;
-                          const active = i === groupActive;
-                          return (
-                            <button
-                              key={g}
-                              ref={(el) => {
-                                optionRefs.current[i] = el;
-                              }}
-                              type="button"
-                              role="option"
-                              aria-selected={selected}
-                              onClick={() => selectGroup(g)}
-                              onMouseEnter={() => setGroupActive(i)}
-                              className={`flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl px-3.5 text-sm font-semibold transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 ${
-                                selected
-                                  ? /* Opsi terpilih: gradient accent SOLID
-                                       + teks putih, persis tab status aktif
-                                       (bukan tint pucat yang hilang di
-                                       mode terang). */
-                                    "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent"
-                                  : active
-                                    ? "bg-ink-800 text-slate-100"
-                                    : "text-slate-200 hover:bg-ink-800"
-                              }`}
-                            >
-                              <span className="min-w-0 truncate text-left">
-                                {g === "Semua" ? "Semua grup" : g}
-                              </span>
-                              <span className="flex shrink-0 items-center gap-1.5">
-                                <span
-                                  className={`rounded-full px-1.5 py-0.5 text-xs font-bold leading-none ${
-                                    selected
-                                      ? "bg-black/20 text-onaccent"
-                                      : "bg-ink-500/25 text-neutral-300"
-                                  }`}
-                                >
-                                  {groupCounts[g] ?? 0}
-                                </span>
-                                {selected && (
-                                  <svg
-                                    width="15"
-                                    height="15"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="3"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    aria-hidden
-                                    className="text-onaccent"
-                                  >
-                                    <path d="M20 6L9 17l-5-5" />
-                                  </svg>
-                                )}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </>
-                  )}
+                  />
                 </div>
               </div>
             </div>

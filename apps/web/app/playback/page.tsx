@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "../../components/AppShell";
 import { Button, Card, ErrorBox, GridIcon, SectionTitle, Spinner } from "../../components/ui";
+import { Dropdown } from "../../components/Dropdown";
 import { api, apiFetch, ApiError, usePosterUrl } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import type { AdConfig, Stream } from "../../lib/types";
@@ -1029,22 +1030,22 @@ export default function PlaybackPage() {
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:gap-3">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end xl:min-w-0 xl:flex-1">
               {!multi ? (
-                <label className="flex flex-1 flex-col gap-1.5">
+                /* Pemilih kamera: dropdown custom bersama (bukan <select>
+                   native). Pembungkus <label> diganti div+span supaya
+                   tidak ada interaksi label-tombol yang aneh. */
+                <div className="flex flex-1 flex-col gap-1.5">
                   <span className="text-xs font-semibold text-slate-400">
                     Kamera
                   </span>
-                  <select
+                  <Dropdown
+                    variant="field"
+                    options={streams.map((s) => ({ value: String(s.id), label: s.name }))}
                     value={streamId}
-                    onChange={(e) => setStreamId(e.target.value)}
-                    className="h-11 rounded-xl bg-ink-800 px-4 text-base text-slate-100 shadow-sm outline-none transition-all duration-150 focus:ring-2 focus:ring-accent-500/30"
-                  >
-                    {streams.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    onChange={setStreamId}
+                    ariaLabel="Pilih kamera"
+                    placeholder={streams.length === 0 ? "Belum ada kamera" : "Pilih kamera"}
+                  />
+                </div>
               ) : (
                 <div className="flex flex-1 flex-col gap-1.5">
                   <span className="text-xs font-semibold text-slate-400">

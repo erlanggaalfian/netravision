@@ -6,6 +6,7 @@
    memakai token tema (ink/accent/slate) sehingga mode gelap/terang benar. */
 
 import { useEffect, useId, useState, type ReactNode } from "react";
+import { Dropdown, selectChildrenToOptions } from "../../components/Dropdown";
 
 export function NBCard({
   children,
@@ -138,8 +139,37 @@ export function NBInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`${nbInputCls} ${props.className ?? ""}`} />;
 }
 
+/* Adapter di atas Dropdown bersama: API LAMA <select> dipertahankan
+   (value, onChange(e.target.value), children <option>, className,
+   disabled) supaya 18 call site admin TIDAK perlu diubah. Children
+   <option> (termasuk kondisional yang false) dikonversi jadi data opsi;
+   bila value saat ini tidak ada di opsi (mis. DiskSelect
+   showValueAsOption, ads display_mode tak dikenal), value itu
+   ditambahkan sebagai opsi ekstra dengan label = value-nya, supaya
+   data lama tidak hilang diam-diam. */
 export function NBSelect(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select {...props} className={`${nbInputCls} ${props.className ?? ""}`} />;
+  const options = selectChildrenToOptions(props.children);
+  const cur = props.value == null ? "" : String(props.value);
+  const finalOptions =
+    cur === "" || options.some((o) => o.value === cur)
+      ? options
+      : [...options, { value: cur, label: cur }];
+  return (
+    <Dropdown
+      variant="field"
+      options={finalOptions}
+      value={cur}
+      onChange={(v) =>
+        props.onChange?.({
+          target: { value: v },
+        } as unknown as React.ChangeEvent<HTMLSelectElement>)
+      }
+      ariaLabel={props["aria-label"]}
+      className={props.className ?? ""}
+      disabled={props.disabled}
+      id={props.id}
+    />
+  );
 }
 
 export function NBTextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
