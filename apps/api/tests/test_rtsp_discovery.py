@@ -200,6 +200,10 @@ async def test_discover_host_mati_berhenti_cepat(monkeypatch):
 
 
 async def test_discover_host_verifikasi_dan_pilih_main_sub(monkeypatch):
+    """Main/sub dipilih dari resolusi ffprobe; begitu keduanya
+    terverifikasi, probe berhenti dini (gelombang 1) sehingga path
+    belakangan seperti /live tidak ikut dicoba — ini yang memangkas
+    burst login penyebab 'Login salah' palsu."""
     async def fake_probe(url, timeout=3.0):
         if url.endswith(("/Streaming/Channels/101", "/Streaming/Channels/102")):
             return "open"
@@ -223,9 +227,100 @@ async def test_discover_host_verifikasi_dan_pilih_main_sub(monkeypatch):
     by_path = {p.path: p for p in disc.paths}
     assert by_path["/Streaming/Channels/101"].status == "video"
     assert by_path["/Streaming/Channels/101"].width == 2560
+    # Berhenti dini: hanya gelombang 1 yang dicoba, path belakangan
+    # (mis. /live) tidak ikut di-DESCRIBE.
+    assert len(disc.paths) == rtsp_discovery._SEM_PROBES
+    assert "/live" not in by_path, "path belakangan tidak boleh dicoba"
+    assert "video" in disc.ringkasan()
+
+
+async def test_discover_host_auth_failed_dilaporkan_tanpa_early_exit(monkeypatch):
+    """Bila sub tidak ketemu, probe TIDAK berhenti dini: semua path
+    dicoba, dan path yang gagal auth tetap dilaporkan auth_failed
+    (bukan hilang karena early exit)."""
+    async def fake_probe(url, timeout=3.0):
+        if url.endswith("/Streaming/Channels/101"):
+            return "open"
+        if url.endswith("/live"):
+            return "auth_failed"
+        return "not_found"
+
+    async def fake_ffprobe(url, timeout=10.0):
+        return VideoProbe(status="video", codec="h264",
+                          width=2560, height=1440, fps=15.0, gop_seconds=2.0)
+
+    monkeypatch.setattr(rtsp_discovery, "probe_path", fake_probe)
+    monkeypatch.setattr(rtsp_discovery, "_run_ffprobe", fake_ffprobe)
+    disc = await rtsp_discovery.discover_host("192.168.34.196", 554, "admin", "pw")
+    assert disc.reachable is True
+    assert disc.best_main is not None and disc.best_main.endswith("/Streaming/Channels/101")
+    assert disc.best_sub is None  # hanya main, sub tidak ketemu
+    by_path = {p.path: p for p in disc.paths}
     assert by_path["/live"].status == "auth_failed"
     assert by_path["/live.sdp"].status == "not_found"
-    assert "video" in disc.ringkasan()
+    assert len(disc.paths) == len(rtsp_discovery.candidate_paths())
+
+
+async def test_discover_host_coba_ulang_auth_failed(monkeypatch):
+    """Semua path auth_failed di pass pertama (kamera mengunci login
+    sementara akibat burst) -> coba ulang sekali setelah jeda; bila
+    kunci sudah lepas, main+sub ketemu di pass kedua."""
+    calls: list[str] = []
+    seen: set[str] = set()
+
+    async def fake_probe(url, timeout=3.0):
+        calls.append(url)
+        if url in seen:
+            # Pass kedua (coba ulang): kunci lepas, 101/102 terbuka.
+            return "open" if url.endswith(
+                ("/Streaming/Channels/101", "/Streaming/Channels/102")
+            ) else "not_found"
+        seen.add(url)
+        return "auth_failed"
+
+    async def fake_ffprobe(url, timeout=10.0):
+        if url.endswith("/Streaming/Channels/101"):
+            return VideoProbe(status="video", codec="h264",
+                              width=2560, height=1440, fps=15.0, gop_seconds=2.0)
+        return VideoProbe(status="video", codec="h264",
+                          width=704, height=576, fps=25.0, gop_seconds=1.0)
+
+    monkeypatch.setattr(rtsp_discovery, "probe_path", fake_probe)
+    monkeypatch.setattr(rtsp_discovery, "_run_ffprobe", fake_ffprobe)
+    # Jeda 12 dtk dipangkas supaya tes cepat; yang diuji adalah
+    # coba ulangnya, bukan lamanya jeda.
+    monkeypatch.setattr(rtsp_discovery, "_AUTH_RETRY_DELAY", 0)
+    disc = await rtsp_discovery.discover_host("192.168.34.198", 554, "admin", "pw")
+    assert disc.reachable is True
+    assert disc.best_main is not None and disc.best_main.endswith("/Streaming/Channels/101")
+    assert disc.best_sub is not None and disc.best_sub.endswith("/Streaming/Channels/102")
+    # Pass pertama mencoba semua 126 path, pass kedua berhenti dini
+    # di gelombang 1 (8 path) begitu main+sub ketemu.
+    assert len(calls) == len(rtsp_discovery.candidate_paths()) + rtsp_discovery._SEM_PROBES
+
+
+async def test_discover_host_coba_ulang_auth_failed_tetap_gagal(monkeypatch):
+    """Coba ulang tetap auth_failed -> barulah 'Login salah'
+    (password memang salah); probe dipanggil 2x per path."""
+    calls: list[str] = []
+
+    async def fake_probe(url, timeout=3.0):
+        calls.append(url)
+        return "auth_failed"
+
+    async def fake_ffprobe(url, timeout=10.0):
+        raise AssertionError("tidak boleh ffprobe saat auth gagal")
+
+    monkeypatch.setattr(rtsp_discovery, "probe_path", fake_probe)
+    monkeypatch.setattr(rtsp_discovery, "_run_ffprobe", fake_ffprobe)
+    monkeypatch.setattr(rtsp_discovery, "_AUTH_RETRY_DELAY", 0)
+    disc = await rtsp_discovery.discover_host("192.168.34.199", 554, "admin", "pw")
+    assert disc.reachable is True
+    assert disc.best_main is None
+    assert disc.best_sub is None
+    assert all(p.status == "auth_failed" for p in disc.paths)
+    # Dua pass penuh (126 x 2): coba ulang benar-benar dilakukan.
+    assert len(calls) == 2 * len(rtsp_discovery.candidate_paths())
 
 
 async def test_discover_host_live_0_main_sub(monkeypatch):

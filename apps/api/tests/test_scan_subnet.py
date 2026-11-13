@@ -148,6 +148,8 @@ async def test_scan_subnet_host_gagal_tetap_dikembalikan(scan_client, monkeypatc
     monkeypatch.setattr(rtsp_discovery, "_tcp_alive", fake_alive)
     monkeypatch.setattr(rtsp_discovery, "probe_path", fake_probe)
     monkeypatch.setattr(rtsp_discovery, "_run_ffprobe", fake_ffprobe)
+    # Coba ulang auth_failed (12 dtk) dipangkas supaya tes cepat.
+    monkeypatch.setattr(rtsp_discovery, "_AUTH_RETRY_DELAY", 0)
     # Funnel: semua host lolos tahap 1 dan 2, jadi sampai discovery
     # dan gagal di sana (auth_failed), bukan tersaring di funnel.
     monkeypatch.setattr(admin_scan, "_host_reachable", fake_alive)
@@ -642,26 +644,27 @@ def test_classify_path_name_pola_baru_riset(path, peran):
 
 
 def test_candidate_paths_memuat_semua_pola_riset():
-    """Semua path riset jadi kandidat; 12 pertama tidak berubah
-    (Hikvision, Dahua, Uniview, stream1/2, Reolink, H.264)."""
+    """Semua path riset jadi kandidat; 12 pertama = /live/0/MAIN dan
+    /live/0/SUB paling awal, lalu mainstream (Hikvision, Dahua,
+    Uniview, stream1/2)."""
     from app.services.rtsp_discovery import candidate_paths
 
     cands = candidate_paths()
     assert len(cands) == len(set(cands)), "kandidat tidak boleh duplikat"
     assert len(cands) >= 120, f"hanya {len(cands)} kandidat"
     assert cands[:12] == [
+        "/live/0/MAIN",
+        "/live/0/SUB",
         "/Streaming/Channels/101",
         "/Streaming/Channels/102",
         "/cam/realmonitor?channel=1&subtype=0",
         "/cam/realmonitor?channel=1&subtype=1",
         "/unicast/c1/s0/live",
         "/unicast/c1/s1/live",
+        "/media/video1",
+        "/media/video2",
         "/stream1",
         "/stream2",
-        "/h264Preview_01_main",
-        "/h264Preview_01_sub",
-        "/H.264",
-        "/H.264_sub",
     ]
     wajib = [
         # Merek baru (template brand).
@@ -707,6 +710,26 @@ def test_candidate_paths_memuat_semua_pola_riset():
     ]
     hilang = [p for p in wajib if p not in cands]
     assert not hilang, f"path riset belum jadi kandidat: {hilang}"
+
+
+def test_candidate_paths_urutan_mainstream_dulu():
+    """/live/0/MAIN dan /live/0/SUB di posisi 1-2, lalu merek
+    mainstream (Hikvision, Dahua, Uniview, Reolink, TP-Link)
+    sebelum merek lain; jumlah kandidat tetap 126 (hanya urutan
+    yang berubah, tidak ada path yang dihapus)."""
+    from app.services.rtsp_discovery import candidate_paths
+
+    cands = candidate_paths()
+    assert cands[0] == "/live/0/MAIN"
+    assert cands[1] == "/live/0/SUB"
+    # Mainstream sebelum merek lain (Bosch, Hanwha, Arecont).
+    assert cands.index("/Streaming/Channels/101") < cands.index("/?h26x=4&line=1&inst=1")
+    assert cands.index("/cam/realmonitor?channel=1&subtype=0") < cands.index("/profile1/media.smp")
+    assert cands.index("/h264Preview_01_main") < cands.index("/h264.sdp")
+    # Template brand mainstream dulu: Foscam/Ezviz sebelum Hanwha.
+    assert cands.index("/videoMain") < cands.index("/profile1/media.smp")
+    assert cands.index("/h264/ch01/main/av_stream") < cands.index("/profile1/media.smp")
+    assert len(cands) == 126
 
 
 def test_select_main_sub_stream_ketiga_bukan_sub():

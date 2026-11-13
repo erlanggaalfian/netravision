@@ -59,33 +59,54 @@ _SEM_FFPROBE = 2  # sesi RTSP paralel per host (DESCRIBE saja sudah 8)
 # SEMUA path membuat 38 ffprobe serial (~4 menit) lalu host timeout
 # 45 dtk tanpa hasil apa pun. Dengan batas ini, kasus terburuk
 # 8 path x ~5,5 dtk / 2 paralel = ~22 dtk, masih di bawah budget host.
-# Main/sub hampir selalu di 8 pertama (Hikvision 101/102, Dahua
-# subtype 0/1, unicast s0/s1, stream1/2); bila hanya sedikit path
+# Main/sub hampir selalu di 8 pertama (/live/0/MAIN+SUB, Hikvision
+# 101/102, Dahua subtype 0/1, unicast s0/s1); bila hanya sedikit path
 # yang open, batas ini tidak memotong apa pun.
 _MAX_VERIFY_PATHS = 8
 _HOST_BUDGET = 45.0  # detik maksimum seluruh discovery per host
+# Jeda coba ulang bila semua path gagal auth (kemungkinan kunci
+# sementara anti-brute-force kamera, BUKAN password salah).
+# Dipakai _discover; tes boleh monkeypatch ke nilai kecil supaya
+# suite tetap cepat.
+_AUTH_RETRY_DELAY = 12.0
 
 # Path umum vendor besar + generik (dedupe di candidate_paths).
 # Daftar ini + template BRAND_PROFILES = seluruh kandidat yang
 # di-DESCRIBE per host. Sumber: riset web 2026-11-13 (report.md,
-# ~55 merek + pola generik/ONVIF). Urutan = paling mungkin dulu
-# (Hikvision, Dahua, Uniview, stream1/2, Reolink, ...); path baru
-# dari riset ditambahkan berkelompok setelah yang lama supaya
-# 8 path pertama yang diverifikasi tetap yang paling umum.
+# ~55 merek + pola generik/ONVIF). Urutan (perintah user 2026-11-13
+# 20:04): /live/0/MAIN dan /live/0/SUB PALING AWAL, lalu merek
+# mainstream dulu (Hikvision, Dahua, Uniview, TP-Link VIGI/Tapo +
+# stream1/2, Reolink), lalu pola generik paling umum, baru merek
+# lain. Urutan ini penting karena _discover berhenti dini begitu
+# main+sub terverifikasi: kamera mainstream ketemu di gelombang 1-2,
+# jadi burst login per kamera tinggal ~8-16 percobaan, bukan 126
+# path x 2 login yang memicu kunci anti-brute-force kamera
+# ('Login salah' palsu). JANGAN hapus path, hanya ubah urutan.
 # Bila sumber berkonflik, SEMUA varian dimasukkan (mis. Ezviz
 # /h264/ch01/... vs /ch1/main vs /h264_stream; Hanwha profile1/2
 # vs profile2/3; Vivotek /live2.sdp vs /live1s.sdp).
 _COMMON_PATHS: tuple[str, ...] = (
+    # 1-2: pola /live/0/MAIN + /live/0/SUB (paling awal).
+    "/live/0/MAIN",
+    "/live/0/SUB",
+    # 3-4: Hikvision.
     "/Streaming/Channels/101",
     "/Streaming/Channels/102",
+    # 5-6: Dahua.
     "/cam/realmonitor?channel=1&subtype=0",
     "/cam/realmonitor?channel=1&subtype=1",
+    # 7-10: Uniview (unicast NVR + media IPC).
     "/unicast/c1/s0/live",
     "/unicast/c1/s1/live",
+    "/media/video1",
+    "/media/video2",
+    # 11-12: TP-Link VIGI/Tapo + pola generik stream1/2.
     "/stream1",
     "/stream2",
+    # 13-14: Reolink.
     "/h264Preview_01_main",
     "/h264Preview_01_sub",
+    # Pola generik paling umum.
     "/H.264",
     "/H.264_sub",
     "/H.265",
@@ -93,13 +114,11 @@ _COMMON_PATHS: tuple[str, ...] = (
     "/live",
     "/live/ch00_0",
     "/live/ch00_1",
-    "/live/0/MAIN",
-    "/live/0/SUB",
     "/ch01.264",
     "/11",
     "/12",
     "/onvif1",
-    "/media/video1",
+    "/onvif2",
     "/av0_0",
     "/av0_1",
     "/0",
@@ -107,8 +126,6 @@ _COMMON_PATHS: tuple[str, ...] = (
     "/video1",
     "/live.sdp",
     # --- Tambahan riset 2026-11-13 (report.md) ---
-    # ONVIF generik (sub).
-    "/onvif2",
     # Bentuk lama/varian konflik: Hikvision lama, Ezviz (OmniNVR),
     # Annke lama, Reolink tanpa prefix h264.
     "/h264/ch1/main/av_stream",
@@ -171,6 +188,22 @@ _COMMON_PATHS: tuple[str, ...] = (
 )
 
 
+# Urutan brand saat mengambil template dari BRAND_PROFILES di
+# candidate_paths (perintah user 2026-11-13 20:04): mainstream dulu
+# (Hikvision, Dahua, Uniview, Reolink, TP-Link, Foscam, Ezviz, ...),
+# baru merek lain. Brand yang tidak ada di daftar ini tetap
+# disertakan setelahnya sesuai urutan dict (jaga-jaga bila ada
+# profil baru yang belum didaftarkan).
+_BRAND_ORDER = (
+    "hikvision", "dahua", "uniview_ipc", "uniview_nvr", "reolink",
+    "tplink_vigi", "foscam", "ezviz", "milesight", "hanwha", "axis",
+    "panasonic", "vivotek", "pelco", "bosch", "avigilon", "arecont",
+    "provision_isr", "tvt", "hiseeu", "zosi", "swann", "geovision",
+    "huawei", "dlink", "digital_watchdog", "zmodo", "kedacom",
+    "infinova", "raysharp", "canon", "lg", "jvs", "xiaomi", "eufy",
+)
+
+
 def candidate_paths(channel: int = 1) -> list[str]:
     """Path kandidat (umum + template brand), dedupe, urutan stabil."""
     from app.services.brands import BRAND_PROFILES
@@ -185,7 +218,12 @@ def candidate_paths(channel: int = 1) -> list[str]:
 
     for p in _COMMON_PATHS:
         add(p)
-    for prof in BRAND_PROFILES.values():
+    # Template brand diambil mainstream dulu; brand yang tidak ada
+    # di _BRAND_ORDER tetap disertakan setelahnya (urutan dict).
+    ordered = [k for k in _BRAND_ORDER if k in BRAND_PROFILES]
+    ordered += [k for k in BRAND_PROFILES if k not in _BRAND_ORDER]
+    for brand in ordered:
+        prof = BRAND_PROFILES[brand]
         for key in ("main", "sub"):
             tpl = prof.get(key)
             if not tpl:
@@ -597,6 +635,7 @@ async def discover_host(
 async def _discover(
     host: str, port: int, user: str | None, password: str | None, channel: int,
     known_paths: tuple[str | None, str | None] | None = None,
+    _allow_auth_retry: bool = True,
 ) -> DiscoveryResult:
     if not await _tcp_alive(host, port):
         return DiscoveryResult(host=host, port=port, reachable=False, paths=[])
@@ -606,47 +645,12 @@ async def _discover(
         for p in candidate_paths(channel)
     ]
     sem = asyncio.Semaphore(_SEM_PROBES)
+    sem_v = asyncio.Semaphore(_SEM_FFPROBE)
 
     async def probe_one(path: str, url: str) -> PathResult:
         async with sem:
             st = await probe_path(url)
         return PathResult(path=path, url=url, status=st)
-
-    probed = list(await asyncio.gather(*(probe_one(p, u) for p, u in cands)))
-
-    # Jalur cepat kamera dikenal: path main yang terdaftar terbuka di
-    # DESCRIBE -> video terverifikasi tanpa ffprobe (hemat ~6-13 dtk
-    # per kamera yang sudah terdaftar). Path sub yang dikenal ikut
-    # ditandai bila terbuka. Path open lain yang tak dikenal tidak
-    # diverifikasi di jalur ini (tidak ditebak statusnya).
-    if known_paths and known_paths[0]:
-        by_path = {pr.path: pr for pr in probed if pr.status == "open"}
-        known_main = by_path.get(known_paths[0])
-        if known_main is not None:
-            known_main.status = "video"
-            known_main.role = "main"
-            known_sub = None
-            if known_paths[1]:
-                known_sub = by_path.get(known_paths[1])
-                if known_sub is not None:
-                    known_sub.status = "video"
-                    known_sub.role = "sub"
-            kept = [pr for pr in probed if pr.status != "open"]
-            return DiscoveryResult(
-                host=host, port=port, reachable=True, paths=kept,
-                best_main=known_main.url,
-                best_sub=known_sub.url if known_sub is not None else None,
-            )
-
-    # Tahap 2: ffprobe PARALEL (maks 2 per host) dan DIBATASI
-    # (_MAX_VERIFY_PATHS path open pertama, urutan kandidat). Serial
-    # + tanpa batas adalah bottleneck tahap 3: 2 path open saja sudah
-    # ~13 dtk, kamera yang menjawab 200 untuk semua path timeout
-    # tanpa hasil. Paralel 2 aman: DESCRIBE saja sudah membuka 8
-    # koneksi bersamaan ke kamera yang sama.
-    open_paths = [pr for pr in probed if pr.status == "open"]
-    to_verify = open_paths[:_MAX_VERIFY_PATHS]
-    sem_v = asyncio.Semaphore(_SEM_FFPROBE)
 
     async def verify_one(pr: PathResult) -> None:
         async with sem_v:
@@ -655,8 +659,98 @@ async def _discover(
         pr.codec, pr.width, pr.height = vp.codec, vp.width, vp.height
         pr.fps, pr.gop_seconds = vp.fps, vp.gop_seconds
 
-    await asyncio.gather(*(verify_one(pr) for pr in to_verify))
+    # Probe per GELOMBANG (ukuran = _SEM_PROBES, urutan kandidat
+    # mainstream dulu). Setelah tiap gelombang: (1) jalur cepat bila
+    # path main dikenal terbuka, (2) ffprobe path open yang baru
+    # (dibatasi _MAX_VERIFY_PATHS total), (3) BERHENTI DINI bila
+    # main+sub sudah terverifikasi video. Ini yang memangkas burst
+    # login: kamera mainstream ketemu di gelombang 1-2 (~8-16
+    # percobaan login), bukan 126 path x 2 login (~250) yang memicu
+    # kunci anti-brute-force kamera ('Login salah' palsu). Urutan
+    # kandidat mainstream dulu memastikan pasangan yang ketemu duluan
+    # hampir selalu yang terbaik; resolusi ffprobe tetap penentu
+    # utama main/sub (select_main_sub), jadi berhenti dini tidak
+    # merusak pemilihan. _SEM_PROBES tetap 8: yang memicu kunci
+    # adalah TOTAL percobaan, bukan 8 koneksi bersamaan (DESCRIBE
+    # singkat, bukan sesi media), dan 8 menjaga kecepatan DESCRIBE
+    # + perilaku ffprobe paralel yang sudah terverifikasi.
+    probed: list[PathResult] = []
+    verified_count = 0  # jumlah path open yang sudah di-ffprobe
+    saw_open = False  # ada DESCRIBE yang lolos auth (200)
+    idx = 0
+    while idx < len(cands):
+        wave = cands[idx:idx + _SEM_PROBES]
+        idx += len(wave)
+        results = await asyncio.gather(*(probe_one(p, u) for p, u in wave))
+        probed.extend(results)
+        # Catat SEBELUM ffprobe mengubah status open -> video/no_video.
+        if any(pr.status == "open" for pr in results):
+            saw_open = True
 
+        # Jalur cepat kamera dikenal: path main yang terdaftar terbuka
+        # di DESCRIBE -> video terverifikasi tanpa ffprobe (hemat
+        # ~6-13 dtk per kamera yang sudah terdaftar). Path sub yang
+        # dikenal ikut ditandai bila terbuka. Dicek tiap gelombang
+        # supaya langsung berhenti begitu path main terdaftar terbuka.
+        if known_paths and known_paths[0]:
+            by_path = {
+                pr.path: pr for pr in probed
+                if pr.status in ("open", "video")
+            }
+            known_main = by_path.get(known_paths[0])
+            if known_main is not None:
+                known_main.status = "video"
+                known_main.role = "main"
+                known_sub = None
+                if known_paths[1]:
+                    known_sub = by_path.get(known_paths[1])
+                    if known_sub is not None:
+                        known_sub.status = "video"
+                        known_sub.role = "sub"
+                kept = [pr for pr in probed if pr.status != "open"]
+                return DiscoveryResult(
+                    host=host, port=port, reachable=True, paths=kept,
+                    best_main=known_main.url,
+                    best_sub=known_sub.url if known_sub is not None else None,
+                )
+
+        # ffprobe path open yang baru, dibatasi total _MAX_VERIFY_PATHS
+        # (paralel 2 per host; tanpa batas, kamera yang menjawab 200
+        # untuk semua path timeout tanpa hasil).
+        newly_open = [pr for pr in results if pr.status == "open"]
+        room = _MAX_VERIFY_PATHS - verified_count
+        to_verify = newly_open[:room] if room > 0 else []
+        if to_verify:
+            await asyncio.gather(*(verify_one(pr) for pr in to_verify))
+            verified_count += len(to_verify)
+
+        # Berhenti dini: main+sub sudah terverifikasi video.
+        # (Reset role dulu: select_main_sub menandai role dan tidak
+        # membersihkan pilihan gelombang sebelumnya.)
+        for p in probed:
+            p.role = None
+        best_main, best_sub = select_main_sub(probed)
+        if best_main is not None and best_sub is not None:
+            break
+
+    # Bila TIDAK ADA satu pun path yang lolos auth (semua auth_failed)
+    # kemungkinan kamera mengunci login sementara (anti-brute-force)
+    # akibat burst percobaan — BUKAN password salah. Coba ulang
+    # sekali setelah jeda supaya kunci sempat lepas dalam satu scan
+    # yang sama. Bila tetap gagal, barulah 'Login salah' (password
+    # memang salah). Syarat saw_open=False penting: bila ada satu pun
+    # path yang lolos auth, kamera jelas tidak terkunci, jadi tidak
+    # perlu coba ulang.
+    if _allow_auth_retry and probed and not saw_open:
+        if any(p.status == "auth_failed" for p in probed):
+            await asyncio.sleep(_AUTH_RETRY_DELAY)
+            return await _discover(
+                host, port, user, password, channel, known_paths,
+                _allow_auth_retry=False,
+            )
+
+    for p in probed:
+        p.role = None
     best_main, best_sub = select_main_sub(probed)
     return DiscoveryResult(
         host=host, port=port, reachable=True, paths=probed,
