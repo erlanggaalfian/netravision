@@ -19,6 +19,9 @@ const FILTERS: { id: StatusFilter; label: string }[] = [
   { id: "offline", label: "Offline" },
 ];
 
+/* Label untuk kamera tanpa grup (group_name null/kosong). */
+const NO_GROUP = "Tanpa grup";
+
 /* PC: bentuk grid (jumlah kolom). HP: jumlah kamera yang ditampilkan
    (grid HP selalu 1 kolom). Label menjelaskan arti angka. */
 interface GridOpt {
@@ -93,6 +96,9 @@ export default function LivePage() {
   const [ad, setAd] = useState<AdConfig | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<StatusFilter>("all");
+  /* Filter grup: nilai "Semua" atau nama grup (termasuk "Tanpa grup"
+     untuk kamera tanpa group_name). Client-side seperti filter status. */
+  const [groupFilter, setGroupFilter] = useState("Semua");
   /* Default grid: 3x3 di PC (9 kamera per halaman), 2x2 di HP (dipetakan
      ke 4 kamera). Ditentukan sekali saat halaman dimuat. */
   const [gridKey, setGridKey] = useState(() =>
@@ -200,10 +206,16 @@ export default function LivePage() {
     return merged.filter((s) => {
       if (filter === "online" && !s.is_online) return false;
       if (filter === "offline" && s.is_online) return false;
+      if (groupFilter !== "Semua") {
+        const g = (s.group_name ?? "").trim();
+        if (groupFilter === NO_GROUP) {
+          if (g) return false;
+        } else if (g !== groupFilter) return false;
+      }
       if (q && !s.name.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [merged, query, filter]);
+  }, [merged, query, filter, groupFilter]);
 
   const gridCols = isDesktop ? (activeOpt.cols ?? 2) : 1;
   /* Jumlah kamera per halaman mengikuti bentuk grid: 1x1 = 1, 2x2 = 4,
@@ -220,7 +232,7 @@ export default function LivePage() {
   /* Ganti grid / filter / pencarian / perangkat: kembali ke halaman 1. */
   useEffect(() => {
     setPage(1);
-  }, [gridKey, filter, query, isDesktop]);
+  }, [gridKey, filter, groupFilter, query, isDesktop]);
 
   const onlineCount = merged.filter((s) => s.is_online).length;
   const counts: Record<StatusFilter, number> = {
@@ -228,6 +240,31 @@ export default function LivePage() {
     online: onlineCount,
     offline: merged.length - onlineCount,
   };
+
+  /* Daftar grup unik dari kamera yang dimuat (urut alfabet; "Tanpa grup"
+     di akhir bila ada kamera tanpa group_name). Jumlah per grup dihitung
+     dari semua kamera, sama seperti jumlah filter status. */
+  const groups = useMemo(() => {
+    const set = new Set<string>();
+    let hasNoGroup = false;
+    for (const s of merged) {
+      const g = (s.group_name ?? "").trim();
+      if (g) set.add(g);
+      else hasNoGroup = true;
+    }
+    const list = [...set].sort((a, b) => a.localeCompare(b));
+    if (hasNoGroup) list.push(NO_GROUP);
+    return list;
+  }, [merged]);
+
+  const groupCounts = useMemo(() => {
+    const c: Record<string, number> = { Semua: merged.length };
+    for (const s of merged) {
+      const g = (s.group_name ?? "").trim() || NO_GROUP;
+      c[g] = (c[g] ?? 0) + 1;
+    }
+    return c;
+  }, [merged]);
 
   if (loading || (!user && !loading)) {
     return (
@@ -334,9 +371,9 @@ export default function LivePage() {
                 <line x1="9" y1="8" x2="15" y2="8" />
                 <line x1="17" y1="16" x2="23" y2="16" />
               </svg>
-              {filter !== "all" && (
+              {filter !== "all" || groupFilter !== "Semua" ? (
                 <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-accent-500" />
-              )}
+              ) : null}
             </button>
           </div>
 
@@ -465,6 +502,38 @@ export default function LivePage() {
                   </button>
                 ))}
               </div>
+              {/* Filter grup: pola visual sama seperti filter status
+                  (tablist + jumlah per grup). */}
+              <div
+                className="nv-scroll-x flex w-full items-center gap-1 overflow-x-auto rounded-full bg-ink-800 p-1 shadow-sm sm:w-auto"
+                role="tablist"
+                aria-label="Filter grup kamera"
+              >
+                {["Semua", ...groups].map((g) => (
+                  <button
+                    key={g}
+                    role="tab"
+                    aria-selected={groupFilter === g}
+                    onClick={() => setGroupFilter(g)}
+                    className={`flex h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm font-semibold transition-all duration-200 active:scale-95 sm:px-5 lg:flex-none ${
+                      groupFilter === g
+                        ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
+                        : "text-neutral-400 hover:bg-ink-700 hover:text-slate-200"
+                    }`}
+                  >
+                    {g}
+                    <span
+                      className={`rounded-full px-1.5 py-0.5 text-xs font-bold leading-none ${
+                        groupFilter === g
+                          ? "bg-black/20 text-onaccent"
+                          : "bg-ink-500/25 text-neutral-300"
+                      }`}
+                    >
+                      {groupCounts[g] ?? 0}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
           </div>
@@ -545,7 +614,7 @@ export default function LivePage() {
             <p className="max-w-xs text-sm leading-relaxed text-neutral-400">
               {merged.length === 0
                 ? "Tambahkan kamera lewat halaman Admin untuk mulai memantau."
-                : "Coba ubah kata kunci atau filter status."}
+                : "Coba ubah kata kunci, filter status, atau filter grup."}
             </p>
           </div>
         ) : (

@@ -13,7 +13,7 @@ async def _seed(db):
     s1 = Stream(
         id=1, name="Cam 1", rtsp_url="rtsp://cam/1",
         main_url="rtsp://cam/1", sub_url="rtsp://cam/1_sub",
-        brand="generic", is_active=True,
+        brand="generic", is_active=True, group_name="MRI",
     )
     s2 = Stream(
         id=2, name="Cam 2", rtsp_url="rtsp://cam/2",
@@ -48,6 +48,9 @@ async def test_list_streams_admin_sees_all(app_client):
     assert body[0]["whep_sub_url"] == "/whep/stream_1_sub/whep"
     assert body[1]["whep_sub_url"] == "/whep/stream_2_sub/whep"  # sub transkode selalu ada (v2)
     assert body[0]["poster_url"] == "/api/posters/stream_1.jpg"
+    # group_name ikut di respons (dipakai filter grup di halaman Live).
+    assert body[0]["group_name"] == "MRI"
+    assert body[1]["group_name"] is None
 
 
 async def test_list_streams_user_filtered(app_client):

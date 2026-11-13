@@ -13,6 +13,7 @@ class StreamOut(BaseModel):
     id: int
     name: str
     brand: str | None
+    group_name: str | None = None  # grup wilayah (HO/JTS/MRI/SOC), null = tanpa grup
     is_online: bool
     is_active: bool = True
     last_seen_at: datetime | None

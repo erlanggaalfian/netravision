@@ -43,6 +43,7 @@ def stream_to_out(stream: Stream, settings: Settings) -> StreamOut:
         id=stream.id,
         name=stream.name,
         brand=stream.brand,
+        group_name=stream.group_name,
         is_online=stream.is_online,
         is_active=stream.is_active,
         last_seen_at=stream.last_seen_at,

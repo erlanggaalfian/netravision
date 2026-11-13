@@ -4,6 +4,7 @@ export interface Stream {
   id: number;
   name: string;
   brand: string | null;
+  group_name: string | null; // grup wilayah (HO/JTS/MRI/SOC), null = tanpa grup
   is_online: boolean;
   is_active: boolean;
   last_seen_at: string | null;
