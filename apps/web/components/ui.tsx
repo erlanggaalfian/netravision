@@ -316,12 +316,12 @@ export function Modal({
       aria-labelledby={titleId}
     >
       <div
-        className={`nv-pop max-h-[92dvh] w-full overflow-y-auto rounded-t-2xl bg-ink-900 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:rounded-2xl ${
+        className={`nv-pop max-h-[92dvh] w-full overflow-y-auto rounded-t-2xl bg-ink-900 ring-1 ring-ink-600/20 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:rounded-2xl ${
           wide ? "sm:max-w-2xl" : "sm:max-w-lg"
         }`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-ink-800 px-5 py-4 sm:px-6">
+        <div className="flex items-center justify-between border-b border-ink-800 px-4 py-3 sm:px-5">
           <h2 id={titleId} className="text-lg font-bold tracking-tight text-white">
             {title}
           </h2>
@@ -333,7 +333,7 @@ export function Modal({
             <XIcon />
           </button>
         </div>
-        <div className="px-5 py-5 sm:px-6 sm:py-6">
+        <div className="px-4 py-4 sm:px-5 sm:py-5">
           {children}
         </div>
       </div>

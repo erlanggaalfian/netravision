@@ -282,11 +282,11 @@ export function NBConfirmModal({
       aria-labelledby={titleId}
     >
       <div
-        className="nv-pop nv-panel-modern w-full max-w-lg overflow-y-auto rounded-2xl! pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
+        className="nv-pop w-full max-w-lg overflow-y-auto rounded-2xl bg-ink-900 ring-1 ring-ink-600/20 pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-ink-800 px-5 py-4">
-          <h2 id={titleId} className="text-xl font-extrabold tracking-tight text-slate-100">{title}</h2>
+        <div className="flex items-center justify-between border-b border-ink-800 px-4 py-3">
+          <h2 id={titleId} className="text-lg font-bold tracking-tight text-slate-100">{title}</h2>
           <button
             onClick={onCancel}
             aria-label="Tutup"
@@ -297,9 +297,9 @@ export function NBConfirmModal({
             </svg>
           </button>
         </div>
-        <div className="px-5 py-5">
+        <div className="px-4 py-4">
           <p className="text-[15px] leading-relaxed text-slate-300">{message}</p>
-          <div className="mt-6 grid gap-2.5 sm:flex sm:justify-end">
+          <div className="mt-5 grid gap-2.5 sm:flex sm:justify-end">
             <NBButton variant="secondary" onClick={onCancel} className="w-full sm:w-auto">
               Batal
             </NBButton>

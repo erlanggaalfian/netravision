@@ -251,7 +251,7 @@ export function FocusModal({ stream, onClose, ad }: Props) {
     >
       <div
         ref={dialogRef}
-        className="nv-pop max-h-[calc(100dvh-1.5rem)] w-full max-w-5xl overflow-x-hidden overflow-y-auto rounded-2xl bg-ink-900 ring-1 ring-ink-600/30 sm:max-h-[calc(100dvh-3rem)]"
+        className="nv-pop max-h-[calc(100dvh-1.5rem)] w-full max-w-5xl overflow-x-hidden overflow-y-auto rounded-2xl bg-ink-900 ring-1 ring-ink-600/20 sm:max-h-[calc(100dvh-3rem)]"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
