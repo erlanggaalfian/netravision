@@ -307,7 +307,9 @@ export function Modal({
   }, [onClose]);
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-0 sm:items-center sm:p-6"
+      /* Backdrop blur disamakan di semua popup (FocusModal, Modal ui.tsx,
+         Modal _nb.tsx): backdrop-blur-md. */
+      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 backdrop-blur-md p-0 sm:items-center sm:p-6"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
