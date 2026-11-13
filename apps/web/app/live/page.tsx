@@ -677,7 +677,11 @@ export default function LivePage() {
                               onMouseEnter={() => setGroupActive(i)}
                               className={`flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl px-3.5 text-sm font-semibold transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 ${
                                 selected
-                                  ? "bg-accent-500/15 text-accent-400"
+                                  ? /* Opsi terpilih: gradient accent SOLID
+                                       + teks putih, persis tab status aktif
+                                       (bukan tint pucat yang hilang di
+                                       mode terang). */
+                                    "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent"
                                   : active
                                     ? "bg-ink-800 text-slate-100"
                                     : "text-slate-200 hover:bg-ink-800"
@@ -690,7 +694,7 @@ export default function LivePage() {
                                 <span
                                   className={`rounded-full px-1.5 py-0.5 text-xs font-bold leading-none ${
                                     selected
-                                      ? "bg-accent-500/20 text-accent-300"
+                                      ? "bg-black/20 text-onaccent"
                                       : "bg-ink-500/25 text-neutral-300"
                                   }`}
                                 >
@@ -707,7 +711,7 @@ export default function LivePage() {
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
                                     aria-hidden
-                                    className="text-accent-400"
+                                    className="text-onaccent"
                                   >
                                     <path d="M20 6L9 17l-5-5" />
                                   </svg>
