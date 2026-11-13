@@ -18,20 +18,50 @@ from app.services.brands import BRAND_PROFILES, resolve_brand_urls
         ("foscam", "/videoMain", "/videoSub"),
         ("milesight", "/main", "/sub"),
         ("panasonic", "/MediaInput/h264/stream_1", "/MediaInput/h264/stream_2"),
-        ("ezviz", "/H.264", "/H.264_sub"),
+        ("ezviz", "/h264/ch01/main/av_stream", "/h264/ch01/sub/av_stream"),
+        # Profil baru dari riset 2026-11-13 (report.md).
+        ("bosch", "inst=1", "inst=2"),
+        ("avigilon", "/defaultPrimary", "/defaultSecondary"),
+        ("vivotek", "/live.sdp", "/live2.sdp"),
+        ("pelco", "/h264", "/h264_2"),
+        ("arecont", "/h264.sdp", None),
+        ("geovision", "/CH001.sdp", None),
+        ("provision_isr", "/profile1", "/profile2"),
+        ("tvt", "streamType=main", "streamType=sub"),
+        ("hiseeu", "/ch0_0.264", "/ch0_1.264"),
+        ("zosi", "/onvif1", "/onvif2"),
+        ("swann", "/ch01/0", "/ch01/1"),
+        ("huawei", "/LiveMedia/ch1/Media1", "/LiveMedia/ch1/Media2"),
+        ("dlink", "/play1.sdp", "/live1.sdp"),
+        ("digital_watchdog", "/Streaming/Channels/1", None),
+        ("zmodo", "/tcp/av0_0", "/tcp/av0_1"),
+        ("kedacom", "streamid=main", "streamid=sub"),
+        ("infinova", "/1/h264major", "/1/h264minor"),
+        ("raysharp", "/stream0", "/stream1"),
+        ("canon", "/stream/profile1=u", "/stream/profile1=r"),
+        ("lg", "/Master-0", "/Slave-0"),
+        ("jvs", "/live0.264", "/live1.264"),
+        ("xiaomi", "/ch0_0.h264", "/ch0_1.h264"),
+        ("eufy", "/live0", "/live1"),
     ],
 )
 def test_brand_main_sub(brand, main_mark, sub_mark):
     main, sub = resolve_brand_urls(brand, "admin", "p@ss", "192.168.1.10")
     assert main_mark in main
-    assert sub is not None and sub_mark in sub
+    if sub_mark is None:
+        assert sub is None
+    else:
+        assert sub is not None and sub_mark in sub
     assert "p%40ss" in main  # password di-quote
 
 
-def test_axis_sub_none():
+def test_axis_sub_lowres():
+    """Axis: tidak ada path sub distinct; sub memakai bentuk
+    ?camera=..&resolution=640x360 (riset 2026-11-13)."""
     main, sub = resolve_brand_urls("axis", "root", "pass", "192.168.1.11")
-    assert "/axis-media/media.amp" in main
-    assert sub is None
+    assert "/axis-media/media.amp?camera=1" in main
+    assert sub is not None
+    assert "resolution=640x360" in sub
 
 
 def test_brand_case_insensitive():

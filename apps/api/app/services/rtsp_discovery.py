@@ -16,6 +16,18 @@ main/sub, ch00_0/1, av0_0/1, /0 vs /1, /11 vs /12). Path terpilih
 ditandai role 'main'/'sub' di PathResult supaya API + UI bisa
 menampilkan keduanya dengan jelas.
 
+Daftar path kandidat (riset web 2026-11-13, report.md): ~55 merek +
+pola generik/ONVIF, total ~125 path (lihat _COMMON_PATHS +
+BRAND_PROFILES). Bila sumber berkonflik, SEMUA varian dimasukkan
+sebagai kandidat. Port non-554 (Foscam 88, GeoVision 8554, ACTi
+7070, Zmodo/V380 10554, Hiseeu 80, UniFi Protect 7441/7447,
+CamHi 5544) TIDAK dipindai otomatis — scanner memakai port yang
+dimasukkan user (default 554); merek tanpa RTSP native (Ring,
+Google Nest) dan UniFi Protect (token rtsps, bukan path tetap)
+sengaja tidak didukung. DESCRIBE semua path murah (~0,01 dtk
+untuk 38 path), jadi penambahan path tidak melambatkan scan;
+verifikasi ffprobe tetap dibatasi 8 path open pertama.
+
 Status per path: video | no_video | auth_failed | not_found | timeout | error.
 """
 
@@ -54,6 +66,15 @@ _MAX_VERIFY_PATHS = 8
 _HOST_BUDGET = 45.0  # detik maksimum seluruh discovery per host
 
 # Path umum vendor besar + generik (dedupe di candidate_paths).
+# Daftar ini + template BRAND_PROFILES = seluruh kandidat yang
+# di-DESCRIBE per host. Sumber: riset web 2026-11-13 (report.md,
+# ~55 merek + pola generik/ONVIF). Urutan = paling mungkin dulu
+# (Hikvision, Dahua, Uniview, stream1/2, Reolink, ...); path baru
+# dari riset ditambahkan berkelompok setelah yang lama supaya
+# 8 path pertama yang diverifikasi tetap yang paling umum.
+# Bila sumber berkonflik, SEMUA varian dimasukkan (mis. Ezviz
+# /h264/ch01/... vs /ch1/main vs /h264_stream; Hanwha profile1/2
+# vs profile2/3; Vivotek /live2.sdp vs /live1s.sdp).
 _COMMON_PATHS: tuple[str, ...] = (
     "/Streaming/Channels/101",
     "/Streaming/Channels/102",
@@ -85,6 +106,68 @@ _COMMON_PATHS: tuple[str, ...] = (
     "/1",
     "/video1",
     "/live.sdp",
+    # --- Tambahan riset 2026-11-13 (report.md) ---
+    # ONVIF generik (sub).
+    "/onvif2",
+    # Bentuk lama/varian konflik: Hikvision lama, Ezviz (OmniNVR),
+    # Annke lama, Reolink tanpa prefix h264.
+    "/h264/ch1/main/av_stream",
+    "/h264/ch1/sub/av_stream",
+    "/H264/ch1/main/av_stream",
+    "/H264/ch1/sub/av_stream",
+    "/ch1/main",
+    "/ch1/sub",
+    "/h264_stream",
+    "/Preview_01_main",
+    "/Preview_01_sub",
+    # Hanwha: profil ketiga + bentuk NVR/ONVIF (konflik penomoran
+    # profil: SmartRTSP profile1=main/profile2=sub, OmniNVR
+    # profile2=main/profile3=sub — semua dimasukkan).
+    "/profile3/media.smp",
+    "/onvif/profile2/media.smp",
+    "/LiveChannel/0/media.smp",
+    # Panasonic: bentuk dasar + mpeg4.
+    "/MediaInput/h264",
+    "/MediaInput/mpeg4",
+    # Vivotek alt sub, Tiandy (ch/stream), Infinova PTZ.
+    "/live1s.sdp",
+    "/1/1",
+    "/1/2",
+    "/1/1080p",
+    "/1/D1",
+    # Tapo dual-lens, Milesight (third + dual-sensor +
+    # multi-directional), FLIR alt.
+    "/stream6",
+    "/stream7",
+    "/third",
+    "/channel1/main",
+    "/channel1/sub",
+    "/sensor1/main",
+    "/sensor1/sub",
+    "/ch0",
+    "/vis",
+    # Bosch alt, Axis alt (bentuk dasar axis-media tanpa query).
+    "/rtsp_tunnel",
+    "/rtsp_tunnel?p=0&h26x=4",
+    "/video?inst=1",
+    "/axis-media/media.amp",
+    "/mpeg4/media.amp",
+    "/onvif-media/media.amp?profile=profile_1_h264",
+    # Huawei NVR, Honeywell alt, ACTi ONVIF, Hiseeu alt, Swann
+    # standalone, Pelco stream ketiga, Uniview stream ketiga.
+    "/rtsp/streaming?channel=1&subtype=0",
+    "/rtsp/streaming?channel=1&subtype=1",
+    "/channel=1_stream=0.sdp?real_stream",
+    "/onvif-stream1",
+    "/onvif&event&video1",
+    "/live/ch0",
+    "/live/h264",
+    "/h264_3",
+    "/media/video3",
+    # Bare (tanpa path): alt model lama ACTi, Tiandy, Avigilon.
+    # Paling akhir supaya tidak merebut slot verifikasi dari path
+    # yang lebih spesifik.
+    "/",
 )
 
 
@@ -325,24 +408,46 @@ def _path_segments(path: str) -> list[str]:
 def classify_path_name(path: str) -> str | None:
     """Petunjuk main/sub dari NAMA path saja (tanpa info video).
 
-    Pola umum lintas merek (Hikvision, Dahua, generik):
-      main: subtype=0, segmen 101, 'main', stream1, s0, ch00_0,
-        av0_0, segmen 0, segmen 11
-      sub:  subtype=1, segmen 102, 'sub', stream2, s1, ch00_1,
-        av0_1, segmen 1, segmen 12
+    Pola umum lintas merek (riset web 2026-11-13, report.md):
+      main: subtype=0, inst=1 (Bosch), segmen 101, /Streaming/Channels/1
+        (Digital Watchdog), profile1, 'main', stream1, stream_1,
+        defaultPrimary (Avigilon), Master (LG), Media1 (Huawei),
+        h264major (Infinova), 1080p, s0, ch00_0, av0_0, ch0_0,
+        live0, segmen /N/1 (Tiandy /1/1), segmen 0, segmen 11
+      sub:  subtype=1, inst=2 (Bosch), segmen 102, profile2, profile3,
+        profile1=r (Canon), 'sub', stream2, stream_2, h264_2 (Pelco),
+        defaultSecondary (Avigilon), Slave (LG), Media2 (Huawei),
+        h264minor (Infinova), D1, s1, ch00_1, av0_1, ch0_1,
+        live1, segmen /N/2 (Tiandy /1/2), segmen 1, segmen 12
     Kembalikan 'main' | 'sub' | None (tanpa petunjuk, mis. '/live',
     '/H.264', '/media/video1'). Urutan penting: 'subtype=0' dicek
-    sebelum 'sub' generik karena keduanya mengandung kata 'sub'.
+    sebelum 'sub' generik karena keduanya mengandung kata 'sub';
+    'profile1=r' dicek sebelum 'profile1'; pola spesifik (inst,
+    profile, h264major/minor, 1080p/D1) dicek sebelum segmen generik
+    '0'/'1' supaya tidak salah (mis. /1/h264major adalah main,
+    bukan sub karena segmen '1').
     """
     p = path.lower()
     if "subtype=0" in p:
         return "main"
     if "subtype=1" in p:
         return "sub"
+    if "inst=1" in p:
+        return "main"
+    if "inst=2" in p:
+        return "sub"
     segs = _path_segments(p)
     if "101" in segs:
         return "main"
     if "102" in segs:
+        return "sub"
+    if p == "/streaming/channels/1":
+        return "main"
+    if "profile1=r" in p:
+        return "sub"
+    if "profile1" in p:
+        return "main"
+    if "profile2" in p or "profile3" in p:
         return "sub"
     if "main" in p:
         return "main"
@@ -352,10 +457,47 @@ def classify_path_name(path: str) -> str | None:
         return "main"
     if "stream2" in p:
         return "sub"
-    if "s0" in segs or "ch00_0" in p or "av0_0" in p:
+    if "stream_1" in p:
         return "main"
-    if "s1" in segs or "ch00_1" in p or "av0_1" in p:
+    if "stream_2" in p:
         return "sub"
+    if "h264_2" in p:
+        return "sub"
+    if "defaultprimary" in p:
+        return "main"
+    if "defaultsecondary" in p:
+        return "sub"
+    if "master" in p:
+        return "main"
+    if "slave" in p:
+        return "sub"
+    if "media1" in segs:
+        return "main"
+    if "media2" in segs:
+        return "sub"
+    if "h264major" in p:
+        return "main"
+    if "h264minor" in p:
+        return "sub"
+    if "1080p" in segs:
+        return "main"
+    if "d1" in segs:
+        return "sub"
+    if "s0" in segs or "ch00_0" in p or "av0_0" in p or "ch0_0" in p:
+        return "main"
+    if "s1" in segs or "ch00_1" in p or "av0_1" in p or "ch0_1" in p:
+        return "sub"
+    if "live0" in p:
+        return "main"
+    if "live1" in p:
+        return "sub"
+    # Tiandy /{channel}/{stream}: segmen pertama angka (channel),
+    # segmen kedua 1=main, 2=sub. Dicek sebelum segmen generik '0'/'1'
+    # (kalau tidak, /1/1 akan salah jadi sub). Bentuk /ch01/0 dan
+    # /ch01/1 (Swann) tidak kena aturan ini karena segmen pertamanya
+    # 'ch01', bukan angka murni.
+    if len(segs) == 2 and segs[0].isdigit() and segs[1] in ("1", "2"):
+        return "main" if segs[1] == "1" else "sub"
     if "0" in segs:
         return "main"
     if "1" in segs:
@@ -400,11 +542,16 @@ def select_main_sub(paths: list[PathResult]) -> tuple[str | None, str | None]:
     smaller = [p for p in vids if p is not main and area(p) < area(main)]
     sub: PathResult | None = None
     if smaller:
-        # Resolusi terkecil dulu; seri -> yang namanya menandai sub,
-        # lalu fps tertinggi.
+        # Path yang namanya menandai sub DIDAHULUKAN atas yang
+        # resolusinya lebih kecil: kamera bisa punya stream KETIGA
+        # (/third, /media/video3, /h264_3, /profile3/media.smp)
+        # yang resolusinya lebih kecil dari sub — tanpa ini, stream
+        # ketiga yang paling kecil akan salah terpilih jadi sub.
+        # Bila tidak ada yang bernama sub, jatuh ke resolusi terkecil
+        # (perilaku lama).
         sub = min(smaller, key=lambda p: (
-            area(p),
             0 if classify_path_name(p.path) == "sub" else 1,
+            area(p),
             -(p.fps or 0.0),
         ))
     else:

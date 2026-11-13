@@ -543,3 +543,238 @@ async def test_scan_subnet_kamera_dikenal_ditandai_dan_jalur_cepat(
             for n in (9, 11, 12, 13, 14)
         )
         assert len(body["candidates"]) == 1
+
+
+# --- Pola RTSP riset 2026-11-13 (report.md, ~55 merek) ---
+
+import pytest
+
+
+@pytest.mark.parametrize(
+    "path, peran",
+    [
+        # Bosch (query inst).
+        ("/?h26x=4&line=1&inst=1", "main"),
+        ("/?h26x=4&line=1&inst=2", "sub"),
+        ("/video?inst=1", "main"),
+        # Avigilon.
+        ("/defaultPrimary?streamType=u", "main"),
+        ("/defaultSecondary?streamType=u", "sub"),
+        # Hanwha / Provision-ISR (profile).
+        ("/profile1/media.smp", "main"),
+        ("/profile2/media.smp", "sub"),
+        ("/profile3/media.smp", "sub"),
+        ("/profile1", "main"),
+        ("/profile2", "sub"),
+        ("/onvif/profile2/media.smp", "sub"),
+        # Canon (profile1=u main, profile1=r sub — r dicek dulu).
+        ("/stream/profile1=u", "main"),
+        ("/stream/profile1=r", "sub"),
+        # LG Master/Slave, Huawei Media1/Media2.
+        ("/Master-0", "main"),
+        ("/Slave-0", "sub"),
+        ("/LiveMedia/ch1/Media1", "main"),
+        ("/LiveMedia/ch1/Media2", "sub"),
+        # Infinova / Hanbang.
+        ("/1/h264major", "main"),
+        ("/1/h264minor", "sub"),
+        ("/1/1080p", "main"),
+        ("/1/D1", "sub"),
+        # Tiandy /{channel}/{stream} (angka murni).
+        ("/1/1", "main"),
+        ("/1/2", "sub"),
+        # Digital Watchdog (path persis, bukan segmen '1' generik).
+        ("/Streaming/Channels/1", "main"),
+        # Swann (ch01/0 main, ch01/1 sub — segmen pertama bukan angka).
+        ("/ch01/0", "main"),
+        ("/ch01/1", "sub"),
+        # Hiseeu / V380 / Xiaomi (ch0_0 main, ch0_1 sub).
+        ("/ch0_0.264", "main"),
+        ("/ch0_1.264", "sub"),
+        ("/ch0_0.h264", "main"),
+        ("/ch0_1.h264", "sub"),
+        # Eufy / Zosi / JVS (live0 main, live1 sub).
+        ("/live0", "main"),
+        ("/live1", "sub"),
+        ("/live0.264", "main"),
+        ("/live1.264", "sub"),
+        ("/live1s.sdp", "sub"),
+        # Ezviz / Tiandy bentuk h264/ch01.
+        ("/h264/ch01/main/av_stream", "main"),
+        ("/h264/ch01/sub/av_stream", "sub"),
+        ("/h264/ch1/main/av_stream", "main"),
+        ("/ch1/main", "main"),
+        ("/ch1/sub", "sub"),
+        # Kedacom / TVT (kata main/sub di query).
+        ("/session0?streamid=main", "main"),
+        ("/session0?streamid=sub", "sub"),
+        ("/?chID=1&streamType=main&linkType=tcp", "main"),
+        ("/?chID=1&streamType=sub&linkType=tcp", "sub"),
+        # Panasonic bentuk underscore.
+        ("/MediaInput/h264/stream_1", "main"),
+        ("/MediaInput/h264/stream_2", "sub"),
+        # Pelco h264_2 sub (h264_3 = stream ketiga, tanpa peran).
+        ("/h264_2", "sub"),
+        ("/h264_3", None),
+        # Zmodo tcp/av0_0, /third dan /media/video3 tanpa peran.
+        ("/tcp/av0_0", "main"),
+        ("/tcp/av0_1", "sub"),
+        ("/third", None),
+        ("/media/video3", None),
+        # Generik tanpa petunjuk tetap None (resolusi yang memutuskan).
+        ("/live", None),
+        ("/H.264", None),
+        ("/media/video1", None),
+        ("/onvif1", None),
+        ("/CH001.sdp", None),
+        ("/ch0", None),
+        ("/vis", None),
+        ("/", None),
+        ("/rtsp_tunnel", None),
+        ("/h264_stream", None),
+        ("/stream0", None),
+        ("/stream6", None),
+    ],
+)
+def test_classify_path_name_pola_baru_riset(path, peran):
+    """classify_path_name mengenali semua pola baru dari riset."""
+    assert rtsp_discovery.classify_path_name(path) == peran
+
+
+def test_candidate_paths_memuat_semua_pola_riset():
+    """Semua path riset jadi kandidat; 12 pertama tidak berubah
+    (Hikvision, Dahua, Uniview, stream1/2, Reolink, H.264)."""
+    from app.services.rtsp_discovery import candidate_paths
+
+    cands = candidate_paths()
+    assert len(cands) == len(set(cands)), "kandidat tidak boleh duplikat"
+    assert len(cands) >= 120, f"hanya {len(cands)} kandidat"
+    assert cands[:12] == [
+        "/Streaming/Channels/101",
+        "/Streaming/Channels/102",
+        "/cam/realmonitor?channel=1&subtype=0",
+        "/cam/realmonitor?channel=1&subtype=1",
+        "/unicast/c1/s0/live",
+        "/unicast/c1/s1/live",
+        "/stream1",
+        "/stream2",
+        "/h264Preview_01_main",
+        "/h264Preview_01_sub",
+        "/H.264",
+        "/H.264_sub",
+    ]
+    wajib = [
+        # Merek baru (template brand).
+        "/?h26x=4&line=1&inst=1", "/?h26x=4&line=1&inst=2",
+        "/defaultPrimary?streamType=u", "/defaultSecondary?streamType=u",
+        "/live2.sdp", "/h264_2", "/h264.sdp",
+        "/profile1", "/profile2",
+        "/?chID=1&streamType=main&linkType=tcp",
+        "/ch0_0.264", "/ch0_1.264", "/onvif2",
+        "/ch01/0", "/ch01/1", "/CH001.sdp",
+        "/LiveMedia/ch1/Media1", "/LiveMedia/ch1/Media2",
+        "/play1.sdp", "/live1.sdp", "/Streaming/Channels/1",
+        "/tcp/av0_0", "/tcp/av0_1",
+        "/session0?streamid=main", "/session0?streamid=sub",
+        "/1/h264major", "/1/h264minor",
+        "/stream0", "/stream/profile1=u", "/stream/profile1=r",
+        "/Master-0", "/Slave-0", "/live0.264", "/live1.264",
+        "/ch0_0.h264", "/ch0_1.h264", "/live0", "/live1",
+        "/h264/ch01/main/av_stream", "/h264/ch01/sub/av_stream",
+        "/axis-media/media.amp?camera=1",
+        # Varian konflik / generik (_COMMON_PATHS).
+        "/onvif2", "/media/video3", "/live1s.sdp",
+        "/h264/ch1/main/av_stream", "/H264/ch1/main/av_stream",
+        "/ch1/main", "/ch1/sub", "/h264_stream",
+        "/Preview_01_main", "/Preview_01_sub",
+        "/profile3/media.smp", "/onvif/profile2/media.smp",
+        "/LiveChannel/0/media.smp",
+        "/MediaInput/h264", "/MediaInput/mpeg4",
+        "/1/1", "/1/2", "/1/1080p", "/1/D1",
+        "/stream6", "/stream7", "/third",
+        "/channel1/main", "/channel1/sub",
+        "/sensor1/main", "/sensor1/sub",
+        "/ch0", "/vis", "/rtsp_tunnel",
+        "/rtsp_tunnel?p=0&h26x=4", "/video?inst=1",
+        "/axis-media/media.amp", "/mpeg4/media.amp",
+        "/onvif-media/media.amp?profile=profile_1_h264",
+        "/rtsp/streaming?channel=1&subtype=0",
+        "/rtsp/streaming?channel=1&subtype=1",
+        "/channel=1_stream=0.sdp?real_stream",
+        "/onvif-stream1", "/onvif&event&video1",
+        "/live/ch0", "/live/h264", "/h264_3",
+        "/",
+    ]
+    hilang = [p for p in wajib if p not in cands]
+    assert not hilang, f"path riset belum jadi kandidat: {hilang}"
+
+
+def test_select_main_sub_stream_ketiga_bukan_sub():
+    """Stream ketiga (lebih kecil, tanpa nama sub) tidak boleh jadi
+    sub bila ada path yang namanya memang sub — mis. Milesight
+    /main 1080p, /sub 720p, /third 360p -> sub harus /sub."""
+    paths = [
+        PathResult(path="/main", url="rtsp://h/main", status="video",
+                   codec="h264", width=1920, height=1080, fps=25.0),
+        PathResult(path="/sub", url="rtsp://h/sub", status="video",
+                   codec="h264", width=1280, height=720, fps=25.0),
+        PathResult(path="/third", url="rtsp://h/third", status="video",
+                   codec="h264", width=640, height=360, fps=25.0),
+    ]
+    main, sub = rtsp_discovery.select_main_sub(paths)
+    assert main == "rtsp://h/main"
+    assert sub == "rtsp://h/sub"
+    assert paths[1].role == "sub"
+    assert paths[2].role is None
+
+
+async def test_discover_host_merek_baru_bosch_avigilon(monkeypatch):
+    """End-to-end: Bosch (inst=1/inst=2, resolusi sama -> nama yang
+    membedakan) dan Avigilon (defaultPrimary/Secondary) terdeteksi
+    sebagai main/sub dengan role benar."""
+    async def fake_alive(host: str, port: int) -> bool:
+        return True
+
+    async def fake_probe(url: str, timeout: float = 3.0) -> str:
+        # Cocok PERSIS (bukan endswith): endswith('inst=1') akan ikut
+        # membuka '/video?inst=1' dari _COMMON_PATHS yang urutannya
+        # lebih dulu dan akan menang jadi main.
+        from urllib.parse import urlparse
+
+        parts = urlparse(url)
+        path = parts.path + (f"?{parts.query}" if parts.query else "")
+        return "open" if path in {
+            "/?h26x=4&line=1&inst=1", "/?h26x=4&line=1&inst=2",
+            "/defaultPrimary?streamType=u",
+            "/defaultSecondary?streamType=u",
+        } else "not_found"
+
+    async def fake_ffprobe(url: str, timeout: float = 10.0) -> VideoProbe:
+        # Kamera menjawab semua path dengan stream yang SAMA.
+        return VideoProbe(status="video", codec="h264",
+                          width=1920, height=1080, fps=25.0, gop_seconds=2.0)
+
+    monkeypatch.setattr(rtsp_discovery, "_tcp_alive", fake_alive)
+    monkeypatch.setattr(rtsp_discovery, "probe_path", fake_probe)
+    monkeypatch.setattr(rtsp_discovery, "_run_ffprobe", fake_ffprobe)
+
+    disc = await rtsp_discovery.discover_host("192.168.1.10", 554,
+                                              "admin", "pw")
+    assert disc.best_main is not None
+    assert disc.best_sub is not None
+    by_path = {p.path: p for p in disc.paths if p.status == "video"}
+    # Bosch: inst=1 main, inst=2 sub (keduanya video, resolusi sama).
+    assert by_path["/?h26x=4&line=1&inst=1"].role == "main"
+    assert by_path["/?h26x=4&line=1&inst=2"].role == "sub"
+    assert disc.best_main.endswith("inst=1")
+    assert disc.best_sub.endswith("inst=2")
+    # Avigilon: kedua path ditemukan sebagai video (klasifikasi
+    # namanya sudah dibuktikan tes classify di atas); hanya satu
+    # pasang main/sub yang terpilih, dan Bosch menang tiebreak
+    # karena urutan kandidatnya lebih dulu, jadi role Avigilon None.
+    assert by_path["/defaultPrimary?streamType=u"].status == "video"
+    assert by_path["/defaultSecondary?streamType=u"].status == "video"
+    assert by_path["/defaultPrimary?streamType=u"].role is None
+    assert by_path["/defaultSecondary?streamType=u"].role is None
+    # Main dan sub harus berbeda path.
+    assert disc.best_main != disc.best_sub

@@ -55,6 +55,19 @@ function mainInfo(h: SubnetHost): string {
   return parts.join(" · ");
 }
 
+/* Path main/sub SAJA (tanpa IP/user/password/port): kolom 'Path main'
+   dan 'Path sub' hanya menampilkan path, mis. /Streaming/Channels/101.
+   best_main/best_sub adalah URL LENGKAP (rtsp://user:pass@ip:port/...)
+   dan tetap dipakai utuh saat menambah kamera — jangan ditampilkan
+   di sini supaya kredensial tidak bocor ke layar. */
+function mainPath(h: SubnetHost): string {
+  return h.paths.find((x) => x.role === "main")?.path ?? "-";
+}
+
+function subPath(h: SubnetHost): string {
+  return h.paths.find((x) => x.role === "sub")?.path ?? "-";
+}
+
 /* Info sub stream (role 'sub' dari klasifikasi pintar backend):
    resolusi + fps bila ada, atau path-nya bila tanpa info video
    (mis. jalur cepat kamera dikenal). */
@@ -277,10 +290,10 @@ export default function AdminScannerPage() {
           </span>
         </NBTd>
         <NBTd className="max-w-[280px] truncate font-mono text-xs">
-          {h.best_main ?? "-"}
+          {mainPath(h)}
         </NBTd>
         <NBTd className="max-w-[280px] truncate font-mono text-xs">
-          {h.best_sub ?? "-"}
+          {subPath(h)}
         </NBTd>
         <NBTd className="text-xs">
           {h.best_main && (
