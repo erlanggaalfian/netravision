@@ -539,9 +539,12 @@ function EmbedInner() {
     <div className="flex min-h-dvh flex-col bg-ink-950">
       <header className="flex items-center justify-between px-4 py-3 sm:px-6">
         <div className="flex items-center gap-2.5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-600 text-xs font-bold text-onaccent">
-            N
-          </span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/icons/logo.png"
+            alt="Logo NetraVision"
+            className="h-8 w-8 object-contain"
+          />
           <span className="text-sm font-bold text-white">NetraVision</span>
         </div>
         <span className="rounded-full bg-ink-800 px-3 py-1 text-[11px] font-medium text-neutral-400">

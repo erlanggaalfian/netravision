@@ -90,9 +90,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* Sidebar desktop */}
       <aside className="hidden w-64 shrink-0 flex-col border-r border-ink-800 bg-ink-900 md:flex">
         <div className="flex items-center gap-3 px-5 pb-1 pt-6">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-500 text-base font-extrabold tracking-tight text-white">
-            N
-          </span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/icons/logo.png"
+            alt="Logo NetraVision"
+            className="h-10 w-10 object-contain"
+          />
           <div>
             <div className="text-[15px] font-bold tracking-tight text-slate-300">
               NetraVision
@@ -159,9 +162,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* Topbar mobile */}
         <header className="flex items-center justify-between border-b border-ink-800 bg-ink-900 px-4 py-3 md:hidden">
           <div className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-600 text-xs font-extrabold text-onaccent">
-              N
-            </span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/icons/logo.png"
+              alt="Logo NetraVision"
+              className="h-8 w-8 object-contain"
+            />
             <div>
               <div className="text-sm font-bold tracking-tight text-slate-200">
                 NetraVision

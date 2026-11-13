@@ -6,23 +6,6 @@ import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { ErrorBox } from "../../components/ui";
 
-/* Marka lensa, digambar murni SVG. */
-function LensMark({ className = "" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <rect x="1.5" y="1.5" width="21" height="21" rx="6" fill="url(#lensGrad)" />
-      <defs>
-        <linearGradient id="lensGrad" x1="1.5" y1="1.5" x2="22.5" y2="22.5">
-          <stop stopColor="var(--nv-accent-500)" />
-          <stop offset="1" stopColor="var(--nv-accent-600)" />
-        </linearGradient>
-      </defs>
-      <circle cx="12" cy="12" r="5.5" stroke="#fff" strokeWidth="1.8" />
-      <circle cx="12" cy="12" r="1.8" fill="#fff" />
-    </svg>
-  );
-}
-
 /* Input modern: radius 14px, 16px (anti-zoom iOS), focus glow. */
 const inputCls =
   "w-full rounded-xl bg-ink-800 px-4 py-3 text-[16px] text-slate-100 placeholder:text-slate-400 shadow-sm outline-none transition-all duration-150 ease-out focus:ring-2 focus:ring-accent-500/30";
@@ -128,9 +111,12 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="nv-panel-modern p-6 sm:p-8">
           <div className="mb-7 flex flex-col items-center gap-3">
-            <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-b from-accent-500 to-accent-600 shadow-[0_8px_24px_-6px_var(--nv-accent-500)]">
-              <LensMark className="h-10 w-10" />
-            </span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/icons/logo.png"
+              alt="Logo NetraVision"
+              className="h-20 w-20 object-contain"
+            />
             <p className="text-[22px] font-extrabold tracking-tight text-slate-100">
               NetraVision
             </p>
