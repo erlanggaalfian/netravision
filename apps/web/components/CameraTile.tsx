@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { playWhep, stopWhep } from "../lib/whep";
-import { playHls, stopHls, type HlsHandle } from "../lib/hls";
+import { playHls, stopHls, isHlsWarm, type HlsHandle } from "../lib/hls";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { usePosterUrl } from "../lib/api";
 import { AdBanner } from "./AdBanner";
@@ -35,6 +35,14 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
   const [failMsg, setFailMsg] = useState<string | null>(null);
   const [disconnected, setDisconnected] = useState(false);
   const [retryTick, setRetryTick] = useState(0);
+  /* Auto-retry: bila tile gagal (mis. gangguan sesaat seperti ffmpeg sub
+     restart atau muxer HLS dingin), coba lagi otomatis beberapa kali
+     dengan jeda, supaya user tidak harus refresh halaman manual.
+     Dibatasi supaya tidak berputar selamanya bila memang ada masalah
+     menetap; tombol "Coba lagi" tetap tersedia. */
+  const [autoRetryCount, setAutoRetryCount] = useState(0);
+  const MAX_AUTO_RETRY = 3;
+  const AUTO_RETRY_DELAY_MS = 10000;
   const [showControls, setShowControls] = useState(false);
   /* Sinyal iklan: hover tile + tiap klik tile (perilaku marquee hover/click). */
   const [tileHovered, setTileHovered] = useState(false);
@@ -72,7 +80,24 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
     setFailMsg(null);
     setDisconnected(false);
     setPlaying(false);
+    setAutoRetryCount(0);
   }, [stream.id, stream.is_online, url]);
+
+  /* Auto-retry tile yang gagal: bila kamera masih online (is_online)
+     tapi pemutaran gagal (gangguan sesaat), coba lagi otomatis setelah
+     jeda, hingga batas. Reset bila kamera berganti/offline (effect di
+     atas) atau bila berhasil memutar (onPlaying di tryHls). */
+  useEffect(() => {
+    if (!failed || !stream.is_online) return;
+    if (autoRetryCount >= MAX_AUTO_RETRY) return;
+    const t = setTimeout(() => {
+      setAutoRetryCount((c) => c + 1);
+      setFailed(false);
+      setFailMsg(null);
+      setRetryTick((v) => v + 1);
+    }, AUTO_RETRY_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [failed, stream.is_online, autoRetryCount]);
 
   useEffect(() => {
     if (!stream.is_online) return;
@@ -102,12 +127,25 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
     /* Fallback HLS bila WebRTC/WHEP gagal tersambung (UDP diblokir).
        HLS memakai sub stream yang sama via HTTP, jadi grid tetap
        menampilkan sub (bukan main). Bila HLS juga gagal, baru fail.
-       RETRY: muxer HLS MediaMTX per-path butuh ~7-10 dtk untuk hangat
-       (playlist awal berisi segmen gap, sesi baru langsung hangat bila
-       muxer sudah jalan). Percobaan pertama menyalakan muxer; bila
-       gagal, coba lagi setelah jeda supaya playlist sudah hangat.
-       Maks 3 percobaan. */
-    const tryHls = (attempt = 1) => {
+       TUNGGU HANGAT: muxer HLS MediaMTX per-path butuh ~7-10 dtk untuk
+       hangat (playlist awal berisi segmen gap, dan hls.js tetap mencoba
+       memuat gap.mp4 lalu gagal fatal dengan 404). Sebelum memulai
+       hls.js, periksa playlist variant hingga bebas gap (maks ~6 dtk);
+       bila WHEP gagal cepat (bukan timeout 10 dtk), penantian ini yang
+       menyelamatkan percobaan pertama. Bila setelah menunggu masih ada
+       gap, tetap coba (retry di bawah yang menangani).
+       RETRY: percobaan pertama menyalakan muxer; bila gagal, coba lagi
+       setelah jeda supaya playlist sudah hangat. Maks 5 percobaan
+       (naik dari 3, supaya menutup jendela hangat muxer ~10 dtk walau
+       WHEP gagal cepat). */
+    const tryHls = async (attempt = 1) => {
+      if (cancelled || hlsRef.current) return;
+      /* Tunggu playlist bebas gap (maks 3x cek, jeda 2 dtk). */
+      for (let i = 0; i < 3; i++) {
+        if (cancelled || hlsRef.current) return;
+        if (await isHlsWarm(hlsUrl)) break;
+        await new Promise((r) => setTimeout(r, 2000));
+      }
       if (cancelled || hlsRef.current) return;
       const v = videoRef.current;
       if (!v) {
@@ -124,7 +162,7 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
           if (cancelled) return;
           stopHls(hlsRef.current);
           hlsRef.current = null;
-          if (attempt < 3) {
+          if (attempt < 5) {
             setTimeout(() => {
               if (!cancelled) tryHls(attempt + 1);
             }, 4000);
@@ -137,6 +175,7 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
           if (cancelled) return;
           setDisconnected(false);
           setPlaying(true);
+          setAutoRetryCount(0);
         };
         v.addEventListener("playing", onPlaying, { once: true });
       } catch {
@@ -282,6 +321,7 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
                 onClick={(e) => {
                   e.stopPropagation();
                   setDisconnected(false);
+                  setAutoRetryCount(0);
                   setRetryTick((t) => t + 1);
                 }}
                 className="mt-1 flex h-11 items-center rounded-xl bg-white/10 px-4 text-xs font-bold text-white transition hover:bg-white/25 active:scale-95"
@@ -344,6 +384,7 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
                 e.stopPropagation();
                 setFailed(false);
                 setFailMsg(null);
+                setAutoRetryCount(0);
                 setRetryTick((t) => t + 1);
               }}
               className="relative mt-1 flex h-11 items-center rounded-xl bg-white/10 px-4 text-xs font-bold text-white transition hover:bg-white/25 active:scale-95"

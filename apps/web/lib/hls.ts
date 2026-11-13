@@ -87,3 +87,32 @@ export function stopHls(handle: HlsHandle | null) {
     /* abaikan */
   }
 }
+
+/* Periksa apakah playlist HLS variant sudah bebas segmen gap.
+   Muxer HLS MediaMTX (varian lowLatency) butuh ~10 dtk untuk hangat dari
+   dingin; playlist awal berisi segmen `gap.mp4` bertanda #EXT-X-GAP.
+   hls.js tetap mencoba memuat gap.mp4 (404) dan gagal fatal, jadi HLS
+   tidak boleh dimulai selagi masih ada gap. Kembalikan true bila bebas
+   gap, false bila masih ada gap atau gagal mengambil playlist. */
+export async function isHlsWarm(masterUrl: string): Promise<boolean> {
+  try {
+    const masterRes = await fetch(masterUrl);
+    if (!masterRes.ok) return false;
+    const masterText = await masterRes.text();
+    const variantLine = masterText
+      .split("\n")
+      .find((l) => l.includes(".m3u8") && !l.startsWith("#"));
+    if (!variantLine) return false;
+    /* masterUrl di sini relatif (/hls/stream_...), sedangkan new URL()
+       butuh base absolut; tanpa ini selalu lempar "Invalid URL" dan
+       fungsi selalu mengembalikan false (pemeriksaan hangat mati). */
+    const base = new URL(masterUrl, window.location.href);
+    const variantUrl = new URL(variantLine.trim(), base).toString();
+    const variantRes = await fetch(variantUrl);
+    if (!variantRes.ok) return false;
+    const variantText = await variantRes.text();
+    return !variantText.includes("gap.mp4");
+  } catch {
+    return false;
+  }
+}
