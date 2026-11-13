@@ -207,7 +207,8 @@ async def test_scan_subnet_funnel_tiga_tahap(scan_client, monkeypatch):
         return host in port_open
 
     async def fake_discover(host: str, port: int = 554,
-                            user=None, password=None, channel: int = 1):
+                            user=None, password=None, channel: int = 1,
+                            known_paths=None):
         discovered.append(host)
         assert host in port_open, (
             f"discovery dipanggil untuk {host} yang gagal tahap 2"
@@ -284,7 +285,8 @@ async def test_scan_subnet_tahap1_fallback_tcp_kamera_blokir_ping(
         return host == "192.168.1.10" and port == 554
 
     async def fake_discover(host: str, port: int = 554,
-                            user=None, password=None, channel: int = 1):
+                            user=None, password=None, channel: int = 1,
+                            known_paths=None):
         path = PathResult(
             path="/live", url=f"rtsp://{host}:{port}/live",
             status="video", codec="h264",
@@ -312,4 +314,149 @@ async def test_scan_subnet_tahap1_fallback_tcp_kamera_blokir_ping(
         by_host = {h["host"]: h for h in body["hosts"]}
         assert by_host["192.168.1.10"]["status"] == "video"
         assert by_host["192.168.1.9"]["status"] == "unreachable"
+        assert len(body["candidates"]) == 1
+
+
+async def test_discover_host_ffprobe_paralel_dan_dibatasi(monkeypatch):
+    """ffprobe paralel (2/host) + dibatasi 8 path open pertama.
+
+    12 path open, tiap ffprobe tidur 0,5 dtk: serial butuh 8 x 0,5 =
+    4,0 dtk (dan tanpa batas 12 x 0,5 = 6,0 dtk); paralel 2 butuh
+    ~2,0 dtk dan hanya 8 panggilan. Main = resolusi terbesar, sub =
+    yang terkecil."""
+    from app.services.rtsp_discovery import candidate_paths
+
+    first12 = set(candidate_paths()[:12])
+    calls: list[str] = []
+
+    async def fake_alive(host: str, port: int) -> bool:
+        return True
+
+    async def fake_probe(url: str, timeout: float = 3.0) -> str:
+        path = "/" + url.split("://", 1)[-1].split("/", 1)[-1]
+        return "open" if path in first12 else "not_found"
+
+    async def fake_ffprobe(url: str, timeout: float = 10.0) -> VideoProbe:
+        calls.append(url)
+        await asyncio.sleep(0.5)
+        # Path pertama paling besar (main), kedua paling kecil (sub).
+        if url.endswith("/Streaming/Channels/101"):
+            w, h = 1920, 1080
+        elif url.endswith("/Streaming/Channels/102"):
+            w, h = 640, 360
+        else:
+            w, h = 1280, 720
+        return VideoProbe(status="video", codec="h264",
+                          width=w, height=h, fps=25.0, gop_seconds=2.0)
+
+    monkeypatch.setattr(rtsp_discovery, "_tcp_alive", fake_alive)
+    monkeypatch.setattr(rtsp_discovery, "probe_path", fake_probe)
+    monkeypatch.setattr(rtsp_discovery, "_run_ffprobe", fake_ffprobe)
+
+    t0 = time.monotonic()
+    disc = await rtsp_discovery.discover_host("192.168.1.10", 554,
+                                              "admin", "pw")
+    elapsed = time.monotonic() - t0
+    # Paralel 2: 8 panggilan x 0,5 dtk / 2 = ~2,0 dtk (batas longgar
+    # 3,2 dtk supaya stabil saat mesin sibuk; serial butuh 4,0 dtk).
+    assert elapsed < 3.2, f"ffprobe masih serial? {elapsed:.2f} dtk"
+    assert len(calls) == 8, f"tanpa batas 8, ffprobe dipanggil {len(calls)}x"
+    assert disc.best_main is not None
+    assert disc.best_main.endswith("/Streaming/Channels/101")
+    assert disc.best_sub is not None
+    assert disc.best_sub.endswith("/Streaming/Channels/102")
+
+
+async def test_discover_host_jalur_cepat_kamera_dikenal(monkeypatch):
+    """Kamera dikenal (path main terdaftar terbuka di DESCRIBE) ->
+    video tanpa ffprobe sama sekali; bila path dikenal tidak terbuka,
+    discovery penuh seperti biasa."""
+    calls: list[str] = []
+
+    async def fake_alive(host: str, port: int) -> bool:
+        return True
+
+    async def fake_probe(url: str, timeout: float = 3.0) -> str:
+        return "open" if url.endswith("/H.264") else "not_found"
+
+    async def fake_ffprobe(url: str, timeout: float = 10.0) -> VideoProbe:
+        calls.append(url)
+        return VideoProbe(status="video", codec="h264",
+                          width=1920, height=1080, fps=25.0)
+
+    monkeypatch.setattr(rtsp_discovery, "_tcp_alive", fake_alive)
+    monkeypatch.setattr(rtsp_discovery, "probe_path", fake_probe)
+    monkeypatch.setattr(rtsp_discovery, "_run_ffprobe", fake_ffprobe)
+
+    # Jalur cepat: /H.264 dikenal + terbuka -> tanpa ffprobe.
+    disc = await rtsp_discovery.discover_host(
+        "192.168.1.10", 554, "admin", "pw",
+        known_paths=("/H.264", None))
+    assert disc.best_main is not None
+    assert disc.best_main.endswith("/H.264")
+    assert disc.best_sub is None
+    assert calls == [], "jalur cepat tidak boleh memanggil ffprobe"
+
+    # Path dikenal tidak terbuka -> discovery penuh (ffprobe jalan).
+    disc2 = await rtsp_discovery.discover_host(
+        "192.168.1.10", 554, "admin", "pw",
+        known_paths=("/tidak-ada", None))
+    assert disc2.best_main is not None
+    assert disc2.best_main.endswith("/H.264")
+    assert len(calls) == 1, "fallback harus memverifikasi via ffprobe"
+
+
+async def test_scan_subnet_kamera_dikenal_ditandai_dan_jalur_cepat(
+    scan_client, monkeypatch,
+):
+    """HTTP: kamera terdaftar + online di DB ditandai known=true,
+    ditemukan lewat jalur cepat (tanpa ffprobe), dan host lain
+    known=false."""
+    from app.models.streams import Stream
+
+    app, _, db = scan_client
+    admin = make_user(role="super_admin")
+    db.add(admin)
+    db.add(Stream(
+        name="Cam 10", rtsp_url="rtsp://admin:pw@192.168.1.10:554/H.264",
+        main_url="rtsp://admin:pw@192.168.1.10:554/H.264",
+        sub_url=None, is_active=True, is_online=True,
+    ))
+    await db.commit()
+    auth_as(app, admin)
+
+    async def fake_reachable(host: str, port: int) -> bool:
+        return host == "192.168.1.10"
+
+    async def fake_port_open(host: str, port: int) -> bool:
+        return host == "192.168.1.10"
+
+    async def fake_probe(url: str, timeout: float = 3.0) -> str:
+        return "open" if url.endswith("/H.264") else "not_found"
+
+    async def fake_ffprobe(url: str, timeout: float = 10.0) -> VideoProbe:
+        raise AssertionError("jalur cepat tidak boleh memanggil ffprobe")
+
+    monkeypatch.setattr(admin_scan, "_host_reachable", fake_reachable)
+    monkeypatch.setattr(admin_scan, "_port_open", fake_port_open)
+    monkeypatch.setattr(rtsp_discovery, "probe_path", fake_probe)
+    monkeypatch.setattr(rtsp_discovery, "_run_ffprobe", fake_ffprobe)
+
+    async with _client(app) as c:
+        r = await c.post(
+            "/api/admin/scan-subnet",
+            json={"ip_range": "192.168.1.8/29", "port": 554},
+        )
+        assert r.status_code == 202, r.text
+        body = await _poll_done(c, r.json()["job_id"])
+        assert body["status"] == "done"
+        by_host = {h["host"]: h for h in body["hosts"]}
+        h = by_host["192.168.1.10"]
+        assert h["known"] is True
+        assert h["status"] == "video"
+        assert h["best_main"].endswith("/H.264")
+        assert all(
+            by_host[f"192.168.1.{n}"]["known"] is False
+            for n in (9, 11, 12, 13, 14)
+        )
         assert len(body["candidates"]) == 1

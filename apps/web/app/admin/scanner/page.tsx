@@ -26,7 +26,26 @@ type ScanJobStatus = {
   hosts: SubnetHost[];
   candidates: { host: string; main_url: string }[];
   error: string | null;
+  /* Progres funnel 3 tahap (dari GET job). */
+  stage: "reachability" | "port_check" | "discovery" | "done";
+  reachable_count: number;
+  port_open_count: number;
 };
+
+const STAGE_LABEL: Record<ScanJobStatus["stage"], string> = {
+  reachability: "Tahap 1/3 · Cek IP terjangkau",
+  port_check: "Tahap 2/3 · Cek port RTSP",
+  discovery: "Tahap 3/3 · Cek kamera",
+  done: "Selesai",
+};
+
+/* Urutkan host secara numerik per IP supaya daftar live tidak
+   meloncat-loncat mengikuti urutan selesainya tiap host. */
+function sortHosts(hosts: SubnetHost[]): SubnetHost[] {
+  const num = (h: SubnetHost) =>
+    h.host.split(".").reduce((acc, n) => acc * 256 + (parseInt(n, 10) || 0), 0);
+  return [...hosts].sort((a, b) => num(a) - num(b));
+}
 
 function mainInfo(h: SubnetHost): string {
   const p = h.paths.find((x) => x.role === "main");
@@ -42,7 +61,13 @@ export default function AdminScannerPage() {
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [scanning, setScanning] = useState(false);
-  const [progress, setProgress] = useState({ scanned: 0, total: 0 });
+  const [progress, setProgress] = useState({
+    scanned: 0,
+    total: 0,
+    stage: "reachability" as ScanJobStatus["stage"],
+    reachable: 0,
+    portOpen: 0,
+  });
   const [hosts, setHosts] = useState<SubnetHost[] | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [adding, setAdding] = useState(false);
@@ -57,18 +82,30 @@ export default function AdminScannerPage() {
   }, []);
 
   const key = (h: SubnetHost) => `${h.host}:${h.port}`;
-  const selectable = (hosts ?? []).filter((h) => h.status === "video");
+  /* Kamera yang sudah terdaftar tidak ditawarkan untuk ditambah lagi
+     (cegah duplikat): hanya host video yang BELUM dikenal yang bisa
+     dipilih. */
+  const selectable = (hosts ?? []).filter(
+    (h) => h.status === "video" && !h.known,
+  );
 
   async function doScan() {
     setError("");
     setScanning(true);
-    setProgress({ scanned: 0, total: 0 });
+    setProgress({
+      scanned: 0,
+      total: 0,
+      stage: "reachability",
+      reachable: 0,
+      portOpen: 0,
+    });
     setHosts(null);
     setChecked(new Set());
     setAdded(0);
     try {
       /* Scan async: POST langsung kembalikan 202 + job_id, lalu polling
-         status tiap 2 detik sampai done/error. */
+         status tiap 2 detik sampai done/error. Hasil parsial
+         ditampilkan langsung selagi jalan (bukan hanya saat selesai). */
       const created = await api.post<{ job_id: string }>("/admin/scan-subnet", {
         ip_range: ipRange.trim(),
         port: parseInt(port, 10) || 554,
@@ -83,9 +120,16 @@ export default function AdminScannerPage() {
           `/admin/scan-subnet/${jobId}`,
         );
         if (cancelledRef.current) return;
-        setProgress({ scanned: job.scanned, total: job.total });
+        setProgress({
+          scanned: job.scanned,
+          total: job.total,
+          stage: job.stage ?? "reachability",
+          reachable: job.reachable_count ?? 0,
+          portOpen: job.port_open_count ?? 0,
+        });
+        /* Hasil live: host yang sudah selesai langsung terlihat. */
+        setHosts(sortHosts(job.hosts ?? []));
         if (job.status === "done") {
-          setHosts(job.hosts);
           if (job.hosts.length === 0)
             setError("Tidak ada kamera ditemukan di subnet ini.");
           break;
@@ -158,7 +202,8 @@ export default function AdminScannerPage() {
   /* E-R5: dua komponen terpisah supaya HTML valid: kartu <li>
      hanya di dalam <ul> mobile, baris <tr> hanya di <tbody>. */
   function HostCheckbox({ h }: { h: SubnetHost }) {
-    const canPick = h.status === "video";
+    /* Kamera yang sudah terdaftar tidak bisa dipilih (cegah duplikat). */
+    const canPick = h.status === "video" && !h.known;
     return (
       <input
         type="checkbox"
@@ -185,6 +230,7 @@ export default function AdminScannerPage() {
           </p>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             <NBBadge tone={st.tone}>{st.label}</NBBadge>
+            {h.known && <NBBadge tone="info">Sudah terdaftar</NBBadge>}
           </div>
         </div>
       </li>
@@ -201,7 +247,10 @@ export default function AdminScannerPage() {
         <NBTd className="font-mono">{h.host}</NBTd>
         <NBTd className="font-mono">{h.port}</NBTd>
         <NBTd>
-          <NBBadge tone={st.tone}>{st.label}</NBBadge>
+          <span className="flex flex-wrap items-center gap-1.5">
+            <NBBadge tone={st.tone}>{st.label}</NBBadge>
+            {h.known && <NBBadge tone="info">Sudah terdaftar</NBBadge>}
+          </span>
         </NBTd>
         <NBTd className="max-w-[280px] truncate font-mono text-xs">
           {h.best_main ?? "-"}
@@ -274,20 +323,36 @@ export default function AdminScannerPage() {
 
         {scanning && (
           <div className="mt-5 space-y-2 border-t border-ink-800 pt-4">
-            <div className="flex justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            <div className="flex flex-wrap justify-between gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              <span>{STAGE_LABEL[progress.stage]}</span>
               <span>
-                Memindai {progress.scanned} dari {progress.total} host…
+                Memindai {progress.scanned} dari {progress.total} host
               </span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-ink-700">
-              <div className="nv-scanbar h-full rounded-full bg-accent-500" />
+              <div
+                className="h-full rounded-full bg-accent-500 transition-all duration-500"
+                style={{
+                  width: `${
+                    progress.total > 0
+                      ? Math.round((progress.scanned / progress.total) * 100)
+                      : 0
+                  }%`,
+                }}
+              />
             </div>
-            <style>{`.nv-scanbar{width:40%;animation:nvscan 1.2s ease-in-out infinite}@keyframes nvscan{0%{margin-left:-40%}100%{margin-left:100%}}`}</style>
+            <p className="text-xs text-slate-400">
+              {progress.reachable} IP terjangkau
+              {progress.stage !== "reachability" &&
+                ` · ${progress.portOpen} port RTSP terbuka`}
+              {progress.stage === "done" &&
+                ` · ${selectable.length} kamera baru dengan video`}
+            </p>
           </div>
         )}
       </NBCard>
 
-      {hosts !== null && !scanning && (
+      {hosts !== null && (
         <NBCard>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <h3 className="text-sm font-semibold text-white">
@@ -298,7 +363,7 @@ export default function AdminScannerPage() {
               <NBButton
                 variant="secondary"
                 onClick={addSelected}
-                disabled={adding || checked.size === 0}
+                disabled={scanning || adding || checked.size === 0}
               >
                 {adding
                   ? "Menambah…"
@@ -306,6 +371,16 @@ export default function AdminScannerPage() {
               </NBButton>
             )}
           </div>
+          {!scanning && hosts.length > 0 && (
+            <p className="mb-3 text-xs text-slate-400">
+              {progress.reachable} IP terjangkau · {progress.portOpen}{" "}
+              port RTSP terbuka ·{" "}
+              {hosts.filter((h) => h.status === "video").length} dengan
+              video
+              {hosts.some((h) => h.known) &&
+                ` · ${hosts.filter((h) => h.known).length} sudah terdaftar`}
+            </p>
+          )}
           {added > 0 && (
             <p className="mb-3 text-sm text-ok-400">
               {added} kamera berhasil ditambahkan. Lihat di tab Kamera.
@@ -313,7 +388,9 @@ export default function AdminScannerPage() {
           )}
           {hosts.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-400">
-              Tidak ada kamera yang merespons di subnet ini.
+              {scanning
+                ? "Memindai… hasil muncul di sini begitu ditemukan."
+                : "Tidak ada kamera yang merespons di subnet ini."}
             </p>
           ) : (
             <>

@@ -10,12 +10,16 @@ pintar"):
     (timeout 1 detik). Banyak kamera memblokir ICMP, jadi bila ping
     tidak menjawab JANGAN langsung buang host itu: fallback TCP connect
     singkat (1 detik) ke port RTSP yang diminta, lalu ke port 80 (UI web
-    kamera). Lolos bila salah satu menjawab.
+    kamera). Lolos bila salah satu menjawab. Ketiga probe jalan
+    BERSAMAAN (bukan berurutan) supaya IP mati hanya makan ~1 dtk.
   Tahap 2, port RTSP: hanya dari IP yang lolos tahap 1, cek port RTSP
-    (port yang diminta, default 554) via TCP connect singkat (2 detik).
+    (port yang diminta, default 554) via TCP connect singkat (1 detik).
   Tahap 3, cek kamera: HANYA IP yang lolos tahap 1 DAN 2 menjalani
     discovery kamera penuh (rtsp_discovery.discover_host, termasuk
-    verifikasi video, timeout 45 detik per host).
+    verifikasi video, timeout 30 detik per host, konkurensi 12).
+    Kamera yang sudah terdaftar + sedang online di database memakai
+    jalur cepat (tanpa ffprobe bila path main yang dikenal terbuka)
+    dan ditandai "Sudah terdaftar" di hasil.
 
 IP yang gagal tahap 1 dicatat status 'unreachable', yang gagal tahap 2
 dicatat status BARU 'port_closed' (port RTSP tertutup). Keduanya tetap
@@ -40,12 +44,17 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.rate_limit import rate_limited
 from app.core.rbac import require_roles
+from app.db.session import get_db
+from app.models.streams import Stream
 from app.schemas.stream import ScanPath
 from app.services import rtsp_discovery
 
@@ -56,18 +65,24 @@ router = APIRouter(
 log = logging.getLogger("netravision.admin_scan")
 
 _MAX_HOSTS = 256
-_HOST_CONCURRENCY = 4
-_HOST_TIMEOUT = 45.0  # detik maksimum discovery per host (tahap 3)
+# Tahap 3: konkurensi 4 -> 12 (diukur: kamera palsu 2 path open butuh
+# 12,7 dtk/host serial-ffprobe; discovery didominasi tunggu jaringan,
+# ffprobe hanya membaca paket tanpa decode, jadi 12 host bersamaan
+# (~24 proses ffprobe ringan) aman di server 8 core yang memang sudah
+# menjalankan 49 transcode; tiap host tetap dibatasi 2 sesi ffprobe).
+_HOST_CONCURRENCY = 12
+_HOST_TIMEOUT = 30.0  # detik maksimum discovery per host (tahap 3)
 # H1: batas waktu global seluruh scan, satu /24 tak boleh menggantung
-# request sampai ~48 menit walau tiap host dibatasi 45 detik.
+# sampai puluhan menit walau tiap host dibatasi 30 detik.
 _SCAN_GLOBAL_TIMEOUT = 300.0  # detik
 # Funnel tahap 1-2: probe singkat + konkurensi tinggi supaya /24 penuh
-# selesai dalam hitungan detik, bukan menit.
-_STAGE1_CONCURRENCY = 32
+# selesai dalam hitungan detik, bukan menit. Tahap 1: ping + 2 TCP
+# fallback jalan bersamaan (IP mati ~1 dtk, bukan ~3 dtk berurutan).
+_STAGE1_CONCURRENCY = 64
 _STAGE2_CONCURRENCY = 32
 _PING_TIMEOUT = 1.0  # detik per host (ICMP, satu echo)
 _TCP_FALLBACK_TIMEOUT = 1.0  # detik per TCP connect fallback tahap 1
-_PORT_TIMEOUT = 2.0  # detik TCP connect port RTSP (tahap 2)
+_PORT_TIMEOUT = 1.0  # detik TCP connect port RTSP (tahap 2, LAN: ms)
 _FALLBACK_HTTP_PORT = 80  # UI web kamera, fallback kedua tahap 1
 
 
@@ -98,6 +113,10 @@ class SubnetHost(BaseModel):
     best_main: str | None
     best_sub: str | None
     paths: list[ScanPath]
+    # Kamera sudah terdaftar (aktif) di database pada IP:port ini.
+    # Frontend menampilkan lencana "Sudah terdaftar" dan tidak
+    # menawarkannya untuk ditambah lagi (cegah duplikat).
+    known: bool = False
 
 
 class SubnetScanJobCreated(BaseModel):
@@ -181,12 +200,12 @@ def _host_status(disc: rtsp_discovery.DiscoveryResult) -> str:
     return "error"
 
 
-def _dead_host(host: str, port: int, status: str) -> SubnetHost:
+def _dead_host(host: str, port: int, status: str, known: bool = False) -> SubnetHost:
     """Host yang tersaring funnel (tahap 1/2) atau kehabisan waktu:
     tetap muncul di hasil, tanpa paths dan tanpa discovery."""
     return SubnetHost(
         host=host, port=port, status=status,
-        best_main=None, best_sub=None, paths=[],
+        best_main=None, best_sub=None, paths=[], known=known,
     )
 
 
@@ -233,20 +252,39 @@ async def _tcp_connect(host: str, port: int, timeout: float) -> bool:
 
 
 async def _host_reachable(host: str, port: int) -> bool:
-    """Tahap 1: IP hidup? Ping dulu; bila diam, fallback TCP connect
-    singkat ke port RTSP yang diminta lalu port 80. Kamera yang
-    memblokir ICMP tetap lolos lewat TCP, jadi tahap ini tidak
-    membuang kamera yang valid (hanya IP yang benar-benar diam di
-    semua probe yang tersaring)."""
-    if await _ping_alive(host):
-        return True
-    if await _tcp_connect(host, port, _TCP_FALLBACK_TIMEOUT):
-        return True
-    if port != _FALLBACK_HTTP_PORT and await _tcp_connect(
-        host, _FALLBACK_HTTP_PORT, _TCP_FALLBACK_TIMEOUT
-    ):
-        return True
-    return False
+    """Tahap 1: IP hidup? Ping + fallback TCP connect (port RTSP yang
+    diminta, lalu port 80) jalan BERSAMAAN, bukan berurutan, dan
+    berhenti begitu SATU probe berhasil (FIRST_COMPLETED): IP mati
+    yang tadinya makan ~3 dtk (1+1+1) kini ~1 dtk (maks ketiganya),
+    sementara IP hidup yang ping-nya menjawab tetap selesai dalam
+    hitungan milidetik tanpa menunggu TCP. Kamera yang memblokir
+    ICMP tetap lolos lewat TCP, jadi tahap ini tidak membuang kamera
+    yang valid (hanya IP yang benar-benar diam di semua probe yang
+    tersaring)."""
+    probes = [
+        asyncio.create_task(_ping_alive(host)),
+        asyncio.create_task(
+            _tcp_connect(host, port, _TCP_FALLBACK_TIMEOUT)),
+    ]
+    if port != _FALLBACK_HTTP_PORT:
+        probes.append(asyncio.create_task(
+            _tcp_connect(host, _FALLBACK_HTTP_PORT, _TCP_FALLBACK_TIMEOUT)))
+    try:
+        pending = set(probes)
+        while pending:
+            done, pending = await asyncio.wait(
+                pending, return_when=asyncio.FIRST_COMPLETED)
+            for t in done:
+                try:
+                    if t.result() is True:
+                        return True
+                except Exception:  # noqa: BLE001 - probe gagal = False
+                    pass
+        return False
+    finally:
+        for t in probes:
+            if not t.done():
+                t.cancel()
 
 
 async def _port_open(host: str, port: int) -> bool:
@@ -255,27 +293,90 @@ async def _port_open(host: str, port: int) -> bool:
     return await _tcp_connect(host, port, _PORT_TIMEOUT)
 
 
+def _url_path(url: str | None) -> str | None:
+    """Path (+ query) dari URL RTSP, mis. '/Streaming/Channels/101'
+    atau '/cam/realmonitor?channel=1&subtype=0'. Dipakai untuk
+    mencocokkan path kamera terdaftar dengan path kandidat scan
+    (kredensial diabaikan, bisa berbeda dengan yang dimasukkan user)."""
+    if not url:
+        return None
+    parts = urlparse(url)
+    if not parts.path:
+        return None
+    return parts.path + (f"?{parts.query}" if parts.query else "")
+
+
+async def _load_known_cameras(
+    db: AsyncSession,
+) -> tuple[set[tuple[str, int]], dict[tuple[str, int], tuple[str | None, str | None]]]:
+    """Kamera terdaftar (aktif) -> dua peta ber kunci (host, port).
+
+    known_hosts: semua kamera aktif (untuk lencana 'Sudah terdaftar').
+    known_online: hanya yang sedang online + path main/sub yang dikenal
+    (untuk jalur cepat discovery tanpa ffprobe). Satu query di awal
+    job; bila baca DB gagal, scan tetap jalan tanpa jalur cepat
+    (kedua peta kosong) dan bukan menggugurkan scan."""
+    known_hosts: set[tuple[str, int]] = set()
+    known_online: dict[tuple[str, int], tuple[str | None, str | None]] = {}
+    try:
+        rows = (
+            await db.execute(
+                select(
+                    Stream.rtsp_url, Stream.main_url, Stream.sub_url,
+                    Stream.is_online,
+                ).where(Stream.is_active.is_(True))
+            )
+        ).all()
+    except Exception as e:  # noqa: BLE001 - scan jalan tanpa jalur cepat
+        log.warning("scan-subnet: gagal baca kamera terdaftar: %s", e)
+        return known_hosts, known_online
+    for rtsp_url, main_url, sub_url, is_online in rows:
+        base = main_url or rtsp_url
+        if not base:
+            continue
+        try:
+            parts = urlparse(base)
+            host = parts.hostname
+            if not host:
+                continue
+            ipaddress.ip_address(host)  # hanya IP literal, bukan hostname
+            port = parts.port or 554
+        except ValueError:
+            continue
+        key = (host, port)
+        known_hosts.add(key)
+        if is_online:
+            known_online[key] = (
+                _url_path(main_url) or _url_path(rtsp_url),
+                _url_path(sub_url),
+            )
+    return known_hosts, known_online
+
+
 async def _scan_host(
     host: str,
     port: int,
     username: str,
     password: str,
     sem: asyncio.Semaphore,
+    known: bool = False,
+    known_paths: tuple[str | None, str | None] | None = None,
 ) -> SubnetHost:
     async with sem:
         try:
             disc = await asyncio.wait_for(
                 rtsp_discovery.discover_host(
-                    host, port, username or None, password or None
+                    host, port, username or None, password or None,
+                    known_paths=known_paths,
                 ),
                 timeout=_HOST_TIMEOUT,
             )
         except asyncio.TimeoutError:
-            return _dead_host(host, port, "timeout")
+            return _dead_host(host, port, "timeout", known=known)
         except Exception as e:  # noqa: BLE001 - A-R6: satu host error tak
             # boleh menggugurkan seluruh scan; laporkan sebagai error.
             log.warning("scan host %s gagal: %s", host, e)
-            return _dead_host(host, port, "error")
+            return _dead_host(host, port, "error", known=known)
     paths = [
         ScanPath(
             path=p.path, url=p.url, status=p.status, codec=p.codec,
@@ -289,6 +390,7 @@ async def _scan_host(
     return SubnetHost(
         host=host, port=port, status=_host_status(disc),
         best_main=disc.best_main, best_sub=disc.best_sub, paths=paths,
+        known=known,
     )
 
 
@@ -298,6 +400,8 @@ async def _run_scan(
     port: int,
     username: str,
     password: str,
+    known_hosts: set[tuple[str, int]] | None = None,
+    known_online: dict[tuple[str, int], tuple[str | None, str | None]] | None = None,
 ) -> None:
     """Jalankan pemindaian di background sebagai asyncio task.
 
@@ -309,7 +413,11 @@ async def _run_scan(
     ditegakkan di POST sebelum job dibuat, dan satu host error tidak
     menggugurkan scan (tiap task dijamin menghasilkan SubnetHost).
     Hasil parsial ditulis ke job selagi jalan supaya GET bisa
-    menampilkan progres, termasuk hitungan tiap tahap funnel."""
+    menampilkan progres, termasuk hitungan tiap tahap funnel.
+    known_hosts/known_online: peta kamera terdaftar dari POST
+    (lencana 'Sudah terdaftar' + jalur cepat tanpa ffprobe)."""
+    known_hosts = known_hosts or set()
+    known_online = known_online or {}
     recorded: set[str] = set()
 
     async def record(result: SubnetHost) -> None:
@@ -333,7 +441,9 @@ async def _run_scan(
             if ok:
                 reachable.append(h)
             else:
-                await record(_dead_host(h, port, "unreachable"))
+                await record(_dead_host(
+                    h, port, "unreachable", known=(h, port) in known_hosts,
+                ))
         async with _jobs_lock:
             job.reachable_count = len(reachable)
             job.stage = "port_check"
@@ -352,7 +462,9 @@ async def _run_scan(
             if ok:
                 port_open.append(h)
             else:
-                await record(_dead_host(h, port, "port_closed"))
+                await record(_dead_host(
+                    h, port, "port_closed", known=(h, port) in known_hosts,
+                ))
         async with _jobs_lock:
             job.port_open_count = len(port_open)
             job.stage = "discovery"
@@ -361,7 +473,11 @@ async def _run_scan(
         sem = asyncio.Semaphore(_HOST_CONCURRENCY)
         tasks = [
             asyncio.create_task(
-                _scan_host(h, port, username, password, sem)
+                _scan_host(
+                    h, port, username, password, sem,
+                    known=(h, port) in known_hosts,
+                    known_paths=known_online.get((h, port)),
+                )
             )
             for h in port_open
         ]
@@ -380,7 +496,9 @@ async def _run_scan(
             for h, t in zip(port_open, tasks):
                 if not t.done():
                     t.cancel()
-                    await record(_dead_host(h, port, "timeout"))
+                    await record(_dead_host(
+                        h, port, "timeout", known=(h, port) in known_hosts,
+                    ))
             await asyncio.gather(*tasks, return_exceptions=True)
     except asyncio.CancelledError:
         raise
@@ -422,10 +540,12 @@ async def _run_scan(
     status_code=202,
     dependencies=[Depends(rate_limited(10, 60))],
 )
-async def scan_subnet(data: SubnetScanRequest):
+async def scan_subnet(data: SubnetScanRequest, db: AsyncSession = Depends(get_db)):
     """Terima subnet CIDR, langsung kembalikan 202 + job_id, dan mulai
     pemindaian di background. Validasi CIDR dan batas 256 host tetap di
-    sini, sebelum job dibuat. Hasil diambil via GET job status."""
+    sini, sebelum job dibuat. Hasil diambil via GET job status.
+    Kamera terdaftar dibaca sekali di sini (sesi DB masih hidup) dan
+    diteruskan sebagai data polos ke background task."""
     try:
         network = ipaddress.ip_network(data.ip_range, strict=False)
     except ValueError as e:
@@ -453,11 +573,17 @@ async def scan_subnet(data: SubnetScanRequest):
         )
     hosts = [str(h) for h in network.hosts()]
     job = _ScanJob(job_id=uuid.uuid4().hex, total=len(hosts))
+    # Kamera terdaftar: lencana 'Sudah terdaftar' + jalur cepat
+    # discovery (tanpa ffprobe untuk yang sedang online).
+    known_hosts, known_online = await _load_known_cameras(db)
     async with _jobs_lock:
         _prune_jobs_locked()
         _jobs[job.job_id] = job
     asyncio.create_task(
-        _run_scan(job, hosts, data.port, data.username, data.password)
+        _run_scan(
+            job, hosts, data.port, data.username, data.password,
+            known_hosts, known_online,
+        )
     )
     log.info(
         "scan-subnet job %s dimulai: %s (%d host)",

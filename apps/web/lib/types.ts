@@ -160,6 +160,7 @@ export interface SubnetHost {
   best_main: string | null;
   best_sub: string | null;
   paths: ScanPath[];
+  known?: boolean; // sudah terdaftar di database (IP:port ini)
 }
 
 export interface StatusChange {

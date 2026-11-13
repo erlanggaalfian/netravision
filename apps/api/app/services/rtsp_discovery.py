@@ -2,8 +2,10 @@
 
 Tahap 1 (cepat, paralel): DESCRIBE per path kandidat umum + template brand
 (auth Basic/Digest via probe_rtsp). Host tak bisa TCP connect -> berhenti.
-Tahap 2 (verifikasi, serial per host): ffprobe baca frame video nyata dari
-path yang DESCRIBE-nya OK. Serial karena banyak kamera membatasi sesi RTSP.
+Tahap 2 (verifikasi, paralel 2 per host, dibatasi 8 path open pertama):
+ffprobe baca frame video nyata dari path yang DESCRIBE-nya OK. Jalur
+cepat: kamera yang sudah terdaftar + sedang online di database
+dilewati ffprobe-nya bila path main yang dikenal terbuka di DESCRIBE.
 
 Status per path: video | no_video | auth_failed | not_found | timeout | error.
 """
@@ -22,7 +24,24 @@ from app.services.stream_resolver import probe_rtsp
 FFPROBE = "ffprobe"
 _PROBE_TIMEOUT = 3.0
 _FFPROBE_TIMEOUT = 15.0  # read window 6 dtk + sambung; 10 dtk sempit di kamera lambat
+# Kecepatan scan (2026-11-13): jendela baca ffprobe 6 -> 3 dtk (cukup
+# untuk memastikan ada video + codec/resolusi/fps; gop_seconds memang
+# sudah None lewat demuxer concat, jadi tidak ada yang hilang), dan
+# ffprobe dijalankan PARALEL 2 per host, bukan serial (terukur: kamera
+# palsu 2 path open 12,7 dtk serial -> ~6,5 dtk paralel; jendela 6 dtk
+# butuh 6,4 dtk/path, jendela 3 dtk 5,5 dtk/path).
+_FFPROBE_READ_SECONDS = 3.0
 _SEM_PROBES = 8
+_SEM_FFPROBE = 2  # sesi RTSP paralel per host (DESCRIBE saja sudah 8)
+# Batas path open yang diverifikasi per host (urutan kandidat =
+# paling mungkin dulu). Tanpa batas, kamera yang menjawab 200 untuk
+# SEMUA path membuat 38 ffprobe serial (~4 menit) lalu host timeout
+# 45 dtk tanpa hasil apa pun. Dengan batas ini, kasus terburuk
+# 8 path x ~5,5 dtk / 2 paralel = ~22 dtk, masih di bawah budget host.
+# Main/sub hampir selalu di 8 pertama (Hikvision 101/102, Dahua
+# subtype 0/1, unicast s0/s1, stream1/2); bila hanya sedikit path
+# yang open, batas ini tidak memotong apa pun.
+_MAX_VERIFY_PATHS = 8
 _HOST_BUDGET = 45.0  # detik maksimum seluruh discovery per host
 
 # Path umum vendor besar + generik (dedupe di candidate_paths).
@@ -205,7 +224,7 @@ async def _run_ffprobe(url: str, timeout: float = _FFPROBE_TIMEOUT) -> VideoProb
             "-select_streams", "v:0",
             "-show_entries",
             "stream=codec_name,width,height,avg_frame_rate,r_frame_rate:packet=pts_time,flags",
-            "-read_intervals", "%+6", "-of", "json",
+            "-read_intervals", f"%+{int(_FFPROBE_READ_SECONDS)}", "-of", "json",
             "-f", "concat", "-safe", "0", "-i", list_path,
         ]
         proc: asyncio.subprocess.Process | None = None
@@ -303,18 +322,29 @@ async def discover_host(
     user: str | None = None,
     password: str | None = None,
     channel: int = 1,
+    known_paths: tuple[str | None, str | None] | None = None,
 ) -> DiscoveryResult:
-    """Coba semua path kandidat, verifikasi video, pilih main/sub otomatis."""
+    """Coba semua path kandidat, verifikasi video, pilih main/sub otomatis.
+
+    known_paths = (main_path, sub_path) kamera yang SUDAH terdaftar
+    dan sedang online di database (mis. "/Streaming/Channels/101",
+    "/Streaming/Channels/102"). Bila path main yang dikenal terbuka
+    di DESCRIBE, video dianggap terverifikasi tanpa ffprobe (jalur
+    cepat): kamera itu sudah terbukti mengirim video dan status
+    online-nya dipantau terpisah. Bila tidak ada path dikenal yang
+    terbuka, discovery penuh seperti biasa."""
     try:
         return await asyncio.wait_for(
-            _discover(host, port, user, password, channel), timeout=_HOST_BUDGET
+            _discover(host, port, user, password, channel, known_paths),
+            timeout=_HOST_BUDGET,
         )
     except asyncio.TimeoutError:
         return DiscoveryResult(host=host, port=port, reachable=True, paths=[])
 
 
 async def _discover(
-    host: str, port: int, user: str | None, password: str | None, channel: int
+    host: str, port: int, user: str | None, password: str | None, channel: int,
+    known_paths: tuple[str | None, str | None] | None = None,
 ) -> DiscoveryResult:
     if not await _tcp_alive(host, port):
         return DiscoveryResult(host=host, port=port, reachable=False, paths=[])
@@ -332,14 +362,46 @@ async def _discover(
 
     probed = list(await asyncio.gather(*(probe_one(p, u) for p, u in cands)))
 
-    # Tahap 2: ffprobe SERIAL per host (kamera membatasi sesi RTSP).
-    for pr in probed:
-        if pr.status != "open":
-            continue
-        vp = await _run_ffprobe(pr.url)
+    # Jalur cepat kamera dikenal: path main yang terdaftar terbuka di
+    # DESCRIBE -> video terverifikasi tanpa ffprobe (hemat ~6-13 dtk
+    # per kamera yang sudah terdaftar). Path sub yang dikenal ikut
+    # ditandai bila terbuka. Path open lain yang tak dikenal tidak
+    # diverifikasi di jalur ini (tidak ditebak statusnya).
+    if known_paths and known_paths[0]:
+        by_path = {pr.path: pr for pr in probed if pr.status == "open"}
+        known_main = by_path.get(known_paths[0])
+        if known_main is not None:
+            known_main.status = "video"
+            known_sub = None
+            if known_paths[1]:
+                known_sub = by_path.get(known_paths[1])
+                if known_sub is not None:
+                    known_sub.status = "video"
+            kept = [pr for pr in probed if pr.status != "open"]
+            return DiscoveryResult(
+                host=host, port=port, reachable=True, paths=kept,
+                best_main=known_main.url,
+                best_sub=known_sub.url if known_sub is not None else None,
+            )
+
+    # Tahap 2: ffprobe PARALEL (maks 2 per host) dan DIBATASI
+    # (_MAX_VERIFY_PATHS path open pertama, urutan kandidat). Serial
+    # + tanpa batas adalah bottleneck tahap 3: 2 path open saja sudah
+    # ~13 dtk, kamera yang menjawab 200 untuk semua path timeout
+    # tanpa hasil. Paralel 2 aman: DESCRIBE saja sudah membuka 8
+    # koneksi bersamaan ke kamera yang sama.
+    open_paths = [pr for pr in probed if pr.status == "open"]
+    to_verify = open_paths[:_MAX_VERIFY_PATHS]
+    sem_v = asyncio.Semaphore(_SEM_FFPROBE)
+
+    async def verify_one(pr: PathResult) -> None:
+        async with sem_v:
+            vp = await _run_ffprobe(pr.url)
         pr.status = "video" if vp.status == "video" else vp.status
         pr.codec, pr.width, pr.height = vp.codec, vp.width, vp.height
         pr.fps, pr.gop_seconds = vp.fps, vp.gop_seconds
+
+    await asyncio.gather(*(verify_one(pr) for pr in to_verify))
 
     best_main, best_sub = select_main_sub(probed)
     return DiscoveryResult(
