@@ -60,6 +60,7 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-netravision}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD belum di-set}@postgres:5432/${POSTGRES_DB:-netravision}
+      PYTHONPATH: /srv/api
     working_dir: /srv/api
     command: ["alembic", "upgrade", "head"]
     depends_on:
@@ -78,6 +79,7 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-netravision}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD belum di-set}@postgres:5432/${POSTGRES_DB:-netravision}
+      PYTHONPATH: /srv/api
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       MEDIAMTX_API_URL: http://mediamtx:9997
       # B-K1: samakan dengan recordPath MediaMTX (/recordings) + volume recordings.
