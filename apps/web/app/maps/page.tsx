@@ -339,10 +339,27 @@ export default function MapsPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const L = await import("leaflet");
+      const leafletNs = await import("leaflet");
+      /* Pakai objek Leaflet ASLI (module.exports) lewat .default, BUKAN
+         namespace hasil import() dinamis. Webpack membuat namespace BARU
+         (Object.create(null)) di tiap import("leaflet") dinamis, sedangkan
+         plugin markercluster (UMD, membaca global L) menempelkan class
+         klaster (MarkerClusterGroup, MarkerCluster, MarkerClusterNonAnimated)
+         ke namespace import PERTAMA saja. Saat remount (pindah tab),
+         namespace baru tidak punya class klaster: grup klaster yang dibuat
+         lalu membaca L.MarkerCluster dari window.L (namespace baru) yang
+         undefined, sehingga addTo melempar dan kode jatuh ke layer biasa
+         tanpa klaster (titik tunggal). module.exports Leaflet adalah satu
+         objek yang sama untuk semua import, jadi class klaster yang
+         menempel di sana tetap ada di semua mount dan klaster bekerja
+         konsisten, baik muat segar maupun setelah pindah tab. */
+      const L = (
+        (leafletNs as unknown as { default?: typeof LType }).default ??
+        leafletNs
+      ) as typeof LType;
       /* leaflet.markercluster (UMD) mengharapkan Leaflet sebagai global
          window.L; tanpa ini L.markerClusterGroup tidak terdaftar. */
-      (window as unknown as { L?: typeof L }).L = L;
+      (window as unknown as { L?: typeof LType }).L = L;
       /* Jangan jadikan mapRef sebagai penjaga: bila cleanup mount
          sebelumnya tidak men-null-kannya, penjaga ini memblokir init
          ulang dan peta tidak pernah jadi saat kembali lewat navigasi
@@ -456,10 +473,12 @@ export default function MapsPage() {
         layer = null;
       }
       if (!layer) layer = L.layerGroup();
-      /* addTo bisa melempar bila layer klaster tidak cocok dengan
-         instance Leaflet peta (terjadi saat navigasi client-side);
-         bila itu terjadi, pakai layer biasa supaya titik tetap tampil.
-         mapRef sudah terisi di atas, dan mapReady tetap diset. */
+      /* addTo seharusnya tidak lagi melempar saat navigasi client-side:
+         peta dan layer klaster kini dibuat dari objek Leaflet asli yang
+         sama (lihat .default di atas). try/catch ini tinggal sebagai
+         pengaman terakhir supaya titik tetap tampil bila klaster gagal
+         karena alasan lain. mapRef sudah terisi di atas, dan mapReady
+         tetap diset. */
       try {
         layer.addTo(map);
       } catch {
