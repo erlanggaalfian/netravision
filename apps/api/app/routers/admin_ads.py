@@ -1,8 +1,9 @@
 """Router admin: konfigurasi iklan/banner + upload gambar (paritas v2.0).
 
 - GET /api/ad-config: publik (dibaca player/embed). Bila pemanggil dikenali
-  sebagai user login (bukan super_admin) dengan show_ads=False, kembalikan
-  config nonaktif.
+  sebagai user login dengan show_ads=False, kembalikan config nonaktif
+  (berlaku SEMUA peran, termasuk super_admin: iklan hanya tampil bila
+  Iklan: Ya).
 - POST /api/admin/ad-config, upload-image, PUT grup ads: butuh peran admin.
 Disimpan sebagai baris key/value di tabel ad_config (key "default",
 "group:<nama>").
@@ -172,8 +173,11 @@ async def public_ad_config(
     if not cfg.get("is_active", True) and group_ads is not True:
         return _inactive_config()
     if isinstance(user, User):
-        # show_ads=False (paritas v2.0) selalu menonaktifkan.
-        if user.role != "super_admin" and not user.show_ads:
+        # show_ads=False selalu menonaktifkan, untuk SEMUA peran termasuk
+        # super_admin: iklan hanya tampil bila Iklan: Ya (perintah user
+        # 2026-11-14). Sebelumnya super_admin dikecualikan, sehingga
+        # super_admin dengan Iklan: Tidak tetap melihat iklan.
+        if not user.show_ads:
             return _inactive_config()
         # Audiens per peran / per user (2026-11-06).
         audience = cfg.get("audience", "all")

@@ -97,6 +97,47 @@ async def test_ad_config_respects_show_ads(app_client):
         assert r.json()["is_active"] is True
 
 
+async def test_ad_config_respects_show_ads_super_admin(app_client):
+    """Iklan hanya tampil bila Iklan: Ya, untuk SEMUA peran termasuk
+    super_admin (perintah user 2026-11-14). Sebelum perbaikan, super_admin
+    dikecualikan dari pengecekan show_ads sehingga super_admin dengan
+    Iklan: Tidak tetap melihat iklan."""
+    app, _, db = app_client
+    admin = make_user(role="super_admin")
+    super_noads = make_user(
+        id=2, username="supernoads", role="super_admin", show_ads=False
+    )
+    super_yesads = make_user(
+        id=3, username="superyesads", role="super_admin", show_ads=True
+    )
+    guest_noads = make_user(id=4, username="guestnoads", role="guest", show_ads=False)
+    db.add_all([admin, super_noads, super_yesads, guest_noads])
+    await db.commit()
+    auth_as(app, admin)
+    async with _client(app) as c:
+        r = await c.post(
+            "/api/admin/ad-config",
+            json={"marquee_text": "Promo!", "is_active": True, "box_width": 80},
+        )
+        assert r.status_code == 200, r.text
+
+        # super_admin show_ads=False -> config nonaktif
+        r = await c.get("/api/ad-config", params={"token": _token(super_noads)})
+        body = r.json()
+        assert body["is_active"] is False
+        assert body["marquee_text"] == ""
+        assert body["image_url"] == ""
+
+        # super_admin show_ads=True -> sesuai config tersimpan
+        r = await c.get("/api/ad-config", params={"token": _token(super_yesads)})
+        assert r.json()["is_active"] is True
+        assert r.json()["marquee_text"] == "Promo!"
+
+        # guest show_ads=False -> config nonaktif
+        r = await c.get("/api/ad-config", params={"token": _token(guest_noads)})
+        assert r.json()["is_active"] is False
+
+
 async def test_ad_config_respects_api_key_show_ads(app_client):
     """Iklan per API key: kunci show_ads=False -> embed tanpa iklan."""
     from urllib.parse import parse_qs, urlparse
