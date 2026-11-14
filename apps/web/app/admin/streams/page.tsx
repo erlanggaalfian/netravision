@@ -1457,13 +1457,13 @@ function EditStreamModal({
   );
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  /* Selector folder tampil setiap kali mode penyimpanan memakai Drive,
-     walau belum ada folder terdaftar, supaya pengguna selalu bisa memilih
-     ke Drive mana dan tahu harus tambah folder di Penyimpanan dulu. */
+  /* Selector folder tampil HANYA bila mode penyimpanan memakai Drive
+     (perintah user 2026-11-14: saat pakai Lokal, folder Google Drive
+     tidak boleh tampil). Sebelumnya ada kondisi tambahan
+     `stream.drive_folder_id != null` yang membuat folder tetap tampil
+     bila kamera punya folder lama, walau modenya sudah Lokal. */
   const showDriveFolder =
-    storageMode === "drive" ||
-    storageMode === "both" ||
-    stream.drive_folder_id != null;
+    storageMode === "drive" || storageMode === "both";
 
   async function save() {
     setError("");
