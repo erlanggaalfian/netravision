@@ -153,6 +153,14 @@ export default function AdminScannerPage() {
   /* Lengkapi stream kamera terdaftar (tambah main/sub yang belum ada). */
   const [completing, setCompleting] = useState<Set<string>>(new Set());
   const [completedMsg, setCompletedMsg] = useState("");
+  /* Stream yang sudah dilengkapi di sesi ini (kunci host -> main/sub
+     yang berhasil ditambah). Polling scan menimpa state hosts tiap
+     2 detik, jadi hasil lengkapi harus digabungkan kembali ke data
+     polling supaya tombol tidak muncul lagi sesudah diklik. Disimpan
+     di ref supaya loop polling selalu melihat nilai terbaru. */
+  const completedStreamsRef = useRef<
+    Record<string, { main: boolean; sub: boolean }>
+  >({});
   /* Batalkan polling saat unmount supaya tidak setState sesudah lepas. */
   const cancelledRef = useRef(false);
   useEffect(() => {
@@ -215,8 +223,22 @@ export default function AdminScannerPage() {
           reachable: job.reachable_count ?? 0,
           portOpen: job.port_open_count ?? 0,
         });
-        /* Hasil live: host yang sudah selesai langsung terlihat. */
-        setHosts(sortHosts(job.hosts ?? []));
+        /* Hasil live: host yang sudah selesai langsung terlihat.
+           Gabungkan stream yang sudah dilengkapi di sesi ini supaya
+           polling tidak mengembalikan tombol yang sudah diklik. */
+        setHosts(
+          sortHosts(job.hosts ?? []).map((h) => {
+            const done = completedStreamsRef.current[key(h)];
+            if (!done) return h;
+            return {
+              ...h,
+              known_main:
+                done.main && h.best_main ? h.best_main : h.known_main,
+              known_sub:
+                done.sub && h.best_sub ? h.best_sub : h.known_sub,
+            };
+          }),
+        );
         if (job.status === "done") {
           if (job.hosts.length === 0)
             setError("Tidak ada kamera ditemukan di subnet ini.");
@@ -411,6 +433,16 @@ export default function AdminScannerPage() {
         updated_main: boolean;
         updated_sub: boolean;
       }>("/admin/scan-subnet/complete-streams", body);
+      /* Catat di ref supaya polling berikutnya tidak mengembalikan
+         tombol yang sudah diklik. */
+      const prev = completedStreamsRef.current[k] ?? {
+        main: false,
+        sub: false,
+      };
+      completedStreamsRef.current[k] = {
+        main: prev.main || res.updated_main,
+        sub: prev.sub || res.updated_sub,
+      };
       setHosts((prev) =>
         (prev ?? []).map((x) => {
           if (key(x) !== k) return x;
@@ -459,9 +491,10 @@ export default function AdminScannerPage() {
         onClick={() =>
           completeHost(h, both ? "both" : canAddSub(h) ? "sub" : "main")
         }
-        /* Selama scan berjalan, polling menimpa state lokal, jadi
-           tombol hanya aktif setelah scan selesai. */
-        disabled={busy || scanning}
+        /* Tombol tetap aktif selagi scan berjalan: hasil lengkapi
+           digabungkan kembali ke data polling (completedStreamsRef),
+           jadi tidak tertimpa. Hanya nonaktif saat sedang menambah. */
+        disabled={busy}
         className="min-h-11 px-3 text-xs"
       >
         {busy ? "Menambah…" : label}
