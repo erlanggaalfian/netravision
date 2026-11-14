@@ -100,7 +100,15 @@ function DiskPicker({
   cameraName: string;
 }) {
   const selected = disks.find((d) => d.mount === value) ?? null;
-  const defaultDisk = disks.find((d) => d.mount === "/") ?? null;
+  /* Remote rclone (mis. rclone:gdrive) BUKAN disk lokal dan BUKAN nilai
+     record_disk yang valid: backend menolaknya karena bukan path absolut
+     ke direktori yang ada. Jangan ditawarkan sebagai pilihan disk, karena
+     tampil sebagai "disk" padahal itu tujuan Google Drive, dan itulah
+     yang membuat kontrol penyimpanan tampak ganda dengan Mode
+     penyimpanan. Hanya disk lokal yang ditawarkan; nilai lama yang
+     sudah tersimpan tetap ditampilkan lewat showValueAsOption. */
+  const localDisks = disks.filter((d) => !d.mount.startsWith("rclone:"));
+  const defaultDisk = localDisks.find((d) => d.mount === "/") ?? null;
   /* Info disk terpilih; bila Default, info disk default ("/") bila ada,
      bila tidak ada sembunyikan baris ini. */
   const infoDisk = selected ?? (value === "" ? defaultDisk : null);
@@ -118,7 +126,7 @@ function DiskPicker({
       <NBField label="Save to disk">
         <NBSelect value={value} onChange={(e) => onChange(e.target.value)}>
           <option value="">Default</option>
-          {disks.map((d) => (
+          {localDisks.map((d) => (
             <option key={d.mount} value={d.mount}>
               {d.mount} ({d.avail_human} free / {d.size_human})
             </option>
@@ -1190,13 +1198,6 @@ function AddStreamModal({
                 label="Simpan rekaman ke disk"
               />
             </label>
-            <DiskPicker
-              disks={disks}
-              value={recordDisk}
-              onChange={setRecordDisk}
-              groupNames={[]}
-              cameraName={name}
-            />
             <NBField label="Retensi (hari)" hint="1-365">
               <NBInput
                 inputMode="numeric"
@@ -1252,6 +1253,27 @@ function AddStreamModal({
                 <option value="both">Keduanya</option>
               </NBSelect>
             </NBField>
+            {/* Pilih disk HANYA bila mode memakai penyimpanan lokal.
+                Bila mode Google Drive saja, rekaman ditulis ke disk
+                default lalu diunggah, jadi pilihan disk disembunyikan
+                supaya tidak ada dua kontrol untuk tujuan yang sama.
+                Nilai recordDisk yang tersimpan tidak diubah saat
+                disembunyikan, jadi data lama tetap utuh. */}
+            {storageMode !== "drive" && (
+              <DiskPicker
+                disks={disks}
+                value={recordDisk}
+                onChange={setRecordDisk}
+                groupNames={[]}
+                cameraName={name}
+              />
+            )}
+            {storageMode === "drive" && (
+              <p className="text-xs leading-relaxed text-slate-400">
+                Rekaman ditulis ke disk default lalu diunggah ke Google
+                Drive.
+              </p>
+            )}
             {showDriveFolder && (
               <NBField
                 label="Folder Google Drive tujuan"
@@ -1549,13 +1571,6 @@ function EditStreamModal({
                 label="Simpan rekaman ke disk"
               />
             </label>
-            <DiskPicker
-              disks={disks}
-              value={recordDisk}
-              onChange={setRecordDisk}
-              groupNames={groupNames}
-              cameraName={name}
-            />
             <NBField label="Retensi (hari)" hint="1-365">
               <NBInput
                 inputMode="numeric"
@@ -1612,6 +1627,27 @@ function EditStreamModal({
                 <option value="both">Keduanya</option>
               </NBSelect>
             </NBField>
+            {/* Pilih disk HANYA bila mode memakai penyimpanan lokal.
+                Bila mode Google Drive saja, rekaman ditulis ke disk
+                default lalu diunggah, jadi pilihan disk disembunyikan
+                supaya tidak ada dua kontrol untuk tujuan yang sama.
+                Nilai recordDisk yang tersimpan tidak diubah saat
+                disembunyikan, jadi data lama tetap utuh. */}
+            {storageMode !== "drive" && (
+              <DiskPicker
+                disks={disks}
+                value={recordDisk}
+                onChange={setRecordDisk}
+                groupNames={groupNames}
+                cameraName={name}
+              />
+            )}
+            {storageMode === "drive" && (
+              <p className="text-xs leading-relaxed text-slate-400">
+                Rekaman ditulis ke disk default lalu diunggah ke Google
+                Drive.
+              </p>
+            )}
             {showDriveFolder && (
               <NBField
                 label="Folder Google Drive tujuan"

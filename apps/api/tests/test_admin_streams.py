@@ -504,3 +504,23 @@ async def test_update_main_sub_url_password_tidak_berubah(app_client):
     assert st.main_url == "rtsp://admin:pwbaru@cam/live/0/MAIN2"
     assert st.rtsp_url == "rtsp://admin:pwbaru@cam/live/0/MAIN2"
     assert st.sub_url == "rtsp://admin:pwbaru@cam/live/0/SUB"
+
+
+def test_record_disk_rclone_ditolak():
+    """Remote rclone (mis. rclone:gdrive) BUKAN nilai record_disk yang
+    valid: bukan path absolut, jadi harus ditolak 400. Inilah akar
+    kebingungan kontrol ganda: DiskPicker menawarkannya sebagai "disk"
+    padahal backend tidak pernah bisa menyimpannya; tujuan Google Drive
+    hanya diatur lewat storage_mode + drive_folder_id."""
+    from fastapi import HTTPException
+
+    from app.routers.admin_streams import _validate_record_disk
+
+    assert _validate_record_disk("") is None
+    assert _validate_record_disk(None) is None
+    with __import__("pytest").raises(HTTPException) as exc:
+        _validate_record_disk("rclone:gdrive")
+    assert exc.value.status_code == 400
+    with __import__("pytest").raises(HTTPException) as exc:
+        _validate_record_disk("gdrive")
+    assert exc.value.status_code == 400
