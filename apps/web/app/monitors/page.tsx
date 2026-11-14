@@ -958,8 +958,15 @@ export default function MonitorsPage() {
           )}
           <div className="mb-5 flex max-h-72 flex-col gap-1.5 overflow-y-auto rounded-xl bg-ink-800 p-2 shadow-sm">
             {/* D-R3: titik status memakai merged (override WebSocket),
-                bukan snapshot API lama. */}
-            {merged.map((s) => {
+                bukan snapshot API lama. Grup: hanya kamera grup itu yang
+                tampil (urut formIds supaya geser urutan langsung terlihat),
+                kamera lain disembunyikan. */}
+            {(isGroupEdit
+              ? [...merged]
+                  .filter((s) => formIds.includes(s.id))
+                  .sort((a, b) => formIds.indexOf(a.id) - formIds.indexOf(b.id))
+              : merged
+            ).map((s) => {
               const checked = formIds.includes(s.id);
               return (
                 <div
