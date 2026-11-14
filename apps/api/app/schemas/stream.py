@@ -30,6 +30,11 @@ class StreamOut(BaseModel):
     # Kredensial RTSP: hanya diisi endpoint admin (sudah di-masking per v2.0).
     rtsp_url: str | None = None
     drive_folder_id: int | None = None
+    # Mainstream/substream mentah: hanya diisi endpoint admin bila user
+    # berhak melihat kredensial RTSP (sama seperti rtsp_url); dipakai
+    # popup Ubah Kamera supaya bisa diedit. User biasa: None.
+    main_url: str | None = None
+    sub_url: str | None = None
     # Status registrasi MediaMTX (A-S2): hanya diisi admin_create_stream.
     mediamtx_registered: bool = False
     mediamtx_error: str | None = None
@@ -69,6 +74,12 @@ class StreamUpdate(BaseModel):
     recording_enabled: bool | None = None
     retention_days: int | None = Field(default=None, ge=1, le=365)
     record_disk: str | None = Field(default=None, max_length=100)
+    # Mainstream/substream bisa diedit dari popup Ubah Kamera
+    # (perintah user 2026-11-14). String kosong = kosongkan substream
+    # (tanpa sub, frontend fallback ke main). main_url kosong tidak
+    # diizinkan (kamera harus punya sumber main).
+    main_url: str | None = Field(default=None, max_length=1024)
+    sub_url: str | None = Field(default=None, max_length=1024)
 
 
 class GroupCreate(BaseModel):

@@ -383,3 +383,33 @@ async def test_update_toggle_record_patch_mediamtx(app_client):
         r = await c.put("/api/admin/streams/1", json={"recording_enabled": False})
     assert r.status_code == 200, r.text
     assert fake.patches["stream_1"]["record"] is False
+
+
+async def test_update_main_sub_url(app_client):
+    """PUT main_url/sub_url dari popup Ubah Kamera: tersimpan, dan
+    main_url kosong ditolak; sub_url kosong menghapus substream."""
+    app, fake, db = app_client
+    admin = make_user(role="super_admin")
+    s = Stream(id=1, name="Cam 1", rtsp_url="rtsp://u:p@cam/1",
+               main_url="rtsp://u:p@cam/1", sub_url=None)
+    db.add_all([admin, s])
+    await db.commit()
+    auth_as(app, admin)
+    async with _client(app) as c:
+        r = await c.put("/api/admin/streams/1", json={
+            "main_url": "rtsp://u:p@cam/live/0/MAIN",
+            "sub_url": "rtsp://u:p@cam/live/0/SUB",
+        })
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["main_url"] == "rtsp://u:p@cam/live/0/MAIN"
+    assert body["sub_url"] == "rtsp://u:p@cam/live/0/SUB"
+    # main_url kosong ditolak.
+    async with _client(app) as c:
+        r = await c.put("/api/admin/streams/1", json={"main_url": "   "})
+    assert r.status_code == 422, r.text
+    # sub_url kosong menghapus substream.
+    async with _client(app) as c:
+        r = await c.put("/api/admin/streams/1", json={"sub_url": ""})
+    assert r.status_code == 200, r.text
+    assert r.json()["sub_url"] is None

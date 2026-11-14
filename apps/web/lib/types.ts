@@ -19,6 +19,10 @@ export interface Stream {
   recording_enabled: boolean;
   retention_days: number;
   record_disk?: string | null;
+  /* Mainstream/substream mentah (hanya diisi endpoint admin bila berhak
+     melihat kredensial RTSP); dipakai popup Ubah Kamera. */
+  main_url?: string | null;
+  sub_url?: string | null;
 }
 
 export interface DriveFolder {

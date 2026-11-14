@@ -1339,6 +1339,10 @@ function EditStreamModal({
 }) {
   const [name, setName] = useState(stream.name);
   const [isActive, setIsActive] = useState(stream.is_active);
+  /* Mainstream/substream bisa diedit (perintah user 2026-11-14).
+     Substream kosong = tanpa sub (frontend fallback ke main). */
+  const [mainUrl, setMainUrl] = useState(stream.main_url ?? "");
+  const [subUrl, setSubUrl] = useState(stream.sub_url ?? "");
   const [storageMode, setStorageMode] = useState(stream.storage_mode);
   const [driveFolderId, setDriveFolderId] = useState<string>(
     stream.drive_folder_id != null ? String(stream.drive_folder_id) : "",
@@ -1370,12 +1374,18 @@ function EditStreamModal({
       setError(badCoord);
       return;
     }
+    if (!mainUrl.trim()) {
+      setError("Mainstream tidak boleh kosong.");
+      return;
+    }
     setBusy(true);
     try {
       const lat = latitude.trim() === "" ? null : parseFloat(latitude);
       const lon = longitude.trim() === "" ? null : parseFloat(longitude);
       await api.put(`/admin/streams/${stream.id}`, {
         name: name.trim(),
+        main_url: mainUrl.trim(),
+        sub_url: subUrl.trim() === "" ? null : subUrl.trim(),
         is_active: isActive,
         storage_mode: storageMode,
         recording_enabled: recordingEnabled,
@@ -1409,6 +1419,26 @@ function EditStreamModal({
           <p className="text-[13px] font-medium text-slate-400">Kamera</p>
           <NBField label="Nama kamera">
             <NBInput value={name} onChange={(e) => setName(e.target.value)} />
+          </NBField>
+          <NBField
+            label="Mainstream (RTSP)"
+            hint="URL RTSP stream utama, mis. rtsp://admin:****@192.168.1.10:554/live/0/MAIN"
+          >
+            <NBInput
+              value={mainUrl}
+              onChange={(e) => setMainUrl(e.target.value)}
+              placeholder="rtsp://…"
+            />
+          </NBField>
+          <NBField
+            label="Substream (RTSP)"
+            hint="URL RTSP stream rendah; kosongkan bila kamera tidak punya substream (tampilan memakai mainstream)"
+          >
+            <NBInput
+              value={subUrl}
+              onChange={(e) => setSubUrl(e.target.value)}
+              placeholder="rtsp://… (boleh kosong)"
+            />
           </NBField>
           <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 text-sm text-slate-300">
             <span>Kamera aktif</span>

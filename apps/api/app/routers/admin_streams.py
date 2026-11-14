@@ -155,6 +155,11 @@ async def admin_list_streams(
     for s in result.scalars().all():
         o = stream_to_out(s, settings)
         o.rtsp_url = await mask_rtsp_url(s, admin, db)
+        # Mainstream/substream mentah hanya bila berhak melihat kredensial
+        # RTSP (sama seperti rtsp_url); dipakai popup Ubah Kamera.
+        if o.rtsp_url:
+            o.main_url = s.main_url
+            o.sub_url = s.sub_url
         out.append(o)
     return out
 
@@ -323,18 +328,59 @@ async def admin_update_stream(
         stream.retention_days = data.retention_days
     if "record_disk" in data.model_fields_set:
         stream.record_disk = _validate_record_disk(data.record_disk)
+    # Ubah Kamera: mainstream/substream bisa diedit (perintah user
+    # 2026-11-14). main_url kosong tidak diizinkan; sub_url kosong
+    # berarti hapus substream (tanpa sub, frontend fallback ke main).
+    # Bila URL berubah dan kamera aktif, daftarkan ulang path MediaMTX
+    # supaya sumber baru langsung dipakai.
+    urls_changed = False
+    if "main_url" in data.model_fields_set and data.main_url is not None:
+        new_main = data.main_url.strip()
+        if not new_main:
+            raise HTTPException(
+                status_code=422, detail="mainstream tidak boleh kosong"
+            )
+        if new_main != (stream.main_url or ""):
+            stream.main_url = new_main
+            stream.rtsp_url = new_main
+            urls_changed = True
+    if "sub_url" in data.model_fields_set:
+        new_sub = (data.sub_url or "").strip() or None
+        if new_sub != stream.sub_url:
+            stream.sub_url = new_sub
+            urls_changed = True
     await db.commit()
     await db.refresh(stream)
+    # URL berubah dan kamera aktif: hapus path lama lalu daftarkan ulang
+    # dengan sumber baru (best-effort; sync berkala mendaftarkan sendiri
+    # bila MediaMTX sedang mati).
+    if urls_changed and stream.is_active:
+        source = stream.main_url or stream.rtsp_url
+        if source:
+            try:
+                await mediamtx.delete_path(f"stream_{stream_id}")
+                await mediamtx.delete_path(f"stream_{stream_id}_sub")
+            except Exception as e:  # noqa: BLE001
+                log.warning(
+                    "hapus path lama MediaMTX stream %s gagal: %s", stream_id, e
+                )
+            await _register_paths(
+                mediamtx, stream.id, source, stream.sub_url,
+                record=stream.recording_enabled, stream=stream)
     # Reaktivasi (nonaktif -> aktif): daftarkan ulang path ke MediaMTX
     # (best-effort, idempoten) supaya kamera langsung bisa diputar lagi.
     # Bila MediaMTX sedang mati, sync berkala akan mendaftarkannya sendiri.
-    if not was_active and stream.is_active:
+    if not was_active and stream.is_active and not urls_changed:
         source = stream.main_url or stream.rtsp_url
         if source:
             await _register_paths(
                 mediamtx, stream.id, source, stream.sub_url,
                 record=stream.recording_enabled, stream=stream)
-    return stream_to_out(stream, get_settings())
+    out = stream_to_out(stream, get_settings())
+    # PUT ini super_admin-only, jadi main/sub mentah boleh dikembalikan.
+    out.main_url = stream.main_url
+    out.sub_url = stream.sub_url
+    return out
 
 
 @router.delete("/admin/streams/{stream_id}", dependencies=[Depends(super_admin_only)])
