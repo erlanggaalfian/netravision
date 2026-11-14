@@ -101,8 +101,8 @@ export function LocationInput({
         </button>
       </span>
       <span className="mt-1.5 block text-xs text-slate-400">
-        Format: koordinat desimal (-7.873522, 111.257658), tautan Google Maps,
-        Plus Code, DMS, atau alamat. Enter atau tempel langsung mengurai.
+        Koordinat desimal, tautan Google Maps, Plus Code, DMS, atau alamat.
+        Enter atau tempel langsung mengurai.
       </span>
       {okMsg && (
         <span className="mt-1.5 block text-xs leading-relaxed text-ok-300">
@@ -114,9 +114,12 @@ export function LocationInput({
           {errMsg}
         </span>
       )}
+      {/* Koordinat yang tersimpan tampil sebagai satu baris hasil yang
+          sama (bukan baris info kedua): hanya bila tidak ada pesan
+          hasil urai baru di atas. */}
       {lat.trim() !== "" && lng.trim() !== "" && !okMsg && (
         <span className="mt-1.5 block font-mono text-xs text-slate-400">
-          Koordinat saat ini: {lat}, {lng}
+          Koordinat: {lat}, {lng}
         </span>
       )}
     </label>

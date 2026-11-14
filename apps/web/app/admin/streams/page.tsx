@@ -131,11 +131,12 @@ function DiskPicker({
           Available: {infoDisk.avail_human} | Usage: {infoDisk.usage_pct}%
         </p>
       )}
-      <NBField label="Recording path">
-        <p className="break-all rounded-xl bg-ink-800 px-4 py-3 font-mono text-[13px] text-slate-300">
-          {path}
-        </p>
-      </NBField>
+      {/* Path rekaman hanya info baca-saja (teks kecil abu-abu),
+          bukan field input, supaya tidak membingungkan. */}
+      <p className="text-xs leading-relaxed text-slate-400">
+        <span className="font-semibold text-slate-300">Path rekaman: </span>
+        <span className="break-all font-mono">{path}</span>
+      </p>
     </div>
   );
 }
@@ -1178,32 +1179,24 @@ function AddStreamModal({
           </>
         )}
 
-        <div className="space-y-4 rounded-xl bg-ink-800 shadow-sm p-4">
-          <p className="text-[13px] font-medium text-slate-400">Rekaman & lokasi</p>
-          <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 text-sm text-slate-300">
-            <span>Simpan rekaman ke disk</span>
-            <Switch
-              checked={recordingEnabled}
-              onChange={setRecordingEnabled}
-              label="Simpan rekaman ke disk"
+        <div className="space-y-5 rounded-xl bg-ink-800 shadow-sm p-4">
+          <div className="space-y-4">
+            <p className="text-[13px] font-medium text-slate-400">Rekaman</p>
+            <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 text-sm text-slate-300">
+              <span>Simpan rekaman ke disk</span>
+              <Switch
+                checked={recordingEnabled}
+                onChange={setRecordingEnabled}
+                label="Simpan rekaman ke disk"
+              />
+            </label>
+            <DiskPicker
+              disks={disks}
+              value={recordDisk}
+              onChange={setRecordDisk}
+              groupNames={[]}
+              cameraName={name}
             />
-          </label>
-          <DiskPicker
-            disks={disks}
-            value={recordDisk}
-            onChange={setRecordDisk}
-            groupNames={[]}
-            cameraName={name}
-          />
-          <LocationInput
-            lat={latitude}
-            lng={longitude}
-            onChange={(la, lo) => {
-              setLatitude(la);
-              setLongitude(lo);
-            }}
-          />
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <NBField label="Retensi (hari)" hint="1-365">
               <NBInput
                 inputMode="numeric"
@@ -1211,64 +1204,82 @@ function AddStreamModal({
                 onChange={(e) => setRetentionDays(e.target.value)}
               />
             </NBField>
-            <NBField label="Latitude" hint="-90 s/d 90">
-              <NBInput
-                inputMode="decimal"
-                placeholder="-6.2"
-                value={latitude}
-                onChange={(e) => setLatitude(e.target.value)}
-              />
-            </NBField>
-            <NBField label="Longitude" hint="-180 s/d 180">
-              <NBInput
-                inputMode="decimal"
-                placeholder="106.8"
-                value={longitude}
-                onChange={(e) => setLongitude(e.target.value)}
-              />
-            </NBField>
           </div>
-          <NBField label="Mode penyimpanan rekaman">
-            <NBSelect
-              value={storageMode}
-              onChange={(e) => {
-                const v = e.target.value;
-                setStorageMode(v);
-                if (v === "local") setDriveFolderId("");
+          <div className="space-y-4 border-t border-ink-700 pt-4">
+            <p className="text-[13px] font-medium text-slate-400">Lokasi</p>
+            <LocationInput
+              lat={latitude}
+              lng={longitude}
+              onChange={(la, lo) => {
+                setLatitude(la);
+                setLongitude(lo);
               }}
-            >
-              <option value="local">Lokal</option>
-              <option value="drive">Google Drive</option>
-              <option value="both">Keduanya</option>
-            </NBSelect>
-          </NBField>
-          {showDriveFolder && (
-            <NBField
-              label="Folder Google Drive tujuan"
-              hint="Pilih folder tempat rekaman kamera ini disimpan"
-            >
-              {driveFolders.length === 0 ? (
-                <p className="rounded-xl bg-ink-800 px-4 py-3 text-sm leading-relaxed text-slate-300">
-                  Belum ada folder Google Drive. Tambah akun Google dulu di
-                  menu Penyimpanan, lalu pilih di sini.
-                </p>
-              ) : (
-                <NBSelect
-                  value={driveFolderId}
-                  onChange={(e) => setDriveFolderId(e.target.value)}
-                >
-                  <option value="">Default (folder pertama)</option>
-                  {driveFolders.map((f) => (
-                    <option key={f.id} value={String(f.id)}>
-                      {f.remote_name
-                        ? f.remote_label || f.remote_name
-                        : f.folder_name || f.folder_id}
-                    </option>
-                  ))}
-                </NBSelect>
-              )}
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <NBField label="Latitude" hint="-90 s/d 90">
+                <NBInput
+                  inputMode="decimal"
+                  placeholder="-6.2"
+                  value={latitude}
+                  onChange={(e) => setLatitude(e.target.value)}
+                />
+              </NBField>
+              <NBField label="Longitude" hint="-180 s/d 180">
+                <NBInput
+                  inputMode="decimal"
+                  placeholder="106.8"
+                  value={longitude}
+                  onChange={(e) => setLongitude(e.target.value)}
+                />
+              </NBField>
+            </div>
+          </div>
+          <div className="space-y-4 border-t border-ink-700 pt-4">
+            <p className="text-[13px] font-medium text-slate-400">
+              Penyimpanan
+            </p>
+            <NBField label="Mode penyimpanan rekaman">
+              <NBSelect
+                value={storageMode}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setStorageMode(v);
+                  if (v === "local") setDriveFolderId("");
+                }}
+              >
+                <option value="local">Lokal</option>
+                <option value="drive">Google Drive</option>
+                <option value="both">Keduanya</option>
+              </NBSelect>
             </NBField>
-          )}
+            {showDriveFolder && (
+              <NBField
+                label="Folder Google Drive tujuan"
+                hint="Folder tujuan di Google Drive"
+              >
+                {driveFolders.length === 0 ? (
+                  <p className="rounded-xl bg-ink-800 px-4 py-3 text-sm leading-relaxed text-slate-300">
+                    Belum ada folder Google Drive. Tambah akun Google dulu di
+                    menu Penyimpanan, lalu pilih di sini.
+                  </p>
+                ) : (
+                  <NBSelect
+                    value={driveFolderId}
+                    onChange={(e) => setDriveFolderId(e.target.value)}
+                  >
+                    <option value="">Default (folder pertama)</option>
+                    {driveFolders.map((f) => (
+                      <option key={f.id} value={String(f.id)}>
+                        {f.remote_name
+                          ? f.remote_label || f.remote_name
+                          : f.folder_name || f.folder_id}
+                      </option>
+                    ))}
+                  </NBSelect>
+                )}
+              </NBField>
+            )}
+          </div>
         </div>
 
         <NBButton
@@ -1523,34 +1534,28 @@ function EditStreamModal({
             />
           </label>
         </div>
-        <div className="space-y-4 border-t border-ink-800 pt-5">
-          <p className="text-[13px] font-medium text-slate-400">
-            Penyimpanan rekaman
-          </p>
-          <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 text-sm text-slate-300">
-            <span>Simpan rekaman ke disk</span>
-            <Switch
-              checked={recordingEnabled}
-              onChange={setRecordingEnabled}
-              label="Simpan rekaman ke disk"
+        {/* Bagian bawah ditata ulang (perintah user 2026-11-14) jadi
+            tiga seksi: Rekaman, Lokasi, Penyimpanan. Tidak ada field
+            yang dihapus atau diubah logikanya, hanya susunan dan teks
+            bantuan yang dipersingkat. */}
+        <div className="space-y-5 border-t border-ink-800 pt-5">
+          <div className="space-y-4">
+            <p className="text-[13px] font-medium text-slate-400">Rekaman</p>
+            <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 text-sm text-slate-300">
+              <span>Simpan rekaman ke disk</span>
+              <Switch
+                checked={recordingEnabled}
+                onChange={setRecordingEnabled}
+                label="Simpan rekaman ke disk"
+              />
+            </label>
+            <DiskPicker
+              disks={disks}
+              value={recordDisk}
+              onChange={setRecordDisk}
+              groupNames={groupNames}
+              cameraName={name}
             />
-          </label>
-          <DiskPicker
-            disks={disks}
-            value={recordDisk}
-            onChange={setRecordDisk}
-            groupNames={groupNames}
-            cameraName={name}
-          />
-          <LocationInput
-            lat={latitude}
-            lng={longitude}
-            onChange={(la, lo) => {
-              setLatitude(la);
-              setLongitude(lo);
-            }}
-          />
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <NBField label="Retensi (hari)" hint="1-365">
               <NBInput
                 inputMode="numeric"
@@ -1558,65 +1563,83 @@ function EditStreamModal({
                 onChange={(e) => setRetentionDays(e.target.value)}
               />
             </NBField>
-            <NBField label="Latitude">
-              <NBInput
-                inputMode="decimal"
-                placeholder="-6.2"
-                value={latitude}
-                onChange={(e) => setLatitude(e.target.value)}
-              />
-            </NBField>
-            <NBField label="Longitude">
-              <NBInput
-                inputMode="decimal"
-                placeholder="106.8"
-                value={longitude}
-                onChange={(e) => setLongitude(e.target.value)}
-              />
-            </NBField>
           </div>
-          <NBField label="Mode penyimpanan rekaman">
-            <NBSelect
-              value={storageMode}
-              onChange={(e) => {
-                const v = e.target.value;
-                setStorageMode(v);
-                /* E-R1: ganti ke Lokal langsung reset folder lama. */
-                if (v === "local") setDriveFolderId("");
+          <div className="space-y-4 border-t border-ink-800 pt-5">
+            <p className="text-[13px] font-medium text-slate-400">Lokasi</p>
+            <LocationInput
+              lat={latitude}
+              lng={longitude}
+              onChange={(la, lo) => {
+                setLatitude(la);
+                setLongitude(lo);
               }}
-            >
-              <option value="local">Lokal</option>
-              <option value="drive">Google Drive</option>
-              <option value="both">Keduanya</option>
-            </NBSelect>
-          </NBField>
-          {showDriveFolder && (
-            <NBField
-              label="Folder Google Drive tujuan"
-              hint="Pilih folder tempat rekaman kamera ini disimpan"
-            >
-              {driveFolders.length === 0 ? (
-                <p className="rounded-xl bg-ink-800 px-4 py-3 text-sm leading-relaxed text-slate-300">
-                  Belum ada folder Google Drive. Tambah akun Google dulu di
-                  menu Penyimpanan, lalu pilih di sini.
-                </p>
-              ) : (
-                <NBSelect
-                  value={driveFolderId}
-                  onChange={(e) => setDriveFolderId(e.target.value)}
-                >
-                  <option value="">Default (folder pertama)</option>
-                  {driveFolders.map((f) => (
-                    <option key={f.id} value={String(f.id)}>
-                      {f.remote_name
-                        ? f.remote_label || f.remote_name
-                        : f.folder_name || f.folder_id}
-                    </option>
-                  ))}
-                </NBSelect>
-              )}
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <NBField label="Latitude">
+                <NBInput
+                  inputMode="decimal"
+                  placeholder="-6.2"
+                  value={latitude}
+                  onChange={(e) => setLatitude(e.target.value)}
+                />
+              </NBField>
+              <NBField label="Longitude">
+                <NBInput
+                  inputMode="decimal"
+                  placeholder="106.8"
+                  value={longitude}
+                  onChange={(e) => setLongitude(e.target.value)}
+                />
+              </NBField>
+            </div>
+          </div>
+          <div className="space-y-4 border-t border-ink-800 pt-5">
+            <p className="text-[13px] font-medium text-slate-400">
+              Penyimpanan
+            </p>
+            <NBField label="Mode penyimpanan rekaman">
+              <NBSelect
+                value={storageMode}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setStorageMode(v);
+                  /* E-R1: ganti ke Lokal langsung reset folder lama. */
+                  if (v === "local") setDriveFolderId("");
+                }}
+              >
+                <option value="local">Lokal</option>
+                <option value="drive">Google Drive</option>
+                <option value="both">Keduanya</option>
+              </NBSelect>
             </NBField>
-          )}
+            {showDriveFolder && (
+              <NBField
+                label="Folder Google Drive tujuan"
+                hint="Folder tujuan di Google Drive"
+              >
+                {driveFolders.length === 0 ? (
+                  <p className="rounded-xl bg-ink-800 px-4 py-3 text-sm leading-relaxed text-slate-300">
+                    Belum ada folder Google Drive. Tambah akun Google dulu di
+                    menu Penyimpanan, lalu pilih di sini.
+                  </p>
+                ) : (
+                  <NBSelect
+                    value={driveFolderId}
+                    onChange={(e) => setDriveFolderId(e.target.value)}
+                  >
+                    <option value="">Default (folder pertama)</option>
+                    {driveFolders.map((f) => (
+                      <option key={f.id} value={String(f.id)}>
+                        {f.remote_name
+                          ? f.remote_label || f.remote_name
+                          : f.folder_name || f.folder_id}
+                      </option>
+                    ))}
+                  </NBSelect>
+                )}
+              </NBField>
+            )}
+          </div>
         </div>
         <NBButton onClick={save} disabled={busy || !name.trim()} className="w-full">
           {busy ? "Menyimpan…" : "Simpan"}

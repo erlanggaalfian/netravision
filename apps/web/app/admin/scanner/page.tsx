@@ -1134,7 +1134,7 @@ export default function AdminScannerPage() {
           title={`Tambah ${selectedHosts().length} kamera`}
           onClose={() => setShowAddModal(false)}
         >
-          <div className="space-y-4">
+          <div className="space-y-5">
             <NBField label={`Kamera terpilih (${selectedHosts().length})`}>
               <div className="max-h-32 overflow-y-auto rounded-xl bg-ink-800 p-2">
                 {selectedHosts().map((h) => (
@@ -1228,79 +1228,26 @@ export default function AdminScannerPage() {
               </p>
             </NBField>
 
-            <div className="mb-3">
-              <LocationInput
-                lat={lat}
-                lng={lng}
-                onChange={(la, lo) => {
-                  setLat(la);
-                  setLng(lo);
-                }}
+            <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 text-sm text-slate-300">
+              <span>Kamera aktif</span>
+              <Switch
+                checked={isActive}
+                onChange={setIsActive}
+                label="Kamera aktif"
               />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <NBField label="Latitude" hint="-90 s.d. 90">
-                <NBInput
-                  value={lat}
-                  onChange={(e) => setLat(e.target.value)}
-                  inputMode="decimal"
-                  placeholder="cth. -7,56"
-                  className="font-mono"
-                />
-              </NBField>
-              <NBField label="Longitude" hint="-180 s.d. 180">
-                <NBInput
-                  value={lng}
-                  onChange={(e) => setLng(e.target.value)}
-                  inputMode="decimal"
-                  placeholder="cth. 110,83"
-                  className="font-mono"
-                />
-              </NBField>
-            </div>
+            </label>
             <p className="-mt-2 text-xs leading-relaxed text-slate-400">
-              Kosongkan bila tanpa koordinat. Berlaku untuk semua kamera
-              terpilih.
+              Bila dimatikan, kamera ditambah dalam keadaan nonaktif dan
+              tidak langsung streaming.
             </p>
 
-            <NBField label="Mode penyimpanan">
-              <NBSelect
-                value={storageMode}
-                onChange={(e) =>
-                  onStorageModeChange(
-                    e.target.value as "local" | "drive" | "both",
-                  )
-                }
-              >
-                <option value="local">Lokal</option>
-                <option value="drive">Google Drive</option>
-                <option value="both">Keduanya</option>
-              </NBSelect>
-            </NBField>
-
-            {/* Kamera aktif + Penyimpanan rekaman (perintah user
-                2026-11-14): saklar Switch bersama, bukan checkbox.
-                "Simpan rekaman ke disk" bisa di-disable/enable;
-                default-nya mengikuti mode penyimpanan sampai user
-                mengubahnya manual (lihat onStorageModeChange). */}
+            {/* Seksi Rekaman, Lokasi, Penyimpanan: susunan dan judul
+                yang sama seperti popup Ubah/Tambah Kamera (perintah
+                user 2026-11-14). Hanya tata letak, tidak ada field
+                yang ditambah atau dihapus. */}
             <div className="space-y-4 border-t border-ink-800 pt-5">
               <p className="text-[13px] font-medium text-slate-400">
-                Kamera & rekaman
-              </p>
-              <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 text-sm text-slate-300">
-                <span>Kamera aktif</span>
-                <Switch
-                  checked={isActive}
-                  onChange={setIsActive}
-                  label="Kamera aktif"
-                />
-              </label>
-              <p className="-mt-2 text-xs leading-relaxed text-slate-400">
-                Bila dimatikan, kamera ditambah dalam keadaan nonaktif dan
-                tidak langsung streaming.
-              </p>
-              <p className="text-[13px] font-medium text-slate-400">
-                Penyimpanan rekaman
+                Rekaman
               </p>
               <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 text-sm text-slate-300">
                 <span>Simpan rekaman ke disk</span>
@@ -1314,6 +1261,64 @@ export default function AdminScannerPage() {
                 Bila dimatikan, kamera tetap streaming live tapi tidak
                 merekam ke disk.
               </p>
+            </div>
+
+            <div className="space-y-4 border-t border-ink-800 pt-5">
+              <p className="text-[13px] font-medium text-slate-400">
+                Lokasi
+              </p>
+              <LocationInput
+                lat={lat}
+                lng={lng}
+                onChange={(la, lo) => {
+                  setLat(la);
+                  setLng(lo);
+                }}
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <NBField label="Latitude" hint="-90 s.d. 90">
+                  <NBInput
+                    value={lat}
+                    onChange={(e) => setLat(e.target.value)}
+                    inputMode="decimal"
+                    placeholder="cth. -7,56"
+                    className="font-mono"
+                  />
+                </NBField>
+                <NBField label="Longitude" hint="-180 s.d. 180">
+                  <NBInput
+                    value={lng}
+                    onChange={(e) => setLng(e.target.value)}
+                    inputMode="decimal"
+                    placeholder="cth. 110,83"
+                    className="font-mono"
+                  />
+                </NBField>
+              </div>
+              <p className="-mt-2 text-xs leading-relaxed text-slate-400">
+                Kosongkan bila tanpa koordinat. Berlaku untuk semua kamera
+                terpilih.
+              </p>
+            </div>
+
+            <div className="space-y-4 border-t border-ink-800 pt-5">
+              <p className="text-[13px] font-medium text-slate-400">
+                Penyimpanan
+              </p>
+              <NBField label="Mode penyimpanan rekaman">
+                <NBSelect
+                  value={storageMode}
+                  onChange={(e) =>
+                    onStorageModeChange(
+                      e.target.value as "local" | "drive" | "both",
+                    )
+                  }
+                >
+                  <option value="local">Lokal</option>
+                  <option value="drive">Google Drive</option>
+                  <option value="both">Keduanya</option>
+                </NBSelect>
+              </NBField>
             </div>
 
             {modalError && (
