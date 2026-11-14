@@ -1,0 +1,5 @@
+# Build output (jangan commit)
+app/build/
+# Keystore release + kata sandinya (jangan commit)
+netravision-release.keystore
+keystore.properties
