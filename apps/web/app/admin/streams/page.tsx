@@ -7,6 +7,7 @@ import { useCameraStatus } from "../../../hooks/useCameraStatus";
 import type { AdConfig, Disk, DriveFolder, Group, ScanPath, ScanResult, Stream } from "../../../lib/types";
 import { ShareModal } from "../../../components/ShareModal";
 import { FocusModal } from "../../../components/FocusModal";
+import { LocationInput } from "../../../components/LocationInput";
 import { ErrorBox, Modal, Spinner, Switch } from "../../../components/ui";
 import {
   NBAccordion,
@@ -836,6 +837,16 @@ function BulkCoordsModal({
           <ErrorBox message={error} />
         </div>
       )}
+      <div className="mb-3">
+        <LocationInput
+          lat={lat}
+          lng={lon}
+          onChange={(la, lo) => {
+            setLat(la);
+            setLon(lo);
+          }}
+        />
+      </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <NBField label="Latitude" hint="-90 s/d 90">
           <NBInput
@@ -1184,6 +1195,14 @@ function AddStreamModal({
             groupNames={[]}
             cameraName={name}
           />
+          <LocationInput
+            lat={latitude}
+            lng={longitude}
+            onChange={(la, lo) => {
+              setLatitude(la);
+              setLongitude(lo);
+            }}
+          />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <NBField label="Retensi (hari)" hint="1-365">
               <NBInput
@@ -1522,6 +1541,14 @@ function EditStreamModal({
             onChange={setRecordDisk}
             groupNames={groupNames}
             cameraName={name}
+          />
+          <LocationInput
+            lat={latitude}
+            lng={longitude}
+            onChange={(la, lo) => {
+              setLatitude(la);
+              setLongitude(lo);
+            }}
           />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <NBField label="Retensi (hari)" hint="1-365">

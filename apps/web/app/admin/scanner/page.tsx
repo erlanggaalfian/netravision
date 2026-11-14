@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import type { Group, Stream, SubnetHost } from "../../../lib/types";
 import { ErrorBox, Modal } from "../../../components/ui";
+import { LocationInput } from "../../../components/LocationInput";
 import { NBBadge, NBButton, NBCard, NBField, NBInput, NBSelect, NBTitle, NBTableWrap, NBTh, NBTd, NBTr } from "../_nb";
 
 type Tone = "ok" | "bad" | "warn" | "info" | "muted";
@@ -1202,6 +1203,16 @@ export default function AdminScannerPage() {
               </p>
             </NBField>
 
+            <div className="mb-3">
+              <LocationInput
+                lat={lat}
+                lng={lng}
+                onChange={(la, lo) => {
+                  setLat(la);
+                  setLng(lo);
+                }}
+              />
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <NBField label="Latitude" hint="-90 s.d. 90">
                 <NBInput

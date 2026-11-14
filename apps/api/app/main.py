@@ -23,6 +23,7 @@ from app.routers import (
     admin_users,
     auth,
     external,
+    maps,
     recordings,
     streams,
     system,
@@ -384,6 +385,8 @@ def create_app() -> FastAPI:
     app.include_router(external.router, prefix="/api")
     # Rekaman: 8 endpoint persis kontrak v2.0.
     app.include_router(recordings.router, prefix="/api")
+    # Penyelesaian lokasi multi-format (kolom "Lokasi").
+    app.include_router(maps.router, prefix="/api")
     # /ws TANPA prefix /api (kontrak).
     app.include_router(ws.router)
     # File statis untuk gambar iklan yang diunggah.
