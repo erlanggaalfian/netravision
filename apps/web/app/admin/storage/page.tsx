@@ -440,11 +440,10 @@ export default function AdminStoragePage() {
   if (data === null && !error) return <Spinner />;
 
   const connectedCount = remotes.filter((r) => r.connected).length;
-  // Semua folder tampil, termasuk folder "netravision" bawaan akun
-  // (remote_name terisi) yang dibuat otomatis saat akun terhubung:
-  // rekaman memang masuk ke sana, jadi menyembunyikannya membuat
-  // ringkasan tampil "0 folder" padahal folder itu ada dan dipakai.
-  const visibleFolders = data?.folders ?? [];
+  // Folder "netravision" milik akun disembunyikan: rekaman langsung masuk
+  // ke sana tanpa perlu dilihat/dikelola di sini. Hanya tautan folder
+  // manual yang tampil.
+  const visibleFolders = (data?.folders ?? []).filter((f) => !f.remote_name);
   const folderCount = visibleFolders.length;
 
   return (
@@ -817,22 +816,13 @@ export default function AdminStoragePage() {
                       >
                         {openDetail[f.id] ? "Sembunyikan detail" : "Detail"}
                       </button>
-                      {f.remote_name ? (
-                        <span
-                          className="text-slate-500"
-                          title="Folder bawaan akun Google ini dipakai sebagai tujuan default rekaman, jadi tidak bisa dihapus dari sini. Hapus akunnya bila folder ini memang tidak dipakai lagi."
-                        >
-                          Folder bawaan akun, tidak bisa dihapus
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setDeleting(f)}
-                          className="font-medium text-bad-400 underline underline-offset-2"
-                        >
-                          Hapus
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => setDeleting(f)}
+                        className="font-medium text-bad-400 underline underline-offset-2"
+                      >
+                        Hapus
+                      </button>
                     </div>
                     {openDetail[f.id] && (
                       <div className="mt-2 space-y-1 rounded-lg bg-ink-800 p-3 text-xs text-slate-400">
