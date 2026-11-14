@@ -1059,3 +1059,90 @@ async def test_complete_streams_kamera_aktif_daftar_mediamtx(scan_client):
     sub_conf = mtmx.confs["stream_%s_sub" % stream.id]
     assert sub_conf["source"] == "rtsp://admin:pw@192.168.1.10:554/live/0/SUB"
     assert "runOnReady" not in mtmx.confs["stream_%s" % stream.id]
+
+
+async def test_complete_streams_replace_ganti_main_dan_sub(scan_client):
+    """POST complete-streams replace=True: main DAN sub yang sudah
+    terisi DIGANTI dengan nilai hasil scan (dan rtsp_url ikut
+    disamakan dengan main baru)."""
+    from app.models.streams import Stream
+
+    app, _, db = scan_client
+    admin = make_user(role="super_admin")
+    db.add(admin)
+    db.add(Stream(
+        name="Cam 10", rtsp_url="rtsp://admin:pw@192.168.1.10:554/H.264",
+        main_url="rtsp://admin:pw@192.168.1.10:554/H.264",
+        sub_url="rtsp://admin:pw@192.168.1.10:554/H.265",
+        is_active=False, is_online=False,
+    ))
+    await db.commit()
+    auth_as(app, admin)
+    stream = (await db.execute(
+        select(Stream)
+    )).scalars().first()
+
+    async with _client(app) as c:
+        r = await c.post(
+            "/api/admin/scan-subnet/complete-streams",
+            json={
+                "stream_id": stream.id,
+                "main_url": "rtsp://admin:pw@192.168.1.10:554/live/0/MAIN",
+                "sub_url": "rtsp://admin:pw@192.168.1.10:554/live/0/SUB",
+                "replace": True,
+            },
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["updated_main"] is True
+        assert body["replaced_main"] is True
+        assert body["skipped_main"] is False
+        assert body["updated_sub"] is True
+        assert body["replaced_sub"] is True
+        assert body["skipped_sub"] is False
+    await db.refresh(stream)
+    assert stream.main_url.endswith("/live/0/MAIN")
+    assert stream.rtsp_url.endswith("/live/0/MAIN")
+    assert stream.sub_url.endswith("/live/0/SUB")
+
+
+async def test_complete_streams_tanpa_replace_tidak_ganti(scan_client):
+    """Tanpa replace (default False), main/sub yang sudah terisi
+    tetap di-skip walau nilai hasil scan berbeda."""
+    from app.models.streams import Stream
+
+    app, _, db = scan_client
+    admin = make_user(role="super_admin")
+    db.add(admin)
+    db.add(Stream(
+        name="Cam 10", rtsp_url="rtsp://admin:pw@192.168.1.10:554/H.264",
+        main_url="rtsp://admin:pw@192.168.1.10:554/H.264",
+        sub_url="rtsp://admin:pw@192.168.1.10:554/H.265",
+        is_active=False, is_online=False,
+    ))
+    await db.commit()
+    auth_as(app, admin)
+    stream = (await db.execute(
+        select(Stream)
+    )).scalars().first()
+
+    async with _client(app) as c:
+        r = await c.post(
+            "/api/admin/scan-subnet/complete-streams",
+            json={
+                "stream_id": stream.id,
+                "main_url": "rtsp://admin:pw@192.168.1.10:554/live/0/MAIN",
+                "sub_url": "rtsp://admin:pw@192.168.1.10:554/live/0/SUB",
+            },
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["updated_main"] is False
+        assert body["replaced_main"] is False
+        assert body["skipped_main"] is True
+        assert body["updated_sub"] is False
+        assert body["replaced_sub"] is False
+        assert body["skipped_sub"] is True
+    await db.refresh(stream)
+    assert stream.main_url.endswith("/H.264")
+    assert stream.sub_url.endswith("/H.265")

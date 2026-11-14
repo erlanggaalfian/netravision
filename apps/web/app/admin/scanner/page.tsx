@@ -102,6 +102,20 @@ function canAddSub(h: SubnetHost): boolean {
 function isComplete(h: SubnetHost): boolean {
   return !!h.known && !!h.known_main && !!h.known_sub;
 }
+/* Sub terdaftar beda path dengan sub hasil scan (untuk tombol
+   "Sesuaikan path": ganti sub yang sudah ada supaya sama dengan
+   hasil scan). */
+function subDiffers(h: SubnetHost): boolean {
+  if (!h.known_sub || !h.best_sub) return false;
+  return urlPath(h.known_sub) !== urlPath(h.best_sub);
+}
+/* "Sesuaikan path" tampil bila kamera terdaftar punya main/sub yang
+   path-nya BERBEDA dengan hasil scan (ada yang bisa diganti). Bila
+   path sudah sama dengan scan, tidak ada yang disesuaikan. */
+function canAdjust(h: SubnetHost): boolean {
+  if (!h.known || (!h.best_main && !h.best_sub)) return false;
+  return mainDiffers(h) || subDiffers(h);
+}
 /* Main terdaftar beda path dengan main hasil scan: tampilkan info
    perbandingan supaya user bisa memutuskan sendiri. Penggantian main
    yang sudah ada TIDAK otomatis, hanya info. */
@@ -153,6 +167,11 @@ export default function AdminScannerPage() {
   /* Lengkapi stream kamera terdaftar (tambah main/sub yang belum ada). */
   const [completing, setCompleting] = useState<Set<string>>(new Set());
   const [completedMsg, setCompletedMsg] = useState("");
+  /* Sesuaikan path kamera terdaftar dengan hasil scan (ganti main/sub
+     yang sudah ada). Per kamera dan bulk; TIDAK ADA penerapan otomatis. */
+  const [adjusting, setAdjusting] = useState<Set<string>>(new Set());
+  const [adjustingBulk, setAdjustingBulk] = useState(false);
+  const [adjustMsg, setAdjustMsg] = useState("");
   /* Stream yang sudah dilengkapi di sesi ini (kunci host -> main/sub
      yang berhasil ditambah). Polling scan menimpa state hosts tiap
      2 detik, jadi hasil lengkapi harus digabungkan kembali ke data
@@ -180,10 +199,23 @@ export default function AdminScannerPage() {
   const hiddenUnreachable = (hosts ?? []).length - visibleHosts.length;
   /* Kamera yang sudah terdaftar tidak ditawarkan untuk ditambah lagi
      (cegah duplikat): hanya host video yang BELUM dikenal yang bisa
-     dipilih. */
+     dipilih untuk "Tambah terpilih". */
   const selectable = (hosts ?? []).filter(
     (h) => h.status === "video" && !h.known,
   );
+  /* Semua host video bisa dicentang, termasuk yang sudah terdaftar:
+     centang dipakai dua aksi yang berbeda, "Tambah terpilih" untuk
+     kamera BARU dan "Sesuaikan terpilih" untuk kamera terdaftar
+     (ganti path supaya sama dengan hasil scan). */
+  const checkable = (hosts ?? []).filter((h) => h.status === "video");
+  /* Kamera BARU yang tercentang (untuk "Tambah terpilih") dan kamera
+     TERDAFTAR yang tercentang (untuk "Sesuaikan terpilih"). */
+  const checkedNewHosts = () =>
+    selectable.filter((h) => checked.has(key(h)));
+  const checkedKnownHosts = () =>
+    (hosts ?? []).filter(
+      (h) => h.known && h.status === "video" && checked.has(key(h)),
+    );
 
   async function doScan() {
     setError("");
@@ -268,8 +300,11 @@ export default function AdminScannerPage() {
   }
 
   function toggleAll() {
-    if (checked.size === selectable.length) setChecked(new Set());
-    else setChecked(new Set(selectable.map(key)));
+    /* Pilih semua host video (baru + terdaftar): "Tambah terpilih"
+       hanya memproses yang baru, "Sesuaikan terpilih" hanya yang
+       terdaftar, jadi satu centang aman untuk dua aksi. */
+    if (checked.size === checkable.length) setChecked(new Set());
+    else setChecked(new Set(checkable.map(key)));
   }
 
   /* Host terpilih (dipakai popup dan proses tambah). */
@@ -471,11 +506,148 @@ export default function AdminScannerPage() {
     }
   }
 
+  /* Sesuaikan path kamera terdaftar dengan hasil scan (tombol
+     "Sesuaikan path" per host dan "Sesuaikan terpilih" bulk).
+     BERBEDA dengan "Lengkapi stream" yang hanya mengisi field kosong:
+     ini MENIMPA main_url dan sub_url dengan best_main/best_sub hasil
+     scan (bila ada di hasil scan; field yang tidak ada di hasil scan
+     TIDAK diubah). Contoh: main /H.264 diganti ke /live/0/MAIN, sub
+     diganti ke /live/0/SUB. TIDAK ADA penerapan otomatis: hanya jalan
+     bila user mengklik tombol. */
+  async function adjustHost(h: SubnetHost) {
+    if (!h.known_stream_id) return;
+    const k = key(h);
+    setError("");
+    setAdjustMsg("");
+    setAdjusting((prev) => new Set(prev).add(k));
+    try {
+      const body: {
+        stream_id: number;
+        main_url?: string | null;
+        sub_url?: string | null;
+        replace: boolean;
+      } = { stream_id: h.known_stream_id, replace: true };
+      if (h.best_main) body.main_url = h.best_main;
+      if (h.best_sub) body.sub_url = h.best_sub;
+      const res = await api.post<{
+        updated_main: boolean;
+        updated_sub: boolean;
+      }>("/admin/scan-subnet/complete-streams", body);
+      const prev = completedStreamsRef.current[k] ?? {
+        main: false,
+        sub: false,
+      };
+      completedStreamsRef.current[k] = {
+        main: prev.main || res.updated_main,
+        sub: prev.sub || res.updated_sub,
+      };
+      setHosts((prevHosts) =>
+        (prevHosts ?? []).map((x) => {
+          if (key(x) !== k) return x;
+          return {
+            ...x,
+            known_main:
+              res.updated_main && h.best_main ? h.best_main : x.known_main,
+            known_sub:
+              res.updated_sub && h.best_sub ? h.best_sub : x.known_sub,
+          };
+        }),
+      );
+      const parts: string[] = [];
+      if (res.updated_main) parts.push("main");
+      if (res.updated_sub) parts.push("sub");
+      setCompletedMsg(
+        parts.length > 0
+          ? `Kamera ${h.host}: ${parts.join(" dan ")} disesuaikan.`
+          : `Kamera ${h.host}: sudah sesuai hasil scan.`,
+      );
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Gagal menyesuaikan path");
+    } finally {
+      setAdjusting((prev) => {
+        const next = new Set(prev);
+        next.delete(k);
+        return next;
+      });
+    }
+  }
+
+  /* Sesuaikan path SEMUA kamera terdaftar yang tercentang, satu per
+     satu; lanjutkan bila satu gagal, laporkan mana yang berhasil dan
+     mana yang gagal. Yang gagal tetap tercentang supaya bisa dicoba
+     lagi; yang berhasil dicentang-nya dilepas. */
+  async function adjustSelected() {
+    const targets = checkedKnownHosts();
+    if (targets.length === 0) return;
+    setError("");
+    setAdjustMsg("");
+    setAdjustingBulk(true);
+    let ok = 0;
+    const failed: string[] = [];
+    const failedKeys = new Set<string>();
+    for (const h of targets) {
+      if (!h.known_stream_id) continue;
+      try {
+        const body: {
+          stream_id: number;
+          main_url?: string | null;
+          sub_url?: string | null;
+          replace: boolean;
+        } = { stream_id: h.known_stream_id, replace: true };
+        if (h.best_main) body.main_url = h.best_main;
+        if (h.best_sub) body.sub_url = h.best_sub;
+        const res = await api.post<{
+          updated_main: boolean;
+          updated_sub: boolean;
+        }>("/admin/scan-subnet/complete-streams", body);
+        const k = key(h);
+        const prev = completedStreamsRef.current[k] ?? {
+          main: false,
+          sub: false,
+        };
+        completedStreamsRef.current[k] = {
+          main: prev.main || res.updated_main,
+          sub: prev.sub || res.updated_sub,
+        };
+        setHosts((prevHosts) =>
+          (prevHosts ?? []).map((x) => {
+            if (key(x) !== k) return x;
+            return {
+              ...x,
+              known_main:
+                res.updated_main && h.best_main ? h.best_main : x.known_main,
+              known_sub:
+                res.updated_sub && h.best_sub ? h.best_sub : x.known_sub,
+            };
+          }),
+        );
+        ok++;
+      } catch {
+        failed.push(h.host);
+        failedKeys.add(key(h));
+      }
+    }
+    setAdjustingBulk(false);
+    setChecked((prev) => {
+      const next = new Set<string>();
+      prev.forEach((k) => {
+        if (failedKeys.has(k)) next.add(k);
+      });
+      return next;
+    });
+    setAdjustMsg(
+      failed.length > 0
+        ? `Disesuaikan ${ok} kamera, gagal ${failed.length}: ${failed.join(", ")}.`
+        : `Disesuaikan ${ok} kamera.`,
+    );
+  }
+
   /* Tombol lengkapi untuk satu host terdaftar (dipakai kartu mobile
-     dan baris tabel desktop). */
+     dan baris tabel desktop). Mengembalikan null bila tidak ada
+     stream yang perlu dilengkapi; lencana "Sudah lengkap" ditangani
+     KnownHostActions di bawah. */
   function CompleteButton({ h }: { h: SubnetHost }) {
     const busy = completing.has(key(h));
-    if (isComplete(h)) return <NBBadge tone="ok">Sudah lengkap</NBBadge>;
     const both = canAddMain(h) && canAddSub(h);
     const label = both
       ? "Lengkapi stream"
@@ -502,11 +674,52 @@ export default function AdminScannerPage() {
     );
   }
 
+  /* Tombol "Sesuaikan path" untuk satu host terdaftar: GANTI main_url
+     dan sub_url dengan best_main/best_sub hasil scan (bila ada di
+     hasil scan; yang tidak ada tidak diubah). Berbeda dengan lengkapi
+     yang hanya mengisi field kosong, ini menimpa path yang sudah ada
+     supaya sama dengan hasil scan. */
+  function AdjustButton({ h }: { h: SubnetHost }) {
+    const busy = adjusting.has(key(h));
+    if (!canAdjust(h)) return null;
+    return (
+      <NBButton
+        variant="secondary"
+        onClick={() => adjustHost(h)}
+        disabled={busy}
+        className="min-h-11 px-3 text-xs"
+        title="Ganti main dan sub dengan hasil scan"
+      >
+        {busy ? "Menyesuaikan…" : "Sesuaikan path"}
+      </NBButton>
+    );
+  }
+
+  /* Aksi untuk satu host terdaftar di kolom AKSI: tombol lengkapi
+     (bila ada stream yang belum ada) dan/atau tombol sesuaikan path
+     (bila path terdaftar berbeda dengan hasil scan). Bila keduanya
+     tidak perlu, tampilkan lencana "Sudah lengkap". */
+  function KnownHostActions({ h }: { h: SubnetHost }) {
+    const needsComplete = canAddMain(h) || canAddSub(h);
+    const needsAdjust = canAdjust(h);
+    if (!needsComplete && !needsAdjust)
+      return <NBBadge tone="ok">Sudah lengkap</NBBadge>;
+    return (
+      <span className="flex flex-col gap-1.5">
+        {needsComplete && <CompleteButton h={h} />}
+        {needsAdjust && <AdjustButton h={h} />}
+      </span>
+    );
+  }
+
   /* E-R5: dua komponen terpisah supaya HTML valid: kartu <li>
      hanya di dalam <ul> mobile, baris <tr> hanya di <tbody>. */
   function HostCheckbox({ h }: { h: SubnetHost }) {
-    /* Kamera yang sudah terdaftar tidak bisa dipilih (cegah duplikat). */
-    const canPick = h.status === "video" && !h.known;
+    /* Semua host video bisa dicentang, termasuk yang sudah terdaftar:
+       "Tambah terpilih" hanya memproses yang BARU (selectable), dan
+       "Sesuaikan terpilih" hanya memproses yang TERDAFTAR, jadi satu
+       centang aman untuk dua aksi. */
+    const canPick = h.status === "video";
     return (
       <input
         type="checkbox"
@@ -548,7 +761,7 @@ export default function AdminScannerPage() {
           </div>
           {h.known && (
             <div className="mt-2">
-              <CompleteButton h={h} />
+              <KnownHostActions h={h} />
             </div>
           )}
         </div>
@@ -594,7 +807,7 @@ export default function AdminScannerPage() {
           )}
         </NBTd>
         <NBTd>
-          {h.known ? <CompleteButton h={h} /> : <span className="text-slate-600">-</span>}
+          {h.known ? <KnownHostActions h={h} /> : <span className="text-slate-600">-</span>}
         </NBTd>
       </NBTr>
     );
@@ -699,17 +912,41 @@ export default function AdminScannerPage() {
               Host terdeteksi{" "}
               <span className="text-slate-400">({visibleHosts.length})</span>
             </h3>
-            {selectable.length > 0 && (
-              <NBButton
-                variant="secondary"
-                onClick={openAddModal}
-                disabled={scanning || adding || checked.size === 0}
-              >
-                {adding
-                  ? "Menambah…"
-                  : `+ Tambah terpilih (${checked.size})`}
-              </NBButton>
-            )}
+            {/* Dua aksi untuk yang tercentang, dibedakan jelas:
+                "Tambah terpilih" hanya menambah kamera BARU, sedangkan
+                "Sesuaikan terpilih" hanya mengganti path kamera yang
+                SUDAH TERDAFTAR supaya sama dengan hasil scan. */}
+            <span className="flex flex-wrap gap-2">
+              {selectable.length > 0 && (
+                <NBButton
+                  variant="secondary"
+                  onClick={openAddModal}
+                  disabled={
+                    scanning || adding || checkedNewHosts().length === 0
+                  }
+                >
+                  {adding
+                    ? "Menambah…"
+                    : `+ Tambah terpilih (${checkedNewHosts().length})`}
+                </NBButton>
+              )}
+              {(hosts ?? []).some((h) => h.known && h.status === "video") && (
+                <NBButton
+                  variant="secondary"
+                  onClick={adjustSelected}
+                  disabled={
+                    scanning ||
+                    adjustingBulk ||
+                    checkedKnownHosts().length === 0
+                  }
+                  title="Ganti main dan sub kamera terdaftar yang tercentang dengan hasil scan"
+                >
+                  {adjustingBulk
+                    ? "Menyesuaikan…"
+                    : `Sesuaikan terpilih (${checkedKnownHosts().length})`}
+                </NBButton>
+              )}
+            </span>
           </div>
           {!scanning && visibleHosts.length > 0 && (
             <p className="mb-3 text-xs text-slate-400">
@@ -731,6 +968,9 @@ export default function AdminScannerPage() {
           {completedMsg && (
             <p className="mb-3 text-sm text-ok-400">{completedMsg}</p>
           )}
+          {adjustMsg && (
+            <p className="mb-3 text-sm text-ok-400">{adjustMsg}</p>
+          )}
           {visibleHosts.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-400">
               {scanning
@@ -744,11 +984,11 @@ export default function AdminScannerPage() {
           ) : (
             <>
               {/* Mobile: pilih semua + daftar kartu */}
-              {selectable.length > 0 && (
+              {checkable.length > 0 && (
                 <label className="mb-2 flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-300 md:hidden">
                   <input
                     type="checkbox"
-                    checked={checked.size === selectable.length}
+                    checked={checked.size === checkable.length}
                     onChange={toggleAll}
                     className="h-5 w-5 accent-accent-500"
                     aria-label="Pilih semua"
@@ -771,8 +1011,8 @@ export default function AdminScannerPage() {
                         <input
                           type="checkbox"
                           checked={
-                            selectable.length > 0 &&
-                            checked.size === selectable.length
+                            checkable.length > 0 &&
+                            checked.size === checkable.length
                           }
                           onChange={toggleAll}
                           className="h-5 w-5 accent-accent-500"

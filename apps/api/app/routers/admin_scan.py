@@ -710,11 +710,18 @@ class CompleteStreamsRequest(BaseModel):
     """Lengkapi main/sub kamera terdaftar dari hasil scan.
 
     main_url/sub_url diisi dari best_main/best_sub hasil scan
-    (URL lengkap yang sudah terverifikasi video)."""
+    (URL lengkap yang sudah terverifikasi video).
+
+    replace: bila True, main_url/sub_url yang SUDAH TERISI boleh
+    diganti dengan nilai hasil scan (bila berbeda). Dipakai tombol
+    "Sesuaikan path" (per kamera maupun bulk): path kamera disesuaikan
+    supaya sama dengan hasil scan. Tanpa replace (default False),
+    endpoint ini hanya mengisi field yang masih kosong."""
 
     stream_id: int
     main_url: str | None = None
     sub_url: str | None = None
+    replace: bool = False
 
 
 class CompleteStreamsResponse(BaseModel):
@@ -722,6 +729,9 @@ class CompleteStreamsResponse(BaseModel):
     stream_id: int
     updated_main: bool = False
     updated_sub: bool = False
+    # Main/sub diganti karena replace=True (bukan sekadar diisi).
+    replaced_main: bool = False
+    replaced_sub: bool = False
     # Sudah terisi di database, jadi TIDAK ditimpa (bukan gagal).
     skipped_main: bool = False
     skipped_sub: bool = False
@@ -743,11 +753,12 @@ async def complete_streams(
     """Tambahkan main/sub yang BELUM ADA ke kamera yang sudah terdaftar.
 
     Hanya mengisi field yang masih kosong (NULL/kosong); field yang
-    sudah terisi TIDAK PERNAH ditimpa oleh endpoint ini (penggantian
-    main/sub yang sudah ada tetap harus perintah eksplisit user lewat
-    ubah kamera). Setelah ada yang berubah dan kamera aktif, path
-    MediaMTX didaftarkan ulang supaya sub native langsung dipakai
-    (transcoder mati total, jadi sub hanya dibuat bila sub_url ada).
+    sudah terisi TIDAK PERNAH ditimpa oleh endpoint ini, KECUALI bila
+    replace=True: main_url/sub_url yang sudah ada boleh diganti dengan
+    nilai hasil scan (dipakai tombol "Sesuaikan path"). Setelah ada
+    yang berubah dan kamera aktif, path MediaMTX didaftarkan ulang
+    supaya sub native langsung dipakai (transcoder mati total, jadi
+    sub hanya dibuat bila sub_url ada).
     Router ini sudah super_admin-only (E-K1)."""
     from app.core.config import get_settings
     from app.services.disks import record_path_for
@@ -757,19 +768,33 @@ async def complete_streams(
     if stream is None:
         raise HTTPException(status_code=404, detail="stream tidak ditemukan")
     updated_main = updated_sub = False
+    replaced_main = replaced_sub = False
     skipped_main = skipped_sub = False
     if data.main_url:
         if not stream.main_url:
             stream.main_url = data.main_url
             updated_main = True
-        else:
-            skipped_main = True
+        elif data.main_url != stream.main_url:
+            if data.replace:
+                # Ganti main terdaftar dengan main hasil scan; rtsp_url
+                # ikut disamakan seperti PUT /admin/streams.
+                stream.main_url = data.main_url
+                stream.rtsp_url = data.main_url
+                updated_main = True
+                replaced_main = True
+            else:
+                skipped_main = True
     if data.sub_url:
         if not stream.sub_url:
             stream.sub_url = data.sub_url
             updated_sub = True
-        else:
-            skipped_sub = True
+        elif data.sub_url != stream.sub_url:
+            if data.replace:
+                stream.sub_url = data.sub_url
+                updated_sub = True
+                replaced_sub = True
+            else:
+                skipped_sub = True
     if updated_main or updated_sub:
         await db.commit()
         await db.refresh(stream)
@@ -802,6 +827,8 @@ async def complete_streams(
         stream_id=stream.id,
         updated_main=updated_main,
         updated_sub=updated_sub,
+        replaced_main=replaced_main,
+        replaced_sub=replaced_sub,
         skipped_main=skipped_main,
         skipped_sub=skipped_sub,
         mediamtx_updated=mediamtx_updated,
