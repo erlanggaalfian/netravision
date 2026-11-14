@@ -39,6 +39,10 @@ class StreamCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     brand: str | None = None
     rtsp_url: str | None = None
+    # sub_url eksplisit (mis. best_sub terverifikasi dari Camera Scanner):
+    # bila diisi, dipakai apa adanya dan mengalahkan turunan resolver
+    # (derive_sub_url) yang hanya menebak dari pola path.
+    sub_url: str | None = None
     onvif: dict | None = None  # TODO Fase 2: teruskan profile token ke resolver
     user: str | None = None
     password: str | None = None

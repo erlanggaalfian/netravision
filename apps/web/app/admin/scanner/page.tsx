@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
-import type { Stream, SubnetHost } from "../../../lib/types";
-import { ErrorBox } from "../../../components/ui";
-import { NBBadge, NBButton, NBCard, NBField, NBInput, NBTitle, NBTableWrap, NBTh, NBTd, NBTr } from "../_nb";
+import type { Group, Stream, SubnetHost } from "../../../lib/types";
+import { ErrorBox, Modal } from "../../../components/ui";
+import { NBBadge, NBButton, NBCard, NBField, NBInput, NBSelect, NBTitle, NBTableWrap, NBTh, NBTd, NBTr } from "../_nb";
 
 type Tone = "ok" | "bad" | "warn" | "info" | "muted";
 const SCAN_STATUS: Record<string, { label: string; tone: Tone }> = {
@@ -79,6 +79,48 @@ function subInfo(h: SubnetHost): string {
   return parts.join(" · ");
 }
 
+/* Path (+ query) dari URL RTSP lengkap, tanpa kredensial/host/port.
+   Dipakai membandingkan main terdaftar dengan main hasil scan. */
+function urlPath(u: string | null | undefined): string {
+  if (!u) return "";
+  try {
+    const p = new URL(u);
+    return p.pathname + (p.search || "");
+  } catch {
+    return "";
+  }
+}
+
+/* "Lengkapi stream" untuk kamera terdaftar: tawarkan HANYA stream
+   yang belum ada di database (jangan buat kamera duplikat). */
+function canAddMain(h: SubnetHost): boolean {
+  return !!h.known && !h.known_main && !!h.best_main;
+}
+function canAddSub(h: SubnetHost): boolean {
+  return !!h.known && !h.known_sub && !!h.best_sub;
+}
+function isComplete(h: SubnetHost): boolean {
+  return !!h.known && !!h.known_main && !!h.known_sub;
+}
+/* Main terdaftar beda path dengan main hasil scan: tampilkan info
+   perbandingan supaya user bisa memutuskan sendiri. Penggantian main
+   yang sudah ada TIDAK otomatis, hanya info. */
+function mainDiffers(h: SubnetHost): boolean {
+  if (!h.known_main || !h.best_main) return false;
+  return urlPath(h.known_main) !== urlPath(h.best_main);
+}
+function mainCompare(h: SubnetHost): string | null {
+  if (!mainDiffers(h)) return null;
+  const regPath = urlPath(h.known_main);
+  const reg = h.paths.find((x) => x.path === regPath);
+  const regRes =
+    reg?.width && reg?.height ? ` (${reg.width}×${reg.height})` : "";
+  const scan = h.paths.find((x) => x.role === "main");
+  const scanRes =
+    scan?.width && scan?.height ? ` (${scan.width}×${scan.height})` : "";
+  return `Main terdaftar: ${regPath}${regRes} · scan: ${urlPath(h.best_main)}${scanRes}`;
+}
+
 export default function AdminScannerPage() {
   const [ipRange, setIpRange] = useState("192.168.1.0/24");
   const [port, setPort] = useState("554");
@@ -97,6 +139,20 @@ export default function AdminScannerPage() {
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState(0);
   const [error, setError] = useState("");
+  /* Popup pengaturan "Tambah terpilih": grup, penamaan, koordinat,
+     mode penyimpanan. Dibuka dulu sebelum menambah, bukan langsung. */
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [groupPicked, setGroupPicked] = useState("");
+  const [newGroupName, setNewGroupName] = useState("");
+  const [namePrefix, setNamePrefix] = useState("");
+  const [lat, setLat] = useState("");
+  const [lng, setLng] = useState("");
+  const [storageMode, setStorageMode] = useState<"local" | "drive" | "both">("local");
+  const [modalError, setModalError] = useState("");
+  /* Lengkapi stream kamera terdaftar (tambah main/sub yang belum ada). */
+  const [completing, setCompleting] = useState<Set<string>>(new Set());
+  const [completedMsg, setCompletedMsg] = useState("");
   /* Batalkan polling saat unmount supaya tidak setState sesudah lepas. */
   const cancelledRef = useRef(false);
   useEffect(() => {
@@ -194,41 +250,223 @@ export default function AdminScannerPage() {
     else setChecked(new Set(selectable.map(key)));
   }
 
-  async function addSelected() {
-    const selected = selectable.filter((h) => checked.has(key(h)));
+  /* Host terpilih (dipakai popup dan proses tambah). */
+  const selectedHosts = () => selectable.filter((h) => checked.has(key(h)));
+
+  /* Nama kamera hasil pengaturan popup: prefix + nomor urut (1, 2, ...)
+     mengikuti urutan IP; bila prefix kosong, pakai "Kamera <host>". */
+  function previewNames(selected: SubnetHost[]): string[] {
+    const prefix = namePrefix.trim();
+    if (!prefix) return selected.map((h) => `Kamera ${h.host}`);
+    return selected.map((_, i) => `${prefix} ${i + 1}`);
+  }
+
+  /* Buka popup pengaturan dulu (bukan langsung menambah): muat daftar
+     grup dari server (bukan hardcode); gagal dimuat bukan penghalang,
+     user tetap bisa ketik grup baru. */
+  function openAddModal() {
+    if (selectedHosts().length === 0) return;
+    setModalError("");
+    setShowAddModal(true);
+    api.get<Group[]>("/admin/groups").then(setGroups).catch(() => {});
+  }
+
+  /* Validasi koordinat: kosong berarti tanpa koordinat; bila diisi
+     harus angka dalam rentang latitude -90..90, longitude -180..180. */
+  function coordError(): string {
+    if (lat.trim() !== "") {
+      const v = Number(lat);
+      if (!Number.isFinite(v) || v < -90 || v > 90)
+        return "Latitude harus angka antara -90 dan 90.";
+    }
+    if (lng.trim() !== "") {
+      const v = Number(lng);
+      if (!Number.isFinite(v) || v < -180 || v > 180)
+        return "Longitude harus angka antara -180 dan 180.";
+    }
+    return "";
+  }
+
+  async function confirmAdd() {
+    const selected = selectedHosts();
     if (selected.length === 0) return;
+    const NEW_GROUP = "__baru__";
+    const groupName =
+      groupPicked === NEW_GROUP ? newGroupName.trim() : groupPicked;
+    if (groupPicked === NEW_GROUP && groupName === "") {
+      setModalError("Isi nama grup baru.");
+      return;
+    }
+    const cErr = coordError();
+    if (cErr) {
+      setModalError(cErr);
+      return;
+    }
+    setModalError("");
     setError("");
     setAdding(true);
+    setShowAddModal(false);
+    const names = previewNames(selected);
+    const latitude = lat.trim() === "" ? null : Number(lat);
+    const longitude = lng.trim() === "" ? null : Number(lng);
     let ok = 0;
     /* E-S5: jangan berhenti di kegagalan pertama, lanjutkan sisanya
        dan laporkan mana yang gagal. */
     const failed: string[] = [];
     const failedKeys = new Set<string>();
-    for (const h of selected) {
+    const createdIds: number[] = [];
+    for (let i = 0; i < selected.length; i++) {
+      const h = selected[i];
       try {
         // force: path sudah diverifikasi video saat scan.
-        await api.post<Stream>("/admin/streams", {
-          name: `Kamera ${h.host}`,
+        // sub_url: best_sub hasil scan bila ada (bukan turunan resolver).
+        const created = await api.post<Stream>("/admin/streams", {
+          name: names[i],
           rtsp_url: h.best_main,
-          storage_mode: "local",
+          sub_url: h.best_sub ?? null,
+          storage_mode: storageMode,
+          latitude,
+          longitude,
           force: true,
         });
+        createdIds.push(created.id);
         ok++;
       } catch {
         failed.push(h.host);
         failedKeys.add(key(h));
       }
     }
+    /* Grup (bila dipilih): buat dulu bila grup baru, lalu gabungkan
+       kamera baru ke anggota yang sudah ada (POST camera-grants
+       mengganti seluruh anggota, jadi jangan timpa). */
+    let groupFailed = false;
+    if (groupName !== "" && createdIds.length > 0) {
+      try {
+        if (!groups.some((g) => g.name === groupName)) {
+          await api.put(`/admin/groups/${encodeURIComponent(groupName)}`, {
+            name: groupName,
+            description: null,
+          });
+        }
+        let current: number[] = [];
+        try {
+          const r = await api.get<{ stream_ids: number[] }>(
+            `/admin/groups/${encodeURIComponent(groupName)}/camera-grants`,
+          );
+          current = r.stream_ids;
+        } catch {
+          /* grup baru: mulai dari kosong */
+        }
+        const merged = [...new Set([...current, ...createdIds])];
+        await api.post(
+          `/admin/groups/${encodeURIComponent(groupName)}/camera-grants`,
+          { stream_ids: merged },
+        );
+      } catch {
+        groupFailed = true;
+      }
+    }
+    const msgs: string[] = [];
     if (failed.length > 0) {
-      setError(
-        `Gagal menambah ${failed.length} kamera: ${failed.join(", ")}. ${ok} kamera berhasil ditambahkan.`,
+      msgs.push(
+        `Gagal menambah ${failed.length} kamera: ${failed.join(", ")}.`,
       );
+    }
+    if (groupFailed) {
+      msgs.push(
+        `Kamera berhasil ditambahkan tapi gagal dimasukkan ke grup ${groupName}.`,
+      );
+    }
+    if (msgs.length > 0) {
+      setError(`${msgs.join(" ")} ${ok} kamera berhasil ditambahkan.`);
     }
     setAdded(ok);
     /* Reset checked supaya klik kedua tidak membuat duplikat; bila
        ada yang gagal, hanya yang gagal yang tetap tercentang. */
     setChecked(failedKeys);
     setAdding(false);
+  }
+
+  /* Lengkapi stream kamera terdaftar: tambah HANYA main/sub yang
+     belum ada di database (endpoint hanya mengisi field kosong,
+     tidak menimpa yang sudah terisi). Setelah berhasil, state lokal
+     diperbarui supaya tombol hilang / jadi "Sudah lengkap". */
+  async function completeHost(h: SubnetHost, which: "main" | "sub" | "both") {
+    if (!h.known_stream_id) return;
+    const k = key(h);
+    setError("");
+    setCompletedMsg("");
+    setCompleting((prev) => new Set(prev).add(k));
+    try {
+      const body: {
+        stream_id: number;
+        main_url?: string | null;
+        sub_url?: string | null;
+      } = { stream_id: h.known_stream_id };
+      if ((which === "main" || which === "both") && h.best_main)
+        body.main_url = h.best_main;
+      if ((which === "sub" || which === "both") && h.best_sub)
+        body.sub_url = h.best_sub;
+      const res = await api.post<{
+        updated_main: boolean;
+        updated_sub: boolean;
+      }>("/admin/scan-subnet/complete-streams", body);
+      setHosts((prev) =>
+        (prev ?? []).map((x) => {
+          if (key(x) !== k) return x;
+          return {
+            ...x,
+            known_main:
+              res.updated_main && h.best_main ? h.best_main : x.known_main,
+            known_sub:
+              res.updated_sub && h.best_sub ? h.best_sub : x.known_sub,
+          };
+        }),
+      );
+      const parts: string[] = [];
+      if (res.updated_main) parts.push("mainstream");
+      if (res.updated_sub) parts.push("substream");
+      if (parts.length > 0)
+        setCompletedMsg(`Kamera ${h.host}: ${parts.join(" + ")} ditambahkan.`);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Gagal melengkapi stream");
+    } finally {
+      setCompleting((prev) => {
+        const next = new Set(prev);
+        next.delete(k);
+        return next;
+      });
+    }
+  }
+
+  /* Tombol lengkapi untuk satu host terdaftar (dipakai kartu mobile
+     dan baris tabel desktop). */
+  function CompleteButton({ h }: { h: SubnetHost }) {
+    const busy = completing.has(key(h));
+    if (isComplete(h)) return <NBBadge tone="ok">Sudah lengkap</NBBadge>;
+    const both = canAddMain(h) && canAddSub(h);
+    const label = both
+      ? "Lengkapi stream"
+      : canAddSub(h)
+        ? "Tambah substream"
+        : canAddMain(h)
+          ? "Tambah mainstream"
+          : null;
+    if (!label) return null;
+    return (
+      <NBButton
+        variant="secondary"
+        onClick={() =>
+          completeHost(h, both ? "both" : canAddSub(h) ? "sub" : "main")
+        }
+        /* Selama scan berjalan, polling menimpa state lokal, jadi
+           tombol hanya aktif setelah scan selesai. */
+        disabled={busy || scanning}
+        className="min-h-11 px-3 text-xs"
+      >
+        {busy ? "Menambah…" : label}
+      </NBButton>
+    );
   }
 
   /* E-R5: dua komponen terpisah supaya HTML valid: kartu <li>
@@ -250,6 +488,7 @@ export default function AdminScannerPage() {
 
   function HostCard({ h }: { h: SubnetHost }) {
     const st = SCAN_STATUS[h.status] ?? SCAN_STATUS.error;
+    const compare = mainCompare(h);
     return (
       <li className="flex items-center gap-3 rounded-xl bg-ink-900 shadow-sm p-3 md:hidden">
         <HostCheckbox h={h} />
@@ -265,10 +504,20 @@ export default function AdminScannerPage() {
               Sub: {subInfo(h)}
             </p>
           )}
+          {compare && (
+            <p className="mt-0.5 text-xs leading-relaxed text-warn-300">
+              {compare}
+            </p>
+          )}
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             <NBBadge tone={st.tone}>{st.label}</NBBadge>
             {h.known && <NBBadge tone="info">Sudah terdaftar</NBBadge>}
           </div>
+          {h.known && (
+            <div className="mt-2">
+              <CompleteButton h={h} />
+            </div>
+          )}
         </div>
       </li>
     );
@@ -276,6 +525,7 @@ export default function AdminScannerPage() {
 
   function HostRow({ h }: { h: SubnetHost }) {
     const st = SCAN_STATUS[h.status] ?? SCAN_STATUS.error;
+    const compare = mainCompare(h);
     return (
       <NBTr className="hidden md:table-row">
         <NBTd>
@@ -304,8 +554,14 @@ export default function AdminScannerPage() {
                   Sub: {subInfo(h)}
                 </span>
               )}
+              {compare && (
+                <span className="block text-warn-300">{compare}</span>
+              )}
             </span>
           )}
+        </NBTd>
+        <NBTd>
+          {h.known ? <CompleteButton h={h} /> : <span className="text-slate-600">-</span>}
         </NBTd>
       </NBTr>
     );
@@ -413,7 +669,7 @@ export default function AdminScannerPage() {
             {selectable.length > 0 && (
               <NBButton
                 variant="secondary"
-                onClick={addSelected}
+                onClick={openAddModal}
                 disabled={scanning || adding || checked.size === 0}
               >
                 {adding
@@ -438,6 +694,9 @@ export default function AdminScannerPage() {
             <p className="mb-3 text-sm text-ok-400">
               {added} kamera berhasil ditambahkan. Lihat di tab Kamera.
             </p>
+          )}
+          {completedMsg && (
+            <p className="mb-3 text-sm text-ok-400">{completedMsg}</p>
           )}
           {visibleHosts.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-400">
@@ -493,6 +752,7 @@ export default function AdminScannerPage() {
                       <NBTh>Path main</NBTh>
                       <NBTh>Path sub</NBTh>
                       <NBTh>Video</NBTh>
+                      <NBTh>Aksi</NBTh>
                     </NBTr>
                   </thead>
                   <tbody>
@@ -511,6 +771,146 @@ export default function AdminScannerPage() {
         <p className="py-10 text-center text-sm text-slate-400">
           Isi subnet lalu tekan “Scan Network” untuk mulai memindai.
         </p>
+      )}
+
+      {/* Popup pengaturan "Tambah terpilih": grup, penamaan, koordinat,
+          mode penyimpanan. Modal bersama (bottom sheet di mobile,
+          terpusat di desktop). */}
+      {showAddModal && (
+        <Modal
+          title={`Tambah ${selectedHosts().length} kamera`}
+          onClose={() => setShowAddModal(false)}
+        >
+          <div className="space-y-4">
+            <NBField label={`Kamera terpilih (${selectedHosts().length})`}>
+              <div className="max-h-32 overflow-y-auto rounded-xl bg-ink-800 p-2">
+                {selectedHosts().map((h) => (
+                  <p
+                    key={key(h)}
+                    className="truncate px-2 py-1 font-mono text-sm text-slate-200"
+                  >
+                    {h.host}:{h.port}
+                    {h.best_sub && (
+                      <span className="text-slate-400"> · sub ada</span>
+                    )}
+                  </p>
+                ))}
+              </div>
+              <p className="mt-2 text-xs leading-relaxed text-slate-400">
+                {selectedHosts().filter((h) => h.best_sub).length} dari{" "}
+                {selectedHosts().length} kamera punya substream, akan
+                disimpan sebagai sub.
+              </p>
+            </NBField>
+
+            <NBField
+              label="Grup"
+              hint="Diterapkan ke semua kamera terpilih. Kosongkan untuk tanpa grup."
+            >
+              <NBSelect
+                value={groupPicked}
+                onChange={(e) => setGroupPicked(e.target.value)}
+              >
+                <option value="">Tanpa grup</option>
+                {groups.map((g) => (
+                  <option key={g.id} value={g.name}>
+                    {g.name}
+                  </option>
+                ))}
+                <option value="__baru__">+ Grup baru…</option>
+              </NBSelect>
+            </NBField>
+            {groupPicked === "__baru__" && (
+              <NBField label="Nama grup baru">
+                <NBInput
+                  value={newGroupName}
+                  onChange={(e) => setNewGroupName(e.target.value)}
+                  placeholder="cth. Lantai 1"
+                />
+              </NBField>
+            )}
+
+            <NBField
+              label="Nama kamera"
+              hint="Prefix + nomor urut otomatis. Kosongkan untuk memakai nama default."
+            >
+              <NBInput
+                value={namePrefix}
+                onChange={(e) => setNamePrefix(e.target.value)}
+                placeholder="cth. MIM MRI"
+              />
+              <p className="mt-2 text-xs leading-relaxed text-slate-400">
+                Contoh:{" "}
+                {previewNames(selectedHosts()).slice(0, 3).join(", ")}
+                {selectedHosts().length > 3 &&
+                  `, … (${selectedHosts().length} kamera)`}
+              </p>
+            </NBField>
+
+            <div className="grid grid-cols-2 gap-3">
+              <NBField label="Latitude" hint="-90 s.d. 90">
+                <NBInput
+                  value={lat}
+                  onChange={(e) => setLat(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="cth. -7,56"
+                  className="font-mono"
+                />
+              </NBField>
+              <NBField label="Longitude" hint="-180 s.d. 180">
+                <NBInput
+                  value={lng}
+                  onChange={(e) => setLng(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="cth. 110,83"
+                  className="font-mono"
+                />
+              </NBField>
+            </div>
+            <p className="-mt-2 text-xs leading-relaxed text-slate-400">
+              Kosongkan bila tanpa koordinat. Berlaku untuk semua kamera
+              terpilih.
+            </p>
+
+            <NBField label="Mode penyimpanan">
+              <NBSelect
+                value={storageMode}
+                onChange={(e) =>
+                  setStorageMode(
+                    e.target.value as "local" | "drive" | "both",
+                  )
+                }
+              >
+                <option value="local">Lokal</option>
+                <option value="drive">Google Drive</option>
+                <option value="both">Keduanya</option>
+              </NBSelect>
+            </NBField>
+
+            {modalError && (
+              <ErrorBox message={modalError} />
+            )}
+            <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:justify-end">
+              <NBButton
+                variant="secondary"
+                onClick={() => setShowAddModal(false)}
+                disabled={adding}
+                className="h-12 w-full sm:w-auto"
+              >
+                Batal
+              </NBButton>
+              <NBButton
+                onClick={confirmAdd}
+                disabled={adding}
+                className="h-12 w-full sm:w-auto"
+              >
+                {adding
+                  ? "Menambah…"
+                  : `Simpan (${selectedHosts().length} kamera)`}
+              </NBButton>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

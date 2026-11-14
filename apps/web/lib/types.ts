@@ -162,6 +162,11 @@ export interface SubnetHost {
   best_sub: string | null;
   paths: ScanPath[];
   known?: boolean; // sudah terdaftar di database (IP:port ini)
+  // Info kamera terdaftar (hanya bila known): id + main/sub tersimpan,
+  // untuk "Lengkapi stream" (tambah hanya yang belum ada).
+  known_stream_id?: number | null;
+  known_main?: string | null;
+  known_sub?: string | null;
 }
 
 export interface StatusChange {

@@ -90,7 +90,12 @@ async def _mediamtx_sync_loop() -> None:
 
             wanted: set[str] = set()
             for s in streams:
-                wanted.update({f"stream_{s.id}", f"stream_{s.id}_sub"})
+                # Sub hanya diinginkan bila kamera punya sub_url asli;
+                # tanpa sub_url, path sub tidak dibuat (transcoder mati
+                # total) dan path sub lama ikut terhapus sebagai yatim.
+                wanted.add(f"stream_{s.id}")
+                if s.sub_url:
+                    wanted.add(f"stream_{s.id}_sub")
                 try:
                     await register_stream(
                         mediamtx, s.id, s.main_url or s.rtsp_url or "",
@@ -99,6 +104,7 @@ async def _mediamtx_sync_loop() -> None:
                         record_path=record_path_for(
                             s, get_settings().recordings_dir
                         ),
+                        sub_source=s.sub_url,
                     )
                 except Exception as e:  # noqa: BLE001
                     log.warning("sync path stream_%s gagal: %s", s.id, e)

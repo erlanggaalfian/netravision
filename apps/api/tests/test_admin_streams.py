@@ -121,6 +121,28 @@ async def test_create_stream_registers_mediamtx(app_client):
     assert fake.paths[f"stream_{body['id']}"] == "rtsp://h:554/h264Preview_01_main"
 
 
+async def test_create_stream_sub_url_eksplisit_dari_scanner(app_client):
+    """sub_url eksplisit (best_sub terverifikasi Scanner) dipakai apa
+    adanya, mengalahkan turunan resolver yang tidak menemukan pola
+    untuk path seperti /H.265."""
+    app, fake, db = app_client
+    await _seed(db)
+    su = await _seed_super(db)
+    auth_as(app, su)
+    async with _client(app) as c:
+        r = await c.post("/api/admin/streams", json={
+            "name": "Cam Scan", "rtsp_url": "rtsp://h:554/H.265",
+            "sub_url": "rtsp://h:554/live/0/SUB", "force": True,
+        })
+    assert r.status_code == 201, r.text
+    body = r.json()
+    # sub_url eksplisit tersimpan (bukan None turunan resolver).
+    assert body["whep_sub_url"] == f"/whep/stream_{body['id']}_sub/whep"
+    assert fake.paths.get(f"stream_{body['id']}_sub") == "rtsp://h:554/live/0/SUB"
+    row = await db.get(Stream, body["id"])
+    assert row is not None and row.sub_url == "rtsp://h:554/live/0/SUB"
+
+
 async def test_set_owner(app_client):
     app, _, db = app_client
     _, op = await _seed(db)

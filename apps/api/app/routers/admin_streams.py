@@ -98,7 +98,9 @@ async def _register_paths(
     from app.services.stream_paths import register_stream
 
     try:
-        # Pola v2: sub = transkode dari main (sub_url kamera tidak ditarik).
+        # Sub HANYA dari sub_url asli kamera (native). Bila tidak ada
+        # sub_url, register_stream tidak membuat path sub sama sekali
+        # (transcoder mati total, perintah user 2026-11-14).
         record_path = (
             record_path_for(stream, get_settings().recordings_dir)
             if stream is not None
@@ -110,6 +112,7 @@ async def _register_paths(
         await register_stream(
             mediamtx, stream_id, main_url, record,
             retention_days=days, record_path=record_path,
+            sub_source=sub_url,
         )
         return True, None
     except Exception as e:  # noqa: BLE001 - best-effort, jangan gagalkan tambah kamera
@@ -238,12 +241,16 @@ async def admin_create_stream(
             raise HTTPException(status_code=400, detail=str(e))
     # TODO Fase 2: simpan data.onvif (profile token) ke streams.onvif_profile
     # bila resolver sudah mengembalikannya.
+    # sub_url eksplisit (best_sub terverifikasi dari Scanner) lebih
+    # diutamakan daripada turunan resolver; bila tidak diisi, pakai
+    # turunan resolver seperti biasa.
+    effective_sub = data.sub_url or res.sub_url
     stream = Stream(
         name=data.name,
         rtsp_url=data.rtsp_url or res.main_url,
         brand=res.brand,
         main_url=res.main_url,
-        sub_url=res.sub_url,
+        sub_url=effective_sub,
         storage_mode=data.storage_mode,
         recording_enabled=data.recording_enabled,
         retention_days=data.retention_days,
@@ -255,7 +262,7 @@ async def admin_create_stream(
     db.add(stream)
     await db.commit()
     await db.refresh(stream)
-    ok, err = await _register_paths(mediamtx, stream.id, res.main_url, res.sub_url,
+    ok, err = await _register_paths(mediamtx, stream.id, res.main_url, effective_sub,
                                     record=data.recording_enabled, stream=stream)
     out = stream_to_out(stream, get_settings())
     # Status registrasi MediaMTX dikembalikan ke UI (bukan 500, bukan diam).
@@ -307,7 +314,7 @@ async def admin_update_stream(
         stream.recording_enabled = data.recording_enabled
         # Sinkronkan flag record di MediaMTX (best-effort).
         try:
-            # Hanya main yang direkam (sub = transkode 480p, sama seperti v2).
+            # Hanya main yang direkam (sub tidak pernah direkam).
             await mediamtx.patch_path(
                 f"stream_{stream_id}", {"record": data.recording_enabled})
         except Exception as e:  # noqa: BLE001

@@ -180,7 +180,9 @@ export function FocusModal({ stream, onClose, ad }: Props) {
         .then((pc) => {
           if (cancelled) return stopWhep(pc);
           pcRef.current = pc;
-          setQuality(want === "HQ" && main ? "HQ" : "LQ");
+          /* Tanpa sub, yang diputar adalah main -> kualitas HQ, bukan
+             LQ (label subtitle harus benar). */
+          setQuality(!sub || (want === "HQ" && main) ? "HQ" : "LQ");
         })
         .catch(() => fail());
     } else {
@@ -321,6 +323,10 @@ export function FocusModal({ stream, onClose, ad }: Props) {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            {/* Tanpa sub stream tidak ada yang bisa diganti (hanya
+               main): sembunyikan tombol kualitas supaya tidak
+               membingungkan. */}
+            {stream?.whep_sub_url && (
             <Button
               variant={quality === "HQ" ? "primary" : "subtle"}
               onClick={() => {
@@ -346,6 +352,7 @@ export function FocusModal({ stream, onClose, ad }: Props) {
             >
               {quality}
             </Button>
+            )}
             <Button
               variant="subtle"
               onClick={snapshot}

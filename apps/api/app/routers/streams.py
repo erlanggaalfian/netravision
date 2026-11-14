@@ -38,7 +38,10 @@ def _whep_urls(settings: Settings, stream_id: int, has_sub: bool) -> tuple[str, 
 
 
 def stream_to_out(stream: Stream, settings: Settings) -> StreamOut:
-    main_url, sub_url = _whep_urls(settings, stream.id, True)
+    # Sub HANYA bila kamera punya sub_url asli (transcoder mati total,
+    # 2026-11-14). Tanpa sub_url, whep_sub_url None dan frontend
+    # memakai main sebagai fallback supaya tile tidak hitam.
+    main_url, sub_url = _whep_urls(settings, stream.id, bool(stream.sub_url))
     return StreamOut(
         id=stream.id,
         name=stream.name,
@@ -207,6 +210,7 @@ async def reconnect_stream(
                 record_path=record_path_for(
                     stream, get_settings().recordings_dir
                 ),
+                sub_source=stream.sub_url,
             )
     except Exception as e:  # noqa: BLE001 - semua kegagalan MediaMTX -> 502, bukan 500
         log.warning("reconnect stream %s gagal: %s", stream_id, e)

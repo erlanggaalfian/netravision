@@ -66,6 +66,7 @@ from app.db.session import get_db
 from app.models.streams import Stream
 from app.schemas.stream import ScanPath
 from app.services import rtsp_discovery
+from app.services.mediamtx import MediaMTXClient, get_mediamtx
 
 router = APIRouter(
     # E-K1 (backend): Scanner hanya super_admin, bukan admin biasa.
@@ -126,6 +127,17 @@ class SubnetHost(BaseModel):
     # Frontend menampilkan lencana "Sudah terdaftar" dan tidak
     # menawarkannya untuk ditambah lagi (cegah duplikat).
     known: bool = False
+    # Info kamera terdaftar (hanya bila known): id + main/sub yang
+    # tersimpan di database. Dipakai frontend untuk menawarkan
+    # "Lengkapi stream": bila main/sub tersimpan kosong dan scan
+    # menemukan yang terverifikasi video, tawarkan tambah hanya yang
+    # belum ada (tanpa membuat kamera duplikat). Bila keduanya sudah
+    # ada, tampilkan "Sudah lengkap". URL lengkap di sini konsisten
+    # dengan best_main/best_sub (frontend hanya menampilkan path-nya,
+    # kredensial tidak ditampilkan di layar).
+    known_stream_id: int | None = None
+    known_main: str | None = None
+    known_sub: str | None = None
 
 
 class SubnetScanJobCreated(BaseModel):
@@ -209,12 +221,19 @@ def _host_status(disc: rtsp_discovery.DiscoveryResult) -> str:
     return "error"
 
 
-def _dead_host(host: str, port: int, status: str, known: bool = False) -> SubnetHost:
+def _dead_host(
+    host: str, port: int, status: str, known: bool = False,
+    known_stream_id: int | None = None,
+    known_main: str | None = None,
+    known_sub: str | None = None,
+) -> SubnetHost:
     """Host yang tersaring funnel (tahap 1/2) atau kehabisan waktu:
     tetap muncul di hasil, tanpa paths dan tanpa discovery."""
     return SubnetHost(
         host=host, port=port, status=status,
         best_main=None, best_sub=None, paths=[], known=known,
+        known_stream_id=known_stream_id,
+        known_main=known_main, known_sub=known_sub,
     )
 
 
@@ -317,29 +336,44 @@ def _url_path(url: str | None) -> str | None:
 
 async def _load_known_cameras(
     db: AsyncSession,
-) -> tuple[set[tuple[str, int]], dict[tuple[str, int], tuple[str | None, str | None]]]:
-    """Kamera terdaftar (aktif) -> dua peta ber kunci (host, port).
+) -> tuple[
+    set[tuple[str, int]],
+    dict[tuple[str, int], tuple[str | None, str | None]],
+    dict[tuple[str, int], tuple[int, str | None, str | None]],
+]:
+    """Kamera terdaftar (aktif) -> tiga peta ber kunci (host, port).
 
-    known_hosts: semua kamera aktif (untuk lencana 'Sudah terdaftar').
-    known_online: hanya yang sedang online + path main/sub yang dikenal
-    (untuk jalur cepat discovery tanpa ffprobe). Satu query di awal
-    job; bila baca DB gagal, scan tetap jalan tanpa jalur cepat
-    (kedua peta kosong) dan bukan menggugurkan scan."""
+    known_hosts: semua kamera terdaftar, aktif maupun nonaktif
+    (untuk lencana 'Sudah terdaftar' dan "Lengkapi stream": kamera
+    yang sedang di-disable untuk scan tetap terdaftar di database,
+    jadi tidak boleh ditawari tambah baru/duplikat).
+    known_online: hanya yang AKTIF dan sedang online + path main/sub
+    yang dikenal (untuk jalur cepat discovery tanpa ffprobe). Kamera
+    nonaktif TIDAK masuk sini supaya discovery-nya tetap penuh dan
+    bisa menemukan substream (jalur cepat berhenti dini begitu main
+    dikenal terbuka, sehingga sub tidak akan ditemukan).
+    known_info: semua kamera terdaftar -> (stream_id, main_url, sub_url)
+    tersimpan (untuk "Lengkapi stream": frontend tahu main/sub mana
+    yang masih kosong dan bisa ditambah dari hasil scan, tanpa
+    membuat kamera duplikat).
+    Satu query di awal job; bila baca DB gagal, scan tetap jalan tanpa
+    jalur cepat (ketiga peta kosong) dan bukan menggugurkan scan."""
     known_hosts: set[tuple[str, int]] = set()
     known_online: dict[tuple[str, int], tuple[str | None, str | None]] = {}
+    known_info: dict[tuple[str, int], tuple[int, str | None, str | None]] = {}
     try:
         rows = (
             await db.execute(
                 select(
-                    Stream.rtsp_url, Stream.main_url, Stream.sub_url,
-                    Stream.is_online,
-                ).where(Stream.is_active.is_(True))
+                    Stream.id, Stream.rtsp_url, Stream.main_url,
+                    Stream.sub_url, Stream.is_active, Stream.is_online,
+                )
             )
         ).all()
     except Exception as e:  # noqa: BLE001 - scan jalan tanpa jalur cepat
         log.warning("scan-subnet: gagal baca kamera terdaftar: %s", e)
-        return known_hosts, known_online
-    for rtsp_url, main_url, sub_url, is_online in rows:
+        return known_hosts, known_online, known_info
+    for sid, rtsp_url, main_url, sub_url, is_active, is_online in rows:
         base = main_url or rtsp_url
         if not base:
             continue
@@ -354,12 +388,16 @@ async def _load_known_cameras(
             continue
         key = (host, port)
         known_hosts.add(key)
-        if is_online:
+        known_info[key] = (sid, main_url, sub_url)
+        # Jalur cepat HANYA untuk kamera aktif + online. Kamera
+        # nonaktif (mis. sedang di-disable untuk scan) harus menjalani
+        # discovery penuh supaya substream-nya bisa ditemukan.
+        if is_active and is_online:
             known_online[key] = (
                 _url_path(main_url) or _url_path(rtsp_url),
                 _url_path(sub_url),
             )
-    return known_hosts, known_online
+    return known_hosts, known_online, known_info
 
 
 async def _scan_host(
@@ -370,6 +408,9 @@ async def _scan_host(
     sem: asyncio.Semaphore,
     known: bool = False,
     known_paths: tuple[str | None, str | None] | None = None,
+    known_stream_id: int | None = None,
+    known_main: str | None = None,
+    known_sub: str | None = None,
 ) -> SubnetHost:
     async with sem:
         try:
@@ -381,11 +422,19 @@ async def _scan_host(
                 timeout=_HOST_TIMEOUT,
             )
         except asyncio.TimeoutError:
-            return _dead_host(host, port, "timeout", known=known)
+            return _dead_host(
+                host, port, "timeout", known=known,
+                known_stream_id=known_stream_id,
+                known_main=known_main, known_sub=known_sub,
+            )
         except Exception as e:  # noqa: BLE001 - A-R6: satu host error tak
             # boleh menggugurkan seluruh scan; laporkan sebagai error.
             log.warning("scan host %s gagal: %s", host, e)
-            return _dead_host(host, port, "error", known=known)
+            return _dead_host(
+                host, port, "error", known=known,
+                known_stream_id=known_stream_id,
+                known_main=known_main, known_sub=known_sub,
+            )
     paths = [
         ScanPath(
             path=p.path, url=p.url, status=p.status, codec=p.codec,
@@ -401,6 +450,8 @@ async def _scan_host(
         host=host, port=port, status=_host_status(disc),
         best_main=disc.best_main, best_sub=disc.best_sub, paths=paths,
         known=known,
+        known_stream_id=known_stream_id,
+        known_main=known_main, known_sub=known_sub,
     )
 
 
@@ -412,6 +463,7 @@ async def _run_scan(
     password: str,
     known_hosts: set[tuple[str, int]] | None = None,
     known_online: dict[tuple[str, int], tuple[str | None, str | None]] | None = None,
+    known_info: dict[tuple[str, int], tuple[int, str | None, str | None]] | None = None,
 ) -> None:
     """Jalankan pemindaian di background sebagai asyncio task.
 
@@ -425,10 +477,27 @@ async def _run_scan(
     Hasil parsial ditulis ke job selagi jalan supaya GET bisa
     menampilkan progres, termasuk hitungan tiap tahap funnel.
     known_hosts/known_online: peta kamera terdaftar dari POST
-    (lencana 'Sudah terdaftar' + jalur cepat tanpa ffprobe)."""
+    (lencana 'Sudah terdaftar' + jalur cepat tanpa ffprobe).
+    known_info: peta (stream_id, main_url, sub_url) kamera terdaftar
+    untuk "Lengkapi stream" (ikut di setiap SubnetHost, termasuk yang
+    gagal funnel, supaya frontend tetap bisa menawarkan tambah stream
+    bila scan sebelumnya menemukan best_main/best_sub)."""
     known_hosts = known_hosts or set()
     known_online = known_online or {}
+    known_info = known_info or {}
     recorded: set[str] = set()
+
+    def _known_fields(h: str) -> dict:
+        """Field kamera terdaftar untuk satu host (kosong bila baru)."""
+        info = known_info.get((h, port))
+        if info is None:
+            return {}
+        sid, main_url, sub_url = info
+        return {
+            "known_stream_id": sid,
+            "known_main": main_url,
+            "known_sub": sub_url,
+        }
 
     async def record(result: SubnetHost) -> None:
         async with _jobs_lock:
@@ -453,6 +522,7 @@ async def _run_scan(
             else:
                 await record(_dead_host(
                     h, port, "unreachable", known=(h, port) in known_hosts,
+                    **_known_fields(h),
                 ))
         async with _jobs_lock:
             job.reachable_count = len(reachable)
@@ -474,6 +544,7 @@ async def _run_scan(
             else:
                 await record(_dead_host(
                     h, port, "port_closed", known=(h, port) in known_hosts,
+                    **_known_fields(h),
                 ))
         async with _jobs_lock:
             job.port_open_count = len(port_open)
@@ -487,6 +558,7 @@ async def _run_scan(
                     h, port, username, password, sem,
                     known=(h, port) in known_hosts,
                     known_paths=known_online.get((h, port)),
+                    **_known_fields(h),
                 )
             )
             for h in port_open
@@ -508,6 +580,7 @@ async def _run_scan(
                     t.cancel()
                     await record(_dead_host(
                         h, port, "timeout", known=(h, port) in known_hosts,
+                        **_known_fields(h),
                     ))
             await asyncio.gather(*tasks, return_exceptions=True)
     except asyncio.CancelledError:
@@ -586,15 +659,16 @@ async def scan_subnet(data: SubnetScanRequest, db: AsyncSession = Depends(get_db
     hosts = [str(h) for h in network.hosts()]
     job = _ScanJob(job_id=uuid.uuid4().hex, total=len(hosts))
     # Kamera terdaftar: lencana 'Sudah terdaftar' + jalur cepat
-    # discovery (tanpa ffprobe untuk yang sedang online).
-    known_hosts, known_online = await _load_known_cameras(db)
+    # discovery (tanpa ffprobe untuk yang sedang online) + info
+    # main/sub tersimpan untuk "Lengkapi stream".
+    known_hosts, known_online, known_info = await _load_known_cameras(db)
     async with _jobs_lock:
         _prune_jobs_locked()
         _jobs[job.job_id] = job
     asyncio.create_task(
         _run_scan(
             job, hosts, data.port, data.username, data.password,
-            known_hosts, known_online,
+            known_hosts, known_online, known_info,
         )
     )
     log.info(
@@ -630,3 +704,105 @@ async def scan_subnet_status(job_id: str):
             reachable_count=job.reachable_count,
             port_open_count=job.port_open_count,
         )
+
+
+class CompleteStreamsRequest(BaseModel):
+    """Lengkapi main/sub kamera terdaftar dari hasil scan.
+
+    main_url/sub_url diisi dari best_main/best_sub hasil scan
+    (URL lengkap yang sudah terverifikasi video)."""
+
+    stream_id: int
+    main_url: str | None = None
+    sub_url: str | None = None
+
+
+class CompleteStreamsResponse(BaseModel):
+    ok: bool = True
+    stream_id: int
+    updated_main: bool = False
+    updated_sub: bool = False
+    # Sudah terisi di database, jadi TIDAK ditimpa (bukan gagal).
+    skipped_main: bool = False
+    skipped_sub: bool = False
+    # Path MediaMTX berhasil didaftarkan ulang (hanya bila kamera
+    # aktif dan ada yang berubah; kamera nonaktif didaftarkan ulang
+    # saat diaktifkan lagi lewat PUT /admin/streams).
+    mediamtx_updated: bool = False
+
+
+@router.post(
+    "/admin/scan-subnet/complete-streams",
+    response_model=CompleteStreamsResponse,
+)
+async def complete_streams(
+    data: CompleteStreamsRequest,
+    db: AsyncSession = Depends(get_db),
+    mediamtx: MediaMTXClient = Depends(get_mediamtx),
+):
+    """Tambahkan main/sub yang BELUM ADA ke kamera yang sudah terdaftar.
+
+    Hanya mengisi field yang masih kosong (NULL/kosong); field yang
+    sudah terisi TIDAK PERNAH ditimpa oleh endpoint ini (penggantian
+    main/sub yang sudah ada tetap harus perintah eksplisit user lewat
+    ubah kamera). Setelah ada yang berubah dan kamera aktif, path
+    MediaMTX didaftarkan ulang supaya sub native langsung dipakai
+    (transcoder mati total, jadi sub hanya dibuat bila sub_url ada).
+    Router ini sudah super_admin-only (E-K1)."""
+    from app.core.config import get_settings
+    from app.services.disks import record_path_for
+    from app.services.stream_paths import register_stream
+
+    stream = await db.get(Stream, data.stream_id)
+    if stream is None:
+        raise HTTPException(status_code=404, detail="stream tidak ditemukan")
+    updated_main = updated_sub = False
+    skipped_main = skipped_sub = False
+    if data.main_url:
+        if not stream.main_url:
+            stream.main_url = data.main_url
+            updated_main = True
+        else:
+            skipped_main = True
+    if data.sub_url:
+        if not stream.sub_url:
+            stream.sub_url = data.sub_url
+            updated_sub = True
+        else:
+            skipped_sub = True
+    if updated_main or updated_sub:
+        await db.commit()
+        await db.refresh(stream)
+    mediamtx_updated = False
+    if (updated_main or updated_sub) and stream.is_active:
+        # Daftarkan ulang path MediaMTX (best-effort seperti
+        # _register_paths: kamera tetap tersimpan walau MediaMTX mati,
+        # sync berkala akan mendaftarkannya sendiri).
+        try:
+            await mediamtx.delete_path(f"stream_{stream.id}")
+            await mediamtx.delete_path(f"stream_{stream.id}_sub")
+            source = stream.main_url or stream.rtsp_url
+            if source:
+                await register_stream(
+                    mediamtx, stream.id, source,
+                    bool(stream.recording_enabled),
+                    retention_days=stream.retention_days,
+                    record_path=record_path_for(
+                        stream, get_settings().recordings_dir
+                    ),
+                    sub_source=stream.sub_url,
+                )
+            mediamtx_updated = True
+        except Exception as e:  # noqa: BLE001 - best-effort
+            log.warning(
+                "complete-streams: daftar ulang MediaMTX stream %s gagal: %s",
+                stream.id, e,
+            )
+    return CompleteStreamsResponse(
+        stream_id=stream.id,
+        updated_main=updated_main,
+        updated_sub=updated_sub,
+        skipped_main=skipped_main,
+        skipped_sub=skipped_sub,
+        mediamtx_updated=mediamtx_updated,
+    )

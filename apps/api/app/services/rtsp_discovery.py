@@ -692,26 +692,32 @@ async def _discover(
         # ~6-13 dtk per kamera yang sudah terdaftar). Path sub yang
         # dikenal ikut ditandai bila terbuka. Dicek tiap gelombang
         # supaya langsung berhenti begitu path main terdaftar terbuka.
-        if known_paths and known_paths[0]:
+        # SYARAT: sub juga sudah dikenal (known_paths[1] ada). Bila
+        # sub BELUM dikenal, jalur cepat TIDAK dipakai: discovery
+        # harus jalan penuh supaya substream bisa ditemukan (tujuan
+        # "Lengkapi stream" di Scanner). Tanpa syarat ini, kamera yang
+        # main-nya dikenal tidak akan pernah ketemu sub-nya.
+        # SYARAT TAMBAHAN: main DAN sub harus SUDAH ter-probe (ada di
+        # by_path). Bila main ketemu duluan di gelombang awal sementara
+        # sub ada di gelombang berikutnya, JANGAN berhenti dini (sub
+        # belum sempat dicek). Tunggu sampai keduanya ter-probe.
+        if known_paths and known_paths[0] and known_paths[1]:
             by_path = {
                 pr.path: pr for pr in probed
                 if pr.status in ("open", "video")
             }
             known_main = by_path.get(known_paths[0])
-            if known_main is not None:
+            known_sub = by_path.get(known_paths[1])
+            if known_main is not None and known_sub is not None:
                 known_main.status = "video"
                 known_main.role = "main"
-                known_sub = None
-                if known_paths[1]:
-                    known_sub = by_path.get(known_paths[1])
-                    if known_sub is not None:
-                        known_sub.status = "video"
-                        known_sub.role = "sub"
+                known_sub.status = "video"
+                known_sub.role = "sub"
                 kept = [pr for pr in probed if pr.status != "open"]
                 return DiscoveryResult(
                     host=host, port=port, reachable=True, paths=kept,
                     best_main=known_main.url,
-                    best_sub=known_sub.url if known_sub is not None else None,
+                    best_sub=known_sub.url,
                 )
 
         # ffprobe path open yang baru, dibatasi total _MAX_VERIFY_PATHS

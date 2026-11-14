@@ -36,11 +36,11 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
   const [disconnected, setDisconnected] = useState(false);
   const [retryTick, setRetryTick] = useState(0);
   /* Auto-retry TANPA BATAS (keputusan user 2026-11-13): bila tile gagal
-     atau koneksi putus di tengah jalan (mis. ffmpeg sub restart, muxer
-     HLS dingin, atau kamera RTSP putus sesaat), coba lagi otomatis
-     tiap 10 dtk selama kamera masih online, sampai berhasil. Tidak ada
-     lagi batas percobaan; tombol "Coba lagi" tetap tersedia untuk coba
-     ulang manual seketika. */
+     atau koneksi putus di tengah jalan (mis. muxer HLS dingin, atau
+     kamera RTSP putus sesaat), coba lagi otomatis tiap 10 dtk selama
+     kamera masih online, sampai berhasil. Tidak ada lagi batas
+     percobaan; tombol "Coba lagi" tetap tersedia untuk coba ulang
+     manual seketika. */
   const AUTO_RETRY_DELAY_MS = 10000;
   const [showControls, setShowControls] = useState(false);
   /* Sinyal iklan: hover tile + tiap klik tile (perilaku marquee hover/click). */
@@ -52,19 +52,24 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
     videoRef,
   );
 
-  /* Grid SELALU pakai sub stream (aturan user 2026-11-13): tile grid /
-     monitor tidak pernah pakai main stream. Bila whep_sub_url kosong,
-     tile menampilkan "URL stream tidak tersedia" (bukan diam-diam
-     memutar main). Sub stream dibuat selalu menyala 24/7 di backend
-     (runOnReady path main), jadi URL sub selalu tersedia untuk kamera
-     yang online. FocusModal (popup) dikecualikan: ia memakai sub dulu
-     lalu main (HD), dan tidak memakai komponen ini. */
-  const url = stream.whep_sub_url;
-  /* HLS fallback (sub yang sama, via Apache /hls/*, HTTP/TCP): dipakai
-     bila WebRTC/WHEP tidak tersambung karena jaringan memblokir UDP
-     (NAT/CGNAT tanpa forwarding UDP 8189). URL relatif supaya ikut
-     origin yang sama di produksi maupun demo. */
-  const hlsUrl = `/hls/stream_${stream.id}_sub/index.m3u8`;
+  /* Grid pakai sub stream bila kamera punya sub asli; bila TIDAK ADA
+     sub (tidak punya sub_url asli), SELALU tampilkan MAIN stream
+     (aturan user 2026-11-14, penegasan fallback). Transcoder mati
+     total, jadi sub hanya ada bila sub_url asli tersedia; tile tidak
+     boleh hitam/kosong hanya karena tidak ada sub. Keputusan lama
+     "grid tidak pernah pakai main" SUDAH TIDAK BERLAKU (dibuat saat
+     sub selalu ada via transcode). FocusModal (popup) memakai sub
+     dulu lalu main (HD), dan tidak memakai komponen ini. */
+  const hasSub = !!stream.whep_sub_url;
+  const url = stream.whep_sub_url ?? stream.whep_main_url;
+  /* HLS fallback (via Apache /hls/*, HTTP/TCP): dipakai bila
+     WebRTC/WHEP tidak tersambung karena jaringan memblokir UDP
+     (NAT/CGNAT tanpa forwarding UDP 8189). Ikut varian yang dipakai
+     WHEP: sub bila ada, main bila tidak ada sub. URL relatif supaya
+     ikut origin yang sama di produksi maupun demo. */
+  const hlsUrl = hasSub
+    ? `/hls/stream_${stream.id}_sub/index.m3u8`
+    : `/hls/stream_${stream.id}/index.m3u8`;
   /* Poster lewat blob object URL (header Authorization), bukan ?token= di URL. */
   const posterSrc = usePosterUrl(stream.poster_url);
 
@@ -127,8 +132,9 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
       setFailMsg(msg);
     };
     /* Fallback HLS bila WebRTC/WHEP gagal tersambung (UDP diblokir).
-       HLS memakai sub stream yang sama via HTTP, jadi grid tetap
-       menampilkan sub (bukan main). Bila HLS juga gagal, baru fail.
+       HLS memakai varian yang sama dengan WHEP (sub bila ada, main
+       bila tidak ada sub) via HTTP, jadi grid tetap menampilkan
+       stream yang sama. Bila HLS juga gagal, baru fail.
        TUNGGU HANGAT: muxer HLS MediaMTX per-path butuh ~7-10 dtk untuk
        hangat (playlist awal berisi segmen gap, dan hls.js tetap mencoba
        memuat gap.mp4 lalu gagal fatal dengan 404). Sebelum memulai

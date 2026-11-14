@@ -33,6 +33,8 @@ class FakeMediaMTX:
     async def delete_path(self, name: str) -> None:
         self.deleted.append(name)
         self.paths.pop(name, None)
+        if hasattr(self, "confs"):
+            self.confs.pop(name, None)
 
     async def ensure_path(self, name: str, conf: dict) -> None:
         self.paths[name] = conf.get("source", "")

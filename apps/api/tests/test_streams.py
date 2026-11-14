@@ -46,7 +46,10 @@ async def test_list_streams_admin_sees_all(app_client):
     assert len(body) == 2
     assert body[0]["whep_main_url"] == "/whep/stream_1/whep"
     assert body[0]["whep_sub_url"] == "/whep/stream_1_sub/whep"
-    assert body[1]["whep_sub_url"] == "/whep/stream_2_sub/whep"  # sub transkode selalu ada (v2)
+    # Transcoder mati total (2026-11-14): sub hanya ada bila kamera
+    # punya sub_url asli; Cam 2 tanpa sub_url -> whep_sub_url None
+    # dan frontend memakai main sebagai fallback (tile tidak hitam).
+    assert body[1]["whep_sub_url"] is None
     assert body[0]["poster_url"] == "/api/posters/stream_1.jpg"
     # group_name ikut di respons (dipakai filter grup di halaman Live).
     assert body[0]["group_name"] == "MRI"
@@ -73,19 +76,32 @@ async def test_reconnect_ok(app_client):
     assert r.status_code == 200, r.text
     assert r.json() == {"ok": True}
     assert fake.paths["stream_1"] == "rtsp://cam/1"
-    # Pola v2: sub = transkode ffmpeg dari main, bukan URL sub kamera.
-    # Always-on (aturan user 2026-11-13): ffmpeg dijalankan runOnReady
-    # path main (bukan runOnDemand path sub), sub tidak pernah mati.
+    # Transcoder mati total (2026-11-14): main tanpa runOnReady ffmpeg,
+    # sub native dari sub_url kamera (bukan publisher/transcode).
     main = fake.confs["stream_1"]
     assert main["sourceOnDemand"] is False
-    assert "rtsp://127.0.0.1:$RTSP_PORT/stream_1 " in main["runOnReady"]
-    assert main["runOnReady"].endswith(
-        "rtsp://127.0.0.1:$RTSP_PORT/stream_1_sub"
-    )
-    assert main["runOnReadyRestart"] is True
+    assert "runOnReady" not in main
+    assert "runOnReadyRestart" not in main
     sub = fake.confs["stream_1_sub"]
-    assert sub["source"] == "publisher"
+    assert sub["source"] == "rtsp://cam/1_sub"
+    assert sub["rtspTransport"] == "tcp"
+    assert sub["sourceOnDemand"] is False
     assert sub["runOnDemand"] == ""
+
+
+async def test_reconnect_tanpa_sub_tidak_buat_path_sub(app_client):
+    """Reconnect kamera tanpa sub_url: hanya main yang didaftarkan,
+    path sub TIDAK dibuat (transcoder mati total)."""
+    app, fake, db = app_client
+    admin, _ = await _seed(db)
+    auth_as(app, admin)
+    async with _client(app) as c:
+        r = await c.post("/api/streams/2/reconnect")
+    assert r.status_code == 200, r.text
+    assert r.json() == {"ok": True}
+    assert fake.paths["stream_2"] == "rtsp://cam/2"
+    assert "stream_2_sub" not in fake.confs
+    assert "stream_2_sub" in fake.deleted
 
 
 async def test_reconnect_pertahankan_record(app_client):

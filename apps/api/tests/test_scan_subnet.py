@@ -12,6 +12,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from app.routers import admin_scan
+from sqlalchemy import select
 from app.services import rtsp_discovery
 from app.services.rtsp_discovery import DiscoveryResult, PathResult, VideoProbe
 from tests.conftest import auth_as, make_user
@@ -370,16 +371,18 @@ async def test_discover_host_ffprobe_paralel_dan_dibatasi(monkeypatch):
 
 
 async def test_discover_host_jalur_cepat_kamera_dikenal(monkeypatch):
-    """Kamera dikenal (path main terdaftar terbuka di DESCRIBE) ->
-    video tanpa ffprobe sama sekali; bila path dikenal tidak terbuka,
-    discovery penuh seperti biasa."""
+    """Kamera dikenal (main+sub terdaftar terbuka di DESCRIBE) -> video
+    tanpa ffprobe sama sekali; bila sub BELUM dikenal, jalur cepat
+    tidak dipakai supaya discovery penuh bisa menemukan substream
+    ("Lengkapi stream"); bila path dikenal tidak terbuka, discovery
+    penuh seperti biasa."""
     calls: list[str] = []
 
     async def fake_alive(host: str, port: int) -> bool:
         return True
 
     async def fake_probe(url: str, timeout: float = 3.0) -> str:
-        return "open" if url.endswith("/H.264") else "not_found"
+        return "open" if url.endswith(("/H.264", "/H.265")) else "not_found"
 
     async def fake_ffprobe(url: str, timeout: float = 10.0) -> VideoProbe:
         calls.append(url)
@@ -390,14 +393,29 @@ async def test_discover_host_jalur_cepat_kamera_dikenal(monkeypatch):
     monkeypatch.setattr(rtsp_discovery, "probe_path", fake_probe)
     monkeypatch.setattr(rtsp_discovery, "_run_ffprobe", fake_ffprobe)
 
-    # Jalur cepat: /H.264 dikenal + terbuka -> tanpa ffprobe.
+    # Sub belum dikenal -> jalur cepat TIDAK dipakai, discovery penuh
+    # (ffprobe jalan) supaya sub bisa ditemukan.
     disc = await rtsp_discovery.discover_host(
         "192.168.1.10", 554, "admin", "pw",
         known_paths=("/H.264", None))
     assert disc.best_main is not None
     assert disc.best_main.endswith("/H.264")
-    assert disc.best_sub is None
-    assert calls == [], "jalur cepat tidak boleh memanggil ffprobe"
+    assert len(calls) >= 1, "sub belum dikenal, discovery penuh harus jalan"
+
+    # Main+sub dikenal + terbuka -> jalur cepat berhenti dini (tidak
+    # memindai semua 126 path). ffprobe bisa sempat terpanggil pada
+    # main di gelombang lebih awal (main gelombang 1, sub gelombang 2),
+    # jadi yang dijamin adalah berhenti dini + best benar, bukan nol
+    # ffprobe mutlak.
+    calls.clear()
+    disc = await rtsp_discovery.discover_host(
+        "192.168.1.10", 554, "admin", "pw",
+        known_paths=("/H.264", "/H.265"))
+    assert disc.best_main is not None
+    assert disc.best_main.endswith("/H.264")
+    assert disc.best_sub is not None
+    assert disc.best_sub.endswith("/H.265")
+    assert len(disc.paths) < 126, "jalur cepat harus berhenti dini"
 
     # Path dikenal tidak terbuka -> discovery penuh (ffprobe jalan).
     disc2 = await rtsp_discovery.discover_host(
@@ -405,7 +423,7 @@ async def test_discover_host_jalur_cepat_kamera_dikenal(monkeypatch):
         known_paths=("/tidak-ada", None))
     assert disc2.best_main is not None
     assert disc2.best_main.endswith("/H.264")
-    assert len(calls) == 1, "fallback harus memverifikasi via ffprobe"
+    assert len(calls) >= 1, "fallback harus memverifikasi via ffprobe"
 
 
 async def test_discover_host_tandai_role_main_sub_resolusi_sama(monkeypatch):
@@ -491,12 +509,13 @@ async def test_scan_subnet_api_kembalikan_role_main_sub(
         assert by_host["192.168.1.9"]["status"] == "unreachable"
 
 
-async def test_scan_subnet_kamera_dikenal_ditandai_dan_jalur_cepat(
+async def test_scan_subnet_kamera_dikenal_ditandai_sub_belum_ada(
     scan_client, monkeypatch,
 ):
-    """HTTP: kamera terdaftar + online di DB ditandai known=true,
-    ditemukan lewat jalur cepat (tanpa ffprobe), dan host lain
-    known=false."""
+    """HTTP: kamera terdaftar + online di DB ditandai known=true, dan
+    host lain known=false. Karena sub-nya BELUM dikenal, jalur cepat
+    tidak dipakai (discovery penuh + ffprobe) supaya substream bisa
+    ditemukan ("Lengkapi stream")."""
     from app.models.streams import Stream
 
     app, _, db = scan_client
@@ -520,7 +539,8 @@ async def test_scan_subnet_kamera_dikenal_ditandai_dan_jalur_cepat(
         return "open" if url.endswith("/H.264") else "not_found"
 
     async def fake_ffprobe(url: str, timeout: float = 10.0) -> VideoProbe:
-        raise AssertionError("jalur cepat tidak boleh memanggil ffprobe")
+        return VideoProbe(status="video", codec="h264",
+                          width=1920, height=1080, fps=25.0)
 
     monkeypatch.setattr(admin_scan, "_host_reachable", fake_reachable)
     monkeypatch.setattr(admin_scan, "_port_open", fake_port_open)
@@ -801,3 +821,241 @@ async def test_discover_host_merek_baru_bosch_avigilon(monkeypatch):
     assert by_path["/defaultSecondary?streamType=u"].role is None
     # Main dan sub harus berbeda path.
     assert disc.best_main != disc.best_sub
+
+
+async def test_scan_subnet_kamera_dikenal_membawa_info_main_sub(
+    scan_client, monkeypatch,
+):
+    """HTTP: hasil scan kamera terdaftar membawa known_stream_id +
+    known_main/known_sub tersimpan, supaya frontend bisa menawarkan
+    "Lengkapi stream" (tambah hanya yang belum ada, tanpa duplikat)."""
+    from app.models.streams import Stream
+
+    app, _, db = scan_client
+    admin = make_user(role="super_admin")
+    db.add(admin)
+    db.add(Stream(
+        name="Cam 10", rtsp_url="rtsp://admin:pw@192.168.1.10:554/H.264",
+        main_url="rtsp://admin:pw@192.168.1.10:554/H.264",
+        sub_url=None, is_active=True, is_online=False,
+    ))
+    await db.commit()
+    auth_as(app, admin)
+
+    async def fake_reachable(host: str, port: int) -> bool:
+        return host == "192.168.1.10"
+
+    async def fake_port_open(host: str, port: int) -> bool:
+        return host == "192.168.1.10"
+
+    async def fake_probe(url: str, timeout: float = 3.0) -> str:
+        return "open" if url.endswith(("/stream1", "/stream2")) else "not_found"
+
+    async def fake_ffprobe(url: str, timeout: float = 10.0) -> VideoProbe:
+        if url.endswith("/stream1"):
+            return VideoProbe(status="video", codec="h264",
+                              width=1920, height=1080, fps=25.0)
+        return VideoProbe(status="video", codec="h264",
+                          width=640, height=360, fps=15.0)
+
+    monkeypatch.setattr(admin_scan, "_host_reachable", fake_reachable)
+    monkeypatch.setattr(admin_scan, "_port_open", fake_port_open)
+    monkeypatch.setattr(rtsp_discovery, "probe_path", fake_probe)
+    monkeypatch.setattr(rtsp_discovery, "_run_ffprobe", fake_ffprobe)
+
+    async with _client(app) as c:
+        r = await c.post(
+            "/api/admin/scan-subnet",
+            json={"ip_range": "192.168.1.8/30", "port": 554},
+        )
+        assert r.status_code == 202, r.text
+        body = await _poll_done(c, r.json()["job_id"])
+        assert body["status"] == "done"
+        h = {x["host"]: x for x in body["hosts"]}["192.168.1.10"]
+        assert h["known"] is True
+        assert h["known_stream_id"] is not None
+        assert h["known_main"] is not None
+        assert h["known_main"].endswith("/H.264")
+        assert h["known_sub"] is None  # belum punya sub
+        assert h["best_main"].endswith("/stream1")
+        assert h["best_sub"].endswith("/stream2")
+
+
+async def test_scan_subnet_kamera_nonaktif_tetap_dikenali(
+    scan_client, monkeypatch,
+):
+    """Kamera terdaftar yang sedang di-disable (is_active=False) tetap
+    ditandai known, supaya tidak ditawari tambah baru/duplikat saat
+    user scan dalam keadaan kamera dimatikan."""
+    from app.models.streams import Stream
+
+    app, _, db = scan_client
+    admin = make_user(role="super_admin")
+    db.add(admin)
+    db.add(Stream(
+        name="Cam 10", rtsp_url="rtsp://admin:pw@192.168.1.10:554/H.264",
+        main_url="rtsp://admin:pw@192.168.1.10:554/H.264",
+        sub_url=None, is_active=False, is_online=False,
+    ))
+    await db.commit()
+    auth_as(app, admin)
+
+    async def fake_reachable(host: str, port: int) -> bool:
+        return host == "192.168.1.10"
+
+    async def fake_port_open(host: str, port: int) -> bool:
+        return host == "192.168.1.10"
+
+    async def fake_probe(url: str, timeout: float = 3.0) -> str:
+        return "open" if url.endswith("/stream1") else "not_found"
+
+    async def fake_ffprobe(url: str, timeout: float = 10.0) -> VideoProbe:
+        return VideoProbe(status="video", codec="h264",
+                          width=1920, height=1080, fps=25.0)
+
+    monkeypatch.setattr(admin_scan, "_host_reachable", fake_reachable)
+    monkeypatch.setattr(admin_scan, "_port_open", fake_port_open)
+    monkeypatch.setattr(rtsp_discovery, "probe_path", fake_probe)
+    monkeypatch.setattr(rtsp_discovery, "_run_ffprobe", fake_ffprobe)
+
+    async with _client(app) as c:
+        r = await c.post(
+            "/api/admin/scan-subnet",
+            json={"ip_range": "192.168.1.8/30", "port": 554},
+        )
+        assert r.status_code == 202, r.text
+        body = await _poll_done(c, r.json()["job_id"])
+        h = {x["host"]: x for x in body["hosts"]}["192.168.1.10"]
+        assert h["known"] is True
+        assert h["known_stream_id"] is not None
+
+
+async def test_complete_streams_isi_yang_kosong_saja(scan_client):
+    """POST complete-streams: isi sub yang kosong, JANGAN timpa main
+    yang sudah ada. Kamera nonaktif: DB berubah, MediaMTX tidak
+    disentuh (didaftarkan ulang saat diaktifkan lagi)."""
+    from app.models.streams import Stream
+
+    app, mtmx, db = scan_client
+    admin = make_user(role="super_admin")
+    db.add(admin)
+    db.add(Stream(
+        name="Cam 10", rtsp_url="rtsp://admin:pw@192.168.1.10:554/H.264",
+        main_url="rtsp://admin:pw@192.168.1.10:554/H.264",
+        sub_url=None, is_active=False, is_online=False,
+    ))
+    await db.commit()
+    auth_as(app, admin)
+    stream = (await db.execute(
+        select(Stream)
+    )).scalars().first()
+
+    async with _client(app) as c:
+        r = await c.post(
+            "/api/admin/scan-subnet/complete-streams",
+            json={
+                "stream_id": stream.id,
+                "main_url": "rtsp://admin:pw@192.168.1.10:554/live/0/MAIN",
+                "sub_url": "rtsp://admin:pw@192.168.1.10:554/live/0/SUB",
+            },
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["updated_sub"] is True
+        assert body["updated_main"] is False  # sudah ada, tidak ditimpa
+        assert body["skipped_main"] is True
+        assert body["mediamtx_updated"] is False  # kamera nonaktif
+    await db.refresh(stream)
+    assert stream.main_url.endswith("/H.264")  # tetap yang lama
+    assert stream.sub_url.endswith("/live/0/SUB")
+    # Kamera nonaktif: tidak ada path MediaMTX yang didaftarkan.
+    assert "stream_%s_sub" % stream.id not in getattr(mtmx, "confs", {})
+
+
+async def test_complete_streams_tidak_timpa_yang_sudah_ada(scan_client):
+    """POST complete-streams: bila main+sub sudah terisi, keduanya
+    di-skip (tidak ada yang berubah)."""
+    from app.models.streams import Stream
+
+    app, _, db = scan_client
+    admin = make_user(role="super_admin")
+    db.add(admin)
+    db.add(Stream(
+        name="Cam 10", rtsp_url="rtsp://admin:pw@192.168.1.10:554/H.264",
+        main_url="rtsp://admin:pw@192.168.1.10:554/H.264",
+        sub_url="rtsp://admin:pw@192.168.1.10:554/H.265",
+        is_active=False, is_online=False,
+    ))
+    await db.commit()
+    auth_as(app, admin)
+    stream = (await db.execute(
+        select(Stream)
+    )).scalars().first()
+
+    async with _client(app) as c:
+        r = await c.post(
+            "/api/admin/scan-subnet/complete-streams",
+            json={
+                "stream_id": stream.id,
+                "main_url": "rtsp://admin:pw@192.168.1.10:554/live/0/MAIN",
+                "sub_url": "rtsp://admin:pw@192.168.1.10:554/live/0/SUB",
+            },
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["updated_main"] is False
+        assert body["updated_sub"] is False
+        assert body["skipped_main"] is True
+        assert body["skipped_sub"] is True
+    await db.refresh(stream)
+    assert stream.main_url.endswith("/H.264")
+    assert stream.sub_url.endswith("/H.265")
+
+
+async def test_complete_streams_stream_tidak_ditemukan(scan_client):
+    """POST complete-streams: stream_id tidak ada -> 404."""
+    app = await _login_admin(scan_client)
+    async with _client(app) as c:
+        r = await c.post(
+            "/api/admin/scan-subnet/complete-streams",
+            json={"stream_id": 99999, "sub_url": "rtsp://x/sub"},
+        )
+        assert r.status_code == 404, r.text
+
+
+async def test_complete_streams_kamera_aktif_daftar_mediamtx(scan_client):
+    """POST complete-streams pada kamera AKTIF: sub terisi + path
+    MediaMTX didaftarkan ulang dengan sub native (bukan transcode)."""
+    from app.models.streams import Stream
+
+    app, mtmx, db = scan_client
+    admin = make_user(role="super_admin")
+    db.add(admin)
+    db.add(Stream(
+        name="Cam 10", rtsp_url="rtsp://admin:pw@192.168.1.10:554/H.264",
+        main_url="rtsp://admin:pw@192.168.1.10:554/H.264",
+        sub_url=None, is_active=True, is_online=False,
+    ))
+    await db.commit()
+    auth_as(app, admin)
+    stream = (await db.execute(
+        select(Stream)
+    )).scalars().first()
+
+    async with _client(app) as c:
+        r = await c.post(
+            "/api/admin/scan-subnet/complete-streams",
+            json={
+                "stream_id": stream.id,
+                "sub_url": "rtsp://admin:pw@192.168.1.10:554/live/0/SUB",
+            },
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["updated_sub"] is True
+        assert body["mediamtx_updated"] is True
+    await db.refresh(stream)
+    assert stream.sub_url.endswith("/live/0/SUB")
+    sub_conf = mtmx.confs["stream_%s_sub" % stream.id]
+    assert sub_conf["source"] == "rtsp://admin:pw@192.168.1.10:554/live/0/SUB"
+    assert "runOnReady" not in mtmx.confs["stream_%s" % stream.id]
