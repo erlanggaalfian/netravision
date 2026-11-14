@@ -143,6 +143,51 @@ async def test_create_stream_sub_url_eksplisit_dari_scanner(app_client):
     assert row is not None and row.sub_url == "rtsp://h:554/live/0/SUB"
 
 
+async def test_create_stream_dari_scanner_is_active_dan_recording(app_client):
+    """Popup "Tambah terpilih" Scanner (perintah user 2026-11-14):
+    kamera baru bisa ditambah nonaktif (is_active=False) dan dengan
+    rekaman ke disk mati (recording_enabled=False). Kamera nonaktif
+    tersimpan nonaktif dan path MediaMTX-nya tidak dibuat. Kamera
+    aktif dengan recording_enabled=True terdaftar dan merekam."""
+    app, fake, db = app_client
+    await _seed(db)
+    su = await _seed_super(db)
+    auth_as(app, su)
+    async with _client(app) as c:
+        r = await c.post("/api/admin/streams", json={
+            "name": "Cam Mati", "rtsp_url": "rtsp://h:554/H.265",
+            "is_active": False, "recording_enabled": False, "force": True,
+        })
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["is_active"] is False
+    assert body["recording_enabled"] is False
+    assert f"stream_{body['id']}" not in fake.paths
+    row = await db.get(Stream, body["id"])
+    assert row is not None and row.is_active is False
+    async with _client(app) as c:
+        r = await c.post("/api/admin/streams", json={
+            "name": "Cam Rekam", "rtsp_url": "rtsp://h:554/H.265",
+            "is_active": True, "recording_enabled": True, "force": True,
+        })
+    assert r.status_code == 201, r.text
+    body2 = r.json()
+    assert body2["is_active"] is True
+    assert body2["recording_enabled"] is True
+    assert f"stream_{body2['id']}" in fake.paths
+    assert fake.records.get(f"stream_{body2['id']}") is True
+    # Default bila tidak dikirim: aktif, tidak merekam (perilaku lama).
+    async with _client(app) as c:
+        r = await c.post("/api/admin/streams", json={
+            "name": "Cam Default", "rtsp_url": "rtsp://h:554/H.265",
+            "force": True,
+        })
+    assert r.status_code == 201, r.text
+    body3 = r.json()
+    assert body3["is_active"] is True
+    assert body3["recording_enabled"] is False
+
+
 async def test_set_owner(app_client):
     app, _, db = app_client
     _, op = await _seed(db)

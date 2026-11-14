@@ -56,6 +56,10 @@ class StreamCreate(BaseModel):
     channel: int = Field(default=1, ge=1)
     storage_mode: StorageMode = "local"
     recording_enabled: bool = False
+    # Kamera aktif (ditambah dari popup "Tambah terpilih" Scanner,
+    # perintah user 2026-11-14): False = tersimpan nonaktif dan path
+    # MediaMTX tidak didaftarkan. Default True (perilaku lama).
+    is_active: bool = True
     retention_days: int = Field(default=7, ge=1, le=365)
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)

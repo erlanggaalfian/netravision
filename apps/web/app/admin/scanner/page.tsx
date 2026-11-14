@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import type { Group, Stream, SubnetHost } from "../../../lib/types";
-import { ErrorBox, Modal } from "../../../components/ui";
+import { ErrorBox, Modal, Switch } from "../../../components/ui";
 import { LocationInput } from "../../../components/LocationInput";
 import { NBBadge, NBButton, NBCard, NBField, NBInput, NBSelect, NBTitle, NBTableWrap, NBTh, NBTd, NBTr } from "../_nb";
 
@@ -212,6 +212,24 @@ export default function AdminScannerPage() {
   const [lat, setLat] = useState("");
   const [lng, setLng] = useState("");
   const [storageMode, setStorageMode] = useState<"local" | "drive" | "both">("local");
+  /* Kamera aktif + Simpan rekaman ke disk (perintah user 2026-11-14):
+     saklar di popup "Tambah terpilih". Default kamera aktif ON.
+     Saklar rekaman mengikuti mode penyimpanan (ON bila Lokal/Keduanya,
+     OFF bila Drive saja) SELAMA user belum mengubahnya manual;
+     setelah disentuh manual, pilihan user tidak ditimpa lagi. */
+  const [isActive, setIsActive] = useState(true);
+  const [recordingEnabled, setRecordingEnabled] = useState(true);
+  const recTouchedRef = useRef(false);
+  function onStorageModeChange(mode: "local" | "drive" | "both") {
+    setStorageMode(mode);
+    if (!recTouchedRef.current) {
+      setRecordingEnabled(mode !== "drive");
+    }
+  }
+  function onRecordToggle(v: boolean) {
+    recTouchedRef.current = true;
+    setRecordingEnabled(v);
+  }
   const [modalError, setModalError] = useState("");
   /* Lengkapi stream kamera terdaftar (tambah main/sub yang belum ada). */
   const [completing, setCompleting] = useState<Set<string>>(new Set());
@@ -373,6 +391,11 @@ export default function AdminScannerPage() {
   function openAddModal() {
     if (selectedHosts().length === 0) return;
     setModalError("");
+    /* Default segar tiap buka popup: kamera aktif ON, rekaman mengikuti
+       mode penyimpanan saat ini, pilihan manual sebelumnya direset. */
+    setIsActive(true);
+    recTouchedRef.current = false;
+    setRecordingEnabled(storageMode !== "drive");
     setShowAddModal(true);
     api.get<Group[]>("/admin/groups").then(setGroups).catch(() => {});
   }
@@ -431,6 +454,8 @@ export default function AdminScannerPage() {
           rtsp_url: h.best_main,
           sub_url: h.best_sub ?? null,
           storage_mode: storageMode,
+          is_active: isActive,
+          recording_enabled: recordingEnabled,
           latitude,
           longitude,
           force: true,
@@ -1242,7 +1267,7 @@ export default function AdminScannerPage() {
               <NBSelect
                 value={storageMode}
                 onChange={(e) =>
-                  setStorageMode(
+                  onStorageModeChange(
                     e.target.value as "local" | "drive" | "both",
                   )
                 }
@@ -1252,6 +1277,44 @@ export default function AdminScannerPage() {
                 <option value="both">Keduanya</option>
               </NBSelect>
             </NBField>
+
+            {/* Kamera aktif + Penyimpanan rekaman (perintah user
+                2026-11-14): saklar Switch bersama, bukan checkbox.
+                "Simpan rekaman ke disk" bisa di-disable/enable;
+                default-nya mengikuti mode penyimpanan sampai user
+                mengubahnya manual (lihat onStorageModeChange). */}
+            <div className="space-y-4 border-t border-ink-800 pt-5">
+              <p className="text-[13px] font-medium text-slate-400">
+                Kamera & rekaman
+              </p>
+              <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 text-sm text-slate-300">
+                <span>Kamera aktif</span>
+                <Switch
+                  checked={isActive}
+                  onChange={setIsActive}
+                  label="Kamera aktif"
+                />
+              </label>
+              <p className="-mt-2 text-xs leading-relaxed text-slate-400">
+                Bila dimatikan, kamera ditambah dalam keadaan nonaktif dan
+                tidak langsung streaming.
+              </p>
+              <p className="text-[13px] font-medium text-slate-400">
+                Penyimpanan rekaman
+              </p>
+              <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 text-sm text-slate-300">
+                <span>Simpan rekaman ke disk</span>
+                <Switch
+                  checked={recordingEnabled}
+                  onChange={onRecordToggle}
+                  label="Simpan rekaman ke disk"
+                />
+              </label>
+              <p className="-mt-2 text-xs leading-relaxed text-slate-400">
+                Bila dimatikan, kamera tetap streaming live tapi tidak
+                merekam ke disk.
+              </p>
+            </div>
 
             {modalError && (
               <ErrorBox message={modalError} />

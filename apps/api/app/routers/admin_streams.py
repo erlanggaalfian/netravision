@@ -258,6 +258,7 @@ async def admin_create_stream(
         sub_url=effective_sub,
         storage_mode=data.storage_mode,
         recording_enabled=data.recording_enabled,
+        is_active=data.is_active,
         retention_days=data.retention_days,
         record_disk=record_disk,
         latitude=data.latitude,
@@ -267,8 +268,15 @@ async def admin_create_stream(
     db.add(stream)
     await db.commit()
     await db.refresh(stream)
-    ok, err = await _register_paths(mediamtx, stream.id, res.main_url, effective_sub,
-                                    record=data.recording_enabled, stream=stream)
+    # Kamera nonaktif: path MediaMTX sengaja tidak didaftarkan (sync
+    # berkala hanya mendaftarkan kamera aktif); mediamtx_registered
+    # tetap True supaya UI tidak menampilkan peringatan gagal yang
+    # menyesatkan, karena ini bukan kegagalan.
+    if data.is_active:
+        ok, err = await _register_paths(mediamtx, stream.id, res.main_url, effective_sub,
+                                        record=data.recording_enabled, stream=stream)
+    else:
+        ok, err = True, None
     out = stream_to_out(stream, get_settings())
     # Status registrasi MediaMTX dikembalikan ke UI (bukan 500, bukan diam).
     # A-S2: field ini bagian dari StreamOut supaya tidak dipangkas response_model.
