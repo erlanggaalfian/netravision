@@ -247,6 +247,12 @@ export default function AdminStoragePage() {
       setRemotesLoaded(true);
       const withStatus = await Promise.all(
         quick.map(async (r) => {
+          /* Remote yang hanya ada di conf (in_db false, mis. gdrive-2
+             sisa akun Google kedua yang terputus) tidak punya baris
+             DB, jadi endpoint status-nya 404. Status koneksinya sudah
+             dibawa daftar quick (optimistis dari conf), jadi jangan
+             dipoll lagi supaya konsol tidak penuh 404. */
+          if (r.in_db === false) return r;
           try {
             const st = await api.get<{
               connected: boolean;
