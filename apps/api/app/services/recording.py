@@ -2,10 +2,18 @@
 
 Layout segmen, SUMBER KEBENARAN: deploy/mediamtx.yml (recordPath):
     {recordings_dir}/stream_{stream_id}/YYYY-MM-DD_HH-MM-SS-%f.mp4
+    {recordings_dir}/stream_{stream_id}_sub/YYYY-MM-DD_HH-MM-SS-%f.mp4
+
+Sumber rekaman (perintah user 2026-11-14): SUBSTREAM bila kamera
+punya sub_url (segmen masuk stream_{id}_sub/), MAIN sebagai fallback
+bila kamera tidak punya sub (segmen masuk stream_{id}/). Pembaca di
+modul ini SELALU membaca kedua direktori dan menggabungkannya,
+sehingga rekaman lama dari main tetap bisa diputar berdampingan
+dengan rekaman baru dari sub. Bila nama segmen yang sama ada di
+kedua direktori (masa peralihan), yang dari sub yang dipakai.
 
 `recordings_dir` HARUS menunjuk ke volume yang sama dengan yang ditulis
 MediaMTX (di deploy: volume recordings di-mount ke path ini di container api).
-Hanya path `stream_{id}` (main) yang direkam; sub stream tidak direkam.
 
 Waktu pada nama file = waktu lokal server; perbandingan dilakukan konsisten
 dalam zona yang sama (naive).
@@ -73,6 +81,16 @@ def _segment_dir(
     return _stream_dir(stream_id, recordings_dir)
 
 
+def _segment_dirs(
+    stream_id: int, recordings_dir: str, stream: Stream | None = None
+) -> list[str]:
+    """Semua direktori segmen kamera: main stream_{id} + sub
+    stream_{id}_sub. Main pertama (segmen lama), sub kedua (segmen
+    baru dari substream; bila nama segmen sama, sub menang)."""
+    main_dir = _segment_dir(stream_id, recordings_dir, stream)
+    return [main_dir, f"{main_dir}_sub"]
+
+
 def parse_segment_name(name: str) -> datetime | None:
     """'2026-11-02_10-00-00-000000.mp4' -> datetime, atau None bila tak cocok."""
     m = SEGMENT_RE.match(name)
@@ -112,27 +130,35 @@ def list_segments(
 
     Bila `stream` diberikan, direktori dibaca via camera_rec_dir (rekaman
     multi-disk); bila tidak, legacy {recordings_dir}/stream_{id}.
+
+    Membaca direktori main DAN sub (stream_{id}_sub) lalu menggabungkan:
+    rekaman lama dari main tetap terbaca, rekaman baru dari sub ikut
+    terbaca. Nama segmen yang sama di kedua direktori hanya dihitung
+    sekali (yang dari sub yang dipakai).
     """
     root = _recordings_dir(recordings_dir)
-    d = _segment_dir(stream_id, root, stream)
-    out: list[Segment] = []
-    try:
-        names = os.listdir(d)
-    except OSError:
-        return out
-    for name in names:
-        start = parse_segment_name(name)
-        if start is None:
-            continue
-        if day is not None and start.date() != day:
-            continue
-        path = os.path.join(d, name)
+    by_name: dict[str, Segment] = {}
+    for d in _segment_dirs(stream_id, root, stream):
         try:
-            size = os.path.getsize(path)
+            names = os.listdir(d)
         except OSError:
             continue
-        out.append(Segment(start=start, path=path, size=size, name=name))
-    out.sort(key=lambda s: s.start)
+        for name in names:
+            start = parse_segment_name(name)
+            if start is None:
+                continue
+            if day is not None and start.date() != day:
+                continue
+            path = os.path.join(d, name)
+            try:
+                size = os.path.getsize(path)
+            except OSError:
+                continue
+            # Direktori dibaca main-dulu lalu sub; bila nama segmen yang
+            # sama ada di keduanya (masa peralihan), entri sub menimpa
+            # entri main karena ditulis belakangan.
+            by_name[name] = Segment(start=start, path=path, size=size, name=name)
+    out = sorted(by_name.values(), key=lambda s: s.start)
     _assign_ends(out)
     return out
 

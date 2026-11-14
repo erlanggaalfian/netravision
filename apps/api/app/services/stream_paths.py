@@ -10,13 +10,29 @@ Desain:
 - stream_{id}      = MAIN: source RTSP kamera, rtspTransport tcp, selalu
                      tersambung (sourceOnDemand false, mode "preloaded").
                      Satu-satunya sesi RTSP ke kamera bila tanpa sub.
-                     Rekaman di path ini.
+                     Merekam HANYA bila kamera tidak punya sub
+                     (fallback, perintah user 2026-11-14: rekaman dari
+                     substream bila ada).
 - stream_{id}_sub  = SUB (hanya bila kamera punya sub_url): source RTSP
                      sub asli kamera (sub_url), rtspTransport tcp, selalu
                      tersambung (sourceOnDemand false). Bukan publisher,
                      bukan ffmpeg. Bila kamera tidak punya sub_url, path
                      ini tidak dibuat (dan yang lama dihapus saat sync)
                      supaya tidak ada lagi proses ffmpeg yang berjalan.
+                     SUB ADALAH SUMBER REKAMAN bila ada (perintah user
+                     2026-11-14: yang disimpan untuk playback adalah
+                     substream, bukan mainstream; hemat disk karena
+                     resolusi sub lebih kecil). Segmen sub masuk ke
+                     direktori stream_{id}_sub/ (recordPath %path);
+                     pembaca segmen (recording.list_segments, uploader
+                     Drive) membaca stream_{id}/ DAN stream_{id}_sub/
+                     sehingga rekaman lama dari main tetap bisa diputar.
+
+Konsekuensi: kamera tanpa sub_url hanya punya MAIN dan main yang
+merekam. Frontend (CameraTile) menampilkan MAIN sebagai fallback
+bila tidak ada sub, supaya tile tidak hitam. Keputusan lama "grid
+tidak pernah fallback ke main" SUDAH TIDAK BERLAKU lagi (keputusan
+itu dibuat saat sub selalu ada via transcode).
 
 Konsekuensi: kamera tanpa sub_url hanya punya MAIN. Frontend (CameraTile)
 menampilkan MAIN sebagai fallback bila tidak ada sub, supaya tile tidak
@@ -64,7 +80,9 @@ def main_conf(source: str, record: bool, retention_days: int | None = None,
     return conf
 
 
-def sub_conf(sub_source: str) -> dict:
+def sub_conf(sub_source: str, record: bool = False,
+             retention_days: int | None = None,
+             record_path: str | None = None) -> dict:
     """Konfigurasi path sub native sebuah kamera.
 
     Sub HANYA dari sub_url asli kamera (RTSP source, bukan publisher,
@@ -72,14 +90,26 @@ def sub_conf(sub_source: str) -> dict:
     (register_stream) yang memastikan itu. ``runOnDemand`` dikosongkan
     ("") supaya konfigurasi lama (runOnDemand + closeAfter 15 detik)
     yang masih menempel di MediaMTX ikut terhapus saat sync.
+
+    Rekaman (perintah user 2026-11-14): SUB adalah sumber rekaman bila
+    ada. ``record=True`` di sini hanya dipakai bila register_stream
+    memutuskan sub yang merekam (kamera punya sub + recording aktif);
+    recordDeleteAfter/recordPath mengikuti aturan yang sama seperti
+    main_conf. ``record_path`` memakai placeholder %path MediaMTX,
+    sehingga segmen sub masuk ke direktori stream_{id}_sub/.
     """
-    return {
+    conf = {
         "source": sub_source,
         "rtspTransport": "tcp",
         "sourceOnDemand": False,
         "runOnDemand": "",
-        "record": False,
+        "record": bool(record),
     }
+    if record and retention_days:
+        conf["recordDeleteAfter"] = f"{int(retention_days) * 24}h"
+    if record and record_path:
+        conf["recordPath"] = record_path
+    return conf
 
 
 async def register_stream(mediamtx, stream_id: int, source: str,
@@ -92,13 +122,27 @@ async def register_stream(mediamtx, stream_id: int, source: str,
     didaftarkan bila sub_source (sub_url asli kamera) ada; bila tidak
     ada, path sub yang lama DIHAPUS supaya tidak ada lagi transcode
     yang berjalan dan tidak ada path sub yatim.
+
+    Sumber rekaman (perintah user 2026-11-14): SUB bila kamera punya
+    sub_url, MAIN sebagai fallback bila tidak punya sub. Jadi main
+    hanya merekam bila tidak ada sub; bila sub ada, main record=False
+    dan sub yang record=True. Segmen lama di stream_{id}/ tetap ada
+    di disk dan tetap bisa diputar (pembaca segmen membaca kedua
+    direktori); peralihan tidak menghapus rekaman lama.
     """
+    has_sub = bool(sub_source)
     await mediamtx.ensure_path(
         main_path(stream_id),
-        main_conf(source, record, retention_days, record_path),
+        main_conf(source, record and not has_sub, retention_days,
+                  record_path),
     )
-    if sub_source:
-        await mediamtx.ensure_path(sub_path(stream_id), sub_conf(sub_source))
+    if has_sub:
+        await mediamtx.ensure_path(
+            sub_path(stream_id),
+            sub_conf(sub_source, record=record,
+                     retention_days=retention_days,
+                     record_path=record_path),
+        )
     else:
         # Tanpa sub asli: hapus path sub lama (transcode dulu / native
         # yang sudah tidak berlaku). delete_path menoleransi 404.
@@ -124,7 +168,9 @@ def _selftest() -> None:
     assert "recordPath" not in main_conf("rtsp://x", True)
     assert "recordPath" not in main_conf("rtsp://x", True, 30)
     assert "recordPath" not in main_conf("rtsp://x", False, 30, rp)
-    # Sub native: source RTSP kamera, selalu tersambung, tanpa rekaman.
+    # Sub native: source RTSP kamera, selalu tersambung, tanpa rekaman
+    # bila record=False; merekam (dengan retensi + recordPath) bila
+    # record=True (sumber rekaman bila kamera punya sub).
     s = sub_conf("rtsp://kamera/sub")
     assert s["source"] == "rtsp://kamera/sub"
     assert s["rtspTransport"] == "tcp"
@@ -132,6 +178,11 @@ def _selftest() -> None:
     assert s["runOnDemand"] == ""
     assert s["record"] is False
     assert "runOnReady" not in s
+    assert "recordDeleteAfter" not in sub_conf("rtsp://kamera/sub", True)
+    assert sub_conf("rtsp://kamera/sub", True, 30)["recordDeleteAfter"] == "720h"
+    assert sub_conf("rtsp://kamera/sub", True, 30, rp)["recordPath"] == rp
+    assert "recordPath" not in sub_conf("rtsp://kamera/sub", True)
+    assert "recordPath" not in sub_conf("rtsp://kamera/sub", False, 30, rp)
 
 
 if __name__ == "__main__":

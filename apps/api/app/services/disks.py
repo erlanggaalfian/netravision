@@ -46,6 +46,17 @@ def camera_rec_dir(stream: Stream, recordings_dir: str | Path) -> str:
     return os.path.join(os.fspath(recordings_dir), f"stream_{stream.id}")
 
 
+def camera_rec_dirs(stream: Stream, recordings_dir: str | Path) -> list[str]:
+    """Semua direktori segmen kamera: main stream_{id} + sub
+    stream_{id}_sub (perintah user 2026-11-14: rekaman dari substream
+    bila kamera punya sub). Direktori main selalu pertama, supaya
+    segmen lama dari main tetap terbaca; direktori sub kedua. Bila
+    kamera tidak punya sub, direktori sub tidak ada dan pembaca
+    mengabaikannya (os.listdir gagal -> kosong)."""
+    main_dir = camera_rec_dir(stream, recordings_dir)
+    return [main_dir, f"{main_dir}_sub"]
+
+
 def record_path_for(stream: Stream, recordings_dir: str | Path) -> str | None:
     """recordPath MediaMTX bila record_disk terisi, None bila pakai default."""
     if not stream.record_disk:
@@ -273,22 +284,23 @@ async def cleanup_full_disks(
                     )
                 )
                 uploaded = {r[0] for r in res.all()}
-            rec_dir = camera_rec_dir(stream, recordings_dir)
-            try:
-                names = os.listdir(rec_dir)
-            except OSError:
-                continue
-            for name in names:
-                if not SEGMENT_RE.match(name):
-                    continue
-                if uploaded is not None and name not in uploaded:
-                    continue
-                path = os.path.join(rec_dir, name)
+            rec_dirs = camera_rec_dirs(stream, recordings_dir)
+            for rec_dir in rec_dirs:
                 try:
-                    mtime = os.path.getmtime(path)
+                    names = os.listdir(rec_dir)
                 except OSError:
                     continue
-                candidates.append((mtime, path))
+                for name in names:
+                    if not SEGMENT_RE.match(name):
+                        continue
+                    if uploaded is not None and name not in uploaded:
+                        continue
+                    path = os.path.join(rec_dir, name)
+                    try:
+                        mtime = os.path.getmtime(path)
+                    except OSError:
+                        continue
+                    candidates.append((mtime, path))
         candidates.sort(key=lambda c: c[0])
 
         removed = 0

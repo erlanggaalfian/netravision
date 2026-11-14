@@ -21,7 +21,7 @@ from app.db.session import get_session_factory
 from app.models.drive import GoogleDriveFolder
 from app.models.streams import Stream
 from app.services import gdrive_rclone as gr
-from app.services.disks import camera_rec_dir
+from app.services.disks import camera_rec_dirs
 from app.services.recording import parse_segment_name
 
 log = logging.getLogger("netravision.drive_uploader")
@@ -71,10 +71,13 @@ async def _mark_uploaded(stream_id: int, segment_name: str, folder_id: str) -> N
         await db.commit()
 
 
-async def _camera_targets() -> list[tuple[int, str, str, str]]:
-    """(stream_id, nama_kamera, folder_drive_nama, rec_dir) untuk kamera
-    mode drive/both. rec_dir dihitung di dalam sesi via camera_rec_dir
-    (rekaman multi-disk).
+async def _camera_targets() -> list[tuple[int, str, str, list[str]]]:
+    """(stream_id, nama_kamera, folder_drive_nama, rec_dirs) untuk kamera
+    mode drive/both. rec_dirs dihitung di dalam sesi via camera_rec_dirs
+    (rekaman multi-disk): direktori main stream_{id} + sub
+    stream_{id}_sub, supaya segmen baru dari substream ikut ter-upload
+    (perintah user 2026-11-14: rekaman dari substream) dan segmen lama
+    dari main tetap ter-upload.
 
     folder_drive_nama adalah NAMA folder (mis. netravision), BUKAN ID Drive.
     rclone membaca jalur sebagai nama folder; ID Drive yang dipakai sebagai
@@ -114,7 +117,7 @@ async def _camera_targets() -> list[tuple[int, str, str, str]]:
                     s.id,
                     s.name or f"Kamera {s.id}",
                     drive_name,
-                    camera_rec_dir(s, settings.recordings_dir),
+                    camera_rec_dirs(s, settings.recordings_dir),
                 )
             )
         return out
@@ -124,6 +127,7 @@ def _stable_segments(sdir: str) -> list[tuple[str, str]]:
     """[(nama_file, path)] segmen stabil di direktori segmen kamera.
 
     sdir = direktori segmen sebenarnya (camera_rec_dir, multi-disk).
+    Dipanggil sekali per direktori (main + sub) oleh _upload_once.
     """
     if not os.path.isdir(sdir):
         return []
@@ -150,15 +154,22 @@ async def _upload_once() -> None:
     status = await gr.connection_status()
     if not status.get("connected"):
         return
-    for sid, cam_name, folder_name, rec_dir in await _camera_targets():
+    for sid, cam_name, folder_name, rec_dirs in await _camera_targets():
         try:
             done = await _uploaded_names(sid, folder_name)
         except Exception as e:  # noqa: BLE001
             log.warning("uploader: baca drive_uploads gagal: %s", e)
             continue
-        for seg_name, seg_path in _stable_segments(rec_dir):
-            if seg_name in done:
-                continue
+        # Gabungkan segmen stabil dari direktori main + sub; bila nama
+        # segmen yang sama ada di keduanya (masa peralihan), yang dari
+        # sub yang dipakai (ditulis belakangan).
+        pending: dict[str, str] = {}
+        for rec_dir in rec_dirs:
+            for seg_name, seg_path in _stable_segments(rec_dir):
+                if seg_name in done:
+                    continue
+                pending[seg_name] = seg_path
+        for seg_name, seg_path in pending.items():
             remote = f"{cam_name}/{seg_name}"
             try:
                 await gr.upload_segment(seg_path, folder_name, remote)

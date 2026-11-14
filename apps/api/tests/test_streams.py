@@ -116,8 +116,10 @@ async def test_reconnect_pertahankan_record(app_client):
     async with _client(app) as c:
         r = await c.post("/api/streams/1/reconnect")
     assert r.status_code == 200, r.text
-    assert fake.records["stream_1"] is True
-    assert fake.records["stream_1_sub"] is False  # sub tidak direkam (v2)
+    # Rekaman dari SUB bila kamera punya sub (perintah user 2026-11-14):
+    # main berhenti merekam, sub yang merekam.
+    assert fake.records["stream_1"] is False
+    assert fake.records["stream_1_sub"] is True
 
 
 async def test_reconnect_404(app_client):

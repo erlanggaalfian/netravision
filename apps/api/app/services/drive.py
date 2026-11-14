@@ -246,15 +246,17 @@ class DriveUploader:
                 if self._mine(r.drive_account_id, r.storage_mode):
                     mine.add(r.id)
         # Direktori yang dipindai: legacy recordings_dir/stream_{id} plus
-        # direktori multi-disk (camera_rec_dir) untuk kamera yang
-        # record_disk-nya terisi (segmennya tidak ada di recordings_dir).
+        # stream_{id}_sub (rekaman dari substream bila kamera punya sub,
+        # perintah user 2026-11-14) plus direktori multi-disk
+        # (camera_rec_dir) untuk kamera yang record_disk-nya terisi
+        # (segmennya tidak ada di recordings_dir).
         targets: list[tuple[int, str, str]] = []
         try:
             entries = sorted(os.listdir(s.recordings_dir))
         except OSError:
             entries = []
         for entry in entries:
-            m = _re.match(r"^stream_(\d+)$", entry)
+            m = _re.match(r"^stream_(\d+)(?:_sub)?$", entry)
             if not m:
                 continue
             sid = int(m.group(1))
@@ -267,7 +269,7 @@ class DriveUploader:
         if db is not None:
             from types import SimpleNamespace
 
-            from app.services.disks import camera_rec_dir
+            from app.services.disks import camera_rec_dirs
 
             for r in rows:
                 if not getattr(r, "record_disk", None):
@@ -280,12 +282,12 @@ class DriveUploader:
                     group_name=getattr(r, "group_name", None),
                     record_disk=r.record_disk,
                 )
-                d = camera_rec_dir(fake, s.recordings_dir)
-                if not os.path.isdir(d):
-                    continue
-                if any(t[2] == d for t in targets):
-                    continue
-                targets.append((r.id, r.name, d))
+                for d in camera_rec_dirs(fake, s.recordings_dir):
+                    if not os.path.isdir(d):
+                        continue
+                    if any(t[2] == d for t in targets):
+                        continue
+                    targets.append((r.id, r.name, d))
         count = 0
         for sid, stream_name, d in targets:
             try:

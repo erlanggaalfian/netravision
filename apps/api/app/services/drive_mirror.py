@@ -27,7 +27,7 @@ from app.core.config import get_settings
 from app.db.session import get_session_factory
 from app.models.drive import GoogleDriveFolder
 from app.models.streams import Stream
-from app.services.disks import camera_rec_dir
+from app.services.disks import camera_rec_dirs
 
 log = logging.getLogger("netravision.drive_mirror")
 
@@ -71,10 +71,12 @@ async def _folders() -> list[tuple[int, str, str]]:
         return out
 
 
-async def _mirror_candidates() -> list[tuple[int, str, int | None, str]]:
-    """Daftar (stream_id, name, drive_folder_id, rec_dir) kamera yang perlu
-    dicerminkan. rec_dir dihitung di dalam sesi via camera_rec_dir
-    (rekaman multi-disk) supaya pemakaian di thread latar aman."""
+async def _mirror_candidates() -> list[tuple[int, str, int | None, list[str]]]:
+    """Daftar (stream_id, name, drive_folder_id, rec_dirs) kamera yang perlu
+    dicerminkan. rec_dirs dihitung di dalam sesi via camera_rec_dirs
+    (rekaman multi-disk) supaya pemakaian di thread latar aman: direktori
+    main stream_{id} + sub stream_{id}_sub (rekaman dari substream bila
+    kamera punya sub, perintah user 2026-11-14)."""
     settings = get_settings()
     async with get_session_factory()() as db:
         res = await db.execute(
@@ -88,27 +90,29 @@ async def _mirror_candidates() -> list[tuple[int, str, int | None, str]]:
                 s.id,
                 s.name,
                 s.drive_folder_id,
-                camera_rec_dir(s, settings.recordings_dir),
+                camera_rec_dirs(s, settings.recordings_dir),
             )
             for s in res.scalars().all()
         ]
 
 
-def _prune_staging(src_dir: str, dst_base: str, stream_id: int) -> None:
+def _prune_staging(src_dirs: list[str], dst_base: str, stream_id: int) -> None:
     """Bersihkan staging lama: file yang sumbernya sudah tak ada, atau lebih
     tua dari drive_retention_days. Hanya jalan bila mount hidup dan sumber ada.
-    src_dir = direktori segmen sebenarnya (camera_rec_dir); tujuan staging
-    tetap {dst_base}/stream_{id}.
+    src_dirs = direktori segmen sebenarnya (camera_rec_dirs: main + sub);
+    tujuan staging tetap {dst_base}/stream_{id}.
     """
     from datetime import datetime as _dt
 
     settings = get_settings()
-    src = src_dir
     dst = os.path.join(dst_base, f"stream_{stream_id}")
-    if not os.path.isdir(src) or not os.path.isdir(dst):
+    if not os.path.isdir(dst):
         return
     try:
-        src_names = set(os.listdir(src))
+        src_names: set[str] = set()
+        for src in src_dirs:
+            if os.path.isdir(src):
+                src_names.update(os.listdir(src))
         cutoff = _dt.now().timestamp() - settings.drive_retention_days * 86400
     except OSError:
         return
@@ -124,11 +128,13 @@ def _prune_staging(src_dir: str, dst_base: str, stream_id: int) -> None:
             log.warning("mirror: gagal bersihkan staging %s: %s", tpath, e)
 
 
-def _mirror_one(src_dir: str, dst_base: str, stream_id: int) -> None:
+def _mirror_one(src_dirs: list[str], dst_base: str, stream_id: int) -> None:
     """Salin segmen stabil satu kamera ke satu folder tujuan.
 
-    src_dir = direktori segmen sebenarnya (camera_rec_dir, multi-disk);
-    tujuan staging tetap {dst_base}/stream_{id}.
+    src_dirs = direktori segmen sebenarnya (camera_rec_dirs, multi-disk:
+    main + sub); tujuan staging tetap {dst_base}/stream_{id}, jadi
+    segmen sub dan main lama tercermin ke satu direktori staging yang
+    sama dan dibaca playback lewat _folder_link_segments.
     """
     settings = get_settings()
     # B-S6: jangan menulis buta ke staging yang mount-nya mati.
@@ -142,42 +148,42 @@ def _mirror_one(src_dir: str, dst_base: str, stream_id: int) -> None:
             )
         return
     _warned_dead.discard(dst_base)
-    src = src_dir
-    if not os.path.isdir(src):
-        return
     dst = os.path.join(dst_base, f"stream_{stream_id}")
-    try:
-        entries = os.listdir(src)
-    except OSError:
-        return
-    for fn in entries:
-        spath = os.path.join(src, fn)
+    for src in src_dirs:
+        if not os.path.isdir(src):
+            continue
         try:
-            if not os.path.isfile(spath):
-                continue
-            if time.time() - os.path.getmtime(spath) < _STABLE_SEC:
-                continue  # masih ditulis, lewati
-            tpath = os.path.join(dst, fn)
-            if os.path.exists(tpath) and os.path.getsize(tpath) == os.path.getsize(
-                spath
-            ):
-                continue  # sudah tercermin
-            os.makedirs(dst, exist_ok=True)
-            shutil.copy2(spath, tpath)
-            log.info("mirror stream_%s -> %s: %s tersalin", stream_id, dst_base, fn)
-        except OSError as e:  # noqa: BLE001
-            log.warning("mirror stream_%s gagal menyalin %s: %s", stream_id, fn, e)
-    _prune_staging(src_dir, dst_base, stream_id)
+            entries = os.listdir(src)
+        except OSError:
+            continue
+        for fn in entries:
+            spath = os.path.join(src, fn)
+            try:
+                if not os.path.isfile(spath):
+                    continue
+                if time.time() - os.path.getmtime(spath) < _STABLE_SEC:
+                    continue  # masih ditulis, lewati
+                tpath = os.path.join(dst, fn)
+                if os.path.exists(tpath) and os.path.getsize(tpath) == os.path.getsize(
+                    spath
+                ):
+                    continue  # sudah tercermin
+                os.makedirs(dst, exist_ok=True)
+                shutil.copy2(spath, tpath)
+                log.info("mirror stream_%s -> %s: %s tersalin", stream_id, dst_base, fn)
+            except OSError as e:  # noqa: BLE001
+                log.warning("mirror stream_%s gagal menyalin %s: %s", stream_id, fn, e)
+    _prune_staging(src_dirs, dst_base, stream_id)
 
 
 def _mirror_tick(
-    candidates: list[tuple[int, str, int | None, str] | tuple[int, str, int | None]],
+    candidates: list[tuple[int, str, int | None, list[str]] | tuple[int, str, int | None]],
     folders: list[tuple[int, str, str]],
 ) -> None:
     """Satu putaran penyalinan segmen stabil ke tiap folder tujuan.
 
-    Kandidat 4-elemen (stream_id, name, drive_folder_id, rec_dir) dari
-    _mirror_candidates; 3-elemen lama tetap diterima (rec_dir diturunkan
+    Kandidat 4-elemen (stream_id, name, drive_folder_id, rec_dirs) dari
+    _mirror_candidates; 3-elemen lama tetap diterima (rec_dirs diturunkan
     dari settings.recordings_dir, perilaku legacy).
     """
     if not folders:
@@ -187,14 +193,14 @@ def _mirror_tick(
     default_path = folders[0][2]
     for cand in candidates:
         if len(cand) == 4:
-            stream_id, _name, drive_folder_id, rec_dir = cand
+            stream_id, _name, drive_folder_id, rec_dirs = cand
         else:
             stream_id, _name, drive_folder_id = cand
-            rec_dir = os.path.join(settings.recordings_dir, f"stream_{stream_id}")
+            rec_dirs = [os.path.join(settings.recordings_dir, f"stream_{stream_id}")]
         dst_base = by_id.get(drive_folder_id) if drive_folder_id else default_path
         if not dst_base:
             continue
-        _mirror_one(rec_dir, dst_base, stream_id)
+        _mirror_one(rec_dirs, dst_base, stream_id)
 
 
 async def mirror_loop() -> None:

@@ -25,6 +25,18 @@ def _mk(root, stream_id, name, size=100, mtime=None):
     return p
 
 
+def _mk_sub(root, stream_id, name, size=100, mtime=None):
+    """Segmen di direktori sub stream_{id}_sub (rekaman dari substream)."""
+    d = os.path.join(str(root), f"stream_{stream_id}_sub")
+    os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, name)
+    with open(p, "wb") as f:
+        f.write(b"y" * size)
+    if mtime is not None:
+        os.utime(p, (mtime, mtime))
+    return p
+
+
 def test_parse_segment_name():
     assert parse_segment_name("2026-11-02_10-00-00-000000.mp4") == datetime(
         2026, 11, 2, 10, 0, 0
@@ -51,6 +63,39 @@ def test_list_segments_filter_dan_urut(tmp_path):
 
     assert list_segments(1, date(2026, 11, 3), r) == []
     assert list_segments(99, None, r) == []  # stream tak ada
+
+
+def test_list_segments_gabung_main_dan_sub(tmp_path):
+    """Rekaman dari substream (2026-11-14): list_segments membaca
+    stream_{id}/ (rekaman lama dari main) DAN stream_{id}_sub/
+    (rekaman baru dari sub), digabung dan diurutkan. Nama segmen yang
+    sama di kedua direktori hanya dihitung sekali, yang dari sub yang
+    dipakai."""
+    r = str(tmp_path)
+    # Rekaman lama dari main (08:00) + rekaman baru dari sub (09:00).
+    _mk(tmp_path, 5, "2026-11-02_08-00-00-000000.mp4", size=100)
+    _mk_sub(tmp_path, 5, "2026-11-02_09-00-00-000000.mp4", size=50)
+    segs = list_segments(5, date(2026, 11, 2), r)
+    assert [(s.start.hour, s.name) for s in segs] == [
+        (8, "2026-11-02_08-00-00-000000.mp4"),
+        (9, "2026-11-02_09-00-00-000000.mp4"),
+    ]
+    assert segs[0].size == 100  # dari main
+    assert segs[1].size == 50  # dari sub
+    assert "stream_5_sub" in segs[1].path
+
+    # Nama sama di kedua direktori (masa peralihan): sub menang.
+    _mk(tmp_path, 6, "2026-11-02_10-00-00-000000.mp4", size=100)
+    _mk_sub(tmp_path, 6, "2026-11-02_10-00-00-000000.mp4", size=50)
+    segs = list_segments(6, date(2026, 11, 2), r)
+    assert len(segs) == 1
+    assert segs[0].size == 50
+    assert "stream_6_sub" in segs[0].path
+
+    # Kamera tanpa sub: hanya main, tetap terbaca seperti dulu.
+    _mk(tmp_path, 7, "2026-11-02_11-00-00-000000.mp4")
+    segs = list_segments(7, date(2026, 11, 2), r)
+    assert len(segs) == 1 and "stream_7_sub" not in segs[0].path
 
 
 def test_build_timeline(tmp_path):

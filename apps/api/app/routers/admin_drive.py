@@ -1044,7 +1044,7 @@ async def drive_upload_queue(db: AsyncSession = Depends(get_db)):
     koneksi tiap remote rclone; connected False bila rclone tidak ada
     atau gagal, tanpa crash.
     """
-    from app.services.disks import camera_rec_dir
+    from app.services.disks import camera_rec_dirs
     from app.services.drive_uploader import _STABLE_SEC
     from app.services.recording import parse_segment_name
     from app.services import gdrive_rclone as gr
@@ -1071,27 +1071,33 @@ async def drive_upload_queue(db: AsyncSession = Depends(get_db)):
                 )
             ).all()
         }
-        rec_dir = camera_rec_dir(s, settings.recordings_dir)
-        try:
-            names = os.listdir(rec_dir)
-        except OSError:
-            continue
-        for name in names:
-            if not name.endswith(".mp4"):
-                continue
-            if parse_segment_name(name) is None:
-                continue
-            if name in uploaded:
-                continue
-            path = os.path.join(rec_dir, name)
+        # Pindai direktori main + sub (rekaman dari substream bila ada);
+        # nama segmen yang sama di kedua direktori hanya dihitung sekali.
+        seen_names: set[str] = set()
+        for rec_dir in camera_rec_dirs(s, settings.recordings_dir):
             try:
-                if now - os.path.getmtime(path) < _STABLE_SEC:
-                    continue
-                if os.path.getsize(path) == 0:
-                    continue
+                names = os.listdir(rec_dir)
             except OSError:
                 continue
-            pending += 1
+            for name in names:
+                if not name.endswith(".mp4"):
+                    continue
+                if parse_segment_name(name) is None:
+                    continue
+                if name in uploaded:
+                    continue
+                if name in seen_names:
+                    continue
+                seen_names.add(name)
+                path = os.path.join(rec_dir, name)
+                try:
+                    if now - os.path.getmtime(path) < _STABLE_SEC:
+                        continue
+                    if os.path.getsize(path) == 0:
+                        continue
+                except OSError:
+                    continue
+                pending += 1
     last = (
         await db.execute(select(func.max(DriveUpload.uploaded_at)))
     ).scalar()
