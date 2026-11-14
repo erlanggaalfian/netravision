@@ -404,6 +404,15 @@ export default function MonitorsPage() {
           ? crypto.randomUUID()
           : `m-${Date.now()}`;
       persist([...layouts, { id, name, cols, streamIds: formIds }]);
+      /* Ubah grup: tampilan grup yang sedang terbuka harus langsung
+         memakai kolom + urutan baru, bukan tetap di cols lama (2).
+         Tanpa ini, simpan grup terlihat tidak berpengaruh karena
+         openGroupLayout tidak berubah. */
+      if (editing && editing.id && editing.id.startsWith("group-")) {
+        setOpenGroupLayout((prev) =>
+          prev ? { ...prev, name, cols, streamIds: formIds } : prev,
+        );
+      }
     }
     setEditing(null);
   };
