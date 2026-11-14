@@ -553,12 +553,10 @@ function EmbedPlayerSettings() {
                 Pengunjung menekan tombol putar sebelum stream dimulai
               </span>
             </span>
-            <input
-              type="checkbox"
+            <Switch
               checked={cfg.click_to_play ?? true}
-              onChange={(e) => setCfg({ ...cfg, click_to_play: e.target.checked })}
-              className="h-5 w-5 shrink-0 accent-accent-500"
-              aria-label="Klik untuk memutar"
+              onChange={(v) => setCfg({ ...cfg, click_to_play: v })}
+              label="Klik untuk memutar"
             />
           </label>
           <NBField
@@ -782,12 +780,10 @@ function KeyFormModal({
               Key ini boleh membuka rekaman, bukan hanya live
             </span>
           </span>
-          <input
-            type="checkbox"
+          <Switch
             checked={includePlayback}
-            onChange={(e) => setIncludePlayback(e.target.checked)}
-            className="h-5 w-5 shrink-0 accent-accent-500"
-            aria-label="Sertakan playback"
+            onChange={setIncludePlayback}
+            label="Sertakan playback"
           />
         </label>
         <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3">

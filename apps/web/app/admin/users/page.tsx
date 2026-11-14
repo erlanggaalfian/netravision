@@ -1216,22 +1216,17 @@ function GroupEditModal({
               Banner iklan tampil untuk semua anggota grup ini
             </span>
           </span>
-          <input
-            type="checkbox"
+          <Switch
             checked={adsOn === true}
-            ref={(el) => {
-              if (el) el.indeterminate = adsOn === null;
-            }}
-            onChange={(e) => setAdsOn(e.target.checked)}
-            className="h-5 w-5 shrink-0 accent-accent-500"
-            aria-label="Tampilkan Iklan untuk grup"
+            onChange={(v) => setAdsOn(v)}
+            label="Tampilkan Iklan untuk grup"
           />
         </label>
         {adsOn === null && (
           <p className="text-xs text-slate-400">
             Status iklan anggota grup saat ini campuran (sebagian Ya,
-            sebagian Tidak). Centang atau hapus centang untuk menyamakan
-            semuanya, atau biarkan apa adanya.
+            sebagian Tidak). Geser saklar untuk menyamakan semuanya, atau
+            biarkan apa adanya.
           </p>
         )}
         <p className="text-xs text-slate-400">{members.length} anggota</p>
@@ -1535,37 +1530,25 @@ function GroupAccessModal({
                     {s.name}
                   </span>
                   <span className="flex w-16 shrink-0 justify-center">
-                    <input
-                      type="checkbox"
+                    <Switch
                       checked={a.can_view}
-                      onChange={(e) =>
-                        setFlag(s.id, "can_view", e.target.checked)
-                      }
-                      className="h-5 w-5 accent-accent-500"
-                      aria-label={`Live ${s.name}`}
+                      onChange={(v) => setFlag(s.id, "can_view", v)}
+                      label={`Live ${s.name}`}
                     />
                   </span>
                   <span className="flex w-16 shrink-0 justify-center">
-                    <input
-                      type="checkbox"
+                    <Switch
                       checked={a.can_playback}
-                      onChange={(e) =>
-                        setFlag(s.id, "can_playback", e.target.checked)
-                      }
-                      className="h-5 w-5 accent-accent-500"
-                      aria-label={`Playback ${s.name}`}
+                      onChange={(v) => setFlag(s.id, "can_playback", v)}
+                      label={`Playback ${s.name}`}
                     />
                   </span>
                   {showBagikan && (
                     <span className="flex w-16 shrink-0 justify-center">
-                      <input
-                        type="checkbox"
+                      <Switch
                         checked={a.can_reshare}
-                        onChange={(e) =>
-                          setFlag(s.id, "can_reshare", e.target.checked)
-                        }
-                        className="h-5 w-5 accent-accent-500"
-                        aria-label={`Bagikan ${s.name}`}
+                        onChange={(v) => setFlag(s.id, "can_reshare", v)}
+                        label={`Bagikan ${s.name}`}
                       />
                     </span>
                   )}
@@ -1739,25 +1722,17 @@ function UserAccessModal({
                     {s.name}
                   </span>
                   <span className="flex w-16 shrink-0 justify-center">
-                    <input
-                      type="checkbox"
+                    <Switch
                       checked={a.can_view}
-                      onChange={(e) =>
-                        setFlag(s.id, "can_view", e.target.checked)
-                      }
-                      className="h-5 w-5 accent-accent-500"
-                      aria-label={`Live ${s.name}`}
+                      onChange={(v) => setFlag(s.id, "can_view", v)}
+                      label={`Live ${s.name}`}
                     />
                   </span>
                   <span className="flex w-16 shrink-0 justify-center">
-                    <input
-                      type="checkbox"
+                    <Switch
                       checked={a.can_playback}
-                      onChange={(e) =>
-                        setFlag(s.id, "can_playback", e.target.checked)
-                      }
-                      className="h-5 w-5 accent-accent-500"
-                      aria-label={`Playback ${s.name}`}
+                      onChange={(v) => setFlag(s.id, "can_playback", v)}
+                      label={`Playback ${s.name}`}
                     />
                   </span>
                 </div>
@@ -1959,36 +1934,24 @@ function AdminGrantModal({
                     {s.name}
                   </span>
                   <span className="flex w-16 shrink-0 justify-center">
-                    <input
-                      type="checkbox"
+                    <Switch
                       checked={g.can_view}
-                      onChange={(e) =>
-                        setFlag(s.id, "can_view", e.target.checked)
-                      }
-                      className="h-5 w-5 accent-accent-500"
-                      aria-label={`Live ${s.name}`}
+                      onChange={(v) => setFlag(s.id, "can_view", v)}
+                      label={`Live ${s.name}`}
                     />
                   </span>
                   <span className="flex w-16 shrink-0 justify-center">
-                    <input
-                      type="checkbox"
+                    <Switch
                       checked={g.can_playback}
-                      onChange={(e) =>
-                        setFlag(s.id, "can_playback", e.target.checked)
-                      }
-                      className="h-5 w-5 accent-accent-500"
-                      aria-label={`Playback ${s.name}`}
+                      onChange={(v) => setFlag(s.id, "can_playback", v)}
+                      label={`Playback ${s.name}`}
                     />
                   </span>
                   <span className="flex w-16 shrink-0 justify-center">
-                    <input
-                      type="checkbox"
+                    <Switch
                       checked={g.can_reshare}
-                      onChange={(e) =>
-                        setFlag(s.id, "can_reshare", e.target.checked)
-                      }
-                      className="h-5 w-5 accent-accent-500"
-                      aria-label={`Bagikan ${s.name}`}
+                      onChange={(v) => setFlag(s.id, "can_reshare", v)}
+                      label={`Bagikan ${s.name}`}
                     />
                   </span>
                 </div>

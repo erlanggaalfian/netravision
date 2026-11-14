@@ -7,7 +7,7 @@ import { useCameraStatus } from "../../../hooks/useCameraStatus";
 import type { AdConfig, Disk, DriveFolder, Group, ScanPath, ScanResult, Stream } from "../../../lib/types";
 import { ShareModal } from "../../../components/ShareModal";
 import { FocusModal } from "../../../components/FocusModal";
-import { ErrorBox, Modal, Spinner } from "../../../components/ui";
+import { ErrorBox, Modal, Spinner, Switch } from "../../../components/ui";
 import {
   NBAccordion,
   NBBadge,
@@ -1168,14 +1168,13 @@ function AddStreamModal({
 
         <div className="space-y-4 rounded-xl bg-ink-800 shadow-sm p-4">
           <p className="text-[13px] font-medium text-slate-400">Rekaman & lokasi</p>
-          <label className="flex min-h-[44px] items-center gap-3 text-sm text-slate-300">
-            <input
-              type="checkbox"
+          <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 text-sm text-slate-300">
+            <span>Simpan rekaman ke disk</span>
+            <Switch
               checked={recordingEnabled}
-              onChange={(e) => setRecordingEnabled(e.target.checked)}
-              className="h-5 w-5 accent-accent-500"
+              onChange={setRecordingEnabled}
+              label="Simpan rekaman ke disk"
             />
-            Simpan rekaman ke disk
           </label>
           <DiskPicker
             disks={disks}
@@ -1411,28 +1410,26 @@ function EditStreamModal({
           <NBField label="Nama kamera">
             <NBInput value={name} onChange={(e) => setName(e.target.value)} />
           </NBField>
-          <label className="flex min-h-[44px] items-center gap-3 text-sm text-slate-300">
-            <input
-              type="checkbox"
+          <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 text-sm text-slate-300">
+            <span>Kamera aktif</span>
+            <Switch
               checked={isActive}
-              onChange={(e) => setIsActive(e.target.checked)}
-              className="h-5 w-5 accent-accent-500"
+              onChange={setIsActive}
+              label="Kamera aktif"
             />
-            Kamera aktif
           </label>
         </div>
         <div className="space-y-4 border-t border-ink-800 pt-5">
           <p className="text-[13px] font-medium text-slate-400">
             Penyimpanan rekaman
           </p>
-          <label className="flex min-h-[44px] items-center gap-3 text-sm text-slate-300">
-            <input
-              type="checkbox"
+          <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 text-sm text-slate-300">
+            <span>Simpan rekaman ke disk</span>
+            <Switch
               checked={recordingEnabled}
-              onChange={(e) => setRecordingEnabled(e.target.checked)}
-              className="h-5 w-5 accent-accent-500"
+              onChange={setRecordingEnabled}
+              label="Simpan rekaman ke disk"
             />
-            Simpan rekaman ke disk
           </label>
           <DiskPicker
             disks={disks}
