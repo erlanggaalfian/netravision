@@ -331,6 +331,11 @@ async def admin_update_stream(
     # Ubah Kamera: mainstream/substream bisa diedit (perintah user
     # 2026-11-14). main_url kosong tidak diizinkan; sub_url kosong
     # berarti hapus substream (tanpa sub, frontend fallback ke main).
+    # Aturan password (perintah user 2026-11-14): password TIDAK BOLEH
+    # berubah kecuali user eksplisit menggantinya — URL baru yang tak
+    # membawa password atau membawa mask **** memakai password
+    # tersimpan (resolve_url_password, allow_change=True: password
+    # baru yang benar-benar berbeda dan bukan mask saja yang dipakai).
     # Bila URL berubah dan kamera aktif, daftarkan ulang path MediaMTX
     # supaya sumber baru langsung dipakai.
     urls_changed = False
@@ -340,12 +345,22 @@ async def admin_update_stream(
             raise HTTPException(
                 status_code=422, detail="mainstream tidak boleh kosong"
             )
+        new_main = rtsp_discovery.resolve_url_password(
+            new_main, stream.main_url or stream.rtsp_url,
+            allow_change=True,
+        )
         if new_main != (stream.main_url or ""):
             stream.main_url = new_main
             stream.rtsp_url = new_main
             urls_changed = True
     if "sub_url" in data.model_fields_set:
         new_sub = (data.sub_url or "").strip() or None
+        if new_sub is not None:
+            new_sub = rtsp_discovery.resolve_url_password(
+                new_sub,
+                stream.sub_url or stream.main_url or stream.rtsp_url,
+                allow_change=True,
+            )
         if new_sub != stream.sub_url:
             stream.sub_url = new_sub
             urls_changed = True
@@ -909,11 +924,13 @@ async def scan_camera(data: ScanRequest):
         )
     if not candidates:
         raise HTTPException(status_code=400, detail="tidak ada kandidat stream dari input ini")
+    auth_mode: str | None = None  # None bila tanpa probe (disc tak ada)
     if data.probe:
         disc = await rtsp_discovery.discover_host(
             data.host, data.port, data.user, data.password, data.channel
         )
         best_main, best_sub = disc.best_main, disc.best_sub
+        auth_mode = disc.auth_mode
         by_path = {p.path: p for p in disc.paths}
         paths = [
             _to_scan_path(
@@ -940,6 +957,7 @@ async def scan_camera(data: ScanRequest):
     return ScanResult(
         candidates=candidates, paths=paths,
         best_main=best_main, best_sub=best_sub,
+        auth_mode=auth_mode,
     )
 
 

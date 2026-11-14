@@ -222,7 +222,14 @@ async def probe_rtsp(url: str, timeout: float = 6.0) -> ProbeResult:
         return ProbeResult(url=url, reachable=False, status="invalid_url")
     port = parsed.port or 554
     user = unquote(parsed.username) if parsed.username else None
-    password = unquote(parsed.password) if parsed.password else None
+    # Bedakan "tanpa password di URL" (None) dari "password kosong"
+    # ("" dari rtsp://user:@host atau rtsp://user@host): password
+    # kosong adalah kredensial yang sah dan HARUS dicoba saat server
+    # menantang 401 (kamera tanpa password). Sebelumnya "" diubah
+    # jadi None sehingga auth tidak pernah dicoba.
+    password = (
+        unquote(parsed.password) if parsed.password is not None else None
+    )
     path = parsed.path or "/"
     clean = f"rtsp://{host}:{port}{path}"
     if parsed.query:
@@ -243,10 +250,12 @@ async def probe_rtsp(url: str, timeout: float = 6.0) -> ProbeResult:
                                authenticated=True)
         if resp.startswith("RTSP/1.0 404"):
             return ProbeResult(url=url, reachable=True, status="not_found")
-        if resp.startswith("RTSP/1.0 401") and user and password:
+        if resp.startswith("RTSP/1.0 401") and user is not None:
             # Coba auth: Basic dulu, lalu Digest bila ditantang.
+            # Password boleh kosong (""): Basic user: tetap dicoba
+            # untuk kamera tanpa password yang menantang 401.
             basic = "Basic " + base64.b64encode(
-                f"{user}:{password}".encode()).decode()
+                f"{user}:{password or ''}".encode()).decode()
             resp2 = await _rtsp_describe(reader, writer, clean, basic, timeout)
             if resp2.startswith("RTSP/1.0 200"):
                 return ProbeResult(url=url, reachable=True, status="ok",

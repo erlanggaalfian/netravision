@@ -138,6 +138,13 @@ class SubnetHost(BaseModel):
     known_stream_id: int | None = None
     known_main: str | None = None
     known_sub: str | None = None
+    # Kredensial mana yang dipakai hingga video ketemu (dari discovery):
+    # "entered" = password yang diisi user, "none" = tanpa kredensial,
+    # "empty" = password kosong, "default" = password default pabrik.
+    # None = belum ada discovery (host gagal funnel). UI menampilkan
+    # penanda ("Tanpa password" / "Password default") dan meminta
+    # konfirmasi sebelum password default disimpan bersama kamera.
+    auth_mode: str | None = None
 
 
 class SubnetScanJobCreated(BaseModel):
@@ -452,6 +459,7 @@ async def _scan_host(
         known=known,
         known_stream_id=known_stream_id,
         known_main=known_main, known_sub=known_sub,
+        auth_mode=disc.auth_mode,
     )
 
 
@@ -759,6 +767,14 @@ async def complete_streams(
     yang berubah dan kamera aktif, path MediaMTX didaftarkan ulang
     supaya sub native langsung dipakai (transcoder mati total, jadi
     sub hanya dibuat bila sub_url ada).
+
+    Aturan password (perintah user 2026-11-14): aksi scan TIDAK PERNAH
+    mengubah password. URL hasil scan hanya dipakai PATH-nya;
+    kredensial selalu dari yang tersimpan (resolve_url_password
+    allow_change=False). Bila password hasil scan kosong, mask, atau
+    berbeda dengan yang tersimpan, yang dipakai tetap password
+    tersimpan; bila kamera memang tanpa password tersimpan, password
+    hasil scan dibuang.
     Router ini sudah super_admin-only (E-K1)."""
     from app.core.config import get_settings
     from app.services.disks import record_path_for
@@ -767,30 +783,39 @@ async def complete_streams(
     stream = await db.get(Stream, data.stream_id)
     if stream is None:
         raise HTTPException(status_code=404, detail="stream tidak ditemukan")
+    # Sumber password tersimpan kamera (main, lalu rtsp, lalu sub).
+    old_auth_url = rtsp_discovery.stored_auth_url(
+        stream.main_url, stream.rtsp_url, stream.sub_url)
     updated_main = updated_sub = False
     replaced_main = replaced_sub = False
     skipped_main = skipped_sub = False
     if data.main_url:
+        # Hanya PATH dari hasil scan yang dipakai; password selalu
+        # yang tersimpan (allow_change=False).
+        scan_main = rtsp_discovery.resolve_url_password(
+            data.main_url, old_auth_url, allow_change=False)
         if not stream.main_url:
-            stream.main_url = data.main_url
+            stream.main_url = scan_main
             updated_main = True
-        elif data.main_url != stream.main_url:
+        elif scan_main != stream.main_url:
             if data.replace:
                 # Ganti main terdaftar dengan main hasil scan; rtsp_url
                 # ikut disamakan seperti PUT /admin/streams.
-                stream.main_url = data.main_url
-                stream.rtsp_url = data.main_url
+                stream.main_url = scan_main
+                stream.rtsp_url = scan_main
                 updated_main = True
                 replaced_main = True
             else:
                 skipped_main = True
     if data.sub_url:
+        scan_sub = rtsp_discovery.resolve_url_password(
+            data.sub_url, old_auth_url, allow_change=False)
         if not stream.sub_url:
-            stream.sub_url = data.sub_url
+            stream.sub_url = scan_sub
             updated_sub = True
-        elif data.sub_url != stream.sub_url:
+        elif scan_sub != stream.sub_url:
             if data.replace:
-                stream.sub_url = data.sub_url
+                stream.sub_url = scan_sub
                 updated_sub = True
                 replaced_sub = True
             else:

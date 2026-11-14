@@ -132,6 +132,12 @@ class ScanResult(BaseModel):
     paths: list[ScanPath] = []
     best_main: str | None = None
     best_sub: str | None = None
+    # Kredensial mana yang dipakai hingga video ketemu (dari discovery):
+    # "entered" | "none" | "empty" | "default". None = tanpa discovery
+    # (mode URL RTSP langsung). Dipakai UI Tambah Kamera untuk
+    # menampilkan penanda dan meminta konfirmasi sebelum password
+    # default disimpan bersama kamera.
+    auth_mode: str | None = None
 
 
 class UserIdsIn(BaseModel):

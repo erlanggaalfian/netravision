@@ -156,6 +156,9 @@ export interface ScanResult {
   paths: ScanPath[];
   best_main: string | null;
   best_sub: string | null;
+  // Kredensial mana yang dipakai hingga video ketemu (dari discovery):
+  // "entered" | "none" | "empty" | "default" | null (mode URL langsung).
+  auth_mode?: string | null;
 }
 
 export interface SubnetHost {
@@ -171,6 +174,9 @@ export interface SubnetHost {
   known_stream_id?: number | null;
   known_main?: string | null;
   known_sub?: string | null;
+  // Kredensial mana yang dipakai hingga video ketemu (dari discovery):
+  // "entered" | "none" | "empty" | "default" | null (belum discovery).
+  auth_mode?: string | null;
 }
 
 export interface StatusChange {

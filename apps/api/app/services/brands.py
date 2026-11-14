@@ -35,7 +35,18 @@ Merek TANPA RTSP native (sengaja TIDAK ada profilnya di sini):
 
 from __future__ import annotations
 
+import re
 from urllib.parse import quote
+
+
+def _strip_empty_auth(url: str) -> str:
+    """Buang segmen password kosong dari URL RTSP hasil template
+    (rtsp://admin:@host -> rtsp://admin@host; rtsp://:@host ->
+    rtsp://host), supaya URL tetap valid untuk kamera tanpa password.
+    Password yang terisi tidak disentuh."""
+    url = re.sub(r"://([^:/@]+):@", r"://\1@", url)
+    url = re.sub(r"://:@", "://", url)
+    return url
 
 # Tiap profil: {"label", "main", "sub"}. Placeholder: {user} {password} {host}
 # {port} {channel}. "sub" boleh None bila brand tidak punya konsep sub stream.
@@ -264,6 +275,10 @@ def resolve_brand_urls(
         "port": port,
         "channel": channel,
     }
-    main = str(profile["main"]).format(**ctx)
-    sub = str(profile["sub"]).format(**ctx) if profile["sub"] else None
+    main = _strip_empty_auth(str(profile["main"]).format(**ctx))
+    sub = (
+        _strip_empty_auth(str(profile["sub"]).format(**ctx))
+        if profile["sub"]
+        else None
+    )
     return main, sub

@@ -10,7 +10,10 @@ type Tone = "ok" | "bad" | "warn" | "info" | "muted";
 const SCAN_STATUS: Record<string, { label: string; tone: Tone }> = {
   video: { label: "Video", tone: "ok" },
   no_video: { label: "Tanpa video", tone: "warn" },
-  auth_failed: { label: "Login salah", tone: "bad" },
+  /* Auth gagal di semua path (termasuk setelah deteksi kredensial
+     cadangan): password yang diisi bukan password kamera — user perlu
+     cek password, bukan kamera yang hilang. */
+  auth_failed: { label: "Perlu cek password", tone: "bad" },
   not_found: { label: "Tidak ada", tone: "muted" },
   timeout: { label: "Timeout", tone: "muted" },
   error: { label: "Gagal", tone: "muted" },
@@ -133,6 +136,29 @@ function mainCompare(h: SubnetHost): string | null {
   const scanRes =
     scan?.width && scan?.height ? ` (${scan.width}×${scan.height})` : "";
   return `Main terdaftar: ${regPath}${regRes} · scan: ${urlPath(h.best_main)}${scanRes}`;
+}
+
+/* Penanda cara kamera terdeteksi (perintah user 2026-11-14): kamera
+   yang passwordnya kosong atau masih default pabrik tetap tampil dan
+   bisa ditambah. "none"/"empty" = tanpa password / password kosong;
+   "default" = terdeteksi dengan password default pabrik (bukan
+   password yang diisi user). */
+function authBadge(h: SubnetHost): { label: string; tone: Tone } | null {
+  if (h.auth_mode === "none" || h.auth_mode === "empty")
+    return { label: "Tanpa password", tone: "info" };
+  if (h.auth_mode === "default")
+    return { label: "Password default", tone: "warn" };
+  return null;
+}
+
+/* Aturan password (perintah user 2026-11-14): aksi scan TIDAK PERNAH
+   mengubah password. URL hasil scan hanya dipakai PATH-nya, jadi
+   userinfo (user/password hasil scan, termasuk password default
+   hasil deteksi) DIBUANG sebelum dikirim; backend menyisipkan kembali
+   password tersimpan dari database. Ini supaya frontend tidak pernah
+   mengirim password scan/default tanpa sengaja. */
+function stripScanAuth(scanUrl: string): string {
+  return scanUrl.replace(/^(\w+:\/\/)[^/]*@/, "$1");
 }
 
 export default function AdminScannerPage() {
@@ -461,9 +487,9 @@ export default function AdminScannerPage() {
         sub_url?: string | null;
       } = { stream_id: h.known_stream_id };
       if ((which === "main" || which === "both") && h.best_main)
-        body.main_url = h.best_main;
+        body.main_url = stripScanAuth(h.best_main);
       if ((which === "sub" || which === "both") && h.best_sub)
-        body.sub_url = h.best_sub;
+        body.sub_url = stripScanAuth(h.best_sub);
       const res = await api.post<{
         updated_main: boolean;
         updated_sub: boolean;
@@ -527,8 +553,8 @@ export default function AdminScannerPage() {
         sub_url?: string | null;
         replace: boolean;
       } = { stream_id: h.known_stream_id, replace: true };
-      if (h.best_main) body.main_url = h.best_main;
-      if (h.best_sub) body.sub_url = h.best_sub;
+      if (h.best_main) body.main_url = stripScanAuth(h.best_main);
+      if (h.best_sub) body.sub_url = stripScanAuth(h.best_sub);
       const res = await api.post<{
         updated_main: boolean;
         updated_sub: boolean;
@@ -594,8 +620,8 @@ export default function AdminScannerPage() {
           sub_url?: string | null;
           replace: boolean;
         } = { stream_id: h.known_stream_id, replace: true };
-        if (h.best_main) body.main_url = h.best_main;
-        if (h.best_sub) body.sub_url = h.best_sub;
+        if (h.best_main) body.main_url = stripScanAuth(h.best_main);
+        if (h.best_sub) body.sub_url = stripScanAuth(h.best_sub);
         const res = await api.post<{
           updated_main: boolean;
           updated_sub: boolean;
@@ -735,6 +761,7 @@ export default function AdminScannerPage() {
   function HostCard({ h }: { h: SubnetHost }) {
     const st = SCAN_STATUS[h.status] ?? SCAN_STATUS.error;
     const compare = mainCompare(h);
+    const auth = authBadge(h);
     return (
       <li className="flex items-center gap-3 rounded-xl bg-ink-900 shadow-sm p-3 md:hidden">
         <HostCheckbox h={h} />
@@ -757,6 +784,7 @@ export default function AdminScannerPage() {
           )}
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             <NBBadge tone={st.tone}>{st.label}</NBBadge>
+            {auth && <NBBadge tone={auth.tone}>{auth.label}</NBBadge>}
             {h.known && <NBBadge tone="info">Sudah terdaftar</NBBadge>}
           </div>
           {h.known && (
@@ -772,6 +800,7 @@ export default function AdminScannerPage() {
   function HostRow({ h }: { h: SubnetHost }) {
     const st = SCAN_STATUS[h.status] ?? SCAN_STATUS.error;
     const compare = mainCompare(h);
+    const auth = authBadge(h);
     return (
       <NBTr className="hidden md:table-row">
         <NBTd>
@@ -782,6 +811,7 @@ export default function AdminScannerPage() {
         <NBTd>
           <span className="flex flex-wrap items-center gap-1.5">
             <NBBadge tone={st.tone}>{st.label}</NBBadge>
+            {auth && <NBBadge tone={auth.tone}>{auth.label}</NBBadge>}
             {h.known && <NBBadge tone="info">Sudah terdaftar</NBBadge>}
           </span>
         </NBTd>
@@ -1075,6 +1105,34 @@ export default function AdminScannerPage() {
                 disimpan sebagai sub.
               </p>
             </NBField>
+
+            {/* Penanda deteksi kredensial (perintah user 2026-11-14):
+                kamera tanpa password / password default tetap bisa
+                ditambah. Bila ada yang terdeteksi password default,
+                tampilkan peringatan: password default itu akan
+                disimpan bersama kamera bila Simpan diklik (klik
+                Simpan = konfirmasi user). Sebaiknya ganti password
+                kamera setelah ditambah. */}
+            {selectedHosts().some((h) => h.auth_mode === "default") && (
+              <div className="rounded-xl bg-warn-500/10 p-3 text-xs leading-relaxed text-warn-200">
+                {selectedHosts().filter((h) => h.auth_mode === "default").length}{" "}
+                kamera terdeteksi memakai password default pabrik (bukan
+                password yang diisi saat scan). Password default itu akan
+                disimpan bersama kamera bila Simpan diklik. Sebaiknya
+                ganti password kamera setelah ditambah.
+              </div>
+            )}
+            {selectedHosts().some(
+              (h) => h.auth_mode === "none" || h.auth_mode === "empty",
+            ) && (
+              <p className="text-xs leading-relaxed text-slate-400">
+                {selectedHosts().filter(
+                  (h) => h.auth_mode === "none" || h.auth_mode === "empty",
+                ).length}{" "}
+                kamera terdeteksi tanpa password (atau password kosong) dan
+                akan ditambah tanpa password.
+              </p>
+            )}
 
             <NBField
               label="Grup"

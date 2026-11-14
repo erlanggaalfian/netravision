@@ -509,6 +509,50 @@ async def test_scan_subnet_api_kembalikan_role_main_sub(
         assert by_host["192.168.1.9"]["status"] == "unreachable"
 
 
+async def test_scan_subnet_host_auth_mode_diteruskan(scan_client, monkeypatch):
+    """SubnetHost membawa auth_mode dari discovery (mis. 'default')
+    supaya UI bisa menampilkan penanda 'Password default' dan meminta
+    konfirmasi sebelum password default disimpan bersama kamera."""
+    app = await _login_admin(scan_client)
+
+    async def fake_reachable(host: str, port: int) -> bool:
+        return host == "192.168.1.10"
+
+    async def fake_port_open(host: str, port: int) -> bool:
+        return host == "192.168.1.10"
+
+    async def fake_probe(url: str, timeout: float = 3.0) -> str:
+        # Password yang diisi salah; password default lolos.
+        if "admin:dflt@" in url:
+            return "open" if url.endswith("/H.264") else "not_found"
+        return "auth_failed"
+
+    async def fake_ffprobe(url: str, timeout: float = 10.0) -> VideoProbe:
+        return VideoProbe(status="video", codec="h264",
+                          width=800, height=448, fps=25.0, gop_seconds=2.0)
+
+    monkeypatch.setattr(admin_scan, "_host_reachable", fake_reachable)
+    monkeypatch.setattr(admin_scan, "_port_open", fake_port_open)
+    monkeypatch.setattr(rtsp_discovery, "probe_path", fake_probe)
+    monkeypatch.setattr(rtsp_discovery, "_run_ffprobe", fake_ffprobe)
+    monkeypatch.setattr(rtsp_discovery, "_AUTH_RETRY_DELAY", 0)
+    monkeypatch.setattr(rtsp_discovery, "_DEFAULT_PASSWORDS", ("dflt",))
+
+    async with _client(app) as c:
+        r = await c.post(
+            "/api/admin/scan-subnet",
+            json={"ip_range": "192.168.1.8/30", "port": 554,
+                  "username": "admin", "password": "salah"},
+        )
+        assert r.status_code == 202, r.text
+        body = await _poll_done(c, r.json()["job_id"])
+        assert body["status"] == "done"
+        h = {x["host"]: x for x in body["hosts"]}["192.168.1.10"]
+        assert h["status"] == "video"
+        assert h["best_main"] is not None and h["best_main"].endswith("/H.264")
+        assert h["auth_mode"] == "default"
+
+
 async def test_scan_subnet_kamera_dikenal_ditandai_sub_belum_ada(
     scan_client, monkeypatch,
 ):
@@ -1146,3 +1190,86 @@ async def test_complete_streams_tanpa_replace_tidak_ganti(scan_client):
     await db.refresh(stream)
     assert stream.main_url.endswith("/H.264")
     assert stream.sub_url.endswith("/H.265")
+
+
+async def test_complete_streams_password_tidak_berubah(scan_client):
+    """Aturan password (perintah user 2026-11-14): Sesuaikan path
+    (replace) dengan password hasil scan yang berbeda/kosong TIDAK
+    mengubah password tersimpan; hanya PATH yang diganti. Berlaku
+    juga saat mengisi sub yang masih kosong."""
+    from app.models.streams import Stream
+
+    app, _, db = scan_client
+    admin = make_user(role="super_admin")
+    db.add(admin)
+    db.add(Stream(
+        name="Cam 10", rtsp_url="rtsp://admin:pwlama@192.168.1.10:554/H.264",
+        main_url="rtsp://admin:pwlama@192.168.1.10:554/H.264",
+        sub_url=None, is_active=False, is_online=False,
+    ))
+    await db.commit()
+    auth_as(app, admin)
+    stream = (await db.execute(
+        select(Stream)
+    )).scalars().first()
+
+    async with _client(app) as c:
+        r = await c.post(
+            "/api/admin/scan-subnet/complete-streams",
+            json={
+                "stream_id": stream.id,
+                # Password scan berbeda dari tersimpan + sub tanpa password.
+                "main_url": "rtsp://admin:pwscan@192.168.1.10:554/live/0/MAIN",
+                "sub_url": "rtsp://192.168.1.10:554/live/0/SUB",
+                "replace": True,
+            },
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["updated_main"] is True
+        assert body["replaced_main"] is True
+        assert body["updated_sub"] is True
+    await db.refresh(stream)
+    assert stream.main_url == (
+        "rtsp://admin:pwlama@192.168.1.10:554/live/0/MAIN")
+    assert stream.rtsp_url == (
+        "rtsp://admin:pwlama@192.168.1.10:554/live/0/MAIN")
+    assert stream.sub_url == (
+        "rtsp://admin:pwlama@192.168.1.10:554/live/0/SUB")
+
+
+async def test_complete_streams_tanpa_password_tersimpan_buang_password_scan(
+    scan_client,
+):
+    """Kamera tersimpan tanpa password: Sesuaikan path membuang
+    password hasil scan (password tetap tidak ada)."""
+    from app.models.streams import Stream
+
+    app, _, db = scan_client
+    admin = make_user(role="super_admin")
+    db.add(admin)
+    db.add(Stream(
+        name="Cam 10", rtsp_url="rtsp://192.168.1.10:554/H.264",
+        main_url="rtsp://192.168.1.10:554/H.264",
+        sub_url=None, is_active=False, is_online=False,
+    ))
+    await db.commit()
+    auth_as(app, admin)
+    stream = (await db.execute(
+        select(Stream)
+    )).scalars().first()
+
+    async with _client(app) as c:
+        r = await c.post(
+            "/api/admin/scan-subnet/complete-streams",
+            json={
+                "stream_id": stream.id,
+                "main_url": "rtsp://admin:pwscan@192.168.1.10:554/live/0/MAIN",
+                "replace": True,
+            },
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["updated_main"] is True
+    await db.refresh(stream)
+    assert stream.main_url == "rtsp://192.168.1.10:554/live/0/MAIN"
+    assert stream.rtsp_url == "rtsp://192.168.1.10:554/live/0/MAIN"

@@ -69,6 +69,23 @@ _HOST_BUDGET = 45.0  # detik maksimum seluruh discovery per host
 # Dipakai _discover; tes boleh monkeypatch ke nilai kecil supaya
 # suite tetap cepat.
 _AUTH_RETRY_DELAY = 12.0
+# Deteksi kredensial cadangan (perintah user 2026-11-14): bila password
+# yang diisi user gagal di SEMUA path, kamera mungkin passwordnya kosong
+# atau masih default pabrik. Coba, HANYA untuk mendeteksi, kredensial
+# berikut pada SEDIKIT path dulu (bukan discovery penuh): tanpa
+# kredensial, password kosong, lalu password default pabrik yang umum.
+# Yang berhasil dipakai untuk discovery penuh; hasilnya ditandai
+# auth_mode supaya UI bisa menampilkan penanda dan meminta konfirmasi
+# user sebelum password default disimpan bersama kamera. Password
+# default di sini TIDAK PERNAH ditulis ke database tanpa konfirmasi
+# user (konfirmasi = klik Simpan setelah melihat peringatan di popup).
+# Daftar ini sengaja kecil dan umum (bukan password milik user):
+# makin banyak yang dicoba, makin besar burst login yang bisa memicu
+# kunci anti-brute-force kamera. Tes boleh monkeypatch.
+_FALLBACK_PROBE_COUNT = 8  # path pertama yang dicek per kredensial cadangan
+_DEFAULT_PASSWORDS: tuple[str, ...] = (
+    "admin", "12345", "123456", "12345678",
+)
 
 # Path umum vendor besar + generik (dedupe di candidate_paths).
 # Daftar ini + template BRAND_PROFILES = seluruh kandidat yang
@@ -236,11 +253,111 @@ def candidate_paths(channel: int = 1) -> list[str]:
     return out
 
 
-def build_url(host: str, port: int, user: str | None,
-              password: str | None, path: str) -> str:
+def _url_userinfo(url: str | None) -> tuple[str | None, str | None]:
+    """(user, password) dari URL RTSP, atau (None, None) bila tak ada.
+    Password None = tak ada segmen password; "" = segmen kosong."""
+    if not url:
+        return None, None
+    parts = urlparse(url)
+    user = parts.username or None
+    if user is None:
+        return None, None
+    return user, parts.password
+
+
+def _set_url_userinfo(url: str, user: str | None,
+                      password: str | None) -> str:
+    """Bangun ulang URL dengan userinfo yang diberikan, tanpa ubah
+    host/port/path/query. user None -> tanpa auth sama sekali;
+    password None/kosong -> hanya user, tanpa segmen ':password'."""
+    parts = urlparse(url)
+    hostport = parts.netloc.rsplit("@", 1)[-1]
     auth = ""
     if user:
-        auth = quote(user, safe="") + ":" + quote(password or "", safe="") + "@"
+        auth = quote(user, safe="")
+        if password:
+            auth += ":" + quote(password, safe="")
+        auth += "@"
+    out = f"{parts.scheme}://{auth}{hostport}{parts.path}"
+    if parts.query:
+        out += f"?{parts.query}"
+    if parts.fragment:
+        out += f"#{parts.fragment}"
+    return out
+
+
+def resolve_url_password(new_url: str | None, old_url: str | None,
+                         *, allow_change: bool = True) -> str | None:
+    """Aturan password (perintah user 2026-11-14, berlaku SEMUA kamera):
+    password TIDAK BOLEH berubah saat ada action apa pun, kecuali user
+    secara eksplisit menggantinya. Dipakai SEMUA endpoint yang menulis
+    main_url/sub_url/rtsp_url kamera yang sudah ada, supaya aturannya
+    konsisten (bukan tambalan per endpoint).
+
+    - URL baru kosong (None/"") -> kembalikan apa adanya (mis. hapus sub).
+    - URL baru membawa mask "****" -> ganti dengan password tersimpan.
+    - URL baru tak membawa password (kosong/tak ada segmen) -> pakai
+      password tersimpan (jangan tempel ke user baru yang berbeda).
+    - URL baru membawa password yang sama dengan tersimpan -> apa adanya.
+    - URL baru membawa password berbeda (bukan mask):
+      allow_change=True (edit eksplisit di Ubah Kamera) -> pakai yang baru;
+      allow_change=False (aksi scan: Lengkapi/Sesuaikan path) -> password
+      TIDAK PERNAH berubah, pakai kredensial tersimpan; bila kamera
+      memang tanpa password tersimpan, password hasil scan dibuang.
+    - Tak ada password tersimpan (old_url kosong/tanpa userinfo):
+      allow_change=False -> buang userinfo hasil scan (tetap tanpa
+      password); allow_change=True -> pakai URL baru apa adanya.
+    """
+    if not new_url:
+        return new_url
+    if not old_url:
+        if not allow_change:
+            return _set_url_userinfo(new_url, None, None)
+        return new_url
+    old_user, old_pw = _url_userinfo(old_url)
+    _new_user, new_pw = _url_userinfo(new_url)
+    if new_pw == "****":
+        return _set_url_userinfo(new_url, _new_user or old_user, old_pw)
+    if new_pw and new_pw == old_pw:
+        return new_url
+    if not allow_change:
+        return _set_url_userinfo(new_url, old_user, old_pw)
+    if not new_pw:
+        if (
+            _new_user is not None and old_user is not None
+            and _new_user != old_user
+        ):
+            return new_url
+        if old_user is None:
+            return new_url
+        return _set_url_userinfo(new_url, old_user, old_pw)
+    return new_url
+
+
+def stored_auth_url(*urls: str | None) -> str | None:
+    """URL pertama dari daftar yang membawa userinfo (user/password),
+    atau None bila tak ada. Dipakai sebagai sumber password tersimpan
+    kamera (main, lalu rtsp, lalu sub) saat aksi scan mengisi/mengganti
+    main/sub: password kamera tersimpan di salah satu URL itu."""
+    for u in urls:
+        user, _pw = _url_userinfo(u)
+        if user is not None:
+            return u
+    return None
+
+
+def build_url(host: str, port: int, user: str | None,
+              password: str | None, path: str) -> str:
+    """Bangun URL RTSP. Password kosong -> TANPA segmen ':password'
+    (mis. rtsp://admin@host:554/path, bukan rtsp://admin:@host...),
+    supaya URL tetap valid untuk kamera tanpa password; tanpa user
+    -> tanpa auth sama sekali."""
+    auth = ""
+    if user:
+        auth = quote(user, safe="")
+        if password:
+            auth += ":" + quote(password, safe="")
+        auth += "@"
     return f"rtsp://{auth}{host}:{port}{path}"
 
 
@@ -278,6 +395,13 @@ class DiscoveryResult:
     paths: list[PathResult]
     best_main: str | None = None
     best_sub: str | None = None
+    # Kredensial mana yang dipakai hingga video ketemu:
+    # "entered" = password yang diisi user (normal), "none" = tanpa
+    # kredensial sama sekali, "empty" = password kosong, "default" =
+    # password default pabrik. Dipakai UI untuk menampilkan penanda
+    # ("Tanpa password" / "Password default") dan meminta konfirmasi
+    # sebelum password default disimpan bersama kamera.
+    auth_mode: str = "entered"
 
     def ringkasan(self) -> str:
         if not self.reachable:
@@ -632,10 +756,42 @@ async def discover_host(
         return DiscoveryResult(host=host, port=port, reachable=True, paths=[])
 
 
+async def _detect_fallback_auth(
+    host: str, port: int, user: str | None, channel: int,
+) -> tuple[str, str | None, str | None] | None:
+    """Deteksi kredensial cadangan bila password yang diisi gagal total.
+
+    Coba, berurutan, pada _FALLBACK_PROBE_COUNT path pertama saja:
+    (1) tanpa kredensial, (2) password kosong, (3) password default
+    pabrik yang umum. Satu set dianggap cocok bila ADA SATU path yang
+    lolos auth ("open", atau "not_found" yang artinya auth diterima
+    tapi path tidak ada). Kembalikan (auth_mode, user, password) set
+    pertama yang cocok, atau None bila tidak ada yang cocok.
+    Hanya deteksi: pemanggil yang menjalankan discovery penuh dengan
+    kredensial ini, dan UI yang meminta konfirmasi sebelum password
+    default disimpan."""
+    probe_paths = candidate_paths(channel)[:_FALLBACK_PROBE_COUNT]
+    attempts: list[tuple[str, str | None, str | None]] = [
+        ("none", None, None),
+        ("empty", user, ""),
+    ]
+    attempts += [
+        ("default", user, pw) for pw in _DEFAULT_PASSWORDS
+    ]
+    for mode, f_user, f_password in attempts:
+        for path in probe_paths:
+            st = await probe_path(
+                build_url(host, port, f_user, f_password, path))
+            if st in ("open", "not_found"):
+                return mode, f_user, f_password
+    return None
+
+
 async def _discover(
     host: str, port: int, user: str | None, password: str | None, channel: int,
     known_paths: tuple[str | None, str | None] | None = None,
     _allow_auth_retry: bool = True,
+    _allow_fallback: bool = True,
 ) -> DiscoveryResult:
     if not await _tcp_alive(host, port):
         return DiscoveryResult(host=host, port=port, reachable=False, paths=[])
@@ -752,8 +908,29 @@ async def _discover(
             await asyncio.sleep(_AUTH_RETRY_DELAY)
             return await _discover(
                 host, port, user, password, channel, known_paths,
-                _allow_auth_retry=False,
+                _allow_auth_retry=False, _allow_fallback=_allow_fallback,
             )
+
+    # Bila coba ulang (bila ada) tetap gagal auth di semua path,
+    # kamera mungkin passwordnya kosong atau masih default pabrik
+    # (perintah user 2026-11-14). Deteksi kredensial cadangan pada
+    # sedikit path; bila ada yang cocok, jalankan discovery penuh
+    # dengan kredensial itu dan tandai auth_mode-nya. Bila discovery
+    # cadangan tidak menemukan video, kembalikan hasil awal
+    # (auth_failed) supaya status tetap informatif ("Login salah"),
+    # bukan "Tidak ada".
+    if _allow_fallback and probed and not saw_open:
+        if any(p.status == "auth_failed" for p in probed):
+            fallback = await _detect_fallback_auth(host, port, user, channel)
+            if fallback is not None:
+                mode, f_user, f_password = fallback
+                alt = await _discover(
+                    host, port, f_user, f_password, channel, known_paths,
+                    _allow_auth_retry=False, _allow_fallback=False,
+                )
+                if alt.best_main is not None:
+                    alt.auth_mode = mode
+                    return alt
 
     for p in probed:
         p.role = None

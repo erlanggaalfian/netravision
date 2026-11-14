@@ -47,7 +47,8 @@ type Tone = "ok" | "bad" | "warn" | "info" | "muted";
 const SCAN_STATUS: Record<string, { label: string; tone: Tone }> = {
   video: { label: "Video", tone: "ok" },
   no_video: { label: "Tanpa video", tone: "warn" },
-  auth_failed: { label: "Login salah", tone: "bad" },
+  /* Sama seperti Camera Scanner: auth gagal = user perlu cek password. */
+  auth_failed: { label: "Perlu cek password", tone: "bad" },
   not_found: { label: "Tidak ada", tone: "muted" },
   timeout: { label: "Timeout", tone: "muted" },
   error: { label: "Gagal", tone: "muted" },
@@ -1265,6 +1266,25 @@ function AddStreamModal({
             <p className="text-sm font-medium text-slate-300">
               Path RTSP, pilih satu untuk dijadikan main:
             </p>
+            {/* Penanda deteksi kredensial (perintah user 2026-11-14):
+                kamera tanpa password / password default tetap bisa
+                ditambah. Bila terdeteksi password default, password
+                itu akan disimpan bersama kamera bila Simpan diklik. */}
+            {results.auth_mode === "default" && (
+              <div className="rounded-xl bg-warn-500/10 p-3 text-xs leading-relaxed text-warn-200">
+                Kamera terdeteksi memakai password default pabrik (bukan
+                password yang diisi saat scan). Password default itu akan
+                disimpan bersama kamera bila Simpan diklik. Sebaiknya
+                ganti password kamera setelah ditambah.
+              </div>
+            )}
+            {(results.auth_mode === "none" ||
+              results.auth_mode === "empty") && (
+              <p className="text-xs leading-relaxed text-slate-400">
+                Kamera terdeteksi tanpa password (atau password kosong)
+                dan akan ditambah tanpa password.
+              </p>
+            )}
             <div className="max-h-72 space-y-1.5 overflow-y-auto">
               {[
                 ...results.paths.filter((p) => p.status === "video"),

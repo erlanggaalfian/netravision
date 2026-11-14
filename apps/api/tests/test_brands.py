@@ -86,3 +86,19 @@ def test_semua_profil_punya_label():
     for key, profile in BRAND_PROFILES.items():
         assert profile["label"], key
         assert "{host}" in str(profile["main"]), key
+
+
+def test_resolve_brand_urls_password_kosong():
+    """Password kosong -> URL valid tanpa segmen ':password'
+    (rtsp://admin@host, bukan rtsp://admin:@host), supaya kamera
+    tanpa password bisa dipakai di semua menu."""
+    main, sub = resolve_brand_urls("hikvision", "admin", "", "192.168.1.10")
+    assert main == "rtsp://admin@192.168.1.10:554/Streaming/Channels/101"
+    assert sub == "rtsp://admin@192.168.1.10:554/Streaming/Channels/102"
+    assert ":@" not in main and ":@" not in sub
+    # Tanpa user juga: tanpa auth sama sekali.
+    main, _ = resolve_brand_urls("hikvision", "", "", "192.168.1.10")
+    assert main == "rtsp://192.168.1.10:554/Streaming/Channels/101"
+    # Password terisi tidak berubah.
+    main, _ = resolve_brand_urls("hikvision", "admin", "pw", "192.168.1.10")
+    assert main == "rtsp://admin:pw@192.168.1.10:554/Streaming/Channels/101"
