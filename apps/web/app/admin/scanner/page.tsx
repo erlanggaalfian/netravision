@@ -50,36 +50,58 @@ function sortHosts(hosts: SubnetHost[]): SubnetHost[] {
   return [...hosts].sort((a, b) => num(a) - num(b));
 }
 
+/* Info video main: resolusi + fps bila ada; bila tidak, path-nya.
+   Kamera terdaftar (main sudah tersimpan di database): bila scan
+   kali ini tidak menemukan video (mis. password tidak cocok saat
+   scan, kamera flapping, timeout), tampilkan path main yang
+   terdaftar supaya kolom Video tidak kosong. */
 function mainInfo(h: SubnetHost): string {
   const p = h.paths.find((x) => x.role === "main");
-  if (!p?.width || !p.height) return p?.path ?? "";
-  const parts = [`${p.width}×${p.height}`];
-  if (p.fps) parts.push(`${p.fps} fps`);
-  return parts.join(" · ");
+  if (p?.width && p.height) {
+    const parts = [`${p.width}×${p.height}`];
+    if (p.fps) parts.push(`${p.fps} fps`);
+    return parts.join(" · ");
+  }
+  return p?.path ?? urlPath(h.known_main);
 }
 
 /* Path main/sub SAJA (tanpa IP/user/password/port): kolom 'Path main'
    dan 'Path sub' hanya menampilkan path, mis. /Streaming/Channels/101.
    best_main/best_sub adalah URL LENGKAP (rtsp://user:pass@ip:port/...)
    dan tetap dipakai utuh saat menambah kamera — jangan ditampilkan
-   di sini supaya kredensial tidak bocor ke layar. */
+   di sini supaya kredensial tidak bocor ke layar.
+   Kamera terdaftar: bila scan tidak menemukan path main/sub
+   (video tidak terverifikasi kali ini), pakai path yang terdaftar
+   di database supaya kolom tetap terisi; "-" hanya bila tidak ada
+   sama sekali (kamera baru yang videonya tidak ketemu). */
 function mainPath(h: SubnetHost): string {
-  return h.paths.find((x) => x.role === "main")?.path ?? "-";
+  return (
+    h.paths.find((x) => x.role === "main")?.path ||
+    urlPath(h.known_main) ||
+    "-"
+  );
 }
 
 function subPath(h: SubnetHost): string {
-  return h.paths.find((x) => x.role === "sub")?.path ?? "-";
+  return (
+    h.paths.find((x) => x.role === "sub")?.path ||
+    urlPath(h.known_sub) ||
+    "-"
+  );
 }
 
 /* Info sub stream (role 'sub' dari klasifikasi pintar backend):
    resolusi + fps bila ada, atau path-nya bila tanpa info video
-   (mis. jalur cepat kamera dikenal). */
+   (mis. jalur cepat kamera dikenal). Bila scan tidak menemukan sub,
+   tampilkan path sub yang terdaftar seperti mainInfo di atas. */
 function subInfo(h: SubnetHost): string {
   const p = h.paths.find((x) => x.role === "sub");
-  if (!p?.width || !p.height) return p?.path ?? "";
-  const parts = [`${p.width}×${p.height}`];
-  if (p.fps) parts.push(`${p.fps} fps`);
-  return parts.join(" · ");
+  if (p?.width && p.height) {
+    const parts = [`${p.width}×${p.height}`];
+    if (p.fps) parts.push(`${p.fps} fps`);
+    return parts.join(" · ");
+  }
+  return p?.path ?? urlPath(h.known_sub);
 }
 
 /* Path (+ query) dari URL RTSP lengkap, tanpa kredensial/host/port.
@@ -770,9 +792,11 @@ export default function AdminScannerPage() {
             {h.host}:{h.port}
           </p>
           <p className="mt-0.5 truncate text-xs text-slate-400">
-            {h.best_main ? `Main: ${mainInfo(h)}` : "tanpa video"}
+            {h.best_main || h.known_main
+              ? `Main: ${mainInfo(h)}`
+              : "tanpa video"}
           </p>
-          {h.best_sub && (
+          {(h.best_sub || h.known_sub) && (
             <p className="mt-0.5 truncate text-xs text-slate-400">
               Sub: {subInfo(h)}
             </p>
@@ -822,10 +846,10 @@ export default function AdminScannerPage() {
           {subPath(h)}
         </NBTd>
         <NBTd className="text-xs">
-          {h.best_main && (
+          {(h.best_main || h.known_main) && (
             <span className="block leading-relaxed">
               <span className="block">Main: {mainInfo(h)}</span>
-              {h.best_sub && (
+              {(h.best_sub || h.known_sub) && (
                 <span className="block text-slate-400">
                   Sub: {subInfo(h)}
                 </span>
