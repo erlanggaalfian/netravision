@@ -207,7 +207,7 @@ export default function LoginPage() {
                   Download APK
                 </span>
                 <span className="text-xs font-medium opacity-80">
-                  v1.0.0 • 271 KB • Android
+                  v1.0.1 • 275 KB • Android
                 </span>
               </a>
             </div>
