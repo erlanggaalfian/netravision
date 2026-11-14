@@ -10,6 +10,24 @@ import { ErrorBox } from "../../components/ui";
 const inputCls =
   "w-full rounded-xl bg-ink-800 px-4 py-3 text-[16px] text-slate-100 placeholder:text-slate-400 shadow-sm outline-none transition-all duration-150 ease-out focus:ring-2 focus:ring-accent-500/30";
 
+/* Versi APK terbaru yang tersedia di /netravision.apk. Perbarui tiap
+   kali APK baru dirilis. Aplikasi Android menyisipkan versinya di
+   User-Agent ("NetraVision/<versi>") supaya halaman ini bisa tahu
+   apakah pengunjung memakai aplikasi dan versinya sudah terbaru. */
+const LATEST_APK_VERSION = "1.0.2";
+const LATEST_APK_SIZE = "275 KB";
+
+/* Bandingkan dua versi "x.y.z": -1 bila a<b, 0 bila sama, 1 bila a>b. */
+function compareVersions(a: string, b: string): number {
+  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d !== 0) return d < 0 ? -1 : 1;
+  }
+  return 0;
+}
+
 export default function LoginPage() {
   const { user, loading, login, loginGuest } = useAuth();
   const router = useRouter();
@@ -17,6 +35,19 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  /* Tombol Download APK: tampil bila pengunjung memakai browser (belum
+     pasang aplikasi) atau memakai aplikasi yang versinya lebih lama dari
+     terbaru. Sembunyi bila aplikasi sudah versi terbaru. Default tampil
+     (browser), dikoreksi setelah baca User-Agent di sisi klien. */
+  const [showApk, setShowApk] = useState(true);
+  const [apkInApp, setApkInApp] = useState(false);
+
+  useEffect(() => {
+    const m = navigator.userAgent.match(/NetraVision\/([0-9]+\.[0-9]+\.[0-9]+)/);
+    if (!m) return;
+    setApkInApp(true);
+    if (compareVersions(m[1], LATEST_APK_VERSION) >= 0) setShowApk(false);
+  }, []);
   /* Blokir 429: timestamp (ms) kapan blokir berakhir, dari header
      Retry-After. Selama blokir, tombol Masuk/Guest dinonaktifkan dan
      menampilkan hitung mundur. */
@@ -182,7 +213,9 @@ export default function LoginPage() {
                   Guest login
                 </button>
               )}
-              {/* Unduh aplikasi Android (APK). Hanya tampil di HP. */}
+              {/* Unduh aplikasi Android (APK). Hanya tampil di HP, dan
+                  hanya bila ada update (atau belum pasang aplikasi). */}
+              {showApk && (
               <a
                 href="/netravision.apk"
                 download="netravision.apk"
@@ -204,12 +237,13 @@ export default function LoginPage() {
                     <polyline points="7 10 12 15 17 10" />
                     <line x1="12" y1="15" x2="12" y2="3" />
                   </svg>
-                  Download APK
+                  {apkInApp ? "Update APK" : "Download APK"}
                 </span>
                 <span className="text-xs font-medium opacity-80">
-                  v1.0.1 • 275 KB • Android
+                  v{LATEST_APK_VERSION} • {LATEST_APK_SIZE} • Android
                 </span>
               </a>
+              )}
             </div>
           </form>
         </div>

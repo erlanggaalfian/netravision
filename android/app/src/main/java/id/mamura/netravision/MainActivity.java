@@ -19,6 +19,18 @@ public class MainActivity extends Activity {
     private static final String HOME_URL = "https://netra.mamura.net.id/";
     private WebView webView;
 
+    /* Versi aplikasi dari manifest (versionName), dipakai untuk memberi
+       tahu situs bahwa pengunjung memakai aplikasi (bukan browser) dan
+       versi berapa, supaya situs bisa menampilkan tombol update hanya
+       bila ada versi baru. */
+    private String appVersion() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            return "1.0.0";
+        }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -31,6 +43,10 @@ public class MainActivity extends Activity {
         s.setAllowFileAccess(false);
         s.setAllowContentAccess(true);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        /* Sisipkan "NetraVision/<versi>" ke User-Agent supaya situs bisa
+           membedakan pengunjung aplikasi vs browser dan tahu versi
+           terpasang. */
+        s.setUserAgentString(s.getUserAgentString() + " NetraVision/" + appVersion());
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false);
         /* Semua navigasi tetap di dalam WebView. */
