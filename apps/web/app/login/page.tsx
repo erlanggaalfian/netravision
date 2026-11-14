@@ -182,11 +182,11 @@ export default function LoginPage() {
                   Guest login
                 </button>
               )}
-              {/* Unduh aplikasi Android (APK). */}
+              {/* Unduh aplikasi Android (APK). Hanya tampil di HP. */}
               <a
                 href="/netravision.apk"
                 download="netravision.apk"
-                className="flex min-h-[48px] w-full cursor-pointer flex-col items-center justify-center rounded-xl bg-gradient-to-b from-accent-500 to-accent-600 px-4 py-2 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-500),inset_0_1px_0_rgba(255,255,255,0.2)] transition-all duration-150 ease-out hover:from-accent-400 hover:to-accent-500 hover:shadow-[0_6px_20px_-4px_var(--nv-accent-500),inset_0_1px_0_rgba(255,255,255,0.25)] active:scale-[0.98]"
+                className="flex min-h-[48px] w-full cursor-pointer flex-col items-center justify-center rounded-xl bg-gradient-to-b from-accent-500 to-accent-600 px-4 py-2 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-500),inset_0_1px_0_rgba(255,255,255,0.2)] transition-all duration-150 ease-out hover:from-accent-400 hover:to-accent-500 hover:shadow-[0_6px_20px_-4px_var(--nv-accent-500),inset_0_1px_0_rgba(255,255,255,0.25)] active:scale-[0.98] md:hidden"
               >
                 <span className="flex items-center gap-2 text-[16px] font-semibold">
                   <svg
