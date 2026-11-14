@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import { useCameraStatus } from "../../../hooks/useCameraStatus";
@@ -1322,6 +1322,25 @@ function AddStreamModal({
   );
 }
 
+/* Sembunyikan password di URL RTSP (perintah user 2026-11-14):
+   tampilkan sebagai ****, jangan pernah tampilkan password asli di
+   input. Saat simpan, **** diganti kembali dengan password asli dari
+   URL semula, supaya tidak tertimpa. Bila user mengetik password baru
+   (bukan ****), yang diketik itulah yang dipakai. */
+function maskRtspPassword(url: string): string {
+  return url.replace(/:\/\/([^:/@]+):[^@]*@/, "://$1:****@");
+}
+function extractRtspPassword(url: string): string | null {
+  const m = url.match(/:\/\/[^:/@]+:([^@]*)@/);
+  return m ? m[1] : null;
+}
+function unmaskRtspPassword(displayUrl: string, originalUrl: string): string {
+  if (!displayUrl.includes("****")) return displayUrl;
+  const pw = extractRtspPassword(originalUrl);
+  if (pw === null) return displayUrl;
+  return displayUrl.replace(/:\/\/([^:/@]+):\*\*\*@/, `://$1:${pw}@`);
+}
+
 function EditStreamModal({
   stream,
   driveFolders,
@@ -1340,9 +1359,17 @@ function EditStreamModal({
   const [name, setName] = useState(stream.name);
   const [isActive, setIsActive] = useState(stream.is_active);
   /* Mainstream/substream bisa diedit (perintah user 2026-11-14).
-     Substream kosong = tanpa sub (frontend fallback ke main). */
-  const [mainUrl, setMainUrl] = useState(stream.main_url ?? "");
-  const [subUrl, setSubUrl] = useState(stream.sub_url ?? "");
+     Substream kosong = tanpa sub (frontend fallback ke main).
+     Password di URL SELALU disembunyikan (****); password asli disimpan
+     di ref supaya saat simpan bisa dikembalikan. */
+  const origMainUrlRef = useRef(stream.main_url ?? "");
+  const origSubUrlRef = useRef(stream.sub_url ?? "");
+  const [mainUrl, setMainUrl] = useState(
+    maskRtspPassword(stream.main_url ?? ""),
+  );
+  const [subUrl, setSubUrl] = useState(
+    maskRtspPassword(stream.sub_url ?? ""),
+  );
   const [storageMode, setStorageMode] = useState(stream.storage_mode);
   const [driveFolderId, setDriveFolderId] = useState<string>(
     stream.drive_folder_id != null ? String(stream.drive_folder_id) : "",
@@ -1378,14 +1405,22 @@ function EditStreamModal({
       setError("Mainstream tidak boleh kosong.");
       return;
     }
+    /* Kembalikan password asli dari **** sebelum kirim, supaya password
+       tidak tertimpa mask. Bila user mengetik password baru, yang
+       diketik itu yang terkirim. */
+    const realMain = unmaskRtspPassword(mainUrl.trim(), origMainUrlRef.current);
+    const realSub =
+      subUrl.trim() === ""
+        ? null
+        : unmaskRtspPassword(subUrl.trim(), origSubUrlRef.current);
     setBusy(true);
     try {
       const lat = latitude.trim() === "" ? null : parseFloat(latitude);
       const lon = longitude.trim() === "" ? null : parseFloat(longitude);
       await api.put(`/admin/streams/${stream.id}`, {
         name: name.trim(),
-        main_url: mainUrl.trim(),
-        sub_url: subUrl.trim() === "" ? null : subUrl.trim(),
+        main_url: realMain,
+        sub_url: realSub,
         is_active: isActive,
         storage_mode: storageMode,
         recording_enabled: recordingEnabled,
@@ -1422,7 +1457,7 @@ function EditStreamModal({
           </NBField>
           <NBField
             label="Mainstream (RTSP)"
-            hint="URL RTSP stream utama, mis. rtsp://admin:****@192.168.1.10:554/live/0/MAIN"
+            hint="URL RTSP stream utama; password selalu disembunyikan (****)"
           >
             <NBInput
               value={mainUrl}
