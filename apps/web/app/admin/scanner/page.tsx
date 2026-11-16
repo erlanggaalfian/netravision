@@ -249,6 +249,9 @@ export default function AdminScannerPage() {
   >({});
   /* Batalkan polling saat unmount supaya tidak setState sesudah lepas. */
   const cancelledRef = useRef(false);
+  /* Batalkan scan dari tombol "Batalkan": loop polling memeriksa flag
+     ini tiap putaran dan berhenti, hasil parsial tetap tampil. */
+  const cancelScanRef = useRef(false);
   useEffect(() => {
     return () => {
       cancelledRef.current = true;
@@ -287,6 +290,7 @@ export default function AdminScannerPage() {
   async function doScan() {
     setError("");
     setScanning(true);
+    cancelScanRef.current = false;
     setProgress({
       scanned: 0,
       total: 0,
@@ -310,11 +314,11 @@ export default function AdminScannerPage() {
       const jobId = created.job_id;
       for (;;) {
         await new Promise((r) => setTimeout(r, 2000));
-        if (cancelledRef.current) return;
+        if (cancelledRef.current || cancelScanRef.current) return;
         const job = await api.get<ScanJobStatus>(
           `/admin/scan-subnet/${jobId}`,
         );
-        if (cancelledRef.current) return;
+        if (cancelledRef.current || cancelScanRef.current) return;
         setProgress({
           scanned: job.scanned,
           total: job.total,
@@ -981,6 +985,17 @@ export default function AdminScannerPage() {
               {progress.stage === "done" &&
                 ` · ${selectable.length} kamera baru dengan video`}
             </p>
+            <div>
+              <NBButton
+                variant="secondary"
+                onClick={() => {
+                  cancelScanRef.current = true;
+                }}
+                className="px-3"
+              >
+                Batalkan scan
+              </NBButton>
+            </div>
           </div>
         )}
       </NBCard>

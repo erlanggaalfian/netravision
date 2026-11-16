@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
+import { filterStreamsForRole } from "../../../lib/scope";
 import type { Group, Stream } from "../../../lib/types";
 import { ErrorBox, Modal, Spinner } from "../../../components/ui";
 import {
@@ -61,9 +62,27 @@ export default function AdminGroupsPage() {
 
   useEffect(() => {
     load();
+    /* Daftar kamera: superadmin memakainya di popup Kelola Kamera;
+       admin biasa memakainya hanya untuk menurunkan grup mana saja
+       yang berisi kamera yang terlihat (visibleGroups di bawah),
+       bukan untuk menampilkan kamera. */
     api.get<Stream[]>("/admin/streams").then((d) => setStreams(d ?? [])).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* Cakupan admin biasa: hanya grup yang berisi sedikitnya satu
+     kamera yang terlihat (kamera sendiri atau yang di-grant can_view,
+     lib/scope.ts). Nama grup lain tidak tampil. */
+  const visibleGroups = useMemo(() => {
+    if (groups === null) return null;
+    if (isSuperAdmin) return groups;
+    const names = new Set(
+      filterStreamsForRole(me, streams)
+        .map((s) => s.group_name)
+        .filter((n): n is string => !!n),
+    );
+    return groups.filter((g) => names.has(g.name));
+  }, [groups, streams, isSuperAdmin, me]);
 
   return (
     <div>
@@ -81,13 +100,20 @@ export default function AdminGroupsPage() {
           <ErrorBox message={error} />
         </div>
       )}
-      {groups === null ? (
+      {visibleGroups === null ? (
         <Spinner />
-      ) : groups.length === 0 ? (
-        <NBEmptyState icon={<GroupIcon className="h-8 w-8 text-slate-500" />} text="Belum ada grup. Tambahkan yang pertama." />
+      ) : visibleGroups.length === 0 ? (
+        <NBEmptyState
+          icon={<GroupIcon className="h-8 w-8 text-slate-500" />}
+          text={
+            isSuperAdmin
+              ? "Belum ada grup. Tambahkan yang pertama."
+              : "Belum ada grup kamera di grup Anda."
+          }
+        />
       ) : (
         <div className="space-y-2">
-          {groups.map((g) => {
+          {visibleGroups.map((g) => {
             const summary = (
               <span className="block min-w-0">
                 <span className="block truncate font-medium text-white">
@@ -218,8 +244,14 @@ function GrantsModal({
   const [loadFailed, setLoadFailed] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  /* Muat ulang daftar saat gagal: tombol "Coba lagi" memicu effect
+     ini lagi (pola yang sama di semua modal hak akses). */
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    setLoaded(false);
+    setLoadFailed(false);
+    setError("");
     api
       .get<{ stream_ids: number[] }>(
         `/admin/groups/${encodeURIComponent(group.name)}/camera-grants`,
@@ -230,7 +262,7 @@ function GrantsModal({
         setError(e instanceof ApiError ? e.message : "Gagal memuat");
       })
       .finally(() => setLoaded(true));
-  }, [group.name]);
+  }, [group.name, reloadKey]);
 
   function toggle(id: number) {
     setChecked((prev) => {
@@ -262,6 +294,13 @@ function GrantsModal({
       {error && (
         <div className="mb-4">
           <ErrorBox message={error} />
+        </div>
+      )}
+      {loadFailed && (
+        <div className="mb-4">
+          <NBButton variant="secondary" onClick={() => setReloadKey((k) => k + 1)}>
+            Coba lagi
+          </NBButton>
         </div>
       )}
       {!loaded ? (

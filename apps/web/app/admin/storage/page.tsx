@@ -88,6 +88,12 @@ function retentionLabel(days: number | null | undefined): string {
   return `${days} hari`;
 }
 
+/* Tautan luar hanya boleh http(s): skema lain (mis. javascript:) tidak
+   boleh dieksekusi dari klik. Dipakai folder Drive + link authorize. */
+function isHttpUrl(u: string | null | undefined): boolean {
+  return !!u && /^https?:\/\//i.test(u.trim());
+}
+
 /* Halaman admin: Penyimpanan Google Drive, dibuat sesimpel mungkin.
    Bahasa awam: "Akun Google" (bukan "remote rclone"), "Folder" (bukan
    "tautan"), "Simpan rekaman selama" (bukan "retention"). Detail teknis
@@ -112,6 +118,12 @@ export default function AdminStoragePage() {
   const [localPath, setLocalPath] = useState("");
   const [addBusy, setAddBusy] = useState(false);
   const [deleting, setDeleting] = useState<GDriveFolder | null>(null);
+  /* Hapus folder/akun async: modal konfirmasi nonaktif selama proses
+     (pola yang sama di semua halaman admin). */
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteRemoteBusy, setDeleteRemoteBusy] = useState(false);
+  /* Muat ulang ringkasan: tombol nonaktif selama refresh berjalan. */
+  const [refreshing, setRefreshing] = useState(false);
   const [openDetail, setOpenDetail] = useState<Record<number, boolean>>({});
   const [retentionBusy, setRetentionBusy] = useState<number | null>(null);
 
@@ -290,11 +302,14 @@ export default function AdminStoragePage() {
     }
   }
 
-  function refreshAll() {
-    load();
-    loadRemotes();
-    loadQueue();
-    loadConn();
+  async function refreshAll() {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await Promise.all([load(), loadRemotes(), loadQueue(), loadConn()]);
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   async function loadActiveAuthorize() {
@@ -371,7 +386,8 @@ export default function AdminStoragePage() {
   }
 
   async function removeRemote() {
-    if (!deletingRemote) return;
+    if (!deletingRemote || deleteRemoteBusy) return;
+    setDeleteRemoteBusy(true);
     setError("");
     try {
       await api.del(`/admin/drive-remotes/${deletingRemote.remote_name}`);
@@ -380,6 +396,8 @@ export default function AdminStoragePage() {
       await loadQueue();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Gagal menghapus akun");
+    } finally {
+      setDeleteRemoteBusy(false);
     }
   }
 
@@ -413,7 +431,8 @@ export default function AdminStoragePage() {
   }
 
   async function removeFolder() {
-    if (!deleting) return;
+    if (!deleting || deleteBusy) return;
+    setDeleteBusy(true);
     setError("");
     try {
       await api.del(`/admin/storage/google-drive/${deleting.id}`);
@@ -421,6 +440,8 @@ export default function AdminStoragePage() {
       await load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Gagal menghapus folder");
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -500,8 +521,8 @@ export default function AdminStoragePage() {
                 : "Tidak ada rekaman menunggu upload"}
           </span>
           <span className="ml-auto">
-            <NBButton variant="secondary" onClick={refreshAll} className="px-3">
-              Muat ulang
+            <NBButton variant="secondary" onClick={refreshAll} disabled={refreshing} className="px-3">
+              {refreshing ? "Memuat…" : "Muat ulang"}
             </NBButton>
           </span>
         </div>
@@ -607,7 +628,7 @@ export default function AdminStoragePage() {
                       ? "Klik link di bawah, lalu login Google:"
                       : "Menyiapkan link login Google…"}
                   </p>
-                  {authJob.auth_url && (
+                  {authJob.auth_url && isHttpUrl(authJob.auth_url) && (
                     <a
                       href={authJob.auth_url}
                       target="_blank"
@@ -799,7 +820,7 @@ export default function AdminStoragePage() {
                       })}
                     </div>
                     <div className="mt-2.5 flex flex-wrap items-center gap-3 text-sm">
-                      {f.folder_url ? (
+                      {f.folder_url && isHttpUrl(f.folder_url) ? (
                         <a
                           href={f.folder_url}
                           target="_blank"
@@ -959,6 +980,7 @@ export default function AdminStoragePage() {
         <NBConfirmModal
           title="Hapus folder"
           message={`Hapus "${deleting.folder_name || deleting.folder_id}"? Kamera yang memakai folder ini kembali ke default.`}
+          busy={deleteBusy}
           onCancel={() => setDeleting(null)}
           onConfirm={removeFolder}
         />
@@ -968,6 +990,7 @@ export default function AdminStoragePage() {
         <NBConfirmModal
           title="Hapus akun Google"
           message={`Hapus akun "${deletingRemote.label || deletingRemote.remote_name}"? Upload ke akun ini berhenti dan token di server ikut dihapus.`}
+          busy={deleteRemoteBusy}
           onCancel={() => setDeletingRemote(null)}
           onConfirm={removeRemote}
         />

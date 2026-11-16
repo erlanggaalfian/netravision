@@ -374,22 +374,27 @@ export function ConfirmModal({
   onCancel,
   onConfirm,
   confirmLabel = "Hapus",
+  busy = false,
 }: {
   title: string;
   message: string;
   onCancel: () => void;
   onConfirm: () => void;
   confirmLabel?: string;
+  /* Aksi destruktif async (hapus kamera/pengguna/key/log): saat busy,
+     kedua tombol nonaktif dan label konfirmasi menunjukkan proses,
+     supaya tidak bisa diklik ganda dan ada umpan balik. */
+  busy?: boolean;
 }) {
   return (
     <Modal title={title} onClose={onCancel}>
       <p className="text-[15px] leading-relaxed text-slate-300">{message}</p>
       <div className="mt-6 grid gap-2.5 sm:flex sm:justify-end">
-        <Button variant="subtle" onClick={onCancel} className="min-h-[48px] w-full sm:w-auto">
+        <Button variant="subtle" onClick={onCancel} disabled={busy} className="min-h-[48px] w-full sm:w-auto">
           Batal
         </Button>
-        <Button variant="danger" onClick={onConfirm} className="min-h-[48px] w-full sm:w-auto">
-          {confirmLabel}
+        <Button variant="danger" onClick={onConfirm} disabled={busy} className="min-h-[48px] w-full sm:w-auto">
+          {busy ? "Menghapus…" : confirmLabel}
         </Button>
       </div>
     </Modal>

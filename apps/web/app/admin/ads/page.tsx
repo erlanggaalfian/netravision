@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { AdConfig } from "../../../lib/types";
 import { ApiError, api, apiFetch, normalizeUploadUrl } from "../../../lib/api";
-import { ErrorBox, Spinner } from "../../../components/ui";
+import { ErrorBox, Spinner, Switch } from "../../../components/ui";
 import {
   NBButton,
   NBCard,
@@ -197,34 +197,9 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
   );
 }
 
-function Toggle({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  onChange: (v: boolean) => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      onClick={() => onChange(!checked)}
-      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-        checked ? "bg-ok-400" : "bg-ink-600"
-      }`}
-    >
-      <span
-        className={`absolute left-[2px] top-[2px] h-5 w-5 rounded-full bg-white transition-transform ${
-          checked ? "translate-x-5" : "translate-x-0"
-        }`}
-      />
-    </button>
-  );
-}
+/* Saklar status memakai Switch bersama (components/ui.tsx), sama
+   seperti semua saklar lain (pengguna, kamera, embed): satu tampilan,
+   satu perilaku, area sentuh 48px. Toggle lokal duplikat dihapus. */
 
 function RangeRow({
   label,
@@ -392,7 +367,7 @@ export default function AdminAdsPage() {
                 Tampilkan space iklan ini di video stream guest
               </span>
             </div>
-            <Toggle
+            <Switch
               checked={cfg.is_active}
               onChange={(v) => set("is_active", v)}
               label="Status Penayangan Iklan"

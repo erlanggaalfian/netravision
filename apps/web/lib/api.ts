@@ -241,17 +241,38 @@ export const api = {
 /* Poster diambil lewat apiFetch (header Authorization) sebagai blob lalu
    dipakai sebagai object URL, jadi JWT tidak pernah muncul di URL gambar
    (tidak bocor ke log/histori/cache). Pemakai wajib revoke object URL
-   saat tidak dipakai lagi, lihat usePosterUrl. */
+   saat tidak dipakai lagi, lihat usePosterUrl.
+   KEAMANAN: token hanya dikirim bila URL absolut itu satu origin dengan
+   halaman atau dengan API base; poster_url dari server yang menunjuk ke
+   host lain TIDAK BOLEH menerima token (akan bocor ke pihak ketiga). */
+const API_ORIGIN: string | null = (() => {
+  try {
+    return new URL(BASE, "http://localhost").origin;
+  } catch {
+    return null;
+  }
+})();
+
 export async function fetchPosterObjectUrl(
   url: string | null | undefined,
 ): Promise<string | undefined> {
   if (!url) return undefined;
   let path: string;
   if (/^https?:\/\//i.test(url)) {
-    // URL absolut: fetch langsung dengan header Authorization.
+    // URL absolut: token hanya untuk origin yang dipercaya (halaman /
+    // API base); origin lain diambil tanpa token (gambar publik).
     const token = getAccessToken();
+    let sameOrigin = false;
+    try {
+      const origin = new URL(url).origin;
+      sameOrigin =
+        (typeof window !== "undefined" && origin === window.location.origin) ||
+        (API_ORIGIN !== null && origin === API_ORIGIN);
+    } catch {
+      sameOrigin = false;
+    }
     const res = await fetch(url, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: token && sameOrigin ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) return undefined;
     return URL.createObjectURL(await res.blob());

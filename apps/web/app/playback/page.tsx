@@ -891,6 +891,35 @@ export default function PlaybackPage() {
   const [date, setDate] = useState(todayStr());
   /* Config iklan: sekali per halaman, dipakai semua panel. */
   const [ad, setAd] = useState<AdConfig | null>(null);
+  /* Gagal muat daftar kamera sebelumnya diam (catch kosong): user
+     hanya melihat "Belum ada kamera" padahal jaringannya yang gagal.
+     Bedakan dengan error + tombol coba lagi, seperti halaman lain. */
+  const [camerasError, setCamerasError] = useState<string | null>(null);
+  const [camerasLoading, setCamerasLoading] = useState(true);
+
+  /* Hanya kamera yang benar-benar punya rekaman (playback) yang
+     bisa dipilih, lewat /recordings/cameras (bukan semua /streams).
+     Dropdown kamera tunggal dan chip multi-kamera sama-sama memakai
+     `streams` di bawah, jadi keduanya otomatis terfilter. */
+  const loadCameras = useCallback(() => {
+    setCamerasLoading(true);
+    setCamerasError(null);
+    api
+      .get<Stream[]>("/recordings/cameras")
+      .then((s) => {
+        setStreams(s);
+        if (s.length > 0) {
+          setStreamId(String(s[0].id));
+          setMultiIds([s[0].id]);
+        }
+      })
+      .catch((e) => {
+        setCamerasError(
+          e instanceof ApiError ? e.message : "Gagal memuat daftar kamera",
+        );
+      })
+      .finally(() => setCamerasLoading(false));
+  }, []);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -898,24 +927,9 @@ export default function PlaybackPage() {
       return;
     }
     if (user) {
-      /* Hanya kamera yang benar-benar punya rekaman (playback) yang
-         bisa dipilih, lewat /recordings/cameras (bukan semua /streams).
-         Dropdown kamera tunggal dan chip multi-kamera sama-sama memakai
-         `streams` di bawah, jadi keduanya otomatis terfilter. */
-      api
-        .get<Stream[]>("/recordings/cameras")
-        .then((s) => {
-          setStreams(s);
-          if (s.length > 0) {
-            setStreamId(String(s[0].id));
-            setMultiIds([s[0].id]);
-          }
-        })
-        .catch(() => {
-          /* daftar kamera opsional */
-        });
+      loadCameras();
     }
-  }, [loading, user, router]);
+  }, [loading, user, router, loadCameras]);
 
   /* Config iklan: sekali per halaman, dipakai semua panel. */
   useEffect(() => {
@@ -1047,7 +1061,15 @@ export default function PlaybackPage() {
                     value={streamId}
                     onChange={setStreamId}
                     ariaLabel="Pilih kamera"
-                    placeholder={streams.length === 0 ? "Belum ada kamera" : "Pilih kamera"}
+                    placeholder={
+                      camerasLoading
+                        ? "Memuat kamera…"
+                        : camerasError
+                          ? "Gagal memuat kamera"
+                          : streams.length === 0
+                            ? "Belum ada kamera"
+                            : "Pilih kamera"
+                    }
                   />
                 </div>
               ) : (
@@ -1126,7 +1148,19 @@ export default function PlaybackPage() {
         </Card>
 
         {/* Panel-panel playback */}
-        {selectedStreams.length === 0 ? (
+        {camerasError && streams.length === 0 ? (
+          <div className="nv-panel-modern flex flex-col items-center gap-4 px-6 py-16 text-center">
+            <p className="text-base font-bold tracking-tight text-white">
+              Gagal memuat kamera
+            </p>
+            <p className="max-w-xs text-sm leading-relaxed text-neutral-400">
+              {camerasError}
+            </p>
+            <Button onClick={loadCameras} disabled={camerasLoading}>
+              {camerasLoading ? "Memuat…" : "Coba lagi"}
+            </Button>
+          </div>
+        ) : selectedStreams.length === 0 ? (
           <EmptyCard
             title={multi ? "Belum ada kamera dipilih" : "Belum ada kamera"}
             desc={

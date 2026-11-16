@@ -233,7 +233,9 @@ export function AdBanner({
   return (
     <div className={wrapCls}>
       <style>{`@keyframes nv-marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }`}</style>
-      {config.click_url?.trim() ? (
+      {/* click_url hanya jadi tautan bila http(s): skema lain (mis.
+          javascript:) tidak boleh dieksekusi dari klik banner. */}
+      {/^https?:\/\//i.test(config.click_url?.trim() ?? "") ? (
         <a
           href={config.click_url}
           target="_blank"

@@ -23,6 +23,10 @@ export interface Stream {
      melihat kredensial RTSP); dipakai popup Ubah Kamera. */
   main_url?: string | null;
   sub_url?: string | null;
+  /* URL RTSP mentah (hanya diisi endpoint admin bila berhak melihat
+     kredensial RTSP: kamera sendiri atau yang di-grant can_view).
+     Dipakai lib/scope.ts sebagai sinyal cakupan kamera admin biasa. */
+  rtsp_url?: string | null;
 }
 
 export interface DriveFolder {

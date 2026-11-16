@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { isAdminRole, useAuth } from "../lib/auth";
 import { useCameraStatus } from "../hooks/useCameraStatus";
 import { useIdleLogout } from "../hooks/useIdleLogout";
@@ -74,6 +74,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { user, logout } = useAuth();
   const { connected } = useCameraStatus();
+  /* Keluar memanggil POST /auth/logout dulu: nonaktifkan kedua tombol
+     Keluar selama proses supaya tidak diklik ganda. */
+  const [loggingOut, setLoggingOut] = useState(false);
   /* Diam 1 jam tanpa gerakan -> minta login lagi; selama masih ada
      pengoperasian, sesi tidak putus. */
   useIdleLogout();
@@ -81,6 +84,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const items = NAV.filter((n) => !n.adminOnly || isAdminRole(user?.role));
 
   const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
     await logout();
     router.push("/login");
   };
@@ -148,9 +153,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="flex gap-2">
             <button
               onClick={handleLogout}
-              className="min-h-[44px] flex-1 cursor-pointer rounded-xl bg-ink-800 px-4 py-2.5 text-left text-sm font-medium text-slate-400 shadow-sm transition-all duration-150 ease-out hover:bg-ink-700 hover:text-slate-200 active:scale-[0.98]"
+              disabled={loggingOut}
+              className="min-h-[44px] flex-1 cursor-pointer rounded-xl bg-ink-800 px-4 py-2.5 text-left text-sm font-medium text-slate-400 shadow-sm transition-all duration-150 ease-out hover:bg-ink-700 hover:text-slate-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Keluar
+              {loggingOut ? "Keluar…" : "Keluar"}
             </button>
             <ThemeToggle />
           </div>
@@ -184,9 +190,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             <ThemeToggle className="h-11 w-11" />
             <button
               onClick={handleLogout}
-              className="min-h-[44px] cursor-pointer rounded-xl bg-ink-800 px-4 text-xs font-semibold text-slate-300 shadow-sm transition-all duration-150 hover:bg-ink-700 active:scale-95"
+              disabled={loggingOut}
+              className="min-h-[44px] cursor-pointer rounded-xl bg-ink-800 px-4 text-xs font-semibold text-slate-300 shadow-sm transition-all duration-150 hover:bg-ink-700 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Keluar
+              {loggingOut ? "Keluar…" : "Keluar"}
             </button>
           </div>
         </header>

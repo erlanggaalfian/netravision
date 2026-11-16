@@ -332,6 +332,29 @@ export default function MonitorsPage() {
 
   const byId = useMemo(() => new Map(merged.map((s) => [s.id, s])), [merged]);
 
+  const isSuperAdmin = user?.role === "super_admin";
+  /* Grup kamera untuk admin biasa: diturunkan dari /streams yang
+     sudah dibatasi backend per admin (hanya kamera sendiri atau
+     yang di-grant can_view), dikelompokkan lewat group_name.
+     Admin tidak meminta /admin/groups atau camera-grants grup lain,
+     jadi nama grup lain tidak pernah tampil. Superadmin memakai
+     daftar grup server (loadGroups). Id sintetis negatif supaya
+     tidak bertabrakan dengan id grup server. */
+  const adminDerivedGroups = useMemo(() => {
+    if (!user || isSuperAdmin) return null;
+    const byName = new Map<string, number[]>();
+    for (const s of merged) {
+      if (!s.group_name) continue;
+      const arr = byName.get(s.group_name);
+      if (arr) arr.push(s.id);
+      else byName.set(s.group_name, [s.id]);
+    }
+    return [...byName.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([name, ids], i) => ({ id: -(i + 1), name, stream_ids: ids }));
+  }, [user, isSuperAdmin, merged]);
+  const displayGroups = isSuperAdmin ? groups : adminDerivedGroups;
+
   const startCreate = () => {
     setFormName("");
     setFormCols(2);
@@ -489,13 +512,15 @@ export default function MonitorsPage() {
   };
 
   /* Grup kamera di daftar (sebelum buka monitor tersimpan): muat sekali
-     saat halaman dibuka, hanya untuk admin/super_admin. */
+     saat halaman dibuka, hanya untuk superadmin. Admin biasa memakai
+     adminDerivedGroups dari /streams (lihat atas), tanpa meminta
+     data grup lain. */
   useEffect(() => {
     if (!user) return;
-    if (!isAdminRole(user.role)) return;
+    if (!isSuperAdmin) return;
     if (groups !== null) return;
     loadGroups();
-  }, [user, groups, loadGroups]);
+  }, [user, isSuperAdmin, groups, loadGroups]);
 
   /* D-S9: toggleFullscreen kini dari hook useFullscreen (lihat atas). */
 
@@ -692,7 +717,7 @@ export default function MonitorsPage() {
                   title="Grup kamera"
                   desc="Buka monitor per grup"
                 />
-                {groupsLoading && groups === null ? (
+                {groupsLoading && displayGroups === null ? (
                   <div className="flex flex-col gap-3">
                     {Array.from({ length: 2 }).map((_, i) => (
                       <div
@@ -708,9 +733,9 @@ export default function MonitorsPage() {
                       Coba lagi
                     </Button>
                   </div>
-                ) : groups && groups.length > 0 ? (
+                ) : displayGroups && displayGroups.length > 0 ? (
                   <div className="flex flex-col gap-3">
-                    {groups.map((g) => {
+                    {displayGroups.map((g) => {
                       const expanded = expandedGroupId === g.id;
                       const existing = g.stream_ids
                         .map((id) => byId.get(id))

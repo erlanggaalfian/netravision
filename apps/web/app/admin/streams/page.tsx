@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
+import { filterStreamsForRole } from "../../../lib/scope";
 import { useCameraStatus } from "../../../hooks/useCameraStatus";
 import type { AdConfig, Disk, DriveFolder, Group, ScanPath, ScanResult, Stream } from "../../../lib/types";
 import { ShareModal } from "../../../components/ShareModal";
@@ -296,6 +297,9 @@ export default function AdminStreamsPage() {
   /* Kamera yang boleh dibagikan admin biasa (can_reshare dari
      superadmin). Superadmin boleh membagikan semua kamera. */
   const [reshareIds, setReshareIds] = useState<Set<number>>(new Set());
+  /* Kamera yang boleh dilihat admin biasa (grant can_view milik
+     sendiri); sinyal kedua untuk cakupan, lihat lib/scope.ts. */
+  const [viewIds, setViewIds] = useState<Set<number>>(new Set());
   const [error, setError] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Stream | null>(null);
@@ -305,6 +309,10 @@ export default function AdminStreamsPage() {
   const [focus, setFocus] = useState<Stream | null>(null);
   const [ad, setAd] = useState<AdConfig | null>(null);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  /* Hapus (tunggal/massal) berjalan async: modal konfirmasi nonaktif
+     selama proses, sama seperti hapus di Pengguna/API Key/Penyimpanan. */
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [showCoords, setShowCoords] = useState(false);
   const [showGroup, setShowGroup] = useState(false);
 
@@ -326,12 +334,17 @@ export default function AdminStreamsPage() {
         setStreams([]);
       });
 
-  /* Grup untuk filter (dipakai ulang setelah set grup massal). */
+  /* Grup untuk filter (dipakai ulang setelah set grup massal).
+     Admin biasa TIDAK meminta camera-grants per grup: endpoint itu
+     mengembalikan anggota semua grup, termasuk grup lain. Nama grup
+     saja yang dimuat; peta grup admin diturunkan dari group_name
+     tiap kamera yang terlihat (lihat adminGroupMap di bawah). */
   const loadGroups = () =>
     api
       .get<Group[]>("/admin/groups")
       .then(async (gs) => {
         setGroups(gs);
+        if (!isSuperAdmin) return;
         const m: Record<number, string[]> = {};
         await Promise.all(
           gs.map(async (g) => {
@@ -362,41 +375,76 @@ export default function AdminStreamsPage() {
     api.get<Disk[]>("/admin/disks").then(setDisks).catch(() => setDisks([]));
     loadGroups();
     /* Admin biasa: muat grant can_reshare agar tombol Bagikan hanya
-       tampil di kamera yang diizinkan superadmin untuk dibagikan. */
+       tampil di kamera yang diizinkan superadmin untuk dibagikan,
+       dan grant can_view sebagai sinyal kedua cakupan kamera. */
     if (me && !isSuperAdmin) {
       api
-        .get<{ grants: { stream_id: number; can_reshare: boolean }[] }>(
-          `/admin/admins/${me.id}/camera-grants`,
-        )
-        .then((d) =>
+        .get<{
+          grants: {
+            stream_id: number;
+            can_view: boolean;
+            can_reshare: boolean;
+          }[];
+        }>(`/admin/admins/${me.id}/camera-grants`)
+        .then((d) => {
+          const gs = d.grants ?? [];
           setReshareIds(
             new Set(
-              (d.grants ?? [])
-                .filter((g) => g.can_reshare)
-                .map((g) => g.stream_id),
+              gs.filter((g) => g.can_reshare).map((g) => g.stream_id),
             ),
-          ),
-        )
+          );
+          setViewIds(
+            new Set(gs.filter((g) => g.can_view).map((g) => g.stream_id)),
+          );
+        })
         .catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me?.id]);
 
+  /* Cakupan admin biasa: hanya kamera sendiri atau yang di-grant
+     can_view (lib/scope.ts). Semua tampilan di halaman ini memakai
+     visibleStreams, bukan streams mentah, supaya tidak ada kamera
+     grup lain yang tampil, dicari, atau dihitung. */
+  const visibleStreams = useMemo(
+    () => filterStreamsForRole(me, streams ?? [], viewIds),
+    [me, streams, viewIds],
+  );
+  /* Peta grup admin biasa: dari group_name cache tiap kamera yang
+     terlihat, tanpa meminta camera-grants grup lain. */
+  const adminGroupMap = useMemo(() => {
+    const m: Record<number, string[]> = {};
+    for (const s of visibleStreams) {
+      if (s.group_name) m[s.id] = [s.group_name];
+    }
+    return m;
+  }, [visibleStreams]);
+  const effectiveGroupMap = isSuperAdmin ? groupMap : adminGroupMap;
+  /* Pilihan filter grup: admin hanya melihat grup yang berisi
+     sedikitnya satu kamera yang terlihat. */
+  const filterGroups = useMemo(() => {
+    if (isSuperAdmin) return groups;
+    const names = new Set(
+      visibleStreams.map((s) => s.group_name).filter((n): n is string => !!n),
+    );
+    return groups.filter((g) => names.has(g.name));
+  }, [isSuperAdmin, groups, visibleStreams]);
+
   const filtered = useMemo(() => {
     if (!streams) return [];
     const needle = q.trim().toLowerCase();
-    return streams.filter((s) => {
+    return visibleStreams.filter((s) => {
       if (needle && !s.name.toLowerCase().includes(needle)) return false;
       if (statusF !== "all") {
         const on = status.get(s.id) ?? s.is_online;
         if ((statusF === "online") !== on) return false;
       }
-      if (groupF !== "all" && !(groupMap[s.id] || []).includes(groupF))
+      if (groupF !== "all" && !(effectiveGroupMap[s.id] || []).includes(groupF))
         return false;
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [streams, q, statusF, groupF, groupMap, status]);
+  }, [streams, visibleStreams, q, statusF, groupF, effectiveGroupMap, status]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const curPage = Math.min(page, totalPages);
@@ -431,6 +479,8 @@ export default function AdminStreamsPage() {
   }
 
   async function doBulkDelete() {
+    if (bulkBusy) return;
+    setBulkBusy(true);
     setError("");
     /* E-S6: laporkan hasil per kamera, bersihkan selected hanya
        untuk yang berhasil, yang gagal tetap terpilih. */
@@ -449,6 +499,7 @@ export default function AdminStreamsPage() {
     }
     setSelected(new Set(failed.map((f) => f.id)));
     load();
+    setBulkBusy(false);
     if (failed.length === 0) {
       setBulkDeleting(false);
       return;
@@ -498,7 +549,7 @@ export default function AdminStreamsPage() {
               }}
             >
               <option value="all">Semua grup</option>
-              {groups.map((g) => (
+              {filterGroups.map((g) => (
                 <option key={g.id} value={g.name}>
                   {g.name}
                 </option>
@@ -531,7 +582,7 @@ export default function AdminStreamsPage() {
             <div className="flex h-11 items-center gap-2">
               <span className="tabular-nums">
                 <NBBadge tone="info">
-                  {filtered.length} dari {(streams ?? []).length}
+                  {filtered.length} dari {visibleStreams.length}
                 </NBBadge>
               </span>
               {filtersActive && (
@@ -588,7 +639,9 @@ export default function AdminStreamsPage() {
           text={
             filtersActive
               ? "Tidak ada kamera yang cocok dengan filter."
-              : "Belum ada kamera. Tambahkan yang pertama."
+              : isSuperAdmin
+                ? "Belum ada kamera. Tambahkan yang pertama."
+                : "Belum ada kamera di grup Anda."
           }
         />
       ) : (
@@ -615,7 +668,7 @@ export default function AdminStreamsPage() {
                 key={s.id}
                 s={s}
                 online={status.get(s.id) ?? s.is_online}
-                groups={groupMap[s.id] ?? []}
+                groups={effectiveGroupMap[s.id] ?? []}
                 selected={selected.has(s.id)}
                 onToggleSelect={() => toggleSelect(s.id)}
                 onEdit={() => setEditing(s)}
@@ -707,14 +760,22 @@ export default function AdminStreamsPage() {
         <NBConfirmModal
           title="Hapus kamera"
           message={`Hapus "${deleting.name}"? Path MediaMTX ikut dilepas.`}
+          busy={deleteBusy}
           onCancel={() => setDeleting(null)}
           onConfirm={async () => {
-            setDeleting(null);
+            /* Tutup hanya bila berhasil (sama seperti hapus pengguna/
+               key/folder): gagal tetap membuka modal supaya bisa coba
+               lagi, error tampil di atas halaman. */
+            if (deleteBusy) return;
+            setDeleteBusy(true);
             try {
               await api.del(`/admin/streams/${deleting.id}`);
+              setDeleting(null);
               load();
             } catch (e) {
               setError(e instanceof ApiError ? e.message : "Gagal menghapus");
+            } finally {
+              setDeleteBusy(false);
             }
           }}
         />
@@ -723,6 +784,7 @@ export default function AdminStreamsPage() {
         <NBConfirmModal
           title="Hapus kamera terpilih"
           message={`Hapus ${selected.size} kamera terpilih?`}
+          busy={bulkBusy}
           onCancel={() => setBulkDeleting(false)}
           onConfirm={doBulkDelete}
         />

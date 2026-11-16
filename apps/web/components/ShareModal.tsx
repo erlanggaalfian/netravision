@@ -55,6 +55,10 @@ export function ShareModal({
   const [shares, setShares] = useState<Map<number, boolean> | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  /* Gagal muat sebelumnya spinner selamanya (loading tetap true):
+     tandai gagal + tombol "Coba lagi", pola yang sama di semua modal. */
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const isSuperAdmin = me?.role === "super_admin";
   /* Cakupan Bagikan: superadmin melihat semua akun. Admin biasa hanya
      melihat user/guest di grupnya sendiri, bukan dirinya sendiri;
@@ -69,6 +73,8 @@ export function ShareModal({
   });
 
   useEffect(() => {
+    setLoadFailed(false);
+    setError("");
     Promise.all([
       api.get<User[]>("/admin/users"),
       api.get<{ user_ids: number[]; shares: ShareEntry[] }>(
@@ -86,10 +92,11 @@ export function ShareModal({
         }
         setShares(m);
       })
-      .catch((e) =>
-        setError(e instanceof ApiError ? e.message : "Gagal memuat data"),
-      );
-  }, [streamId]);
+      .catch((e) => {
+        setLoadFailed(true);
+        setError(e instanceof ApiError ? e.message : "Gagal memuat data");
+      });
+  }, [streamId, reloadKey]);
 
   function toggleShare(uid: number) {
     setShares((prev) => {
@@ -149,6 +156,13 @@ export function ShareModal({
       {error && (
         <div className="mb-4">
           <ErrorBox message={error} />
+        </div>
+      )}
+      {loadFailed && (
+        <div className="mb-4 flex justify-center">
+          <Button variant="subtle" onClick={() => setReloadKey((k) => k + 1)}>
+            Coba lagi
+          </Button>
         </div>
       )}
       {loading ? (

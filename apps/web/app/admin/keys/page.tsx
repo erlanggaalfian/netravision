@@ -80,6 +80,10 @@ export default function AdminKeysPage() {
   const [error, setError] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [created, setCreated] = useState<CreatedKey | null>(null);
+  /* Salin key sekali tampil: umpan balik "Tersalin" / gagal salin,
+     supaya key tidak harus diseleksi manual. */
+  const [copiedKey, setCopiedKey] = useState(false);
+  const [copyKeyError, setCopyKeyError] = useState("");
   const [deleting, setDeleting] = useState<KeyOut | null>(null);
   const [clearingLogs, setClearingLogs] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
@@ -133,6 +137,10 @@ export default function AdminKeysPage() {
   }, [logKeyF, logStatusF]);
 
   const [togglingId, setTogglingId] = useState<number | null>(null);
+  /* Hapus key / hapus log async: modal konfirmasi nonaktif selama
+     proses (pola yang sama di semua halaman admin). */
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [clearBusy, setClearBusy] = useState(false);
 
   async function toggleActive(k: KeyOut) {
     if (togglingId !== null) return;
@@ -148,17 +156,22 @@ export default function AdminKeysPage() {
   }
 
   async function doDelete() {
-    if (!deleting) return;
+    if (!deleting || deleteBusy) return;
+    setDeleteBusy(true);
     try {
       await api.del(`/admin/api-keys/${deleting.id}`);
       setDeleting(null);
       loadKeys();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Gagal menghapus");
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
   async function doClearLogs() {
+    if (clearBusy) return;
+    setClearBusy(true);
     try {
       await api.del("/admin/api-access-logs");
       setClearingLogs(false);
@@ -166,6 +179,8 @@ export default function AdminKeysPage() {
       loadLogs(true);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Gagal menghapus log");
+    } finally {
+      setClearBusy(false);
     }
   }
 
@@ -327,13 +342,14 @@ export default function AdminKeysPage() {
         <div className="flex flex-wrap gap-2">
           <NBButton
             variant="secondary"
+            disabled={logsLoading}
             onClick={() => {
               setLogsOffset(0);
               loadLogs(true);
             }}
            
           >
-            Muat ulang
+            {logsLoading ? "Memuat…" : "Muat ulang"}
           </NBButton>
           <NBButton
             variant="danger"
@@ -439,6 +455,8 @@ export default function AdminKeysPage() {
           onCreated={(k) => {
             setShowAdd(false);
             setCreated(k);
+            setCopiedKey(false);
+            setCopyKeyError("");
             setGuideKey(k.key);
             loadKeys();
           }}
@@ -446,11 +464,35 @@ export default function AdminKeysPage() {
       )}
       {created && (
         <Modal title="API key dibuat" onClose={() => setCreated(null)}>
-          <ErrorBox message="Salin key ini sekarang, tidak akan ditampilkan lagi." />
+          {/* Peringatan sekali tampil, bukan error: kotak kuning, bukan
+              ErrorBox merah (ErrorBox hanya untuk kegagalan). */}
+          <div className="rounded-xl bg-warn-400/15 px-3.5 py-2.5 text-sm font-medium text-warn-300 ring-1 ring-warn-400/30">
+            Salin key ini sekarang, tidak akan ditampilkan lagi.
+          </div>
           <p className="mt-3 break-all rounded-lg bg-ink-950 p-3 font-mono text-sm text-accent-300">
             {created.key}
           </p>
+          {copyKeyError && (
+            <div className="mt-3">
+              <ErrorBox message={copyKeyError} />
+            </div>
+          )}
           <div className="mt-5 flex justify-end gap-2">
+            <NBButton
+              variant="secondary"
+              onClick={async () => {
+                const ok = await copyText(created.key);
+                if (ok) {
+                  setCopyKeyError("");
+                  setCopiedKey(true);
+                  setTimeout(() => setCopiedKey(false), 2000);
+                } else {
+                  setCopyKeyError("Gagal menyalin, seleksi key di atas lalu salin manual.");
+                }
+              }}
+            >
+              {copiedKey ? "Tersalin ✓" : "Salin key"}
+            </NBButton>
             <NBButton
               variant="secondary"
               onClick={() => {
@@ -468,6 +510,7 @@ export default function AdminKeysPage() {
         <NBConfirmModal
           title="Hapus API key"
           message={`Hapus key "${deleting.name}"? Embed yang memakainya ikut mati.`}
+          busy={deleteBusy}
           onCancel={() => setDeleting(null)}
           onConfirm={doDelete}
         />
@@ -476,6 +519,7 @@ export default function AdminKeysPage() {
         <NBConfirmModal
           title="Hapus semua log"
           message="Hapus seluruh catatan akses API? Tindakan ini tidak bisa dibatalkan."
+          busy={clearBusy}
           onCancel={() => setClearingLogs(false)}
           onConfirm={doClearLogs}
         />
@@ -604,6 +648,9 @@ function IntegrationGuideModal({
 }) {
   const [key, setKey] = useState(initialKey);
   const [copied, setCopied] = useState("");
+  /* Gagal salin (mis. clipboard diblokir) sebelumnya diam saja:
+     tombol tetap "Salin" tanpa penjelasan. */
+  const [copyError, setCopyError] = useState("");
   const origin = typeof window !== "undefined" ? window.location.origin : "";
 
   const methods = [
@@ -629,8 +676,14 @@ function IntegrationGuideModal({
 
   async function doCopy(id: string, text: string) {
     const ok = await copyText(text);
-    setCopied(ok ? id : "");
-    if (ok) setTimeout(() => setCopied(""), 2000);
+    if (ok) {
+      setCopyError("");
+      setCopied(id);
+      setTimeout(() => setCopied(""), 2000);
+    } else {
+      setCopied("");
+      setCopyError("Gagal menyalin, seleksi kode di atas lalu salin manual.");
+    }
   }
 
   return (
@@ -667,6 +720,11 @@ function IntegrationGuideModal({
           </div>
         ))}
       </div>
+      {copyError && (
+        <div className="mt-4">
+          <ErrorBox message={copyError} />
+        </div>
+      )}
     </Modal>
   );
 }

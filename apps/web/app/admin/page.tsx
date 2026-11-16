@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "../../lib/api";
+import { useAuth } from "../../lib/auth";
+import { filterStreamsForRole } from "../../lib/scope";
 import { useCameraStatus } from "../../hooks/useCameraStatus";
 import type { Stream, User } from "../../lib/types";
 import {
@@ -25,29 +27,56 @@ interface LogSummary {
 }
 
 export default function AdminDashboard() {
+  const { user: me } = useAuth();
+  const isSuperAdmin = me?.role === "super_admin";
   const { status } = useCameraStatus();
   const [streams, setStreams] = useState<Stream[] | null>(null);
   const [users, setUsers] = useState<User[] | null>(null);
   const [keys, setKeys] = useState<{ id: number }[] | null>(null);
   const [disk, setDisk] = useState<DiskRaw | null>(null);
   const [summary, setSummary] = useState<LogSummary | null>(null);
+  /* Gagal muat bukan loading selamanya: tandai selesai supaya spinner
+     diganti pesan gagal (sebelumnya disk/summary null = Spinner tanpa
+     henti bila endpoint gagal). */
+  const [diskLoaded, setDiskLoaded] = useState(false);
+  const [summaryLoaded, setSummaryLoaded] = useState(false);
 
   useEffect(() => {
     api.get<Stream[]>("/admin/streams").then(setStreams).catch(() => setStreams([]));
     api.get<User[]>("/admin/users").then(setUsers).catch(() => setUsers([]));
+    api
+      .get<DiskRaw>("/admin/disk-summary")
+      .then(setDisk)
+      .catch(() => setDisk(null))
+      .finally(() => setDiskLoaded(true));
+  }, []);
+
+  /* API key dan ringkasan akses embed adalah data superadmin saja
+     (endpoint dan halamannya super_admin-only): admin biasa tidak
+     perlu memintanya, dan ubinnya disembunyikan di bawah. */
+  useEffect(() => {
+    if (!me || !isSuperAdmin) return;
     api.get<{ id: number }[]>("/admin/api-keys").then(setKeys).catch(() => setKeys([]));
-    api.get<DiskRaw>("/admin/disk-summary").then(setDisk).catch(() => setDisk(null));
     api
       .get<LogSummary>("/admin/api-access-logs/summary")
       .then(setSummary)
-      .catch(() => setSummary(null));
-  }, []);
+      .catch(() => setSummary(null))
+      .finally(() => setSummaryLoaded(true));
+  }, [me, isSuperAdmin]);
 
-  const online = streams
-    ? streams.filter((s) => status.get(s.id) ?? s.is_online).length
+  /* Jumlah kamera untuk admin biasa hanya yang terlihat (kamera
+     sendiri atau yang di-grant can_view, lib/scope.ts); selama
+     identitas belum dimuat tampilkan "…" supaya jumlah semua
+     kamera tidak sempat bocor. */
+  const visibleStreams =
+    streams === null || !me ? null : filterStreamsForRole(me, streams);
+  const online = visibleStreams
+    ? visibleStreams.filter((s) => status.get(s.id) ?? s.is_online).length
     : null;
   const offlineCount =
-    streams === null || online === null ? null : streams.length - online;
+    visibleStreams === null || online === null
+      ? null
+      : visibleStreams.length - online;
 
   const diskPct = disk && disk.total > 0 ? (disk.used / disk.total) * 100 : 0;
   const diskTone =
@@ -95,7 +124,7 @@ export default function AdminDashboard() {
             Kamera
           </p>
           <p className="tnum mt-1.5 text-[28px] font-bold leading-none tracking-tight text-white">
-            {streams === null ? "…" : streams.length}
+            {visibleStreams === null ? "…" : visibleStreams.length}
           </p>
           {online !== null && (
             <p className="mt-1.5 text-xs text-slate-400">
@@ -118,6 +147,7 @@ export default function AdminDashboard() {
             {users === null ? "…" : users.length}
           </p>
         </Link>
+        {isSuperAdmin && (
         <Link href="/admin/keys" className={tileClass}>
           {chev}
           <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
@@ -130,6 +160,8 @@ export default function AdminDashboard() {
             {keys === null ? "…" : keys.length}
           </p>
         </Link>
+        )}
+        {isSuperAdmin && (
         <Link href="/admin/keys" className={tileClass}>
           {chev}
           <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
@@ -144,6 +176,7 @@ export default function AdminDashboard() {
           </p>
           <p className="mt-1.5 text-xs text-slate-400">total tercatat</p>
         </Link>
+        )}
       </div>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
@@ -162,7 +195,13 @@ export default function AdminDashboard() {
             )}
           </div>
           {disk === null ? (
-            <Spinner />
+            diskLoaded ? (
+              <p className="mt-3 text-sm text-slate-400">
+                Status penyimpanan tidak bisa dimuat.
+              </p>
+            ) : (
+              <Spinner />
+            )
           ) : (
             <div className="mt-3">
               <div
@@ -187,12 +226,21 @@ export default function AdminDashboard() {
           )}
         </NBCard>
 
+        {isSuperAdmin && (
         <NBCard className="p-0">
           <h2 className="px-4 pt-4 text-lg font-bold tracking-tight text-white sm:px-5 sm:pt-5">
             Akses embed per API key
           </h2>
           {summary === null ? (
-            <Spinner />
+            summaryLoaded ? (
+              <div className="px-4 pb-4 sm:px-5 sm:pb-5">
+                <div className="mt-3">
+                  <EmptyState text="Akses embed tidak bisa dimuat." />
+                </div>
+              </div>
+            ) : (
+              <Spinner />
+            )
           ) : summary.by_key.length === 0 ? (
             <div className="px-4 pb-4 sm:px-5 sm:pb-5">
               <div className="mt-3">
@@ -215,6 +263,7 @@ export default function AdminDashboard() {
             </ul>
           )}
         </NBCard>
+        )}
       </div>
     </div>
   );

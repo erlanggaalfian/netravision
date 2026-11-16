@@ -286,12 +286,18 @@ export function NBConfirmModal({
   onCancel,
   onConfirm,
   confirmLabel = "Hapus",
+  busy = false,
 }: {
   title: string;
   message: string;
   onCancel: () => void;
   onConfirm: () => void;
   confirmLabel?: string;
+  /* Aksi destruktif async (hapus kamera/pengguna/key/log/folder/akun):
+     saat busy, kedua tombol nonaktif dan label konfirmasi menunjukkan
+     proses, supaya tidak bisa diklik ganda dan ada umpan balik.
+     Sama seperti ConfirmModal di components/ui.tsx. */
+  busy?: boolean;
 }) {
   const titleId = useId();
   useEffect(() => {
@@ -330,11 +336,11 @@ export function NBConfirmModal({
         <div className="px-4 py-4">
           <p className="text-[15px] leading-relaxed text-slate-300">{message}</p>
           <div className="mt-5 grid gap-2.5 sm:flex sm:justify-end">
-            <NBButton variant="secondary" onClick={onCancel} className="w-full sm:w-auto">
+            <NBButton variant="secondary" onClick={onCancel} disabled={busy} className="w-full sm:w-auto">
               Batal
             </NBButton>
-            <NBButton variant="danger" onClick={onConfirm} className="w-full sm:w-auto">
-              {confirmLabel}
+            <NBButton variant="danger" onClick={onConfirm} disabled={busy} className="w-full sm:w-auto">
+              {busy ? "Menghapus…" : confirmLabel}
             </NBButton>
           </div>
         </div>

@@ -110,6 +110,9 @@ export default function AdminUsersPage() {
   const [editing, setEditing] = useState<User | null>(null);
   const [accessFor, setAccessFor] = useState<User | null>(null);
   const [deleting, setDeleting] = useState<User | null>(null);
+  /* Hapus async: modal konfirmasi nonaktif selama proses (pola yang
+     sama di semua halaman admin). */
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   /* Daftar grup yang sudah ada (untuk pilihan di form). */
   const groups = useMemo(
@@ -209,8 +212,13 @@ export default function AdminUsersPage() {
   /* Satu baris pengguna. Anggota grup tidak menampilkan lencana iklan:
      iklan diatur serentak di baris induk grup, dan nama grup sudah
      tertulis di sana (paritas v2.0). */
-  /* Checkbox dan aksi dipakai baris lepas maupun anggota grup. */
+  /* Checkbox dan aksi dipakai baris lepas maupun anggota grup.
+     Pemilihan massal hanya untuk superadmin: satu-satunya aksi
+     massal adalah Set grup, dan backend memaksa admin biasa ke
+     grupnya sendiri sehingga tombol itu tidak pernah mengubah
+     apa pun untuk admin. */
   function checkboxFor(u: User) {
+    if (!isSuperAdmin) return null;
     return (
       <NBCheckbox
         checked={selected.has(u.id)}
@@ -292,6 +300,10 @@ export default function AdminUsersPage() {
               Akses Kamera
             </NBButton>
           )}
+        {/* Ubah: admin biasa tidak boleh mengelola admin lain
+            (backend can_manage_user menolak, termasuk admin yang
+            ia buat sendiri); ubah akun sendiri tetap boleh. */}
+        {!(u.role === "admin" && !isSuperAdmin && u.id !== me?.id) && (
         <NBButton
           variant="secondary"
           onClick={() => setEditing(u)}
@@ -300,6 +312,11 @@ export default function AdminUsersPage() {
         >
           Ubah
         </NBButton>
+        )}
+        {/* Hapus: menghapus akun sendiri selalu 400 di backend,
+            dan admin biasa tidak boleh menghapus admin/superadmin. */}
+        {u.id !== me?.id &&
+          (isSuperAdmin || (u.role !== "admin" && u.role !== "super_admin")) && (
         <NBButton
           variant="danger"
           onClick={() => setDeleting(u)}
@@ -308,6 +325,7 @@ export default function AdminUsersPage() {
         >
           Hapus
         </NBButton>
+        )}
       </div>
     );
   }
@@ -516,13 +534,16 @@ export default function AdminUsersPage() {
   }, [me?.id]);
 
   async function doDelete() {
-    if (!deleting) return;
+    if (!deleting || deleteBusy) return;
+    setDeleteBusy(true);
     try {
       await api.del(`/admin/users/${deleting.id}`);
       setDeleting(null);
       load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Gagal menghapus");
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -551,8 +572,9 @@ export default function AdminUsersPage() {
         <NBEmptyState icon={<UserIcon className="h-8 w-8 text-slate-500" />} text="Belum ada pengguna." />
       ) : (
         <>
-          {/* Bar bulk ala Kamera */}
-          {selected.size > 0 && (
+          {/* Bar bulk ala Kamera: hanya superadmin (lihat
+              checkboxFor: Set grup tidak berguna untuk admin). */}
+          {isSuperAdmin && selected.size > 0 && (
             <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl bg-ink-900 shadow-sm px-4 py-3">
               <span className="text-sm text-slate-300">
                 {selected.size} dipilih
@@ -572,6 +594,7 @@ export default function AdminUsersPage() {
               </button>
             </div>
           )}
+          {isSuperAdmin && (
           <div className="mb-2 flex items-center gap-3 px-1">
             <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-400">
               <NBCheckbox
@@ -591,6 +614,7 @@ export default function AdminUsersPage() {
               Pilih semua di halaman ini
             </label>
           </div>
+          )}
           <div className="space-y-3">
           {perGrup.map(([name, members]) => {
             const allAds =
@@ -603,6 +627,7 @@ export default function AdminUsersPage() {
               >
                 <div className="flex items-center justify-between gap-4 border-b border-ink-850 px-5 py-3 sm:px-6 md:py-4">
                   <div className="flex min-w-0 flex-1 items-center gap-3">
+                    {isSuperAdmin && (
                     <NBCheckbox
                       checked={
                         members.length > 0 &&
@@ -611,6 +636,7 @@ export default function AdminUsersPage() {
                       onChange={() => toggleSelectGroup(members)}
                       ariaLabel={`Pilih semua anggota ${name}`}
                     />
+                    )}
                     {/* Nama grup bertumpuk (HP): GRUP(3 Anggota) di atas, nama di bawah.
                         Centang tetap di samping nama (tengah vertikal), bukan di bawahnya. */}
                     <button
@@ -821,6 +847,7 @@ export default function AdminUsersPage() {
         <NBConfirmModal
           title="Hapus pengguna"
           message={`Hapus akun "${deleting.username}"?`}
+          busy={deleteBusy}
           onCancel={() => setDeleting(null)}
           onConfirm={doDelete}
         />
@@ -1264,11 +1291,18 @@ function GroupAccessModal({
     null,
   );
   const [loaded, setLoaded] = useState(false);
+  /* Muat ulang daftar saat gagal (pola yang sama di semua modal hak
+     akses): tombol "Coba lagi" memicu effect ini lagi. */
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    setLoaded(false);
+    setLoadFailed(false);
+    setError("");
     const adminMembers = members.filter((m) => m.role === "admin");
     Promise.all([
       Promise.all(
@@ -1338,6 +1372,7 @@ function GroupAccessModal({
         setInitial(map);
       })
       .catch((e) => {
+        setLoadFailed(true);
         setError(e instanceof ApiError ? e.message : "Gagal memuat hak akses");
       })
       .finally(() => {
@@ -1349,7 +1384,7 @@ function GroupAccessModal({
     /* E-T2: tunggu streams/reshareIds selesai dimuat sebelum
        membangun peta awal; bangun ulang saat streams berubah. */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [members, streams]);
+  }, [members, streams, reloadKey]);
 
   function setFlag(
     id: number,
@@ -1453,6 +1488,13 @@ function GroupAccessModal({
       {error && (
         <div className="mb-4">
           <ErrorBox message={error} />
+        </div>
+      )}
+      {loadFailed && (
+        <div className="mb-4">
+          <NBButton variant="secondary" onClick={() => setReloadKey((k) => k + 1)}>
+            Coba lagi
+          </NBButton>
         </div>
       )}
       {!loaded ? (
@@ -1591,8 +1633,14 @@ function UserAccessModal({
   const [loadFailed, setLoadFailed] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  /* Muat ulang daftar saat gagal (pola yang sama di semua modal hak
+     akses): tombol "Coba lagi" memicu effect ini lagi. */
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    setLoaded(false);
+    setLoadFailed(false);
+    setError("");
     api
       .get<{
         shares: { stream_id: number; can_playback: boolean }[];
@@ -1612,7 +1660,7 @@ function UserAccessModal({
         setError(e instanceof ApiError ? e.message : "Gagal memuat hak akses");
       })
       .finally(() => setLoaded(true));
-  }, [user.id]);
+  }, [user.id, reloadKey]);
 
   function setFlag(
     id: number,
@@ -1657,6 +1705,13 @@ function UserAccessModal({
       {error && (
         <div className="mb-4">
           <ErrorBox message={error} />
+        </div>
+      )}
+      {loadFailed && (
+        <div className="mb-4">
+          <NBButton variant="secondary" onClick={() => setReloadKey((k) => k + 1)}>
+            Coba lagi
+          </NBButton>
         </div>
       )}
       {!loaded ? (
@@ -1800,8 +1855,14 @@ function AdminGrantModal({
   const [loadFailed, setLoadFailed] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  /* Muat ulang daftar saat gagal (pola yang sama di semua modal hak
+     akses): tombol "Coba lagi" memicu effect ini lagi. */
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    setLoaded(false);
+    setLoadFailed(false);
+    setError("");
     api
       .get<{
         grants: {
@@ -1827,7 +1888,7 @@ function AdminGrantModal({
         setError(e instanceof ApiError ? e.message : "Gagal memuat hak akses");
       })
       .finally(() => setLoaded(true));
-  }, [user.id]);
+  }, [user.id, reloadKey]);
 
   function setFlag(
     id: number,
@@ -1873,6 +1934,13 @@ function AdminGrantModal({
       {error && (
         <div className="mb-4">
           <ErrorBox message={error} />
+        </div>
+      )}
+      {loadFailed && (
+        <div className="mb-4">
+          <NBButton variant="secondary" onClick={() => setReloadKey((k) => k + 1)}>
+            Coba lagi
+          </NBButton>
         </div>
       )}
       {!loaded ? (

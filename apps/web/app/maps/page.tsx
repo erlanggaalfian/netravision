@@ -63,6 +63,7 @@ function MarkerPopup({
   isSuperAdmin,
   editing,
   pendingCoords,
+  saving,
   onEditLocation,
   onSaveLocation,
   onCancelLocation,
@@ -73,6 +74,10 @@ function MarkerPopup({
   isSuperAdmin: boolean;
   editing: boolean;
   pendingCoords: string | null;
+  /* Sedang menyimpan posisi: tombol Save/Batal nonaktif + label proses,
+     supaya tidak bisa dikirim ganda (pola yang sama di semua tombol
+     simpan). */
+  saving: boolean;
   onEditLocation: () => void;
   onSaveLocation: () => void;
   onCancelLocation: () => void;
@@ -129,10 +134,10 @@ function MarkerPopup({
                   Seret marker ke posisi baru.
                 </div>
               )}
-              <Button variant="primary" className="w-full" onClick={onSaveLocation}>
-                Save Lokasi
+              <Button variant="primary" className="w-full" onClick={onSaveLocation} disabled={saving}>
+                {saving ? "Menyimpan…" : "Save Lokasi"}
               </Button>
-              <Button variant="subtle" className="w-full" onClick={onCancelLocation}>
+              <Button variant="subtle" className="w-full" onClick={onCancelLocation} disabled={saving}>
                 Batal
               </Button>
             </div>
@@ -599,6 +604,7 @@ export default function MapsPage() {
                 ? `${pendingPos.lat.toFixed(5)}, ${pendingPos.lng.toFixed(5)}`
                 : null
             }
+            saving={savingId === s.id}
             onEditLocation={() => startEditLocation(s)}
             onSaveLocation={() => saveLocation(s)}
             onCancelLocation={() => cancelLocation(s)}
@@ -631,6 +637,7 @@ export default function MapsPage() {
               ? `${pendingPos.lat.toFixed(5)}, ${pendingPos.lng.toFixed(5)}`
               : null
           }
+          saving={savingId === s.id}
           onEditLocation={() => startEditLocation(s)}
           onSaveLocation={() => saveLocation(s)}
           onCancelLocation={() => cancelLocation(s)}
@@ -662,7 +669,7 @@ export default function MapsPage() {
       map.fitBounds(L.latLngBounds(bounds).pad(0.25));
       fittedRef.current = true;
     }
-  }, [mappedShown, isSuperAdmin, mapReady, editingLocationId, pendingPos]);
+  }, [mappedShown, isSuperAdmin, mapReady, editingLocationId, pendingPos, savingId]);
 
   /* Admin: tandai kamera belum-dipetakan di tengah peta. */
   const placeAtCenter = async (s: Stream) => {
