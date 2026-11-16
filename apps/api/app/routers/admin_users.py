@@ -116,6 +116,15 @@ def _tentukan_grup(pengelola: User, diminta: str | None, bawaan: str | None = No
     return bersih or None
 
 
+async def _super_admin_count(db: AsyncSession) -> int:
+    """Jumlah super_admin aktif di DB; dipakai penjaga super_admin terakhir."""
+    return (
+        await db.execute(
+            select(func.count(User.id)).where(User.role == "super_admin")
+        )
+    ).scalar() or 0
+
+
 async def _get_user_or_404(user_id: int, db: AsyncSession) -> User:
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalars().first()
@@ -154,12 +163,35 @@ async def _admin_reshare_scope(me: User, db: AsyncSession) -> set[int]:
     return set(rows.scalars().all())
 
 
-def _check_same_group(me: User, target: User) -> None:
-    """Admin biasa hanya boleh mengelola/melihat user di grupnya (A-S7)."""
+def _admin_may_see_user(me: User, target: User) -> bool:
+    """Satu aturan visibilitas admin atas akun lain (S-7), dipakai
+    list_users dan akses kamera secara identik.
+
+    Admin melihat: dirinya sendiri; akun yang ia buat (parent);
+    user/guest di grup wilayahnya sendiri (dibuat super_admin pun
+    tetap terlihat, karena pengelolaannya memang cakupan grup).
+    Sesama admin/super_admin tidak terlihat/dikelola admin biasa,
+    dan user grup lain tidak terlihat walau parent-nya siapa pun.
+    Mutasi akun itu sendiri (PUT/DELETE user) tetap memakai
+    can_manage_user (parent-based, dikunci test paritas RBAC).
+    """
     if is_super_admin(me):
-        return
+        return True
+    if (getattr(me, "role", "") or "") != "admin":
+        return False
+    if target.id == me.id:
+        return True
+    if (getattr(target, "role", "") or "") in ("admin", "super_admin"):
+        return False
+    if (getattr(target, "parent_admin_id", None) or 0) == me.id:
+        return True
     grup = (me.admin_group or "").strip()
-    if not grup or (target.admin_group or "").strip() != grup:
+    return bool(grup) and (target.admin_group or "").strip() == grup
+
+
+def _check_same_group(me: User, target: User) -> None:
+    """Admin biasa hanya boleh mengelola/melihat user di cakupannya (S-7)."""
+    if not _admin_may_see_user(me, target):
         raise HTTPException(
             status_code=403,
             detail="hanya boleh mengatur akses kamera user di grup Anda",
@@ -170,13 +202,21 @@ def _check_same_group(me: User, target: User) -> None:
 async def list_users(
     db: AsyncSession = Depends(get_db), me: User = Depends(admin_only)
 ):
-    """Daftar user. Admin biasa hanya melihat dirinya + akun buatannya;
+    """Daftar user. Admin biasa hanya melihat dirinya + akun buatannya
+    + user/guest di grupnya (satu aturan _admin_may_see_user, S-7);
     super_admin melihat semua (paritas v2.0: bawahan_saya)."""
     q = select(User).order_by(User.username)
     if not is_super_admin(me):
-        q = q.where(
-            (User.id == me.id) | (User.parent_admin_id == me.id)
-        )
+        from sqlalchemy import or_ as _or
+
+        conds = [(User.id == me.id), (User.parent_admin_id == me.id)]
+        grup = (me.admin_group or "").strip()
+        if grup:
+            conds.append(
+                (User.admin_group == grup)
+                & (User.role.in_(["user", "guest"]))
+            )
+        q = q.where(_or(*conds))
     result = await db.execute(q)
     users = result.scalars().all()
     return [await _out(u, db) for u in users]
@@ -260,6 +300,14 @@ async def update_user(
             raise HTTPException(400, "role tidak valid")
         if data.role == "super_admin" and not is_super_admin(me):
             raise HTTPException(403, "hanya super_admin yang bisa memberi peran super_admin")
+        # Penjaga super_admin terakhir: menurunkan peran satu-satunya
+        # super_admin mengunci sistem tanpa admin penuh.
+        if (
+            user.role == "super_admin"
+            and data.role != "super_admin"
+            and await _super_admin_count(db) <= 1
+        ):
+            raise HTTPException(400, "tidak bisa menurunkan super_admin terakhir")
         user.role = data.role
     if data.is_active is not None:
         user.is_active = data.is_active
@@ -272,6 +320,16 @@ async def update_user(
             if user.role == "super_admin"
             else _tentukan_grup(me, data.admin_group)
         )
+    # Invarian peran, berlaku walau admin_group tidak ikut dikirim:
+    # super_admin selalu tanpa grup; admin baru (lewat ganti peran)
+    # selalu punya grup, sama seperti saat dibuat di POST /admin/users.
+    if user.role == "super_admin":
+        user.admin_group = None
+    elif user.role == "admin" and not (user.admin_group or "").strip():
+        if is_super_admin(me):
+            user.admin_group = f"grup-{user.username}"[:60]
+        else:
+            user.admin_group = (me.admin_group or "").strip() or f"grup-{user.username}"[:60]
     await db.commit()
     await db.refresh(user)
     return await _out(user, db)
@@ -288,6 +346,10 @@ async def delete_user(
     user = await _get_user_or_404(user_id, db)
     if user.role == "guest":
         raise HTTPException(400, "akun guest tidak bisa dihapus")
+    # Penjaga super_admin terakhir: menghapus satu-satunya super_admin
+    # mengunci sistem tanpa admin penuh.
+    if user.role == "super_admin" and await _super_admin_count(db) <= 1:
+        raise HTTPException(400, "tidak bisa menghapus super_admin terakhir")
     if not can_manage_user(me, user):
         raise HTTPException(403, "tidak boleh menghapus akun ini")
     await db.delete(user)
@@ -454,8 +516,20 @@ async def set_admin_grants(
     grants = deduped
     await _validate_stream_ids(db, [g.stream_id for g in grants])
     # Kamera tanpa live maupun rekaman berarti tidak diberikan sama
-    # sekali (paritas v2.0).
-    grants = [g for g in grants if g.can_view or g.can_playback]
+    # sekali (paritas v2.0). can_reshare memaksa can_view, sama seperti
+    # POST /admin/streams/{id}/grants: membagikan butuh live, jadi
+    # grant can_reshare=True + can_view=False tidak boleh tersimpan
+    # sebagai grant yang require_reshare-nya selalu gagal.
+    grants = [
+        AdminGrantIn(
+            stream_id=g.stream_id,
+            can_view=g.can_view or g.can_reshare,
+            can_playback=g.can_playback,
+            can_reshare=g.can_reshare,
+        )
+        for g in grants
+        if g.can_view or g.can_playback or g.can_reshare
+    ]
     await db.execute(
         delete(StreamAdminGrant).where(StreamAdminGrant.admin_id == admin_id)
     )
@@ -492,9 +566,17 @@ async def access_overview(
         streams_q = select(Stream.id, Stream.name).where(Stream.is_active.is_(True))
     else:
         grup = (me.admin_group or "").strip()
+        from sqlalchemy import or_ as _or
+
+        _conds = [(User.id == me.id), (User.parent_admin_id == me.id)]
+        if grup:
+            _conds.append(
+                (User.admin_group == grup)
+                & (User.role.in_(["user", "guest"]))
+            )
         roles_q = (
             select(User.role, func.count(User.id))
-            .where(User.admin_group == grup)
+            .where(_or(*_conds))
             .group_by(User.role)
         )
         scope = await _admin_reshare_scope(me, db)

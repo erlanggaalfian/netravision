@@ -367,10 +367,8 @@ def create_app() -> FastAPI:
     app.include_router(metrics.router, prefix="/api")
     app.include_router(auth.router, prefix="/api")
     app.include_router(streams.router, prefix="/api")
-    # admin_disks SEBELUM admin_streams: keduanya mendaftarkan
-    # GET /admin/disks, dan FastAPI memakai rute yang terdaftar duluan.
-    # Rute baru (list v2.0) yang menang; disk_info lama di admin_streams
-    # tetap ada tapi terbayangi sampai diputuskan dihapus/dipindah.
+    # /admin/disks (admin_disks) dan /admin/disk-summary (admin_streams)
+    # adalah dua endpoint berbeda; tidak ada rute yang saling membayangi.
     app.include_router(admin_disks.router, prefix="/api")
     app.include_router(admin_streams.router, prefix="/api")
     app.include_router(admin_scan.router, prefix="/api")

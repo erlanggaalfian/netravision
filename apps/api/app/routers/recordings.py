@@ -19,7 +19,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
-from app.core.rbac import require_camera_playback_access, require_roles
+from app.core.rbac import (
+    _check_camera_access,
+    require_camera_playback_access,
+    require_roles,
+)
 from app.db.session import get_db
 from app.models.streams import Stream
 from app.models.users import User
@@ -165,7 +169,11 @@ async def _all_segments(
     Lokal menang bila nama sama, lalu folder-link, lalu folder OAuth.
     """
     settings = get_settings()
-    segs = list_segments(stream.id, day, settings.recordings_dir)
+    # Rekaman multi-disk: list_segments harus diberi stream supaya
+    # direktori record_disk kamera itu dipakai, bukan recordings_dir
+    # default (tanpa ini rekaman kamera multi-disk tidak terlihat di
+    # Putar Ulang sama sekali).
+    segs = list_segments(stream.id, day, settings.recordings_dir, stream=stream)
     if stream.storage_mode in ("drive", "both"):
         names = {s.name for s in segs}
         # B-T1: staging lokal folder-link (mirror rclone).
@@ -246,6 +254,20 @@ def _parse_range(header: str | None, total: int) -> tuple[int, int, bool]:
         return 0, total - 1, False
     end = int(m.group(2)) if m.group(2) else total - 1
     return start, min(end, total - 1), True
+
+
+def _range_unsatisfiable(header: str | None, total: int) -> bool:
+    """True bila Range meminta byte di luar ukuran file (start >= total).
+
+    Bedakan dari Range yang tidak valid/tidak ada (keduanya dilayani
+    200 utuh): yang tidak bisa dipenuhi harus 416, bukan 200 diam-diam,
+    supaya pemutar video tahu seek-nya gagal, konsisten di semua
+    cabang Drive (rclone dan OAuth).
+    """
+    if not header or total <= 0:
+        return False
+    m = re.match(r"bytes=(\d+)-(\d*)$", header.strip())
+    return bool(m) and int(m.group(1)) >= total
 
 
 def _cleanup(path: str) -> None:
@@ -467,9 +489,18 @@ async def _serve_segment(
         from app.services import gdrive_rclone as gr
 
         total = seg.size or 0
-        r_start, r_end, has_range = _parse_range(
-            request.headers.get("range") if request is not None else None, total
-        )
+        _range_header = request.headers.get("range") if request is not None else None
+        if _range_unsatisfiable(_range_header, total):
+            from fastapi.responses import Response
+
+            return Response(
+                status_code=416,
+                headers={
+                    "Content-Range": f"bytes */{total}",
+                    "Accept-Ranges": "bytes",
+                },
+            )
+        r_start, r_end, has_range = _parse_range(_range_header, total)
         headers = {"Accept-Ranges": "bytes"}
         status_code = 200
         if has_range:
@@ -535,9 +566,18 @@ async def _serve_segment(
 
     # B-S1: dukung HTTP Range seperti segmen lokal (seek pemutar video).
     total = seg.size or 0
-    r_start, r_end, has_range = _parse_range(
-        request.headers.get("range") if request is not None else None, total
-    )
+    _range_header = request.headers.get("range") if request is not None else None
+    if _range_unsatisfiable(_range_header, total):
+        from fastapi.responses import Response
+
+        return Response(
+            status_code=416,
+            headers={
+                "Content-Range": f"bytes */{total}",
+                "Accept-Ranges": "bytes",
+            },
+        )
+    r_start, r_end, has_range = _parse_range(_range_header, total)
     headers = {"Accept-Ranges": "bytes"}
     status_code = 200
     if has_range:
@@ -607,7 +647,15 @@ async def recording_cameras(
     streams = await _visible_streams(user, db)
     out: list[StreamOut] = []
     for s in streams:
-        if list_segments(s.id, None, settings.recordings_dir):
+        # Pemilih Putar Ulang hanya menampilkan kamera yang playback-nya
+        # diizinkan (bukan sekadar live): user dengan can_view tapi
+        # tanpa can_playback sebelumnya melihat kamera di daftar lalu
+        # ditolak 403 di timeline/segmen.
+        try:
+            await _check_camera_access(s.id, user, db, need_playback=True)
+        except HTTPException:
+            continue
+        if list_segments(s.id, None, settings.recordings_dir, stream=s):
             out.append(stream_to_out(s, settings))
             continue
         if s.storage_mode in ("drive", "both"):
@@ -696,8 +744,8 @@ async def stream_range(
         start = start.replace(tzinfo=None)
     if end is not None and end.tzinfo is not None:
         end = end.replace(tzinfo=None)
-    if end is not None and end < start:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "end < start")
+    if end is not None and end <= start:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "end harus setelah start")
     stream = await _get_stream(stream_id, db)
     seg = await _containing(stream, start, db)
     if seg is None:
@@ -723,8 +771,8 @@ async def download_file(
         start = start.replace(tzinfo=None)
     if end.tzinfo is not None:
         end = end.replace(tzinfo=None)
-    if end < start:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "end < start")
+    if end <= start:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "end harus setelah start")
     stream = await _get_stream(stream_id, db)
     seg = await _containing(stream, start, db)
     if seg is None:
@@ -876,7 +924,9 @@ async def _find_next_drive_aware(
     """
     if after.tzinfo is not None:
         after = after.replace(tzinfo=None)
-    res = find_next_playable(stream.id, after, get_settings().recordings_dir)
+    res = find_next_playable(
+        stream.id, after, get_settings().recordings_dir, stream=stream
+    )
     if res is not None:
         return res
     if stream.storage_mode in ("drive", "both"):

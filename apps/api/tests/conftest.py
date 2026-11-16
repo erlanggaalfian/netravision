@@ -104,8 +104,14 @@ def _reset_rate_limiters():
     from app.core.rate_limit import reset_rate_limits
 
     reset_rate_limits()
+    # Kunci brute-force password API key (external._KEY_FAILURES)
+    # juga harus bersih antar-test, seperti rate limiter.
+    from app.routers import external as _external
+
+    _external._KEY_FAILURES.clear()
     yield
     reset_rate_limits()
+    _external._KEY_FAILURES.clear()
 
 
 @pytest.fixture(autouse=True)

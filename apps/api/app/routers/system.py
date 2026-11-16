@@ -1,5 +1,6 @@
 """GET /api/health — status komponen (DB + MediaMTX)."""
 
+import logging
 import time
 
 import httpx
@@ -20,14 +21,18 @@ async def check_database() -> dict:
         ms = round((time.perf_counter() - started) * 1000, 1)
         return {"name": "database", "status": "ok", "latency_ms": ms}
     except Exception as e:  # noqa: BLE001 — health tidak boleh raise
-        return {"name": "database", "status": "error", "detail": str(e)[:200]}
+        # Detail internal (pesan koneksi DB) hanya ke log server;
+        # respons publik hanya kode generik (S-6).
+        log = logging.getLogger("netravision.health")
+        log.warning("health database gagal: %s", e)
+        return {"name": "database", "status": "error", "detail": "database_error"}
 
 
 async def check_mediamtx() -> dict:
     started = time.perf_counter()
     url = f"{get_settings().mediamtx_api_url.rstrip('/')}/v3/config/global/get"
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
+        async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
             resp = await client.get(url)
         ms = round((time.perf_counter() - started) * 1000, 1)
         # A-S11: hanya 2xx yang sehat; 4xx/5xx (salah konfigurasi,
@@ -36,7 +41,9 @@ async def check_mediamtx() -> dict:
             return {"name": "mediamtx", "status": "ok", "latency_ms": ms}
         return {"name": "mediamtx", "status": "error", "detail": f"http {resp.status_code}"}
     except Exception as e:  # noqa: BLE001
-        return {"name": "mediamtx", "status": "error", "detail": str(e)[:200]}
+        log = logging.getLogger("netravision.health")
+        log.warning("health mediamtx gagal: %s", e)
+        return {"name": "mediamtx", "status": "error", "detail": "mediamtx_error"}
 
 
 @router.get("/health")

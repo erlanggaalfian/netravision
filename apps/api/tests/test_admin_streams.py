@@ -411,7 +411,11 @@ async def test_sharing_grants_view_access(app_client):
 
 
 async def test_update_toggle_record_patch_mediamtx(app_client):
-    """PUT recording_enabled mem-patch record path main (sub tidak direkam)."""
+    """PUT recording_enabled menyelaraskan flag record di MediaMTX
+    lewat register_stream: kamera bersub, SUB yang merekam (main
+    record=False); tanpa sub, main yang merekam. Perilaku lama
+    (patch main saja, sub tidak pernah disentuh) salah: toggle
+    rekaman tidak berpengaruh pada rekaman sub yang sebenarnya."""
     app, fake, db = app_client
     admin = make_user(role="super_admin")
     s = Stream(id=1, name="Cam 1", rtsp_url="rtsp://u:p@cam/1",
@@ -422,12 +426,13 @@ async def test_update_toggle_record_patch_mediamtx(app_client):
     async with _client(app) as c:
         r = await c.put("/api/admin/streams/1", json={"recording_enabled": True})
     assert r.status_code == 200, r.text
-    assert fake.patches["stream_1"] == {"record": True}
-    assert "stream_1_sub" not in fake.patches
+    assert fake.confs["stream_1_sub"]["record"] is True
+    assert fake.confs["stream_1"]["record"] is False
     async with _client(app) as c:
         r = await c.put("/api/admin/streams/1", json={"recording_enabled": False})
     assert r.status_code == 200, r.text
-    assert fake.patches["stream_1"]["record"] is False
+    assert fake.confs["stream_1_sub"]["record"] is False
+    assert fake.confs["stream_1"]["record"] is False
 
 
 async def test_update_main_sub_url(app_client):

@@ -174,11 +174,16 @@ def _parse_www_authenticate(header_value: str) -> dict | None:
     return params if "nonce" in params else None
 
 
-def _digest_auth_value(user: str, password: str, method: str, uri: str,
+def _digest_auth_value(user: str, password: str | None, method: str, uri: str,
                        params: dict, cnonce: str = "netravision") -> str:
     realm = params.get("realm", "")
     nonce = params["nonce"]
     qop = params.get("qop", "")
+    # Password None (URL tanpa password) harus dihitung sebagai string
+    # kosong, bukan literal "None" (bug sebelumnya: f-string None
+    # menghasilkan hash untuk password "None" sehingga auth selalu gagal
+    # untuk kamera tanpa password yang menantang Digest).
+    password = password or ""
     ha1 = hashlib.md5(f"{user}:{realm}:{password}".encode()).hexdigest()
     ha2 = hashlib.md5(f"{method}:{uri}".encode()).hexdigest()
     if "auth" in qop:

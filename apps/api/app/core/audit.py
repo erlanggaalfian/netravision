@@ -21,12 +21,25 @@ _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
 def _client_ip(scope) -> str | None:
+    """IP klien audit: percaya X-Forwarded-For HANYA dari proxy
+    tepercaya, sama seperti rate_limit.client_ip (T-5). Sebelumnya
+    XFF mentah dipakai tanpa syarat sehingga pelaku bisa memalsukan
+    IP di audit log."""
+    from app.core.rate_limit import _is_trusted_proxy
+
     headers = {k.decode("latin-1"): v.decode("latin-1") for k, v in scope.get("headers", [])}
-    fwd = headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",")[0].strip()
     client = scope.get("client")
-    return client[0] if client else None
+    peer = client[0] if client else None
+    if peer and _is_trusted_proxy(peer):
+        fwd = headers.get("x-forwarded-for")
+        if fwd:
+            first = fwd.split(",")[0].strip()
+            if first:
+                return first
+        real = headers.get("x-real-ip", "").strip()
+        if real:
+            return real
+    return peer
 
 
 def _actor_from_scope(scope) -> tuple[int | None, str]:

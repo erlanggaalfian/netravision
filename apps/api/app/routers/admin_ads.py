@@ -254,5 +254,19 @@ async def upload_ad_image(image: UploadFile = File(...)):
         if total > limit:
             raise HTTPException(status_code=400, detail="ukuran maksimal 5 MB")
         chunks.append(chunk)
-    dest.write_bytes(b"".join(chunks))
+    data = b"".join(chunks)
+    # Ekstensi saja tidak cukup: periksa magic bytes supaya berkas
+    # non-gambar (mis. HTML/JS) yang diganti ekstensinya tidak
+    # tersimpan lalu disajikan sebagai aset statis.
+    _magic_ok = (
+        (ext in (".jpg", ".jpeg") and data[:3] == b"\xff\xd8\xff")
+        or (ext == ".png" and data[:8] == b"\x89PNG\r\n\x1a\n")
+        or (ext == ".webp" and data[:4] == b"RIFF" and data[8:12] == b"WEBP")
+        or (ext == ".gif" and data[:6] in (b"GIF87a", b"GIF89a"))
+    )
+    if not _magic_ok:
+        raise HTTPException(
+            status_code=400, detail="isi file bukan gambar yang valid"
+        )
+    dest.write_bytes(data)
     return {"image_url": f"/api/uploads/ads/{fname}"}

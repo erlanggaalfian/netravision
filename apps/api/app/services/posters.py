@@ -34,7 +34,18 @@ def capture_poster(
         return False
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     tmp = out_path + ".tmp"
+    # URL RTSP (bisa berisi kredensial kamera) TIDAK PERNAH dilewatkan
+    # sebagai argv ffmpeg, sama seperti _run_ffprobe di rtsp_discovery:
+    # argv terlihat di `ps` oleh semua user di server. URL ditulis ke
+    # file concat sementara (0600, dihapus di finally) dan ffmpeg
+    # membacanya lewat demuxer concat.
+    import tempfile
+
+    fd, list_path = tempfile.mkstemp(prefix="poster-", suffix=".txt")
     try:
+        safe_url = rtsp_url.replace("'", "'\\''")
+        with os.fdopen(fd, "w") as f:
+            f.write(f"file '{safe_url}'\n")
         r = subprocess.run(
             [
                 "ffmpeg", "-y", "-v", "error",
@@ -47,7 +58,9 @@ def capture_poster(
                 # H.264 pun ternyata mengirim HEVC (terbukti di 356/358/
                 # 360/361), jadi ini bukan masalah codec semata.
                 "-skip_frame", "nokey",
-                "-i", rtsp_url,
+                "-protocol_whitelist", "file,rtsp,tcp,udp,rtp,crypto",
+                "-f", "concat", "-safe", "0",
+                "-i", list_path,
                 "-frames:v", "1",
                 "-q:v", "4",
                 # Nama berkas *.tmp tak bisa ditebak formatnya — paksa JPEG.
@@ -84,6 +97,11 @@ def capture_poster(
         except OSError:
             pass
         return False
+    finally:
+        try:
+            os.remove(list_path)
+        except OSError:
+            pass
 
 
 async def run_poster_loop(interval_sec: int = 60) -> None:

@@ -78,8 +78,12 @@ async def _admin_may_see_stream(me: User, db: AsyncSession, stream_id: int) -> b
     stream = await db.get(Stream, stream_id)
     if stream is None:
         return False
-    pemasang = getattr(stream, "created_by", None) or getattr(stream, "owner_id", None)
-    return pemasang == me.id
+    # Pemilik = pemasang ATAU pemilik, periksa terpisah (pola
+    # `created_by or owner_id` salah bila created_by orang lain).
+    return (
+        getattr(stream, "created_by", None) == me.id
+        or getattr(stream, "owner_id", None) == me.id
+    )
 
 
 async def _register_paths(
@@ -144,15 +148,47 @@ async def _refresh_stream_group_names(
         stream.group_name = names[0] if names else None
 
 
+async def _admin_visible_stream_ids(me: User, db: AsyncSession) -> set[int] | None:
+    """Id kamera yang boleh dilihat admin biasa (milik + grant).
+
+    None = tanpa filter (super_admin melihat semua). Dipakai konsisten
+    di daftar kamera, daftar grup, dan grant grup, supaya admin tidak
+    bisa mengenumerasi kamera/grup milik grup lain lewat endpoint
+    daftar sekalipun detail per kamera sudah digerbangi
+    _admin_may_see_stream.
+    """
+    if is_super_admin(me):
+        return None
+    allowed: set[int] = set()
+    rows = await db.execute(
+        select(Stream.id, Stream.created_by, Stream.owner_id)
+    )
+    for sid, created_by, owner_id in rows.all():
+        if created_by == me.id or owner_id == me.id:
+            allowed.add(sid)
+    grant_rows = await db.execute(
+        select(StreamAdminGrant.stream_id).where(
+            StreamAdminGrant.admin_id == me.id
+        )
+    )
+    allowed.update(grant_rows.scalars().all())
+    return allowed
+
+
 @router.get("/admin/streams", response_model=list[StreamOut])
 async def admin_list_streams(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_user),
 ):
     settings = get_settings()
+    visible = await _admin_visible_stream_ids(admin, db)
     result = await db.execute(select(Stream).order_by(Stream.id))
     out = []
     for s in result.scalars().all():
+        # Admin biasa hanya melihat kamera milik/grant-nya; sebelumnya
+        # daftar ini mengembalikan SEMUA kamera ke admin mana pun.
+        if visible is not None and s.id not in visible:
+            continue
         o = stream_to_out(s, settings)
         o.rtsp_url = await mask_rtsp_url(s, admin, db)
         # Mainstream/substream mentah hanya bila berhak melihat kredensial
@@ -324,17 +360,18 @@ async def admin_update_stream(
     if data.longitude is not None:
         stream.longitude = data.longitude
     if data.recording_enabled is not None:
+        recording_changed = data.recording_enabled != stream.recording_enabled
         stream.recording_enabled = data.recording_enabled
-        # Sinkronkan flag record di MediaMTX (best-effort).
-        try:
-            # Hanya main yang direkam (sub tidak pernah direkam).
-            await mediamtx.patch_path(
-                f"stream_{stream_id}", {"record": data.recording_enabled})
-        except Exception as e:  # noqa: BLE001
-            log.warning("patch record MediaMTX stream %s gagal: %s", stream_id, e)
+    else:
+        recording_changed = False
+    retention_changed = (
+        data.retention_days is not None
+        and data.retention_days != stream.retention_days
+    )
     if data.retention_days is not None:
         stream.retention_days = data.retention_days
-    if "record_disk" in data.model_fields_set:
+    disk_changed = "record_disk" in data.model_fields_set
+    if disk_changed:
         stream.record_disk = _validate_record_disk(data.record_disk)
     # Ubah Kamera: mainstream/substream bisa diedit (perintah user
     # 2026-11-14). main_url kosong tidak diizinkan; sub_url kosong
@@ -374,6 +411,17 @@ async def admin_update_stream(
             urls_changed = True
     await db.commit()
     await db.refresh(stream)
+    # Nonaktif (aktif -> nonaktif): hapus path MediaMTX langsung, jangan
+    # tunggu sync berkala 60 detik (kamera nonaktif tidak boleh tetap
+    # bisa diputar sampai sync berikutnya).
+    if was_active and not stream.is_active:
+        try:
+            await mediamtx.delete_path(f"stream_{stream_id}")
+            await mediamtx.delete_path(f"stream_{stream_id}_sub")
+        except Exception as e:  # noqa: BLE001
+            log.warning(
+                "hapus path MediaMTX stream %s gagal: %s", stream_id, e
+            )
     # URL berubah dan kamera aktif: hapus path lama lalu daftarkan ulang
     # dengan sumber baru (best-effort; sync berkala mendaftarkan sendiri
     # bila MediaMTX sedang mati).
@@ -390,10 +438,20 @@ async def admin_update_stream(
             await _register_paths(
                 mediamtx, stream.id, source, stream.sub_url,
                 record=stream.recording_enabled, stream=stream)
-    # Reaktivasi (nonaktif -> aktif): daftarkan ulang path ke MediaMTX
-    # (best-effort, idempoten) supaya kamera langsung bisa diputar lagi.
-    # Bila MediaMTX sedang mati, sync berkala akan mendaftarkannya sendiri.
-    if not was_active and stream.is_active and not urls_changed:
+    # Reaktivasi (nonaktif -> aktif) atau perubahan setelan rekaman
+    # (recording on/off, retensi, record_disk): daftarkan ulang lewat
+    # _register_paths, BUKAN patch_path main saja. register_stream
+    # memutuskan sumber rekaman yang benar (sub merekam bila ada sub,
+    # main hanya bila tanpa sub); patch lama salah menandai main
+    # record=True untuk kamera bersub dan tidak pernah menyentuh sub,
+    # retensi, maupun recordPath, sehingga toggle rekaman di UI tidak
+    # berpengaruh pada rekaman sub yang sebenarnya.
+    elif stream.is_active and (
+        (not was_active)
+        or recording_changed
+        or retention_changed
+        or disk_changed
+    ):
         source = stream.main_url or stream.rtsp_url
         if source:
             await _register_paths(
@@ -699,37 +757,111 @@ async def _get_group_or_404(db: AsyncSession, nama_grup: str) -> StreamGroup:
 
 
 @router.get("/admin/groups", response_model=list[GroupOut])
-async def list_groups(db: AsyncSession = Depends(get_db)):
-    """Daftar semua grup wilayah (tambahan v3.0 untuk halaman admin)."""
+async def list_groups(
+    db: AsyncSession = Depends(get_db),
+    me: User = Depends(get_current_user),
+):
+    """Daftar semua grup wilayah (tambahan v3.0 untuk halaman admin).
+
+    Admin biasa hanya melihat grup yang berisi minimal satu kamera
+    milik/grant-nya; grup milik grup lain tidak ikut terdaftar.
+    """
+    visible = await _admin_visible_stream_ids(me, db)
     result = await db.execute(select(StreamGroup).order_by(StreamGroup.name))
+    groups = list(result.scalars().all())
+    if visible is not None:
+        member_ids: set[int] = set()
+        if visible:
+            member_ids = set(
+                (
+                    await db.execute(
+                        select(GroupStream.group_id).where(
+                            GroupStream.stream_id.in_(visible)
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        groups = [g for g in groups if g.id in member_ids]
     return [
         GroupOut(id=g.id, name=g.name, description=g.description)
-        for g in result.scalars().all()
+        for g in groups
     ]
 
 
 @router.put("/admin/groups/{nama_grup}", response_model=GroupOut, dependencies=[Depends(super_admin_only)])
 async def upsert_group(nama_grup: str, data: GroupCreate, db: AsyncSession = Depends(get_db)):
-    name = data.name or nama_grup
-    result = await db.execute(select(StreamGroup).where(StreamGroup.name == name))
+    # Cari berdasarkan NAMA DI PATH (grup yang diubah), bukan nama di
+    # body: body.name yang berbeda berarti GANTI NAMA grup itu, bukan
+    # membuat grup baru dan membiarkan grup lama tetap ada. Bila nama
+    # baru sudah dipakai grup lain, tolak 409 supaya tidak ada dua
+    # grup bernama sama.
+    name = (data.name or nama_grup).strip()
+    result = await db.execute(select(StreamGroup).where(StreamGroup.name == nama_grup))
     group = result.scalars().first()
     if group is None:
+        clash = (
+            await db.execute(select(StreamGroup).where(StreamGroup.name == name))
+        ).scalars().first()
+        if clash is not None:
+            raise HTTPException(status_code=409, detail="nama grup sudah dipakai")
         group = StreamGroup(name=name, description=data.description)
         db.add(group)
-    elif data.description is not None:
-        group.description = data.description
+    else:
+        if name != group.name:
+            clash = (
+                await db.execute(select(StreamGroup).where(StreamGroup.name == name))
+            ).scalars().first()
+            if clash is not None:
+                raise HTTPException(status_code=409, detail="nama grup sudah dipakai")
+            group.name = name
+        if data.description is not None:
+            group.description = data.description
     await db.commit()
     await db.refresh(group)
+    # Ganti nama grup mengubah group_name cache di stream anggotanya
+    # (dipakai path rekaman multi-disk), jadi hitung ulang.
+    member_ids = list(
+        (
+            await db.execute(
+                select(GroupStream.stream_id).where(
+                    GroupStream.group_id == group.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if member_ids:
+        await _refresh_stream_group_names(db, member_ids)
+        await db.commit()
     return GroupOut(id=group.id, name=group.name, description=group.description)
 
 
 @router.get("/admin/groups/{nama_grup}/camera-grants")
-async def get_group_grants(nama_grup: str, db: AsyncSession = Depends(get_db)):
+async def get_group_grants(
+    nama_grup: str,
+    db: AsyncSession = Depends(get_db),
+    me: User = Depends(get_current_user),
+):
     group = await _get_group_or_404(db, nama_grup)
     result = await db.execute(
         select(GroupStream.stream_id).where(GroupStream.group_id == group.id)
     )
-    return {"stream_ids": list(result.scalars().all())}
+    stream_ids = list(result.scalars().all())
+    visible = await _admin_visible_stream_ids(me, db)
+    if visible is not None:
+        # Admin hanya boleh melihat grant grup bila punya minimal satu
+        # kamera milik/grant di grup itu; dan yang dikembalikan hanya
+        # kamera milik/grant-nya, bukan semua kamera grup itu (kamera
+        # admin lain di grup yang sama tetap tersembunyi).
+        if not (set(stream_ids) & visible):
+            raise HTTPException(
+                status_code=403, detail="tidak punya akses ke grup ini"
+            )
+        stream_ids = [sid for sid in stream_ids if sid in visible]
+    return {"stream_ids": stream_ids}
 
 
 @router.post("/admin/groups/{nama_grup}/camera-grants", dependencies=[Depends(super_admin_only)])
@@ -764,6 +896,9 @@ async def set_group_grants(nama_grup: str, data: StreamIdsIn, db: AsyncSession =
 
 @router.get("/admin/disk-summary")
 async def disk_info(db: AsyncSession = Depends(get_db)):
+    # Ringkasan disk agregat (bukan inventaris per kamera/grup):
+    # tetap bisa dibaca admin biasa, dikunci test_disks. Folder
+    # Drive di dalamnya hanya nama/URL folder, bukan isi rekaman.
     settings = get_settings()
     target = settings.recordings_dir if Path(settings.recordings_dir).exists() else "/"
     usage = shutil.disk_usage(target)

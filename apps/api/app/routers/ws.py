@@ -140,3 +140,9 @@ async def ws_endpoint(
                 await websocket.send_json({"type": "pong"})
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+    except Exception as e:
+        # Putus tak terduga (mis. error jaringan di tengah receive):
+        # bersihkan koneksi seperti disconnect, jangan biarkan
+        # exception merambat sebagai 500 dan koneksi menggantung.
+        log.debug("ws putus tak terduga: %s", e)
+        manager.disconnect(websocket)

@@ -583,6 +583,17 @@ async def _run_scan(
             await asyncio.wait_for(_collect(), timeout=max(1.0, remaining))
         except asyncio.TimeoutError:
             # H1: timeout global, kembalikan hasil parsial, sisanya timeout.
+            # Host yang discovery-nya SUDAH selesai tapi belum sempat
+            # dicatat _collect (as_completed dibatalkan di tengah) ikut
+            # dicatat dari hasilnya, bukan hilang diam-diam.
+            for t in tasks:
+                if t.done() and not t.cancelled():
+                    try:
+                        done_res = t.result()
+                    except Exception:  # noqa: BLE001
+                        continue
+                    if done_res.host not in recorded:
+                        await record(done_res)
             for h, t in zip(port_open, tasks):
                 if not t.done():
                     t.cancel()
@@ -796,6 +807,10 @@ async def complete_streams(
             data.main_url, old_auth_url, allow_change=False)
         if not stream.main_url:
             stream.main_url = scan_main
+            # Isi dari kosong: rtsp_url ikut disamakan seperti cabang
+            # replace dan PUT, supaya main_url dan rtsp_url tidak
+            # menyimpang (rtsp_url adalah fallback sumber main).
+            stream.rtsp_url = scan_main
             updated_main = True
         elif scan_main != stream.main_url:
             if data.replace:

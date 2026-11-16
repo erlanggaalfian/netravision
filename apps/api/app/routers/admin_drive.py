@@ -56,14 +56,32 @@ class AccountUpdate(BaseModel):
     is_default: bool | None = None
 
 
+def _state_hmac_key() -> bytes:
+    """Kunci HMAC state OAuth, DITURUNKAN dari JWT_SECRET dengan label
+    berbeda (S-3): JWT_SECRET mentah tidak lagi dipakai langsung
+    sebagai kunci state, jadi kebocoran/rotasi satu kunci tidak
+    otomatis membocorkan yang lain."""
+    return hashlib.sha256(
+        f"oauth-state-v1:{get_settings().jwt_secret}".encode()
+    ).digest()
+
+
+# State OAuth yang sudah diterbitkan dan belum dipakai, beserta
+# kedaluwarsanya (sekali pakai, S-3): state yang sudah diverifikasi
+# dihapus, jadi link consent yang bocor tidak bisa dipakai ulang.
+_ISSUED_STATES: dict[str, float] = {}
+# State yang sudah dipakai (termasuk yang diterbitkan sebelum restart).
+_USED_STATES: set[str] = set()
+
+
 def _sign_state(account_id: str) -> str:
     """State OAuth bertanda-tangan: {account_id}.{exp}.{hmac}."""
     exp = int(time.time()) + _STATE_TTL
     payload = f"{account_id}.{exp}"
-    sig = hmac.new(
-        get_settings().jwt_secret.encode(), payload.encode(), hashlib.sha256
-    ).hexdigest()
-    return f"{payload}.{sig}"
+    sig = hmac.new(_state_hmac_key(), payload.encode(), hashlib.sha256).hexdigest()
+    state = f"{payload}.{sig}"
+    _ISSUED_STATES[state] = float(exp)
+    return state
 
 
 def _verify_state(state: str) -> str:
@@ -74,13 +92,21 @@ def _verify_state(state: str) -> str:
     except (ValueError, AttributeError):
         raise ValueError("format state salah")
     payload = f"{account_id}.{exp}"
-    want = hmac.new(
-        get_settings().jwt_secret.encode(), payload.encode(), hashlib.sha256
-    ).hexdigest()
+    want = hmac.new(_state_hmac_key(), payload.encode(), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(sig, want):
         raise ValueError("tanda tangan state tidak cocok")
     if int(exp) < time.time():
+        _ISSUED_STATES.pop(state, None)
         raise ValueError("state kedaluwarsa")
+    # Sekali pakai: state yang sudah diverifikasi tidak bisa dipakai
+    # ulang. State diterbitkan proses ini dicatat di _ISSUED_STATES
+    # dan dihapus saat dipakai; state yang HMAC-nya sah tapi tidak
+    # dikenal (mis. diterbitkan sebelum restart API) tetap diterima
+    # sekali, lalu dicatat di _USED_STATES supaya replay-nya ditolak.
+    if state in _USED_STATES:
+        raise ValueError("state sudah dipakai")
+    _ISSUED_STATES.pop(state, None)
+    _USED_STATES.add(state)
     return account_id
 
 
@@ -504,10 +530,18 @@ async def update_gdrive_folder(
         )
         log.warning("ubah folder Drive %s tanpa verifikasi: %s", fid, warning)
     old_fid = row.folder_id
+    old_name = row.folder_name
     if fid != old_fid:
         # Folder berganti: segmen lama harus di-upload ulang ke folder baru.
+        # DriveUpload.folder_id menyimpan NAMA folder di jalur uploader
+        # rclone (bukan ID Drive), jadi hapus jejak berdasarkan nama
+        # lama DAN id lama supaya re-upload benar-benar terpicu di
+        # kedua jalur (sebelumnya hapus berdasarkan ID saja tidak
+        # pernah cocok dengan jejak yang tersimpan).
         res = await db.execute(
-            delete(DriveUpload).where(DriveUpload.folder_id == old_fid)
+            delete(DriveUpload).where(
+                DriveUpload.folder_id.in_([old_fid, old_name])
+            )
         )
         if res.rowcount:
             log.info(
@@ -976,27 +1010,34 @@ async def delete_drive_remote(
     if row is not None:
         await db.delete(row)
         await db.commit()
-    # Hapus juga entri folder akun ini (bila ada): kamera yang menunjuk
+    # Hapus SEMUA entri folder akun ini (bila ada): kamera yang menunjuk
     # ke sana kembali ke default, sama seperti hapus folder biasa.
-    frow = (await db.execute(
-        select(GoogleDriveFolder).where(
-            GoogleDriveFolder.remote_name == remote_name
+    # Sebelumnya hanya entri pertama yang dihapus, entri lain dengan
+    # remote_name yang sama tertinggal sebagai folder yatim.
+    frows = (
+        await db.execute(
+            select(GoogleDriveFolder).where(
+                GoogleDriveFolder.remote_name == remote_name
+            )
         )
-    )).scalars().first()
-    if frow is None:
+    ).scalars().all()
+    if not frows:
         # Kompatibel lama: entri root penanda rclone:{nama}.
         frow = (await db.execute(
             select(GoogleDriveFolder).where(
                 GoogleDriveFolder.folder_url == _remote_folder_url(remote_name)
             )
         )).scalars().first()
-    if frow is not None:
+        if frow is not None:
+            frows = [frow]
+    for frow in frows:
         await db.execute(
             update(Stream).where(Stream.drive_folder_id == frow.id).values(
                 drive_folder_id=None
             )
         )
         await db.delete(frow)
+    if frows:
         await db.commit()
     if in_conf:
         gr.delete_remote(remote_name)
@@ -1016,14 +1057,19 @@ async def drive_remote_status(
     row = (await db.execute(
         select(RcloneRemote).where(RcloneRemote.remote_name == remote_name)
     )).scalars().first()
-    if row is None:
+    # Remote yang hanya ada di conf (tanpa baris DB, mis. dari tombol
+    # Hubungkan lama) tetap bisa dicek statusnya, konsisten dengan
+    # GET /admin/drive-remotes yang menampilkannya; 404 hanya bila
+    # tidak ada di DB maupun di conf.
+    in_conf = remote_name in gr.list_remote_names()
+    if row is None and not in_conf:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "remote tidak ditemukan")
     try:
         st = await gr.remote_status(remote_name)
     except Exception as e:  # noqa: BLE001
         st = {"connected": False, "error": str(e)}
     st["remote_name"] = remote_name
-    st["label"] = row.label
+    st["label"] = row.label if row is not None else None
     st["rclone_found"] = bool(gr.find_rclone())
     return st
 
@@ -1059,18 +1105,30 @@ async def drive_upload_queue(db: AsyncSession = Depends(get_db)):
             )
         )
     ).scalars().all()
+    # Nama folder tujuan tiap kamera (dipakai uploader sebagai kunci
+    # jejak di drive_uploads.folder_id): folder kamera itu, atau
+    # folder pertama bila kamera tidak menunjuk folder tertentu.
+    folders = (
+        await db.execute(select(GoogleDriveFolder).order_by(GoogleDriveFolder.id))
+    ).scalars().all()
+    _folder_name_by_id = {f.id: (f.folder_name or "") for f in folders}
+    _default_folder_name = folders[0].folder_name or "" if folders else ""
     pending = 0
     for s in streams:
-        uploaded = {
-            r[0]
-            for r in (
-                await db.execute(
-                    select(DriveUpload.segment_name).where(
-                        DriveUpload.stream_id == s.id
-                    )
-                )
-            ).all()
-        }
+        _target_folder = (
+            _folder_name_by_id.get(s.drive_folder_id) if s.drive_folder_id else None
+        ) or _default_folder_name
+        # Jejak ter-upload dikunci per folder tujuan, sama seperti
+        # uploader (_uploaded_names): segmen yang ter-upload ke folder
+        # lama tidak dianggap sudah ter-upload ke folder baru, jadi
+        # antrean tidak menampilkan 0 padahal re-upload masih tertunda.
+        # Tanpa folder tujuan sama sekali, kunci folder tidak dipakai.
+        _up_q = select(DriveUpload.segment_name).where(
+            DriveUpload.stream_id == s.id
+        )
+        if _target_folder:
+            _up_q = _up_q.where(DriveUpload.folder_id == _target_folder)
+        uploaded = {r[0] for r in (await db.execute(_up_q)).all()}
         # Pindai direktori main + sub (rekaman dari substream bila ada);
         # nama segmen yang sama di kedua direktori hanya dihitung sekali.
         seen_names: set[str] = set()

@@ -13,7 +13,7 @@ import logging
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from app.core.rbac import get_current_user
+from app.core.rbac import require_roles
 from app.models.users import User
 from app.services.location import LocationError, resolve_location
 
@@ -38,8 +38,13 @@ class ResolveLocationOut(BaseModel):
 @router.post("/maps/resolve-location", response_model=ResolveLocationOut)
 async def resolve_location_endpoint(
     body: ResolveLocationIn,
-    _user: User = Depends(get_current_user),
+    _user: User = Depends(require_roles("admin")),
 ) -> ResolveLocationOut:
+    # Hanya admin (super_admin lolos require_roles): endpoint ini
+    # memicu fetch jaringan keluar (redirect tautan pendek + geocoding)
+    # dan hanya dipakai form admin (Scanner, Tambah/Ubah Kamera, Set
+    # Koordinat, Edit Lokasi). User/guest tidak punya form itu, jadi
+    # tidak perlu akses resolve-location (S-8).
     try:
         got = await resolve_location(body.text, body.ref_lat, body.ref_lng)
     except LocationError as e:

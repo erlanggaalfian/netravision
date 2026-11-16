@@ -13,6 +13,7 @@ Kegagalan -> 403 (perilaku v2.0), tanpa membocorkan informasi.
 """
 
 import hashlib
+import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
@@ -22,7 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.rate_limit import client_ip as _trusted_client_ip
+from app.core.rate_limit import client_ip as _trusted_client_ip, rate_limited
 from app.core.security import decode_token, verify_password
 from app.db.session import get_db
 from app.models.keys import ApiAccessLog, ApiKey, ApiKeyStream
@@ -32,6 +33,25 @@ from app.models.streams import Stream
 router = APIRouter()
 
 _DEFAULT_TTL_MNT = 60
+
+# Kunci per API key terhadap brute force password (T-1): 5 password
+# salah dalam 15 menit -> 429 sampai jendela habis. Rate limit per IP
+# saja tidak cukup karena penyerang bisa dari banyak IP; kunci per
+# key menutupnya. Sukses membersihkan hitungan.
+_KEY_FAILURES: dict[int, list[float]] = {}
+_KEY_LOCKOUT_MAX = 5
+_KEY_LOCKOUT_WINDOW_SEC = 900.0
+
+
+def _key_locked(key_id: int) -> bool:
+    now = time.monotonic()
+    hits = [t for t in _KEY_FAILURES.get(key_id, []) if t > now - _KEY_LOCKOUT_WINDOW_SEC]
+    _KEY_FAILURES[key_id] = hits
+    return len(hits) >= _KEY_LOCKOUT_MAX
+
+
+def _record_key_failure(key_id: int) -> None:
+    _KEY_FAILURES.setdefault(key_id, []).append(time.monotonic())
 
 # Default konfigurasi iklan v2.0 (16 field); digabung dengan yang tersimpan.
 _AD_DEFAULTS = {
@@ -132,11 +152,19 @@ async def _validate_key(
             status.HTTP_403_FORBIDDEN, "Kunci API tidak valid atau tidak aktif"
         )
     if key.password_hash:
+        if _key_locked(key.id):
+            await _log(db, request, f"{action}.denied:locked", key_id=key.id)
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "Terlalu banyak percobaan password salah, coba lagi nanti",
+            )
         if not password or not verify_password(password, key.password_hash):
+            _record_key_failure(key.id)
             await _log(db, request, f"{action}.denied:bad_password", key_id=key.id)
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN, "Kata sandi akses salah atau tidak disertakan"
             )
+        _KEY_FAILURES.pop(key.id, None)
     if key.domain_lock and key.domain_lock.strip():
         target = key.domain_lock.strip().lower()
         ref = _domain_of(request.headers.get("referer", ""))
@@ -271,7 +299,7 @@ async def _ad_config_dict(
 
 # ── endpoint ──────────────────────────────────────────────────────────
 
-@router.get("/external/cameras")
+@router.get("/external/cameras", dependencies=[Depends(rate_limited(20, 60))])
 async def external_cameras(
     request: Request,
     key: str = Query(...),
@@ -305,16 +333,21 @@ async def external_cameras(
         result = await db.execute(
             select(Stream).where(Stream.id.in_(ids), Stream.is_active.is_(True))
         )
-        for st in result.scalars().all():
-            items.append(
-                {"id": st.id, "name": st.name, "is_online": bool(st.is_online)}
-            )
-    items.sort(key=lambda x: x["name"].lower())
+        by_id = {st.id: st for st in result.scalars().all()}
+        # Urutan mengikuti urutan kamera di kunci (bukan alfabetis):
+        # ?camera=1 berarti kamera pertama di daftar ini, jadi daftar
+        # dan penomoran harus selaras.
+        for sid in ids:
+            st = by_id.get(sid)
+            if st is not None:
+                items.append(
+                    {"id": st.id, "name": st.name, "is_online": bool(st.is_online)}
+                )
     await _log(db, request, "external.cameras.ok", key_id=key_rec.id)
     return items
 
 
-@router.get("/external/stream")
+@router.get("/external/stream", dependencies=[Depends(rate_limited(20, 60))])
 async def external_stream(
     request: Request,
     key: str = Query(...),
@@ -386,7 +419,7 @@ async def external_stream(
     }
 
 
-@router.get("/external/playback")
+@router.get("/external/playback", dependencies=[Depends(rate_limited(20, 60))])
 async def external_playback(
     request: Request,
     key: str = Query(...),
@@ -404,7 +437,7 @@ async def external_playback(
     Dengan ?date=YYYY-MM-DD -> segmen tanggal itu + URL putar tiap segmen.
     Dengan ?time=ISO -> satu {url, expires_at} (bentuk v3.0).
     """
-    from app.services.recording import list_dates, list_segments
+    from app.routers.recordings import _all_segments
 
     key_rec = await _validate_key(
         db, request, key, password or pass_, "external.playback"
@@ -466,7 +499,10 @@ async def external_playback(
                 status.HTTP_403_FORBIDDEN,
                 "format date tidak valid (pakai YYYY-MM-DD)",
             )
-        segs = list_segments(target, day=day, recordings_dir=rec_dir)
+        # Segmen Drive-aware seperti /recordings (lokal + folder-link +
+        # rclone + OAuth), bukan hanya lokal: kamera mode drive/both
+        # yang segmennya hanya di Drive sebelumnya tampil kosong di sini.
+        segs = await _all_segments(stream, day, db)
         items = [
             {
                 "start": s.start.isoformat(),
@@ -512,14 +548,15 @@ async def external_playback(
         }
 
     dates = []
-    for d in list_dates(target, rec_dir):
-        try:
-            day = datetime.strptime(d, "%Y-%m-%d").date()
-        except ValueError:
-            continue
-        n = len(list_segments(target, day=day, recordings_dir=rec_dir))
-        dates.append({"date": d, "segment_count": n})
-    dates.sort(key=lambda x: x["date"], reverse=True)
+    # Tanggal + jumlah segmen dari sumber yang sama seperti ?date=
+    # (Drive-aware), supaya daftar tanggal tidak kosong untuk kamera
+    # yang segmennya hanya di Drive.
+    all_segs = await _all_segments(stream, None, db)
+    from collections import Counter as _Counter
+
+    _counts = _Counter(s.start.date().isoformat() for s in all_segs)
+    for d in sorted(_counts, reverse=True):
+        dates.append({"date": d, "segment_count": _counts[d]})
     await _log(
         db, request, "external.playback.ok", key_id=key_rec.id,
         stream_id=target,
@@ -531,7 +568,7 @@ async def external_playback(
     }
 
 
-@router.get("/external/playback/file")
+@router.get("/external/playback/file", dependencies=[Depends(rate_limited(20, 60))])
 async def external_playback_file(
     request: Request,
     key: str = Query(...),
@@ -580,6 +617,16 @@ async def external_playback_file(
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "format start tidak valid"
         )
+    try:
+        at_end = datetime.fromisoformat(end)
+    except ValueError:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "format end tidak valid"
+        )
+    if at_end < at:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "end harus setelah start"
+        )
     seg = await _containing(stream, at, db)
     if seg is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "tidak ada rekaman")
@@ -587,4 +634,10 @@ async def external_playback_file(
         db, request, "external.playback.file.ok", key_id=key_rec.id,
         stream_id=target,
     )
-    return await _serve_segment(stream, seg, download=False, db=db)
+    # Teruskan rentang yang diminta seperti /recordings/{id}/file
+    # (potong via ffmpeg bila perlu); sebelumnya `end` diabaikan dan
+    # selalu dikembalikan segmen utuh.
+    return await _serve_segment(
+        stream, seg, download=False, db=db, request=request,
+        start=at, end=at_end,
+    )

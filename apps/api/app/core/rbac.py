@@ -148,9 +148,14 @@ async def mask_rtsp_url(stream, user: User, db: AsyncSession) -> str:
     if (getattr(user, "role", "") or "") != "admin":
         return ""
     created_by = getattr(stream, "created_by", None)
-    if created_by is None:
-        created_by = getattr(stream, "owner_id", None)
-    if created_by is not None and created_by == user.id:
+    owner_id = getattr(stream, "owner_id", None)
+    # Pemilik = pemasang ATAU pemilik: keduanya harus diperiksa
+    # terpisah. Pola lama `created_by or owner_id` salah bila
+    # created_by terisi orang lain (owner_id yang cocok ikut terabaikan
+    # dan admin pemilik kamera kehilangan akses ke kameranya sendiri).
+    if (created_by is not None and created_by == user.id) or (
+        owner_id is not None and owner_id == user.id
+    ):
         return raw
     grant = (
         (
@@ -279,10 +284,11 @@ async def _check_camera_access(
         # dimiliki) atau yang di-grant kepadanya. can_view untuk Live,
         # can_playback untuk playback. Perilaku lama yang membiarkan
         # admin melihat semua kamera sudah tidak berlaku.
-        pemasang = getattr(stream_ada, "created_by", None) or getattr(
-            stream_ada, "owner_id", None
-        )
-        if pemasang == user.id:
+        pemasang = getattr(stream_ada, "created_by", None)
+        pemilik = getattr(stream_ada, "owner_id", None)
+        # Pemilik = pemasang ATAU pemilik (lihat mask_rtsp_url: pola
+        # `created_by or owner_id` salah bila created_by orang lain).
+        if pemasang == user.id or pemilik == user.id:
             return user
         grant = (
             (

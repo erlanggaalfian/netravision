@@ -73,12 +73,14 @@ async def _visible_streams(user: User, db: AsyncSession) -> list[Stream]:
         return streams
     if user.role == "admin":
         # A-T2: admin biasa hanya melihat kamera miliknya sendiri
-        # (created_by/owner_id) atau yang di-grant can_view.
+        # (created_by ATAU owner_id) atau yang di-grant can_view.
+        # Periksa keduanya terpisah: `created_by or owner_id` salah
+        # bila created_by terisi orang lain.
         allowed: set[int] = {
             s.id
             for s in streams
-            if (getattr(s, "created_by", None) or getattr(s, "owner_id", None))
-            == user.id
+            if getattr(s, "created_by", None) == user.id
+            or getattr(s, "owner_id", None) == user.id
         }
         allowed.update(
             (

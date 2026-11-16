@@ -6,6 +6,7 @@ nantinya di-broadcast via WebSocket (/ws).
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -31,12 +32,18 @@ async def poll_once(db: AsyncSession, mediamtx: MediaMTXClient) -> list[dict]:
     changes: list[dict] = []
     now = datetime.now(timezone.utc)
 
-    for stream in streams:
-        # Main selalu tersambung (sourceOnDemand false), jadi `ready` runtime
-        # = kamera benar-benar mengirim video — sama dengan v2
-        # check_mediamtx_path_ready.
-        online = await mediamtx.path_ready(_path_name(stream.id))
-
+    # Cek semua path PARALEL: sekuensial, 68 kamera x timeout HTTP
+    # bisa melebihi interval broadcaster 10 detik sehingga status
+    # selalu tertinggal. Satu kamera yang error tidak menggugurkan
+    # yang lain (statusnya dipertahankan, bukan dianggap offline).
+    results = await asyncio.gather(
+        *(mediamtx.path_ready(_path_name(s.id)) for s in streams),
+        return_exceptions=True,
+    )
+    for stream, online in zip(streams, results):
+        if isinstance(online, Exception):
+            continue
+        online = bool(online)
         if online != stream.is_online:
             stream.is_online = online
             stream.last_seen_at = now if online else stream.last_seen_at

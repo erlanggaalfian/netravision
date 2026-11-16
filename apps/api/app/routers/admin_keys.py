@@ -148,8 +148,12 @@ async def update_key(key_id: int, data: ApiKeyUpdate, db: AsyncSession = Depends
         key.name = data.name
     if data.domain_lock is not None:
         key.domain_lock = data.domain_lock or None
-    if data.password:
-        key.password_hash = hash_password(data.password)
+    # Password mengikuti pola domain_lock: field yang dikirim eksplisit
+    # (termasuk null/kosong) dihormati, supaya password kunci BISA
+    # dihapus; sebelumnya password hanya bisa diganti, tidak pernah
+    # dihapus, dan kiriman null diam-diam diabaikan.
+    if "password" in data.model_fields_set:
+        key.password_hash = hash_password(data.password) if data.password else None
     if data.is_active is not None:
         key.is_active = data.is_active
     if data.custom_camera_name is not None:
@@ -193,7 +197,7 @@ async def list_logs(
     key_id: int | None = Query(default=None),
     action: str | None = Query(default=None),
     status: str | None = Query(default=None, description="hit|denied (v2.0)"),
-    limit: int = Query(default=50, le=500),
+    limit: int = Query(default=50, ge=0, le=500),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
