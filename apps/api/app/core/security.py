@@ -3,11 +3,17 @@
 - Access token: umur pendek (default 15 menit), dipakai di header Authorization.
 - Refresh token: umur panjang (default 7 hari), hash-nya disimpan di DB dan
   dirotasi setiap dipakai (refresh rotation).
+- decode_token menolak token tanpa exp/iat/sub (token abadi atau tanpa
+  pemilik tidak pernah sah) dan hanya menerima algoritma yang dikonfigurasi.
+- redact_url_credentials: satu-satunya tempat menyembunyikan kredensial
+  dari URL RTSP sebelum URL itu masuk log, pesan error, atau respons API.
+  Semua tempat lain WAJIB memakai helper ini, bukan masking ad hoc.
 """
 
 import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse, urlunparse
 
 import jwt
 from pwdlib import PasswordHash
@@ -18,6 +24,10 @@ from app.core.config import Settings
 # Eksplisit bcrypt (kompatibel dengan hash v2.0); bukan recommended() karena
 # itu butuh argon2 bila terinstal dan perilakunya bisa berubah antar env.
 _hasher = PasswordHash((BcryptHasher(),))
+
+# Batas umur access token yang boleh diminta pemanggil (menit). Guest memakai
+# 60 menit; tidak ada pemanggil sah yang butuh lebih dari sehari.
+_MAX_ACCESS_MINUTES = 1440
 
 
 def hash_password(password: str) -> str:
@@ -43,6 +53,9 @@ def create_access_token(
     expires_minutes: int | None = None,
 ) -> str:
     minutes = expires_minutes if expires_minutes is not None else settings.jwt_access_minutes
+    # Jangan pernah menerbitkan token abadi atau berumur sangat panjang
+    # karena satu pemanggil lupa membatasi expires_minutes.
+    minutes = max(1, min(int(minutes), _MAX_ACCESS_MINUTES))
     payload = {
         "sub": str(user_id),
         "username": username,
@@ -69,15 +82,71 @@ def create_refresh_token(user_id: int, settings: Settings) -> tuple[str, str]:
 
 
 def decode_token(token: str, settings: Settings) -> dict:
-    """Decode + verifikasi JWT. Raise ValueError bila tidak valid/kedaluwarsa."""
+    """Decode + verifikasi JWT. Raise ValueError bila tidak valid/kedaluwarsa.
+
+    Menolak token tanpa exp/iat/sub: token yang tidak kedaluwarsa atau
+    tidak punya pemilik tidak pernah diterbitkan pemanggil sah, jadi
+    menerimanya hanya membuka pintu bagi token hasil kerajinan tangan.
+    """
+    if not token or not isinstance(token, str):
+        raise ValueError("token tidak valid")
     try:
-        return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret,
+            algorithms=[settings.jwt_algorithm],
+            options={"require": ["exp", "iat", "sub"]},
+        )
     except jwt.ExpiredSignatureError as e:
         raise ValueError("token kedaluwarsa") from e
     except jwt.InvalidTokenError as e:
         raise ValueError("token tidak valid") from e
+    if not isinstance(payload, dict) or not payload.get("sub"):
+        raise ValueError("token tidak valid")
+    return payload
 
 
 def hash_token(token: str) -> str:
     """Hash SHA-256 untuk menyimpan refresh token di DB."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def redact_url_credentials(url: str | None) -> str:
+    """Sembunyikan password dari URL (mis. rtsp://user:pass@host/...).
+
+    Dipakai SEBELUM url masuk log, pesan error, atau respons API di
+    semua endpoint, bukan cuma di satu tempat. Username dipertahankan
+    (berguna untuk diagnosis), password diganti ****. URL tanpa
+    kredensial atau yang tidak bisa diparse dikembalikan apa adanya
+    bila tidak mengandung password, dan di-mask sebagian bila parse gagal.
+    """
+    if not url:
+        return ""
+    try:
+        parts = urlparse(url)
+    except ValueError:
+        return "****"
+    if not parts.password:
+        return url
+    host = parts.hostname or ""
+    if parts.port:
+        host = f"{host}:{parts.port}"
+    userinfo = parts.username or ""
+    netloc = f"{userinfo}:****@{host}" if userinfo else f"****@{host}"
+    return urlunparse(parts._replace(netloc=netloc))
+
+
+def strip_url_credentials(url: str | None) -> str:
+    """Hapus userinfo dari URL sepenuhnya (untuk log yang sangat sensitif)."""
+    if not url:
+        return ""
+    try:
+        parts = urlparse(url)
+    except ValueError:
+        return ""
+    if not parts.username and not parts.password:
+        return url
+    host = parts.hostname or ""
+    if parts.port:
+        host = f"{host}:{parts.port}"
+    return urlunparse(parts._replace(netloc=host))

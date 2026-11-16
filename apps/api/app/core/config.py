@@ -5,6 +5,7 @@ Tanpa nilai rahasia di repo, lihat .env.example.
 
 from functools import lru_cache
 
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,8 +24,14 @@ class Settings(BaseSettings):
 
     jwt_secret: str = "CHANGE-ME-IN-PROD"
     jwt_algorithm: str = "HS256"
-    jwt_access_minutes: int = 15
-    jwt_refresh_days: int = 7
+    jwt_access_minutes: int = Field(default=15, ge=1, le=1440)
+    jwt_refresh_days: int = Field(default=7, ge=1, le=90)
+
+    # Kunci login per username (dipakai auth.py): setelah N gagal
+    # berturut-turut, username itu ditolak 429 selama lockout. Ini
+    # melengkapi rate limit per IP (yang bisa dilewati dari banyak IP).
+    login_max_attempts: int = Field(default=5, ge=1, le=20)
+    login_lockout_minutes: int = Field(default=15, ge=1, le=1440)
 
     guest_enabled: bool = False
 
@@ -82,6 +89,36 @@ class Settings(BaseSettings):
 
     cors_origins: list[str] = ["http://localhost:3000"]
     log_level: str = "INFO"
+
+    @field_validator("jwt_algorithm")
+    @classmethod
+    def _jwt_algorithm_allowlist(cls, v: str) -> str:
+        # Hanya HMAC simetris yang dipakai; "none" atau algoritma asimetris
+        # tidak pernah sah di sini dan membuka kebingungan algoritma.
+        if v not in ("HS256", "HS384", "HS512"):
+            raise ValueError("jwt_algorithm harus HS256, HS384, atau HS512")
+        return v
+
+    @field_validator("cors_origins")
+    @classmethod
+    def _cors_no_wildcard(cls, v: list[str]) -> list[str]:
+        # "*" bersama allow_credentials=True membuat browser mengabaikan
+        # kredensial dan membuka API ke situs mana pun; tolak sejak config.
+        if "*" in v:
+            raise ValueError('cors_origins tidak boleh berisi "*"')
+        return v
+
+    @model_validator(mode="after")
+    def _prod_requires_real_secret(self) -> "Settings":
+        # Di produksi, secret default atau terlalu pendek membuat SEMUA
+        # token (user, embed, OAuth state) bisa dipalsukan siapa pun yang
+        # membaca repo. Gagal sejak start, bukan cuma warning di log.
+        if self.app_env == "prod":
+            if self.jwt_secret == "CHANGE-ME-IN-PROD" or len(self.jwt_secret) < 32:
+                raise ValueError(
+                    "JWT_SECRET wajib diset di produksi (acak, minimal 32 karakter)"
+                )
+        return self
 
 
 @lru_cache

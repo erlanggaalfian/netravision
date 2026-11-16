@@ -4,6 +4,7 @@ Path dipertahankan persis seperti v2.0: POST /api/auth/login|refresh|logout|gues
 """
 
 import hmac
+import secrets
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -27,7 +28,44 @@ from app.schemas.auth import GuestIn, LoginIn, RefreshIn, TokenOut
 
 router = APIRouter(tags=["auth"])
 
-# A-S13: grace window rotasi refresh (in-memory, per proses).
+# Hash bcrypt dummy untuk user yang tidak ada / nonaktif: login tetap
+# menjalankan verify_password supaya waktu respons tidak membocorkan
+# apakah username itu ada (timing oracle). Hash dibuat sekali per proses
+# dari nilai acak, jadi tidak pernah cocok dengan password nyata.
+_DUMMY_HASH = hash_password(secrets.token_hex(32))
+
+# Kunci login per username (melengkapi rate limit per IP di atas):
+# username -> (jumlah gagal berturut-turut, epoch detik kegagalan terakhir).
+# Direset saat login berhasil. In-memory per proses, seperti rate limiter.
+_login_failures: dict[str, tuple[int, float]] = {}
+
+
+def _login_locked(username: str) -> bool:
+    entry = _login_failures.get(username)
+    if entry is None:
+        return False
+    count, last = entry
+    settings = get_settings()
+    if count < settings.login_max_attempts:
+        return False
+    if time.monotonic() - last > settings.login_lockout_minutes * 60:
+        _login_failures.pop(username, None)
+        return False
+    return True
+
+
+def _login_failed(username: str) -> None:
+    count, _last = _login_failures.get(username, (0, 0.0))
+    _login_failures[username] = (count + 1, time.monotonic())
+
+
+def _login_succeeded(username: str) -> None:
+    _login_failures.pop(username, None)
+
+
+def reset_login_attempts() -> None:
+    """Kosongkan kunci login (dipakai test agar antar-test terisolasi)."""
+    _login_failures.clear()
 # Masalah: hanya satu refresh_token_hash per user di DB, jadi dua
 # refresh bersamaan dengan token yang sama bisa saling menghanguskan.
 # Pendekatan: hash refresh yang baru saja dirotasi tetap diterima
@@ -87,11 +125,22 @@ def _token_pair(user: User) -> TokenOut:
     dependencies=[Depends(rate_limited(5, 60))],
 )
 async def login(data: LoginIn, db: AsyncSession = Depends(get_db)) -> TokenOut:
+    if _login_locked(data.username):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="terlalu banyak percobaan login, coba lagi nanti",
+        )
     user = await _get_active_user(db, data.username)
-    if user is None or not verify_password(data.password, user.password_hash):
+    # User tidak ada / nonaktif tetap diverifikasi terhadap hash dummy:
+    # tanpa ini, login username salah kembali jauh lebih cepat daripada
+    # login password salah, dan penyerang bisa mengenumerasi username.
+    ok = verify_password(data.password, user.password_hash) if user is not None else verify_password(data.password, _DUMMY_HASH)
+    if user is None or not ok:
+        _login_failed(data.username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="username/password salah"
         )
+    _login_succeeded(data.username)
     pair = _token_pair(user)
     await db.commit()
     return pair
