@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.rate_limit import rate_limited
 from app.core.rbac import can_manage_user, is_super_admin, require_roles, require_reshare
 from app.core.security import hash_password
 from app.db.session import get_db
@@ -12,7 +13,8 @@ from app.models.access import StreamAdminGrant, UserStreamAccess
 from app.models.streams import Stream
 from app.models.users import User
 
-router = APIRouter()
+# S-1: semua endpoint admin users dibatasi 20/menit per IP.
+router = APIRouter(dependencies=[Depends(rate_limited(20, 60))])
 admin_only = require_roles("admin")
 # Grant admin (izin kamera + izin bagikan) hanya diatur superadmin.
 super_admin_only = require_roles("super_admin")
@@ -234,9 +236,10 @@ async def create_user(
         # Guest dibuat otomatis oleh sistem (migrasi 0011/0016),
         # tidak bisa dibuat manual.
         raise HTTPException(400, "role guest tidak bisa dibuat manual")
-    if data.role == "super_admin" and not is_super_admin(me):
-        # v2.0: admin tidak bisa membuat super_admin.
-        raise HTTPException(403, "hanya super_admin yang bisa membuat super_admin")
+    if data.role in ("super_admin", "admin") and not is_super_admin(me):
+        # Keputusan terkunci 2026-11-08: admin TIDAK boleh grant admin.
+        # Hanya super_admin yang bisa memberi peran admin/super_admin.
+        raise HTTPException(403, "hanya super_admin yang bisa memberi peran admin/super_admin")
     exists = await db.execute(
         select(User.id).where(User.username == data.username)
     )
@@ -298,8 +301,9 @@ async def update_user(
     if data.role is not None:
         if data.role not in VALID_ROLES:
             raise HTTPException(400, "role tidak valid")
-        if data.role == "super_admin" and not is_super_admin(me):
-            raise HTTPException(403, "hanya super_admin yang bisa memberi peran super_admin")
+        if data.role in ("super_admin", "admin") and not is_super_admin(me):
+            # Keputusan terkunci 2026-11-08: admin TIDAK boleh grant admin.
+            raise HTTPException(403, "hanya super_admin yang bisa memberi peran admin/super_admin")
         # Penjaga super_admin terakhir: menurunkan peran satu-satunya
         # super_admin mengunci sistem tanpa admin penuh.
         if (

@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.rate_limit import rate_limited
 from app.core.rbac import get_current_user, is_super_admin, mask_rtsp_url, require_reshare, require_roles
+from app.core.security import redact_url_credentials
 from app.db.session import get_db
 from app.models.access import StreamAdminGrant, StreamPermission, UserStreamAccess
 from app.models.groups import GroupStream, StreamGroup
@@ -191,11 +192,15 @@ async def admin_list_streams(
             continue
         o = stream_to_out(s, settings)
         o.rtsp_url = await mask_rtsp_url(s, admin, db)
-        # Mainstream/substream mentah hanya bila berhak melihat kredensial
-        # RTSP (sama seperti rtsp_url); dipakai popup Ubah Kamera.
+        # T-4: URL RTSP dikembalikan dengan password teredaksi (****),
+        # bukan mentah. Frontend menampilkan **** dan mengirim ****
+        # kembali; backend memulihkan password tersimpan
+        # (resolve_url_password), jadi alur Ubah Kamera tetap jalan
+        # tanpa password mentah di respons, log akses, atau riwayat.
         if o.rtsp_url:
-            o.main_url = s.main_url
-            o.sub_url = s.sub_url
+            o.rtsp_url = redact_url_credentials(o.rtsp_url)
+            o.main_url = redact_url_credentials(s.main_url) or None
+            o.sub_url = redact_url_credentials(s.sub_url) or None
         out.append(o)
     return out
 
@@ -458,9 +463,12 @@ async def admin_update_stream(
                 mediamtx, stream.id, source, stream.sub_url,
                 record=stream.recording_enabled, stream=stream)
     out = stream_to_out(stream, get_settings())
-    # PUT ini super_admin-only, jadi main/sub mentah boleh dikembalikan.
-    out.main_url = stream.main_url
-    out.sub_url = stream.sub_url
+    # T-4: PUT ini super_admin-only, tetapi main/sub tetap dikembalikan
+    # dengan password teredaksi (****). Frontend mengirim **** kembali
+    # dan backend memulihkan password tersimpan, jadi tidak ada password
+    # mentah di respons.
+    out.main_url = redact_url_credentials(stream.main_url) or None
+    out.sub_url = redact_url_credentials(stream.sub_url) or None
     return out
 
 

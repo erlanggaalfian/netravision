@@ -62,6 +62,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.rate_limit import rate_limited
 from app.core.rbac import require_roles
+from app.core.security import redact_url_credentials
 from app.db.session import get_db
 from app.models.streams import Stream
 from app.schemas.stream import ScanPath
@@ -501,10 +502,13 @@ async def _run_scan(
         if info is None:
             return {}
         sid, main_url, sub_url = info
+        # T-4: URL kamera terdaftar dikembalikan dengan password
+        # teredaksi. Alur Sesuaikan path memakai stripScanAuth lalu
+        # backend memulihkan password tersimpan, jadi redaksi aman.
         return {
             "known_stream_id": sid,
-            "known_main": main_url,
-            "known_sub": sub_url,
+            "known_main": redact_url_credentials(main_url) or None,
+            "known_sub": redact_url_credentials(sub_url) or None,
         }
 
     async def record(result: SubnetHost) -> None:

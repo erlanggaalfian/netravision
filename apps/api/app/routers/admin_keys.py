@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.rate_limit import rate_limited
 from app.core.rbac import require_roles
 from app.core.security import hash_password
 from app.db.session import get_db
@@ -21,7 +22,7 @@ from app.models.keys import ApiAccessLog, ApiKey, ApiKeyStream
 from app.models.streams import Stream
 
 # E-K1: kelola API key hanya super_admin (admin biasa tidak boleh).
-router = APIRouter(tags=["admin-keys"], dependencies=[Depends(require_roles("super_admin"))])
+router = APIRouter(tags=["admin-keys"], dependencies=[Depends(require_roles("super_admin")), Depends(rate_limited(20, 60))])
 
 
 class ApiKeyCreate(BaseModel):

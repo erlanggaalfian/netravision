@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
+from app.core.rate_limit import rate_limited
 from app.core.rbac import (
     _check_camera_access,
     require_camera_playback_access,
@@ -727,7 +728,7 @@ async def dates(
     return {"dates": sorted({s.start.date().isoformat() for s in segs})}
 
 
-@router.get("/recordings/{stream_id}/stream")
+@router.get("/recordings/{stream_id}/stream", dependencies=[Depends(rate_limited(10, 60))])
 async def stream_range(
     stream_id: int,
     start: datetime,
@@ -755,7 +756,7 @@ async def stream_range(
     )
 
 
-@router.get("/recordings/{stream_id}/file")
+@router.get("/recordings/{stream_id}/file", dependencies=[Depends(rate_limited(10, 60))])
 async def download_file(
     stream_id: int,
     start: datetime,
@@ -793,7 +794,7 @@ async def download_file(
 MAX_DOWNLOAD_RANGE = timedelta(hours=2)
 
 
-@router.get("/recordings/{stream_id}/download-range")
+@router.get("/recordings/{stream_id}/download-range", dependencies=[Depends(rate_limited(10, 60))])
 async def download_range(
     stream_id: int,
     start: datetime,

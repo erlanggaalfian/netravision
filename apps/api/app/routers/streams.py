@@ -12,11 +12,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
+from app.core.rate_limit import rate_limited
 from app.core.rbac import (
     require_camera_access,
     require_camera_access_token_qp,
     require_roles,
 )
+from app.core.security import redact_url_credentials
 from app.db.session import get_db
 from app.models.access import StreamAdminGrant, StreamPermission, UserStreamAccess
 from app.models.groups import GroupStream, StreamGroup
@@ -186,7 +188,7 @@ async def list_streams(
     return [stream_to_out(s, settings) for s in streams]
 
 
-@router.post("/streams/{stream_id}/reconnect")
+@router.post("/streams/{stream_id}/reconnect", dependencies=[Depends(rate_limited(10, 60))])
 async def reconnect_stream(
     stream_id: int,
     _user: User = Depends(require_roles("admin", "user")),
@@ -215,8 +217,10 @@ async def reconnect_stream(
                 sub_source=stream.sub_url,
             )
     except Exception as e:  # noqa: BLE001 - semua kegagalan MediaMTX -> 502, bukan 500
-        log.warning("reconnect stream %s gagal: %s", stream_id, e)
-        raise HTTPException(status_code=502, detail=f"MediaMTX tidak terjangkau: {e}")
+        # T-4: pesan error MediaMTX bisa memuat source URL berkredensial.
+        err = redact_url_credentials(str(e))
+        log.warning("reconnect stream %s gagal: %s", stream_id, err)
+        raise HTTPException(status_code=502, detail=f"MediaMTX tidak terjangkau: {err}")
     return {"ok": True}
 
 

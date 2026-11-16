@@ -25,6 +25,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.rate_limit import rate_limited
 from app.core.rbac import get_current_user, require_roles
 from app.db.session import get_db
 from app.models.drive import DriveAccount, DriveUpload, GoogleDriveFolder, RcloneRemote
@@ -37,7 +38,9 @@ log = logging.getLogger("netravision.admin_drive")
 router = APIRouter(tags=["admin-drive"])  # callback OAuth: publik (dipanggil Google)
 admin_router = APIRouter(
     # E-K1 (backend): Penyimpanan/Drive hanya super_admin, bukan admin biasa.
-    tags=["admin-drive"], dependencies=[Depends(require_roles("super_admin"))]
+    # S-1: dibatasi 20/menit per IP. Callback OAuth ada di router publik
+    # terpisah dan tidak ikut dibatasi.
+    tags=["admin-drive"], dependencies=[Depends(require_roles("super_admin")), Depends(rate_limited(20, 60))]
 )
 
 _GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"

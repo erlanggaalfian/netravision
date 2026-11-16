@@ -235,13 +235,19 @@ def _session_token(key: ApiKey, stream_id: int, ttl_mnt: int) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
-def _validate_session_token(token: str, stream_id: int) -> int:
+async def _validate_session_token(
+    db: AsyncSession, token: str, stream_id: int
+) -> int:
     """Validasi token sesi embed untuk satu kamera tertentu.
 
     Return id API key bila sah. Raise ValueError bila signature/
     kedaluwarsa salah, bukan token embed, atau stream_id di token
     tidak cocok dengan kamera yang diminta (token kamera A tidak
     bisa dipakai untuk kamera B).
+    S-2: kunci yang sudah dinonaktifkan, kedaluwarsa, atau tidak
+    lagi mengikat kamera itu DITOLAK, supaya mencabut key langsung
+    mematikan token sesi yang sudah diterbitkan (bukan menunggu
+    token habis sendiri). Pemeriksaan yang sama seperti _validate_key.
     """
     payload = decode_token(token, get_settings())
     if payload.get("type") != "access" or payload.get("role") != "embed":
@@ -252,9 +258,23 @@ def _validate_session_token(token: str, stream_id: int) -> int:
     if not sub.startswith("key:"):
         raise ValueError("token sesi tidak valid")
     try:
-        return int(sub[4:])
+        key_id = int(sub[4:])
     except ValueError as e:
         raise ValueError("token sesi tidak valid") from e
+    key = await db.get(ApiKey, key_id)
+    if key is None or not key.is_active:
+        raise ValueError("kunci API tidak aktif")
+    if _as_aware(key.expires_at) is not None and _as_aware(key.expires_at) < _now():
+        raise ValueError("kunci API kedaluwarsa")
+    bound = await db.execute(
+        select(ApiKeyStream.stream_id).where(
+            ApiKeyStream.api_key_id == key_id,
+            ApiKeyStream.stream_id == stream_id,
+        )
+    )
+    if bound.scalars().first() is None:
+        raise ValueError("kamera tidak lagi terikat kunci ini")
+    return key_id
 
 
 def _whep_url(request: Request, stream_id: int, session: str) -> str:

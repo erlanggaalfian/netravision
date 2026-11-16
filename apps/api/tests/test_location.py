@@ -172,9 +172,48 @@ async def test_resolve_short_url_mock(monkeypatch):
             return _FakeResp()
 
     monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+    # Cek IP publik di-resolve via DNS sungguhan; di tes tanpa jaringan
+    # dianggap publik supaya mock fokus ke logika redirect.
+    monkeypatch.setattr(loc, "_ip_is_public", lambda host: True)
     got = await resolve_location("https://maps.app.goo.gl/pTktsJf8UZg1qZWW6")
     assert (got.latitude, got.longitude) == (-7.873522, 111.257658)
     assert got.format == "Tautan Google Maps"
+
+
+async def test_resolve_short_url_ssrf_ditolak(monkeypatch):
+    """T-3: host awal bukan Google dan redirect ke host lain ditolak."""
+    import httpx
+
+    import app.services.location as loc
+
+    # 'goo.gl' hanya ada di path/query, bukan host: tidak boleh fetch.
+    got = await loc.resolve_short_url("https://evil.example.com/x?goo.gl=1")
+    assert got is None
+
+    class _RedirectResp:
+        status_code = 302
+        text = ""
+
+        def __init__(self, location):
+            self.headers = {"location": location}
+
+    class _FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, *a, **k):
+            return _RedirectResp("https://169.254.169.254/latest/meta-data/")
+
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+    monkeypatch.setattr(loc, "_ip_is_public", lambda host: True)
+    got = await loc.resolve_short_url("https://maps.app.goo.gl/abc123")
+    assert got is None
 
 
 async def test_resolve_geocode_mock(monkeypatch):

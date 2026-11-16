@@ -452,8 +452,9 @@ async def test_update_main_sub_url(app_client):
         })
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["main_url"] == "rtsp://u:p@cam/live/0/MAIN"
-    assert body["sub_url"] == "rtsp://u:p@cam/live/0/SUB"
+    # T-4: respons mengembalikan password teredaksi (****), bukan mentah.
+    assert body["main_url"] == "rtsp://u:****@cam/live/0/MAIN"
+    assert body["sub_url"] == "rtsp://u:****@cam/live/0/SUB"
     # main_url kosong ditolak.
     async with _client(app) as c:
         r = await c.put("/api/admin/streams/1", json={"main_url": "   "})
@@ -480,30 +481,38 @@ async def test_update_main_sub_url_password_tidak_berubah(app_client):
     auth_as(app, admin)
     async with _client(app) as c:
         # URL baru tanpa password -> password lama dipertahankan.
+        # T-4: respons menampilkan password teredaksi (****); bukti
+        # password tersimpan ada di DB (dicek di akhir tes).
         r = await c.put("/api/admin/streams/1", json={
             "main_url": "rtsp://admin@cam/live/0/MAIN"})
         assert r.status_code == 200, r.text
-        assert r.json()["main_url"] == "rtsp://admin:pwlama@cam/live/0/MAIN"
+        assert r.json()["main_url"] == "rtsp://admin:****@cam/live/0/MAIN"
         # Mask **** -> password lama dipertahankan.
         r = await c.put("/api/admin/streams/1", json={
             "main_url": "rtsp://admin:****@cam/live/0/MAIN2"})
         assert r.status_code == 200, r.text
-        assert r.json()["main_url"] == "rtsp://admin:pwlama@cam/live/0/MAIN2"
+        assert r.json()["main_url"] == "rtsp://admin:****@cam/live/0/MAIN2"
+        # Bukti password tersimpan tetap pwlama ada di DB (respons
+        # teredaksi tidak bisa membuktikannya). Sesi tes sama dengan
+        # sesi request, jadi get langsung melihat nilai terbaru.
+        st = await db.get(Stream, 1)
+        assert st is not None
+        assert st.main_url == "rtsp://admin:pwlama@cam/live/0/MAIN2"
         # Password baru eksplisit (bukan mask) -> berubah.
         r = await c.put("/api/admin/streams/1", json={
             "main_url": "rtsp://admin:pwbaru@cam/live/0/MAIN2"})
         assert r.status_code == 200, r.text
-        assert r.json()["main_url"] == "rtsp://admin:pwbaru@cam/live/0/MAIN2"
+        assert r.json()["main_url"] == "rtsp://admin:****@cam/live/0/MAIN2"
         # Sub baru tanpa password -> pakai password tersimpan (main).
         r = await c.put("/api/admin/streams/1", json={
             "sub_url": "rtsp://cam/live/0/SUB"})
         assert r.status_code == 200, r.text
-        assert r.json()["sub_url"] == "rtsp://admin:pwbaru@cam/live/0/SUB"
+        assert r.json()["sub_url"] == "rtsp://admin:****@cam/live/0/SUB"
         # Enable/disable saja: URL tidak berubah.
         r = await c.put("/api/admin/streams/1", json={"is_active": False})
         assert r.status_code == 200, r.text
-        assert r.json()["main_url"] == "rtsp://admin:pwbaru@cam/live/0/MAIN2"
-        assert r.json()["sub_url"] == "rtsp://admin:pwbaru@cam/live/0/SUB"
+        assert r.json()["main_url"] == "rtsp://admin:****@cam/live/0/MAIN2"
+        assert r.json()["sub_url"] == "rtsp://admin:****@cam/live/0/SUB"
     st = await db.get(Stream, 1)
     assert st is not None
     assert st.main_url == "rtsp://admin:pwbaru@cam/live/0/MAIN2"

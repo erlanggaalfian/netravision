@@ -36,16 +36,37 @@ async def test_user_crud(app_client):
         r = await c.get("/api/admin/users")
         assert any(u["username"] == "budi" for u in r.json())
 
+        # K-2, keputusan terkunci 2026-11-08: admin TIDAK boleh grant admin.
+        # Membuat user langsung dengan peran admin ditolak 403.
+        r = await c.post(
+            "/api/admin/users",
+            json={"username": "calon", "password": "rahasia123", "role": "admin"},
+        )
+        assert r.status_code == 403, r.text
+
+        # Menaikkan user buatannya sendiri ke admin juga ditolak 403.
         r = await c.put(f"/api/admin/users/{uid}", json={"role": "admin"})
-        assert r.json()["role"] == "admin"
+        assert r.status_code == 403, r.text
 
         # tidak boleh hapus diri sendiri
         r = await c.delete("/api/admin/users/1")
         assert r.status_code == 400
 
         # paritas v2.0: sesama admin tidak saling mengelola
-        r = await c.delete(f"/api/admin/users/{uid}")
+        db.add(
+            make_user(
+                id=9, username="adminlain", role="admin",
+                admin_group="grup-bandung",
+            )
+        )
+        await db.commit()
+        r = await c.delete("/api/admin/users/9")
         assert r.status_code == 403
+
+        # user biasa buatannya sendiri masih boleh dihapus
+        r = await c.delete(f"/api/admin/users/{uid}")
+        assert r.status_code == 200
+        assert r.json() == {"ok": True}
 
 
 async def test_camera_access(app_client):

@@ -13,6 +13,7 @@ import logging
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
+from app.core.rate_limit import rate_limited
 from app.core.rbac import require_roles
 from app.models.users import User
 from app.services.location import LocationError, resolve_location
@@ -35,7 +36,7 @@ class ResolveLocationOut(BaseModel):
     place_name: str | None = None
 
 
-@router.post("/maps/resolve-location", response_model=ResolveLocationOut)
+@router.post("/maps/resolve-location", response_model=ResolveLocationOut, dependencies=[Depends(rate_limited(10, 60))])
 async def resolve_location_endpoint(
     body: ResolveLocationIn,
     _user: User = Depends(require_roles("admin")),

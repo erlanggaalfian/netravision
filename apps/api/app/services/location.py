@@ -11,11 +11,14 @@ Tidak ada layanan berbayar dan tidak ada API key di sini.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import math
 import re
+import socket
 import time
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 import httpx
 
@@ -240,21 +243,85 @@ def parse_dms(text: str) -> tuple[float, float] | None:
 # ---------------------------------------------------------------------------
 _SHORT_HOSTS = ("maps.app.goo.gl", "goo.gl")
 
+# Host yang boleh dituju saat mengikuti redirect tautan pendek.
+# T-3 (SSRF): redirect tidak boleh ke host sembarang; hanya host Google.
+_REDIRECT_HOSTS = ("maps.app.goo.gl", "goo.gl", "google.com", "googleapis.com")
+
+
+def _host_allowed(host: str) -> bool:
+    """Host boleh dituju bila sama dengan atau subdomain host Google."""
+    h = (host or "").lower().rstrip(".")
+    return any(h == base or h.endswith("." + base) for base in _REDIRECT_HOSTS)
+
+
+def _ip_is_public(host: str) -> bool:
+    """Tolak host yang resolve ke IP private/loopback/link-local/reserved."""
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except (socket.gaierror, UnicodeError):
+        return False
+    if not infos:
+        return False
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        ):
+            return False
+    return True
+
 
 async def resolve_short_url(url: str) -> tuple[float, float] | None:
     t = url.strip()
-    if not any(h in t for h in _SHORT_HOSTS):
+    # Host awal harus persis tautan pendek Google (bukan substring di
+    # path/query, yang sebelumnya bisa memicu fetch ke host sembarang).
+    parsed = urlparse(t)
+    if parsed.scheme not in ("http", "https"):
+        return None
+    if not _host_allowed(parsed.hostname or ""):
         return None
     try:
         async with httpx.AsyncClient(
-            follow_redirects=True, max_redirects=10, timeout=10.0,
+            follow_redirects=False, timeout=10.0,
             headers={"User-Agent": "NetraVision/1.0"},
         ) as client:
-            resp = await client.get(t)
+            current = t
+            resp = None
+            for _ in range(10):
+                host = urlparse(current).hostname or ""
+                # Tiap hop redirect divalidasi: host Google saja dan
+                # IP-nya publik, supaya server tidak dipakai sebagai
+                # proxy ke service internal (SSRF).
+                if not _host_allowed(host):
+                    return None
+                if not await asyncio.to_thread(_ip_is_public, host):
+                    return None
+                resp = await client.get(current)
+                if resp.status_code in (301, 302, 303, 307, 308):
+                    nxt = resp.headers.get("location")
+                    if not nxt:
+                        return None
+                    current = str(httpx.URL(current).join(nxt))
+                    continue
+                break
+            else:
+                return None
+            if resp is None:
+                return None
     except (httpx.HTTPError, ValueError):
         log.warning("gagal mengikuti tautan pendek %s", t[:80])
         return None
-    final = str(resp.url)
+    # URL akhir dari respons (mock/redirect chain); bila tidak ada, pakai
+    # URL terakhir yang diminta.
+    final = str(getattr(resp, "url", "") or current)
     got = parse_google_maps_url(final)
     if got:
         return got

@@ -48,6 +48,24 @@ def validate_remote_name(remote_name: str) -> str:
     return name
 
 
+def _validate_rclone_path(path: str) -> str:
+    """Validasi path sisi remote (folder/segmen) sebelum jadi argv rclone.
+
+    S-5 (defense in depth): path tidak boleh kosong, tidak boleh diawali
+    '-' (supaya tidak pernah ditafsir sebagai flag rclone), dan tidak
+    boleh mengandung komponen '..' (traversal). Dipakai konsisten di
+    semua pemanggilan rclone yang membawa path dari luar.
+    """
+    p = (path or "").strip()
+    if not p:
+        raise ValueError("path rclone tidak boleh kosong")
+    if p.startswith("-"):
+        raise ValueError("path rclone tidak boleh diawali '-'")
+    if ".." in p.split("/"):
+        raise ValueError("path rclone tidak boleh mengandung '..'")
+    return p
+
+
 def _data_dir() -> str:
     """Direktori data API tempat .rclone.conf disimpan.
 
@@ -137,6 +155,7 @@ async def list_rclone_files(remote_name: str, path: str) -> list[dict]:
     mengulang lsjson.
     """
     remote_name = validate_remote_name(remote_name)
+    path = _validate_rclone_path(path)
     key = (remote_name, path)
     now = time.monotonic()
     hit = _LSJSON_CACHE.get(key)
@@ -175,6 +194,7 @@ async def stream_rclone_file(
     Dipakai Putar Ulang untuk streaming segmen Drive (dukung HTTP Range).
     """
     remote_name = validate_remote_name(remote_name)
+    path = _validate_rclone_path(path)
     count = max(0, end - start + 1)
     rc, out, err = await _run_rclone_bytes(
         "cat", f"{remote_name}:{path}",
@@ -190,6 +210,7 @@ async def stream_rclone_file(
 async def download_rclone_file(remote_name: str, path: str) -> bytes:
     """Unduh utuh satu file rclone via `rclone cat` (untuk potong ffmpeg)."""
     remote_name = validate_remote_name(remote_name)
+    path = _validate_rclone_path(path)
     rc, out, err = await _run_rclone_bytes(
         "cat", f"{remote_name}:{path}", timeout=300
     )
@@ -567,12 +588,13 @@ async def upload_segment(
     Bila argumen ketiga mengandung "/", anggap itu jalur tujuan lama dan
     pakai remote default. Raise RuntimeError bila gagal.
     """
+    folder_id = _validate_rclone_path(folder_id)
     if dest_name is not None:
         remote = validate_remote_name(remote_name)
-        dest = dest_name
+        dest = _validate_rclone_path(dest_name)
     elif "/" in (remote_name or ""):
         remote = REMOTE_NAME
-        dest = remote_name
+        dest = _validate_rclone_path(remote_name)
     else:
         remote = validate_remote_name(remote_name)
         dest = os.path.basename(local_path)

@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.rate_limit import rate_limited
 from app.core.rbac import _user_from_token, bearer_scheme, require_roles
 from app.core.security import decode_token
 from app.db.session import get_db
@@ -29,7 +30,8 @@ from app.models.users import User
 
 router = APIRouter(tags=["admin-ads"])
 # E-K1: kelola iklan hanya super_admin (admin biasa tidak boleh).
-admin_router = APIRouter(tags=["admin-ads"], dependencies=[Depends(require_roles("super_admin"))])
+# S-1: dibatasi 20/menit per IP.
+admin_router = APIRouter(tags=["admin-ads"], dependencies=[Depends(require_roles("super_admin")), Depends(rate_limited(20, 60))])
 
 
 class AdConfigIn(BaseModel):

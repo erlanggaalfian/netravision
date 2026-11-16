@@ -187,3 +187,42 @@ async def test_playback_tidak_lagi_503(app_client):
         data = r.json()
         assert "dates" in data
         assert data["camera"] == 1
+
+
+async def test_session_token_dicabut_bila_key_nonaktif(app_client):
+    """S-2: token sesi embed ditolak bila key dinonaktifkan, kedaluwarsa,
+    atau kamera tidak lagi terikat key itu (pencabutan langsung)."""
+    import pytest
+
+    from app.routers.external import _session_token, _validate_session_token
+
+    _, _, db = app_client
+    key = await _seed(db)
+    token = _session_token(key, 1, 60)
+    assert await _validate_session_token(db, token, 1) == key.id
+
+    # Key dinonaktifkan -> token mati walau belum kedaluwarsa.
+    key.is_active = False
+    await db.commit()
+    with pytest.raises(ValueError, match="tidak aktif"):
+        await _validate_session_token(db, token, 1)
+    key.is_active = True
+
+    # Kamera dilepas dari key -> token mati.
+    row = (await db.execute(
+        select(ApiKeyStream).where(
+            ApiKeyStream.api_key_id == key.id,
+            ApiKeyStream.stream_id == 1,
+        )
+    )).scalars().first()
+    await db.delete(row)
+    await db.commit()
+    with pytest.raises(ValueError, match="tidak lagi terikat"):
+        await _validate_session_token(db, token, 1)
+
+    # Key kedaluwarsa -> token mati.
+    db.add(ApiKeyStream(api_key_id=key.id, stream_id=1))
+    key.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    await db.commit()
+    with pytest.raises(ValueError, match="kedaluwarsa"):
+        await _validate_session_token(db, token, 1)
