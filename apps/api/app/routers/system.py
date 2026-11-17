@@ -48,12 +48,17 @@ async def check_mediamtx() -> dict:
     settings = get_settings()
     url = f"{settings.mediamtx_api_url.rstrip('/')}/v3/config/global/get"
     try:
-        # 4.11: kirim kredensial control API bila dikonfigurasi
-        # (MEDIAMTX_API_USER/PASSWORD); tanpa ini health selalu
-        # "degraded" begitu MediaMTX diproteksi.
+        # 4.11: kirim kredensial control API bila dikonfigurasi.
+        # Password utama dari database (system_settings, di-cache
+        # saat startup); env MEDIAMTX_API_PASSWORD hanya fallback.
+        # Tanpa ini health selalu "degraded" begitu MediaMTX
+        # diproteksi.
+        from app.services.system_settings import get_mediamtx_password  # noqa: PLC0415
+
+        _pw = get_mediamtx_password() or settings.mediamtx_api_password
         auth = (
-            (settings.mediamtx_api_user, settings.mediamtx_api_password)
-            if settings.mediamtx_api_user and settings.mediamtx_api_password
+            (settings.mediamtx_api_user, _pw)
+            if settings.mediamtx_api_user and _pw
             else None
         )
         async with httpx.AsyncClient(
