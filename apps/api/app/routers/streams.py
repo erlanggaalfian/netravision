@@ -6,9 +6,9 @@ Path /api/* dipertahankan persis seperti v2.0.
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
@@ -67,63 +67,114 @@ def stream_to_out(stream: Stream, settings: Settings) -> StreamOut:
     )
 
 
-async def _visible_streams(user: User, db: AsyncSession) -> list[Stream]:
-    result = await db.execute(
-        select(Stream).where(Stream.is_active.is_(True)).order_by(Stream.id)
-    )
-    streams = list(result.scalars().all())
+def _visible_streams_query(user: User, group_id: int | None = None):
+    """Query Stream yang terlihat user, visibilitas di level SQL.
+
+    6.11: aturan RBAC sama persis seperti _visible_streams lama,
+    hanya dipindah dari filter Python ke WHERE SQL supaya
+    LIMIT/OFFSET + COUNT benar-benar menghemat query DB:
+      super_admin: semua kamera aktif.
+      admin: miliknya (created_by ATAU owner_id) atau yang
+        di-grant can_view (StreamAdminGrant).
+      user/guest: yang dibagikan eksplisit (UserStreamAccess
+        can_view) atau lewat peran (StreamPermission role-nya,
+        user_id NULL, can_view).
+    group_id (bila diisi): hanya kamera anggota grup itu
+    (GroupStream). Dipakai list_streams (?group=) dan pemanggil
+    lain yang butuh filter grup.
+    """
+    q = select(Stream).where(Stream.is_active.is_(True))
     if user.role == "super_admin":
-        return streams
-    if user.role == "admin":
+        pass
+    elif user.role == "admin":
         # A-T2: admin biasa hanya melihat kamera miliknya sendiri
         # (created_by ATAU owner_id) atau yang di-grant can_view.
         # Periksa keduanya terpisah: `created_by or owner_id` salah
         # bila created_by terisi orang lain.
-        allowed: set[int] = {
-            s.id
-            for s in streams
-            if getattr(s, "created_by", None) == user.id
-            or getattr(s, "owner_id", None) == user.id
-        }
-        allowed.update(
-            (
-                await db.execute(
+        q = q.where(
+            or_(
+                Stream.created_by == user.id,
+                Stream.owner_id == user.id,
+                Stream.id.in_(
                     select(StreamAdminGrant.stream_id).where(
                         StreamAdminGrant.admin_id == user.id,
                         StreamAdminGrant.can_view.is_(True),
                     )
+                ),
+            )
+        )
+    else:
+        q = q.where(
+            or_(
+                Stream.id.in_(
+                    select(UserStreamAccess.stream_id).where(
+                        UserStreamAccess.user_id == user.id,
+                        UserStreamAccess.can_view.is_(True),
+                    )
+                ),
+                Stream.id.in_(
+                    select(StreamPermission.stream_id).where(
+                        StreamPermission.role == user.role,
+                        StreamPermission.user_id.is_(None),
+                        StreamPermission.can_view.is_(True),
+                    )
+                ),
+            )
+        )
+    if group_id is not None:
+        q = q.where(
+            Stream.id.in_(
+                select(GroupStream.stream_id).where(
+                    GroupStream.group_id == group_id
                 )
             )
+        )
+    return q.order_by(Stream.id)
+
+
+async def _visible_streams(user: User, db: AsyncSession) -> list[Stream]:
+    result = await db.execute(_visible_streams_query(user))
+    return list(result.scalars().all())
+
+
+async def _visible_streams_paged(
+    user: User,
+    db: AsyncSession,
+    group: str | None = None,
+    page: int | None = None,
+    limit: int | None = None,
+) -> tuple[list[Stream], int]:
+    """Kamera terlihat + total, paginasi di level SQL (6.11).
+
+    Tanpa ?page=/?limit= -> list penuh + total = len (perilaku
+    v3.0 sekarang). Dengan salah satunya -> LIMIT/OFFSET di SQL
+    dan COUNT terpisah, total dikirim pemanggil lewat header
+    X-Total-Count seperti admin_keys.list_logs. ?group= yang
+    tidak ada di DB -> ([], 0), sama seperti filter Python lama.
+    """
+    group_id: int | None = None
+    if group:
+        # A-S9: keanggotaan grup dibaca dari tabel group_streams,
+        # bukan kolom streams.group_name yang tidak pernah diisi.
+        grp = (
+            (await db.execute(select(StreamGroup).where(StreamGroup.name == group)))
             .scalars()
-            .all()
+            .first()
         )
-        return [s for s in streams if s.id in allowed]
-    allowed: set[int] = set(
-        (
-            await db.execute(
-                select(UserStreamAccess.stream_id).where(
-                    UserStreamAccess.user_id == user.id,
-                    UserStreamAccess.can_view.is_(True),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    allowed.update(
-        (
-            await db.execute(
-                select(StreamPermission.stream_id).where(
-                    StreamPermission.role == user.role,
-                    StreamPermission.user_id.is_(None),
-                    StreamPermission.can_view.is_(True),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return [s for s in streams if s.id in allowed]
+        if grp is None:
+            return [], 0
+        group_id = grp.id
+    q = _visible_streams_query(user, group_id)
+    if page is None and limit is None:
+        result = await db.execute(q)
+        streams = list(result.scalars().all())
+        return streams, len(streams)
+    lim = limit or 20
+    pg = page or 1
+    count_q = select(func.count()).select_from(q.subquery())
+    total = (await db.execute(count_q)).scalar() or 0
+    result = await db.execute(q.limit(lim).offset((pg - 1) * lim))
+    return list(result.scalars().all()), total
 
 
 async def _get_stream_or_404(
@@ -149,6 +200,7 @@ async def list_streams(
     limit: int | None = Query(None, ge=1, le=500, description="v2.0: batas"),
     group: str | None = Query(None, description="v2.0: filter nama grup (persis)"),
     no_check: bool = Query(False, description="v2.0: lewati cek status"),
+    response: Response = None,
 ):
     """Daftar stream yang terlihat user.
 
@@ -156,36 +208,17 @@ async def list_streams(
     Dengan salah satunya -> paginasi (limit default 20 bila hanya page dipakai).
     ?group= menyaring nama grup persis (v2.0). ?no_check= diterima untuk
     kompatibilitas v2.0; status online di v3.0 berasal dari poller latar.
+    6.11: paginasi di level SQL (LIMIT/OFFSET + COUNT), total lewat
+    header X-Total-Count seperti admin_keys.list_logs; sebelumnya
+    _visible_streams memuat semua kamera lalu slice Python, jadi
+    ?page=/?limit= tidak menghemat query DB sama sekali.
     """
     settings = get_settings()
-    streams = await _visible_streams(user, db)
-    if group:
-        # A-S9: keanggotaan grup dibaca dari tabel group_streams,
-        # bukan kolom streams.group_name yang tidak pernah diisi.
-        grp = (
-            (await db.execute(select(StreamGroup).where(StreamGroup.name == group)))
-            .scalars()
-            .first()
-        )
-        if grp is None:
-            streams = []
-        else:
-            in_group = set(
-                (
-                    await db.execute(
-                        select(GroupStream.stream_id).where(
-                            GroupStream.group_id == grp.id
-                        )
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            streams = [s for s in streams if s.id in in_group]
-    if page is not None or limit is not None:
-        lim = limit or 20
-        pg = page or 1
-        streams = streams[(pg - 1) * lim : pg * lim]
+    streams, total = await _visible_streams_paged(
+        user, db, group=group, page=page, limit=limit
+    )
+    if response is not None:
+        response.headers["X-Total-Count"] = str(total)
     return [stream_to_out(s, settings) for s in streams]
 
 

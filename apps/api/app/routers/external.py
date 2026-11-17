@@ -118,8 +118,16 @@ async def _log(
     """Catat akses embed. ok/gagal dikodekan di `action` karena skema
     api_access_logs tidak punya kolom ok/reason terpisah.
 
+    6.8: ini SATU-SATUNYA titik commit per request embed: satu add
+    + satu commit di akhir request (atau di jalur ditolak, sebelum
+    raise). Update last_used_at throttled di _validate_key TIDAK
+    lagi commit sendiri; perubahannya ikut ter-commit bersama
+    insert log ini dalam transaksi yang sama. Request yang ditolak
+    di _validate_key tetap punya satu insert (log denied di sini)
+    karena sesi ditutup tanpa commit bila tidak ada _log.
+
     A-1.9: gagal tulis log (DB error) TIDAK boleh mengubah respons
-    403/200 yang seharusnya menjadi 500 — efek samping sudah terjadi
+    403/200 yang seharusnya menjadi 500, efek samping sudah terjadi
     (mis. password salah sudah dicatat di _KEY_FAILURES). Kegagalan
     hanya ditulis ke log server, lalu sesi di-rollback supaya tetap
     bisa dipakai pemanggil.
@@ -205,16 +213,20 @@ async def _validate_key(
                 status.HTTP_403_FORBIDDEN, "Akses ditolak: domain asal tidak diizinkan"
             )
     # 6.8: update last_used_at secara throttled (maks 1x per 5 menit
-    # per kunci), bukan commit di tiap validasi. Sebelumnya tiap
-    # request embed murah (cek key + ambil URL WHEP) diikuti commit
-    # ini + commit _log, mengunci baris api_keys yang sama saat
-    # banyak embed polling bersamaan. Perubahan tetap tersimpan
-    # lewat commit _log di akhir request yang sama.
+    # per kunci), TANPA commit sendiri. Sebelumnya tiap request embed
+    # murah (cek key + ambil URL WHEP) diikuti commit ini + commit
+    # _log di akhir request, mengunci baris api_keys yang sama saat
+    # banyak embed polling bersamaan. Kini perubahan hanya ditandai
+    # di sesi dan ikut ter-commit bersama SATU insert _log di akhir
+    # request yang sama (atau bersama log denied bila endpoint
+    # menolak setelah validasi). Bila request berakhir tanpa _log
+    # (mis. format date/time tidak valid), update ini hilang saat
+    # sesi ditutup, dan itu tidak apa-apa: last_used_at hanya
+    # penanda pemakaian terakhir, bukan data kritis.
     _now_v = _now()
     _last = _as_aware(key.last_used_at)
     if _last is None or (_now_v - _last).total_seconds() > 300:
         key.last_used_at = _now_v
-        await db.commit()
     return key
 
 

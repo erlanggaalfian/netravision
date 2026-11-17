@@ -56,6 +56,28 @@ user_or_above = require_roles("admin", "user", "guest")
 _ONE_DAY = timedelta(days=1)
 
 
+def _session_factory_for(
+    db: AsyncSession,
+) -> async_sessionmaker[AsyncSession] | None:
+    """Factory sesi baru dari engine sesi pemanggil, atau None.
+
+    6.6/6.12: satu AsyncSession TIDAK aman dipakai paralel antar
+    task asyncio, jadi tiap sumber/tugas paralel membuka sesi
+    sendiri dari engine yang sama (pola yang sama dipakai
+    recording_cameras untuk fallback Drive). Di produksi db.bind
+    adalah engine Postgres; di tes itu engine sqlite per-test,
+    jadi factory turunan ini selalu menunjuk DB yang benar,
+    tidak seperti get_session_factory() global yang menunjuk
+    engine dari settings. None bila sesi tidak punya bind
+    (pemanggil memakai sesi lama), pemanggil lalu jalan berurutan
+    di sesi yang sama seperti sebelumnya.
+    """
+    bind = getattr(db, "bind", None)
+    if bind is None:
+        return None
+    return async_sessionmaker(bind, class_=AsyncSession, expire_on_commit=False)
+
+
 def _to_server_naive(dt: datetime | None) -> datetime | None:
     """Datetime aware -> waktu lokal server (naive); naive dibiarkan.
 
@@ -292,12 +314,56 @@ async def _rclone_segments(
     return out
 
 
+async def _oauth_segments(
+    stream: Stream, day: date | None, db: AsyncSession
+) -> list[Segment]:
+    """Segmen dari folder Drive OAuth akun kamera ini."""
+    from app.services.drive_accounts import uploader_for_stream
+
+    settings = get_settings()
+    if not settings.drive_enabled:
+        return []
+    up = await uploader_for_stream(db, stream)
+    if up is None:
+        return []
+    folder_id = await up.ensure_folder(stream.name, stream.id)
+    out: list[Segment] = []
+    for f in await up.list_files(folder_id):
+        name = f.get("name", "")
+        if not name.endswith(".mp4"):
+            continue
+        start = parse_segment_name(name)
+        if start is None or (day is not None and start.date() != day):
+            continue
+        out.append(
+            Segment(
+                start=start,
+                path="",
+                size=int(f.get("size") or 0),
+                name=name,
+                drive_file_id=f.get("id"),
+            )
+        )
+    return out
+
+
 async def _all_segments(
     stream: Stream, day: date | None, db: AsyncSession
 ) -> list[Segment]:
     """Gabungan segmen lokal + folder-link + Drive akun kamera ini.
 
     Lokal menang bila nama sama, lalu folder-link, lalu folder OAuth.
+    6.6: tiga sumber Drive (folder-link, rclone lsjson, OAuth
+    list_files) independen dan kini jalan PARALEL dengan
+    asyncio.gather, bukan berurutan. Satu AsyncSession tidak aman
+    dipakai paralel, jadi tiap sumber membuka sesi sendiri dari
+    factory turunan engine sesi pemanggil (lihat
+    _session_factory_for). Bila factory tidak tersedia, jatuh ke
+    jalur berurutan lama di sesi yang sama. Lokal tetap dihitung
+    dulu (sinkron, tanpa DB) dan prioritas dedup tidak berubah.
+    Atribut stream yang dipakai sumber paralel dimuat dulu di sini
+    supaya task paralel hanya membaca nilai yang sudah ada di
+    memori, bukan memicu refresh lewat sesi pemanggil.
     """
     settings = get_settings()
     # Rekaman multi-disk: list_segments harus diberi stream supaya
@@ -305,9 +371,23 @@ async def _all_segments(
     # default (tanpa ini rekaman kamera multi-disk tidak terlihat di
     # Putar Ulang sama sekali).
     segs = list_segments(stream.id, day, settings.recordings_dir, stream=stream)
-    if stream.storage_mode in ("drive", "both"):
-        names = {s.name for s in segs}
-        # B-T1: staging lokal folder-link (mirror rclone).
+    if stream.storage_mode not in ("drive", "both"):
+        return _finish(segs)
+    # Muat atribut yang dipakai sumber paralel sebelum gather.
+    _preload = (stream.id, stream.name, stream.drive_folder_id)
+    del _preload
+    names = {s.name for s in segs}
+
+    async def _run_source(label: str, coro_fn) -> list[Segment]:
+        try:
+            return await coro_fn()
+        except Exception as e:  # noqa: BLE001
+            log.warning("drive %s %s gagal: %s", label, stream.name, e)
+            return []
+
+    factory = _session_factory_for(db)
+    if factory is None:
+        # Tanpa bind: jalur berurutan lama di sesi pemanggil.
         try:
             for s in await _folder_link_segments(stream, day, db):
                 if s.name not in names:
@@ -315,7 +395,6 @@ async def _all_segments(
                     segs.append(s)
         except Exception as e:  # noqa: BLE001
             log.warning("drive folder-link %s gagal: %s", stream.name, e)
-        # Drive rclone (akun disk1 dsb.): lokal menang bila nama sama.
         try:
             for s in await _rclone_segments(stream, day, db):
                 if s.name not in names:
@@ -323,32 +402,39 @@ async def _all_segments(
                     segs.append(s)
         except Exception as e:  # noqa: BLE001
             log.warning("drive rclone %s gagal: %s", stream.name, e)
-    if stream.storage_mode in ("drive", "both") and settings.drive_enabled:
-        try:
-            from app.services.drive_accounts import uploader_for_stream
+        if settings.drive_enabled:
+            try:
+                for s in await _oauth_segments(stream, day, db):
+                    if s.name not in names:
+                        names.add(s.name)
+                        segs.append(s)
+            except Exception as e:  # noqa: BLE001
+                log.warning("drive list %s gagal: %s", stream.name, e)
+        return _finish(segs)
 
-            up = await uploader_for_stream(db, stream)
-            if up is None:
-                return _finish(segs)
-            folder_id = await up.ensure_folder(stream.name, stream.id)
-            for f in await up.list_files(folder_id):
-                name = f.get("name", "")
-                if name in names or not name.endswith(".mp4"):
-                    continue
-                start = parse_segment_name(name)
-                if start is None or (day is not None and start.date() != day):
-                    continue
-                segs.append(
-                    Segment(
-                        start=start,
-                        path="",
-                        size=int(f.get("size") or 0),
-                        name=name,
-                        drive_file_id=f.get("id"),
-                    )
-                )
-        except Exception as e:  # noqa: BLE001, Drive opsional, jangan gagalkan
-            log.warning("drive list %s gagal: %s", stream.name, e)
+    async def _folder_link_own() -> list[Segment]:
+        async with factory() as sdb:
+            return await _folder_link_segments(stream, day, sdb)
+
+    async def _rclone_own() -> list[Segment]:
+        async with factory() as sdb:
+            return await _rclone_segments(stream, day, sdb)
+
+    async def _oauth_own() -> list[Segment]:
+        async with factory() as sdb:
+            return await _oauth_segments(stream, day, sdb)
+
+    # Urutan gather = prioritas dedup: folder-link, rclone, OAuth.
+    folder_link, rclone, oauth = await asyncio.gather(
+        _run_source("folder-link", _folder_link_own),
+        _run_source("rclone", _rclone_own),
+        _run_source("list", _oauth_own),
+    )
+    for src in (folder_link, rclone, oauth):
+        for s in src:
+            if s.name not in names:
+                names.add(s.name)
+                segs.append(s)
     return _finish(segs)
 
 
@@ -1206,19 +1292,62 @@ async def download_range(
     parts: list[str] = []
     temps: list[str] = []
     try:
+        # 6.12: segmen disiapkan PARALEL (semaphore 4), bukan
+        # berurutan. Tiap segmen Drive diunduh utuh ke temp sebelum
+        # digabung, jadi unduhan berurutan membuat satu segmen
+        # lambat menahan seluruh rentang. Tiap tugas memakai sesi
+        # DB sendiri (factory turunan engine sesi pemanggil, lihat
+        # _session_factory_for) karena _segment_part_file memakai
+        # sesi untuk lookup Drive OAuth dan satu AsyncSession tidak
+        # aman dipakai paralel; tanpa factory, jatuh ke jalur
+        # berurutan lama. Urutan bagian dipertahankan (gather
+        # mengembalikan sesuai urutan segmen) supaya concat tetap
+        # kronologis. TrimFailedError dari satu segmen tetap
+        # menggagalkan seluruh unduhan (500) seperti sebelumnya,
+        # bukan dilewati diam-diam; segmen Drive yang gagal unduh
+        # tetap dilewati dengan peringatan (return None).
+        _part_jobs: list[tuple[Segment, datetime, datetime]] = []
         for seg in segs:
             seg_end = seg.end or seg.start
             p_start = max(seg.start, start)
             p_end = min(seg_end, end)
             if p_end <= p_start:
                 continue
-            path, is_temp = await _segment_part_file(
-                stream, seg, p_start, p_end, db
+            _part_jobs.append((seg, p_start, p_end))
+        _factory = _session_factory_for(db)
+        if _factory is None or len(_part_jobs) <= 1:
+            _part_results: list[tuple[str | None, bool]] = []
+            for _seg, _ps, _pe in _part_jobs:
+                _part_results.append(
+                    await _segment_part_file(stream, _seg, _ps, _pe, db)
+                )
+        else:
+            _sem = asyncio.Semaphore(4)
+
+            async def _part_one(
+                _seg: Segment, _ps: datetime, _pe: datetime,
+            ) -> tuple[str | None, bool] | Exception:
+                async with _sem:
+                    try:
+                        async with _factory() as _sdb:
+                            return await _segment_part_file(
+                                stream, _seg, _ps, _pe, _sdb
+                            )
+                    except Exception as _e:  # noqa: BLE001
+                        return _e
+
+            _part_results = await asyncio.gather(
+                *(_part_one(_seg, _ps, _pe) for _seg, _ps, _pe in _part_jobs)
             )
+            for _res in _part_results:
+                if isinstance(_res, Exception):
+                    raise _res
+        for (_seg, _ps, _pe), _res in zip(_part_jobs, _part_results):
+            path, is_temp = _res
             if path is None:
                 log.warning(
                     "download-range: segmen %s dilewati (tidak bisa disiapkan)",
-                    seg.name,
+                    _seg.name,
                 )
                 continue
             parts.append(path)

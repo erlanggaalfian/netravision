@@ -782,15 +782,29 @@ async def _detect_fallback_auth(
 ) -> tuple[str, str | None, str | None] | None:
     """Deteksi kredensial cadangan bila password yang diisi gagal total.
 
-    Coba, berurutan, pada _FALLBACK_PROBE_COUNT path pertama saja:
-    (1) tanpa kredensial, (2) password kosong, (3) password default
-    pabrik yang umum. Satu set dianggap cocok bila ADA SATU path yang
-    lolos auth ("open", atau "not_found" yang artinya auth diterima
-    tapi path tidak ada). Kembalikan (auth_mode, user, password) set
-    pertama yang cocok, atau None bila tidak ada yang cocok.
-    Hanya deteksi: pemanggil yang menjalankan discovery penuh dengan
-    kredensial ini, dan UI yang meminta konfirmasi sebelum password
-    default disimpan."""
+    Coba, per kredensial cadangan, pada _FALLBACK_PROBE_COUNT path
+    pertama saja: (1) tanpa kredensial, (2) password kosong,
+    (3) password default pabrik yang umum. Satu set dianggap cocok
+    bila ADA SATU path yang lolos auth ("open", atau "not_found"
+    yang artinya auth diterima tapi path tidak ada). Kembalikan
+    (auth_mode, user, password) set pertama yang cocok, atau None
+    bila tidak ada yang cocok. Hanya deteksi: pemanggil yang
+    menjalankan discovery penuh dengan kredensial ini, dan UI yang
+    meminta konfirmasi sebelum password default disimpan.
+
+    6.10: probe di dalam satu kredensial jalan PARALEL (semaphore
+    _SEM_PROBES, sama seperti gelombang DESCRIBE di _discover),
+    bukan berurutan. Sebelumnya 6 kredensial x 8 path berurutan
+    dengan timeout 3 dtk tiap probe bisa makan sampai 144 dtk,
+    jauh melewati _HOST_BUDGET 45 dtk sehingga selalu terpotong
+    timeout luar. Kini satu kredensial paling lama ~1x timeout
+    probe (3 dtk), seluruh deteksi paling lama ~6x itu. Urutan
+    prioritas tetap dijaga: kredensial dicoba satu per satu
+    sesuai urutan attempts, dan di dalam satu kredensial path
+    pertama yang cocok yang menang (hasil gather dibaca sesuai
+    urutan path, bukan urutan selesai), supaya hasil sama seperti
+    versi berurutan.
+    """
     probe_paths = candidate_paths(channel)[:_FALLBACK_PROBE_COUNT]
     attempts: list[tuple[str, str | None, str | None]] = [
         ("none", None, None),
@@ -799,10 +813,19 @@ async def _detect_fallback_auth(
     attempts += [
         ("default", user, pw) for pw in _DEFAULT_PASSWORDS
     ]
-    for mode, f_user, f_password in attempts:
-        for path in probe_paths:
-            st = await probe_path(
+    sem = asyncio.Semaphore(_SEM_PROBES)
+
+    async def _probe_one(path: str, f_user: str | None,
+                         f_password: str | None) -> str:
+        async with sem:
+            return await probe_path(
                 build_url(host, port, f_user, f_password, path))
+
+    for mode, f_user, f_password in attempts:
+        results = await asyncio.gather(
+            *(_probe_one(p, f_user, f_password) for p in probe_paths)
+        )
+        for st in results:
             if st in ("open", "not_found"):
                 return mode, f_user, f_password
     return None
