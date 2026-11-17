@@ -37,6 +37,31 @@ class Settings(BaseSettings):
 
     mediamtx_api_url: str = "http://127.0.0.1:9997"
     mediamtx_whep_base: str = "http://127.0.0.1:8889"
+    # 4.11: kredensial control API MediaMTX. Kosong = tanpa auth (perilaku
+    # lama; control API saat itu hanya dibatasi IP di mediamtx.yml).
+    # Bila diisi, API mengirim HTTP Basic auth di setiap panggilan
+    # control API. WAJIB diisi di produksi bersama user/pass yang sama
+    # di mediamtx.yml (deploy/mediamtx.yml, env MEDIAMTX_API_USER /
+    # MEDIAMTX_API_PASSWORD); lihat deploy/docker-compose.yml.
+    # Default user "netravision" (sama seperti default di mediamtx.yml).
+    mediamtx_api_user: str = "netravision"
+    mediamtx_api_password: str = ""
+
+    # 4.17: jaringan kamera yang BOLEH di-probe/scan (CIDR dipisah koma,
+    # mis. "10.12.13.0/24,192.168.1.0/24"). Kosong = semua IP privat LAN
+    # diizinkan (perilaku lama), tapi loopback/link-local/metadata
+    # SELALU ditolak. Bila diisi, hanya jaringan itu yang boleh di-probe.
+    camera_networks: str = ""
+    # 4.17: izinkan probe ke loopback (127/8, ::1). MATI secara default:
+    # loopback adalah jalur SSRF ke layanan internal (MediaMTX control
+    # API, Postgres, dsb.). Hanya untuk tes otomatis (server RTSP palsu
+    # di 127.0.0.1) dan lab lokal; JANGAN nyalakan di produksi/demo.
+    camera_probe_allow_loopback: bool = False
+
+    # 4.18: dokumentasi API FastAPI (/docs, /redoc, /openapi.json).
+    # Mati secara default (produksi); nyalakan hanya bila dibutuhkan
+    # (API_DOCS_ENABLED=true, mis. saat debugging lokal).
+    api_docs_enabled: bool = False
 
     # Basis URL publik untuk WHEP (relatif; Apache mem-proxy /whep/ -> MediaMTX).
     public_whep_base: str = "/whep"

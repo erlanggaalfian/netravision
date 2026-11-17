@@ -42,18 +42,25 @@ class StreamOut(BaseModel):
 
 class StreamCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
-    brand: str | None = None
-    rtsp_url: str | None = None
+    # 4.19: samakan dengan kolom DB (brand 64, URL 512); password
+    # kamera dibatasi 128 (masuk URL 512 bersama user/host/path).
+    brand: str | None = Field(default=None, max_length=64)
+    rtsp_url: str | None = Field(default=None, max_length=512)
     # sub_url eksplisit (mis. best_sub terverifikasi dari Camera Scanner):
     # bila diisi, dipakai apa adanya dan mengalahkan turunan resolver
     # (derive_sub_url) yang hanya menebak dari pola path.
-    sub_url: str | None = None
+    sub_url: str | None = Field(default=None, max_length=512)
     onvif: dict | None = None  # TODO Fase 2: teruskan profile token ke resolver
-    user: str | None = None
-    password: str | None = None
-    host: str | None = None
+    user: str | None = Field(default=None, max_length=64)
+    password: str | None = Field(default=None, max_length=128)
+    host: str | None = Field(default=None, max_length=255)
     port: int = Field(default=554, ge=1, le=65535)
     channel: int = Field(default=1, ge=1)
+    # 4.6: referensi hasil scan (job_id scan subnet / scan_id POST
+    # /admin/scan) untuk memulihkan URL asli dari URL teredaksi
+    # (password ****) yang dikembalikan API scan. Tanpa ini, URL
+    # teredaksi ditolak 400 (password **** tidak boleh tersimpan).
+    scan_ref: str | None = Field(default=None, max_length=64)
     storage_mode: StorageMode = "local"
     recording_enabled: bool = False
     # Kamera aktif (ditambah dari popup "Tambah terpilih" Scanner,
@@ -82,8 +89,10 @@ class StreamUpdate(BaseModel):
     # (perintah user 2026-11-14). String kosong = kosongkan substream
     # (tanpa sub, frontend fallback ke main). main_url kosong tidak
     # diizinkan (kamera harus punya sumber main).
-    main_url: str | None = Field(default=None, max_length=1024)
-    sub_url: str | None = Field(default=None, max_length=1024)
+    # 4.19: samakan dengan kolom DB (512, bukan 1024: URL lebih panjang
+    # sebelumnya lolos validasi lalu 500 di PostgreSQL).
+    main_url: str | None = Field(default=None, max_length=512)
+    sub_url: str | None = Field(default=None, max_length=512)
 
 
 class GroupCreate(BaseModel):
@@ -98,11 +107,12 @@ class GroupOut(BaseModel):
 
 
 class ScanRequest(BaseModel):
-    brand: str | None = None  # None / "auto" = coba semua brand umum
-    host: str | None = Field(default=None, min_length=1)
-    rtsp_url: str | None = None  # mode URL RTSP langsung (tanpa host)
-    user: str | None = None
-    password: str | None = None
+    # 4.19: samakan dengan kolom DB (brand 64, URL 512).
+    brand: str | None = Field(default=None, max_length=64)  # None / "auto" = coba semua brand umum
+    host: str | None = Field(default=None, min_length=1, max_length=255)
+    rtsp_url: str | None = Field(default=None, max_length=512)  # mode URL RTSP langsung (tanpa host)
+    user: str | None = Field(default=None, max_length=64)
+    password: str | None = Field(default=None, max_length=128)
     port: int = Field(default=554, ge=1, le=65535)
     channel: int = Field(default=1, ge=1)
     probe: bool = True  # tes koneksi RTSP tiap kandidat via DESCRIBE
@@ -142,6 +152,11 @@ class ScanResult(BaseModel):
     # menampilkan penanda dan meminta konfirmasi sebelum password
     # default disimpan bersama kamera.
     auth_mode: str | None = None
+    # 4.6: referensi brankas URL asli hasil scan ini (sekali pakai,
+    # TTL 10 menit). Semua URL di respons ini TEREDAKSI (password
+    # ****); POST /admin/streams memulihkan URL asli dengan
+    # scan_ref=scan_id ini. None bila tidak ada URL yang disimpan.
+    scan_id: str | None = None
 
 
 class UserIdsIn(BaseModel):
@@ -171,4 +186,4 @@ class OwnerIn(BaseModel):
 
 
 class PreviewIn(BaseModel):
-    rtsp_url: str = Field(min_length=1)
+    rtsp_url: str = Field(min_length=1, max_length=512)

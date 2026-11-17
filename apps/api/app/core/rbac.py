@@ -52,8 +52,12 @@ async def _user_from_token(raw: str, db: AsyncSession) -> User:
     # agar show_ads-nya bisa diatur superadmin di menu Pengguna.
     # Bila baris ada tapi nonaktif, token guest lama ditolak (401):
     # menonaktifkan guest harus langsung mematikan sesi guest yang
-    # sudah berjalan. Fallback ke user sintetis hanya bila baris
-    # belum ada sama sekali (DB lama).
+    # sudah berjalan.
+    # 4.14: fallback ke user sintetis HANYA bila baris belum ada sama
+    # sekali (DB lama) DAN env GUEST_ENABLED true. Menghapus baris
+    # guest dengan maksud mematikannya tidak lagi mengaktifkan kembali
+    # login guest sintetis: bila env mati (default), token guest lama
+    # ditolak 401 seperti baris nonaktif.
     if payload.get("sub") == "guest":
         result = await db.execute(select(User).where(User.username == "guest"))
         guest = result.scalars().first()
@@ -64,6 +68,11 @@ async def _user_from_token(raw: str, db: AsyncSession) -> User:
                     detail="login tamu nonaktif",
                 )
             return guest
+        if not get_settings().guest_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="login tamu nonaktif",
+            )
         return User(id=0, username="guest", password_hash="", role="guest",
                     is_active=True, show_ads=True)
 

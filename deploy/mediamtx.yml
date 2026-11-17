@@ -67,9 +67,18 @@ authInternalUsers:
       - action: publish
       - action: read
       - action: playback
-  # control API hanya dari localhost + jaringan privat (Docker)
-  - user: any
-    pass:
+  # control API hanya dengan kredensial + dari localhost/jaringan
+  # privat (Docker). User/pass dari env MEDIAMTX_API_USER (default
+  # "netravision") / MEDIAMTX_API_PASSWORD (deploy/.env ->
+  # docker-compose, WAJIB diisi; compose gagal dengan pesan jelas
+  # bila belum di-set). Tanpa kredensial yang benar, control API
+  # menolak semua (fail-closed). API memakai user/pass yang sama
+  # (MEDIAMTX_API_USER/PASSWORD di apps/api/.env, diteruskan compose).
+  # 4.11: sebelumnya entri ini user "any" tanpa password, jadi siapa
+  # pun yang mencapai 127.0.0.1:9997 bisa membaca source RTSP semua
+  # kamera, menambah/menghapus path, dan mematikan rekaman.
+  - user: ${MEDIAMTX_API_USER:-netravision}
+    pass: ${MEDIAMTX_API_PASSWORD}
     ips: ['127.0.0.1', '::1', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']
     permissions:
       - action: api

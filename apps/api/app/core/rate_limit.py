@@ -36,15 +36,22 @@ def _trusted_proxy_cidrs() -> list:
 
 def _is_trusted_proxy(peer: str | None) -> bool:
     """Peer dianggap proxy tepercaya bila ada di TRUSTED_PROXY_CIDRS,
-    atau bila ia loopback/private (Apache di host yang sama, pola
-    deploy NetraVision saat ini). Peer publik tidak pernah dipercaya."""
+    atau bila ia loopback (Apache di host yang sama, pola deploy
+    NetraVision saat ini).
+
+    4.8: IP privat TIDAK LAGI dipercaya otomatis. Sebelumnya host mana
+    pun di 10/8, 172.16/12, atau 192.168/16 yang mencapai API langsung
+    bisa mengirim X-Forwarded-For sembarang dan mengontrol kunci rate
+    limit serta IP di audit log. Proxy di jaringan privat yang sah
+    (mis. container di network Docker lain) WAJIB didaftarkan eksplisit
+    lewat env TRUSTED_PROXY_CIDRS. Peer publik tidak pernah dipercaya."""
     if not peer:
         return False
     try:
         addr = ipaddress.ip_address(peer)
     except ValueError:
         return False
-    if addr.is_loopback or addr.is_private:
+    if addr.is_loopback:
         return True
     return any(addr in net for net in _trusted_proxy_cidrs())
 

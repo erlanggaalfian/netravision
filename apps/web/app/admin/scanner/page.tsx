@@ -198,6 +198,10 @@ export default function AdminScannerPage() {
     portOpen: 0,
   });
   const [hosts, setHosts] = useState<SubnetHost[] | null>(null);
+  /* 4.6: job_id scan subnet aktif, dipakai "Tambah terpilih" sebagai
+     scan_ref supaya backend memulihkan URL asli (password) dari URL
+     teredaksi hasil scan. */
+  const [scanJobId, setScanJobId] = useState<string | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState(0);
@@ -299,6 +303,7 @@ export default function AdminScannerPage() {
       portOpen: 0,
     });
     setHosts(null);
+    setScanJobId(null);
     setChecked(new Set());
     setAdded(0);
     try {
@@ -312,6 +317,7 @@ export default function AdminScannerPage() {
         password,
       });
       const jobId = created.job_id;
+      setScanJobId(jobId);
       for (;;) {
         await new Promise((r) => setTimeout(r, 2000));
         if (cancelledRef.current || cancelScanRef.current) return;
@@ -453,10 +459,15 @@ export default function AdminScannerPage() {
       try {
         // force: path sudah diverifikasi video saat scan.
         // sub_url: best_sub hasil scan bila ada (bukan turunan resolver).
+        // 4.6: best_main/best_sub kini TEREDAKSI (password ****);
+        // scan_ref=job_id memberitahu backend memulihkan URL asli
+        // dari brankas server (termasuk password default hasil
+        // discovery yang tidak diketahui frontend).
         const created = await api.post<Stream>("/admin/streams", {
           name: names[i],
           rtsp_url: h.best_main,
           sub_url: h.best_sub ?? null,
+          scan_ref: scanJobId ?? undefined,
           storage_mode: storageMode,
           is_active: isActive,
           recording_enabled: recordingEnabled,

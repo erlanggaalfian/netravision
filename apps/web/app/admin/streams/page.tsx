@@ -1095,6 +1095,10 @@ function AddStreamModal({
         {
           name: name.trim(),
           rtsp_url: picked.url,
+          // 4.6: picked.url kini TEREDAKSI (password ****); scan_ref
+          // memberitahu backend memulihkan URL asli dari brankas
+          // server (termasuk password default hasil discovery).
+          scan_ref: results?.scan_id ?? undefined,
           storage_mode: storageMode,
           drive_folder_id:
             storageMode === "local" || driveFolderId === ""

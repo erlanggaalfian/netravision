@@ -163,6 +163,10 @@ export interface ScanResult {
   // Kredensial mana yang dipakai hingga video ketemu (dari discovery):
   // "entered" | "none" | "empty" | "default" | null (mode URL langsung).
   auth_mode?: string | null;
+  // 4.6: referensi brankas URL asli hasil scan (URL di respons ini
+  // teredaksi, password ****). Dikirim sebagai scan_ref saat kamera
+  // dibuat dari hasil scan ini.
+  scan_id?: string | null;
 }
 
 export interface SubnetHost {

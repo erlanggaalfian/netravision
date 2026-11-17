@@ -82,6 +82,16 @@ services:
       PYTHONPATH: /srv/api
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       MEDIAMTX_API_URL: http://mediamtx:9997
+      # 4.11: kredensial control API MediaMTX (sama seperti di service
+      # mediamtx di bawah; user default "netravision").
+      MEDIAMTX_API_USER: ${MEDIAMTX_API_USER:-netravision}
+      MEDIAMTX_API_PASSWORD: ${MEDIAMTX_API_PASSWORD:?MEDIAMTX_API_PASSWORD belum di-set di deploy/.env - isi password acak untuk control API MediaMTX (dipakai API + mediamtx.yml)}
+      # 4.8: proxy tepercaya eksplisit untuk X-Forwarded-For. API hanya
+      # mempercayai loopback + CIDR ini; jaringan Docker (gateway
+      # 172.16.0.0/12) harus ada di sini supaya IP asli dari Apache
+      # (host) tetap terbaca sebagai kunci rate limit/audit, bukan IP
+      # gateway Docker yang dipakai semua klien bersama.
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-172.16.0.0/12}
       # B-K1: samakan dengan recordPath MediaMTX (/recordings) + volume recordings.
       RECORDINGS_DIR: /recordings
       # B-T4: staging folder-link rclone (volume gdrive_staging, persisten).
@@ -137,6 +147,10 @@ services:
       # deploy/.env (WEBRTC_ADDITIONAL_HOST). Compose gagal dengan pesan jelas
       # bila belum di-set; JANGAN tulis IP hardcoded di mediamtx.yml.
       MTX_WEBRTCADDITIONALHOSTS: ${WEBRTC_ADDITIONAL_HOST:?WEBRTC_ADDITIONAL_HOST belum di-set di deploy/.env - isi IP/domain publik server}
+      # 4.11: kredensial control API (dipakai mediamtx.yml
+      # authInternalUsers; password WAJIB diisi, lihat pesan di atas).
+      MEDIAMTX_API_USER: ${MEDIAMTX_API_USER:-netravision}
+      MEDIAMTX_API_PASSWORD: ${MEDIAMTX_API_PASSWORD:?MEDIAMTX_API_PASSWORD belum di-set di deploy/.env - isi password acak untuk control API MediaMTX (dipakai API + mediamtx.yml)}
     volumes:
       - ./mediamtx.yml:/mediamtx.yml:ro
       - recordings:/recordings
@@ -153,7 +167,10 @@ services:
       - "127.0.0.1:8554:8554"   # RTSP (debug / kamera lokal)
       - "127.0.0.1:8888:8888"   # HLS  (Apache proxy /hls/* ke sini)
       - "127.0.0.1:8889:8889"   # WebRTC/WHEP signaling HTTP (Apache proxy /whep/* ke sini)
-      - "127.0.0.1:9997:9997"   # control API (dipakai service api via network; publish lokal utk debug)
+      # 4.11: port control API 9997 TIDAK LAGI di-publish ke host.
+      # Service api menjangkaunya via network Docker (mediamtx:9997);
+      # publish lokal hanya memberi permukaan serangan tambahan.
+      # PENGECUALIAN: media WebRTC (UDP) harus terjangkau browser pengguna.
       # PENGECUALIAN: media WebRTC (UDP) harus terjangkau browser pengguna.
       - "8189:8189/udp"         # WebRTC UDP (default MediaMTX), bukan 80/443, aman.
     # G-R3: TIDAK ADA healthcheck di sini dengan sengaja. Image resmi
