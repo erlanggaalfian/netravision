@@ -5,7 +5,7 @@ from app.models.access import StreamAdminGrant, StreamPermission, UserStreamAcce
 from app.models.drive import DriveAccount
 from app.models.groups import GroupStream, StreamGroup
 from app.models.keys import ApiAccessLog, ApiKey, ApiKeyStream
-from app.models.misc import AdConfig, Alert, AuditLog, DetectionEvent
+from app.models.misc import AdConfig, AuditLog
 from app.models.streams import Stream
 from app.models.users import User
 
@@ -19,8 +19,6 @@ __all__ = [
     "ApiKeyStream",
     "ApiAccessLog",
     "AdConfig",
-    "DetectionEvent",
-    "Alert",
     "AuditLog",
     "DriveAccount",
     "StreamGroup",

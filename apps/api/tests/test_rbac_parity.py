@@ -164,8 +164,8 @@ async def test_mask_rtsp(db_session):
     assert await mask_rtsp_url(s, user_u, db) == ""
     s2 = await _stream(db, 11, owner_id=1)  # milik super
     assert await mask_rtsp_url(s2, admin_a, db) == ""
-    # grant can_manage membuka masking (sesuai spec tugas)
-    db.add(StreamAdminGrant(stream_id=11, admin_id=2, can_manage=True))
+    # grant can_view membuka masking (can_manage dihapus migrasi 0029)
+    db.add(StreamAdminGrant(stream_id=11, admin_id=2, can_view=True))
     await db.commit()
     assert await mask_rtsp_url(s2, admin_a, db) == "rtsp://x/cam"
 
@@ -212,8 +212,8 @@ async def test_need_playback_admin_owns_or_grant(db_session):
     with pytest.raises(HTTPException) as e:
         await _check_camera_access(31, admin_a, db, need_playback=True)
     assert e.value.status_code == 403
-    # dengan grant can_manage -> lolos
-    db.add(StreamAdminGrant(stream_id=31, admin_id=2, can_manage=True))
+    # dengan grant can_playback -> lolos (can_manage dihapus migrasi 0029)
+    db.add(StreamAdminGrant(stream_id=31, admin_id=2, can_playback=True))
     await db.commit()
     out = await _check_camera_access(31, admin_a, db, need_playback=True)
     assert out.id == 2

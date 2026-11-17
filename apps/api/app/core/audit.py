@@ -66,6 +66,9 @@ def _actor_from_scope(scope) -> tuple[int | None, str]:
 _SENSITIVE_ADMIN_READS = (
     "/api/admin/api-keys",
     "/api/admin/api-access-logs",
+    # 2.12: membaca jejak audit itu sendiri juga sensitif (admin yang
+    # dikompromikan membaca massal harus meninggalkan jejak).
+    "/api/admin/audit-logs",
 )
 
 # 4.15: semua percobaan auth ikut diaudit (login gagal/berhasil,
@@ -161,11 +164,11 @@ class AuditMiddleware:
 async def prune_audit_logs(db, days: int = 90) -> int:
     """2.12: hapus baris audit_logs lebih tua dari `days` hari.
 
-    audit_logs ditulis tiap aksi admin tapi tidak pernah dibaca dan
-    tidak pernah dibersihkan; tanpa retensi tabel tumbuh tanpa batas.
-    Dipanggil harian dari _retention_loop (main.py). Endpoint baca
-    audit belum ada (butuh keputusan/fitur terpisah); retensi 90 hari
-    mempertahankan jejak tiga bulan terakhir.
+    audit_logs ditulis tiap aksi admin dan dibaca lewat
+    GET /admin/audit-logs (routers/admin_audit.py); tanpa retensi
+    tabel tumbuh tanpa batas. Dipanggil harian dari _retention_loop
+    (main.py); retensi 90 hari mempertahankan jejak tiga bulan
+    terakhir.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     # synchronize_session=False: jangan evaluasi WHERE di Python untuk

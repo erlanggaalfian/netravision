@@ -1,8 +1,13 @@
-"""Model lain: ad_config, detection_events, alerts, audit_logs."""
+"""Model lain: ad_config, system_settings, audit_logs.
+
+2.10: DetectionEvent dan Alert (tabel detection_events dan alerts,
+0 baris, tanpa writer/reader; modul detektor Fase 6 belum pernah
+dibangun) dihapus migrasi 0029.
+"""
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, String, func
+from sqlalchemy import DateTime, ForeignKey, Index, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -44,55 +49,11 @@ class SystemSetting(Base, TimestampMixin):
     value: Mapped[str] = mapped_column(String(512), nullable=False)
 
 
-class DetectionEvent(Base):
-    """Event deteksi AI (YOLO). Tabel siap; diisi bila modul detector aktif.
-
-    2.10: tabel CADANGAN (0 baris, tanpa writer/reader; modul detektor
-    Fase 6 belum ada). Sengaja TIDAK dihapus oleh Area 2: penghapusan
-    butuh keputusan user bila Fase 6 dipastikan tidak jadi.
-    """
-
-    __tablename__ = "detection_events"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    stream_id: Mapped[int] = mapped_column(ForeignKey("streams.id", ondelete="CASCADE"))
-    event_type: Mapped[str] = mapped_column(String(32), nullable=False)  # person|vehicle|motion
-    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
-    detected_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    snapshot_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    meta: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-
-
-class Alert(Base, TimestampMixin):
-    """Alert untuk user (dari detection event atau sistem).
-
-    2.10: tabel CADANGAN (0 baris, tanpa writer/reader). Sengaja TIDAK
-    dihapus oleh Area 2: penghapusan butuh keputusan user.
-    """
-
-    __tablename__ = "alerts"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=True
-    )
-    stream_id: Mapped[int | None] = mapped_column(
-        ForeignKey("streams.id", ondelete="SET NULL"), nullable=True
-    )
-    event_id: Mapped[int | None] = mapped_column(
-        ForeignKey("detection_events.id", ondelete="SET NULL"), nullable=True
-    )
-    message: Mapped[str] = mapped_column(String(512), nullable=False)
-    is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-
-
 class AuditLog(Base):
     """Jejak audit aksi admin (wajib — temuan audit keamanan v2.0).
 
-    2.12: dibaca lewat prune_audit_logs (retensi 90 hari, core/audit.py);
-    endpoint baca belum ada (butuh keputusan/fitur terpisah).
+    2.12: dibaca lewat GET /admin/audit-logs (routers/admin_audit.py)
+    dan di-retensi 90 hari oleh prune_audit_logs (core/audit.py).
     """
 
     __tablename__ = "audit_logs"

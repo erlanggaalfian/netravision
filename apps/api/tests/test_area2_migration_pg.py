@@ -71,7 +71,7 @@ async def test_upgrade_head_membuat_skema_area2(pg):
     """0027 naik: FK, unique, CHECK, indeks, kolom baru, rename."""
     r = _alembic("upgrade", "head")
     assert r.returncode == 0, r.stdout + r.stderr
-    assert await _scalar(pg, "SELECT version_num FROM alembic_version") == "0027"
+    assert await _scalar(pg, "SELECT version_num FROM alembic_version") == "0029"
 
     assert await _scalar(
         pg,
@@ -242,7 +242,7 @@ async def test_downgrade_upgrade_roundtrip(pg):
     ) == 1
     r = _alembic("upgrade", "head")
     assert r.returncode == 0, r.stdout + r.stderr
-    assert await _scalar(pg, "SELECT version_num FROM alembic_version") == "0027"
+    assert await _scalar(pg, "SELECT version_num FROM alembic_version") == "0029"
 
 
 async def test_downgrade_0011_tidak_hapus_guest_asli(pg):

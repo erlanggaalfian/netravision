@@ -30,9 +30,7 @@ class UserStreamAccess(Base, TimestampMixin):
     stream_id: Mapped[int] = mapped_column(ForeignKey("streams.id", ondelete="CASCADE"))
     can_view: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # 2.10: can_control (PTZ) tidak pernah dibaca di luar model ini
-    # (kolom mati). Dipertahankan agar data lama tidak hilang; jangan
-    # dianggap izin yang berlaku sebelum ada pembaca resmi.
-    can_control: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)  # PTZ
+    # (kolom mati), dihapus migrasi 0029 bersama kolom mati lain.
     # Paritas v2.0 (boleh_playback): share stream saja (False) atau
     # stream + playback (True). Default True agar share lama tidak berubah.
     can_playback: Mapped[bool] = mapped_column(
@@ -47,12 +45,12 @@ class UserStreamAccess(Base, TimestampMixin):
 class StreamPermission(Base, TimestampMixin):
     """Hak akses kamera berbasis peran (role) atau pengguna tertentu.
 
-    2.8: PERHATIAN, baris warisan dengan user_id terisi dan role NULL
-    (17 baris di produksi per 2026-11-17) TIDAK dibaca jalur kode mana
-    pun; _check_camera_access dan get_role_access mensyaratkan
-    user_id IS NULL. Baris itu sengaja TIDAK dihapus dan TIDAK
-    diaktifkan diam-diam oleh migrasi Area 2: butuh keputusan user
-    (hapus, atau migrasikan ke user_stream_access).
+    2.8: baris warisan dengan user_id terisi dan role NULL (17 baris
+    di produksi per 2026-11-17) TIDAK dibaca jalur kode mana pun;
+    _check_camera_access dan get_role_access mensyaratkan
+    user_id IS NULL. Baris itu dihapus migrasi 0029, dan CHECK
+    ck_stream_permissions_user_row_needs_role di bawah mencegah
+    baris mati seperti itu dibuat lagi.
     """
 
     __tablename__ = "stream_permissions"
@@ -79,6 +77,15 @@ class StreamPermission(Base, TimestampMixin):
             "role IN ('admin', 'user', 'guest')",
             name="ck_stream_permissions_role",
         ),
+        # 2.8: baris per-user tanpa role adalah baris mati (tidak ada
+        # pembaca yang menerima user_id terisi dan role NULL). Cegah
+        # dibuat lagi; baris lama bentuk ini dihapus migrasi 0029.
+        # Baris per-user DENGAN role tetap lolos (dipakai tes unique
+        # 2.5), hanya bentuk matinya yang ditolak.
+        CheckConstraint(
+            "user_id IS NULL OR role IS NOT NULL",
+            name="ck_stream_permissions_user_row_needs_role",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -89,8 +96,7 @@ class StreamPermission(Base, TimestampMixin):
     )
     can_view: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # 2.10: can_download tidak pernah dibaca di luar model ini (kolom
-    # mati). Dipertahankan agar data lama tidak hilang.
-    can_download: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # mati), dihapus migrasi 0029.
     # Paritas v2.0: izin membuka rekaman dipisah dari izin menonton live.
     # Seseorang dapat diberi siaran langsung tanpa riwayat rekamannya.
     can_playback: Mapped[bool] = mapped_column(
@@ -108,8 +114,8 @@ class StreamAdminGrant(Base, TimestampMixin):
     Paritas v2.0 (StreamAdminGrantModel): can_view dan can_playback
     dipisah persis seperti pemberian kepada User; can_reshare
     mengizinkan Admin meneruskan kamera itu kepada bawahannya.
-    can_manage sudah tidak dipakai di v2.0, dipertahankan agar data
-    lama tidak hilang.
+    can_manage sudah tidak dipakai di v2.0 (kolom mati), dihapus
+    migrasi 0029.
     """
 
     __tablename__ = "stream_admin_grants"
@@ -123,11 +129,10 @@ class StreamAdminGrant(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(primary_key=True)
     stream_id: Mapped[int] = mapped_column(ForeignKey("streams.id", ondelete="CASCADE"))
     admin_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    # 2.10: can_manage dinyatakan "sudah tidak dipakai di v2.0" tapi
-    # masih ditulis True dan dikembalikan mentah di API. Kolom mati:
-    # dipertahankan agar data lama tidak hilang, jangan dianggap izin
-    # yang berlaku.
-    can_manage: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # 2.10: can_manage dinyatakan "sudah tidak dipakai di v2.0" dan
+    # masih ditulis True serta dikembalikan mentah di API; kolom mati,
+    # dihapus migrasi 0029 (referensi di admin_streams.py dan
+    # admin_users.py dihapus koordinator, lihat laporan Area A).
     can_view: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="1"
     )

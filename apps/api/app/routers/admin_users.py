@@ -572,7 +572,6 @@ async def get_admin_grants(
             "can_view": bool(g.can_view),
             "can_playback": bool(g.can_playback),
             "can_reshare": bool(g.can_reshare),
-            "can_manage": bool(g.can_manage),
         }
         for g in rows
     ]
@@ -628,7 +627,6 @@ async def set_admin_grants(
             StreamAdminGrant(
                 admin_id=admin_id,
                 stream_id=g.stream_id,
-                can_manage=True,
                 can_view=g.can_view,
                 can_playback=g.can_playback,
                 can_reshare=g.can_reshare,

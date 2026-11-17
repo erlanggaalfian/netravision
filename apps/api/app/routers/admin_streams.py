@@ -795,7 +795,6 @@ async def set_stream_grants(
                 StreamAdminGrant(
                     admin_id=g.admin_id,
                     stream_id=stream_id,
-                    can_manage=True,
                     can_view=can_view,
                     can_playback=g.can_playback,
                     can_reshare=g.can_reshare,
