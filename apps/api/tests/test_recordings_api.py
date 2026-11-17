@@ -284,13 +284,16 @@ async def test_playback_baca_drive_rclone(app_client, monkeypatch, tmp_path):
             {"name": "bukan-segmen.txt", "size": 10, "id": "f3"},
         ]
 
-    async def _fake_stream(remote_name, path, start, end):
+    async def _fake_download(remote_name, path):
         assert remote_name == "gdrive"
         assert path == "netravision/Cam 1/2026-11-02_10-00-00-000000.mp4"
-        return b"v" * (end - start + 1)
+        # Unduh utuh sekali (perintah user 2026-11-17: percepat Putar
+        # Ulang); Range dilayani dari memori, bukan satu `rclone cat`
+        # per potongan 1 MB.
+        return b"v" * 5000
 
     monkeypatch.setattr(gr, "list_rclone_files", _fake_list)
-    monkeypatch.setattr(gr, "stream_rclone_file", _fake_stream)
+    monkeypatch.setattr(gr, "download_rclone_file", _fake_download)
 
     async with _client(app) as c:
         # Timeline memuat 2 segmen rclone.
@@ -315,6 +318,59 @@ async def test_playback_baca_drive_rclone(app_client, monkeypatch, tmp_path):
         assert r.status_code == 206, r.text
         assert len(r.content) == 100
         assert r.headers.get("Content-Range") == "bytes 0-99/5000"
+
+
+async def test_playback_rclone_satu_unduhan_untuk_file_besar(
+    app_client, monkeypatch, tmp_path
+):
+    """Segmen Drive >1 MB hanya memicu SATU `rclone cat`.
+
+    Perintah user 2026-11-17 (Putar Ulang "Memuat video..." sangat
+    lambat): sebelumnya tiap potongan 1 MB memicu satu proses `rclone
+    cat` baru, jadi segmen 3 MB berarti 3 proses berurutan. Kini
+    `download_rclone_file` dipanggil sekali, Range dilayani dari memori.
+    """
+    from app.models.drive import GoogleDriveFolder
+    from app.services import gdrive_rclone as gr
+
+    app, _, db = app_client
+    s = await _seed(app, db, monkeypatch, tmp_path)
+    s.storage_mode = "drive"
+    folder = GoogleDriveFolder(
+        folder_url="https://drive.google.com/drive/folders/folder-abc",
+        folder_id="folder-abc",
+        folder_name="netravision",
+        remote_name="gdrive",
+    )
+    db.add(folder)
+    await db.commit()
+    s.drive_folder_id = folder.id
+    await db.commit()
+
+    calls = {"n": 0}
+
+    async def _fake_list(remote_name, path):
+        return [
+            {"name": "2026-11-02_10-00-00-000000.mp4", "size": 3 * 1024 * 1024, "id": "f1"},
+        ]
+
+    async def _fake_download(remote_name, path):
+        calls["n"] += 1
+        return b"v" * (3 * 1024 * 1024)
+
+    monkeypatch.setattr(gr, "list_rclone_files", _fake_list)
+    monkeypatch.setattr(gr, "download_rclone_file", _fake_download)
+
+    async with _client(app) as c:
+        r = await c.get(
+            f"/api/recordings/{s.id}/segments", params={"date": "2026-11-02"}
+        )
+        assert r.status_code == 200, r.text
+        url = r.json()[0]["url"]
+        r = await c.get(url)
+        assert r.status_code == 200, r.text
+        assert len(r.content) == 3 * 1024 * 1024
+        assert calls["n"] == 1
 
 
 async def test_playback_both_utamakan_lokal(app_client, monkeypatch, tmp_path):

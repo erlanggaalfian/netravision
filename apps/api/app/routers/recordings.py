@@ -485,11 +485,25 @@ async def _serve_segment(
                 filename=seg.name,
             )
         return FileResponse(seg.path, media_type="video/mp4")
-    # Segmen Drive rclone (akun disk1 dsb.): stream via rclone cat.
+    # Segmen Drive rclone (akun disk1 dsb.): unduh SEKALI lalu layani
+    # Range dari memori. Perintah user 2026-11-17 (Putar Ulang "Memuat
+    # video..." sangat lambat): sebelumnya tiap potongan 1 MB memicu satu
+    # proses `rclone cat` baru (startup + auth Drive + seek per potongan),
+    # jadi segmen 20 MB berarti 20 proses berurutan sebelum video mulai.
     if seg.rclone_remote and seg.rclone_path:
         from app.services import gdrive_rclone as gr
 
-        total = seg.size or 0
+        try:
+            data = await gr.download_rclone_file(
+                seg.rclone_remote, seg.rclone_path
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning("rclone unduh segmen %s gagal: %s", seg.name, e)
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                f"Google Drive tidak terjangkau: {e}",
+            ) from e
+        total = len(data)
         _range_header = request.headers.get("range") if request is not None else None
         if _range_unsatisfiable(_range_header, total):
             from fastapi.responses import Response
@@ -514,30 +528,11 @@ async def _serve_segment(
             headers["Content-Disposition"] = (
                 f'attachment; filename="{seg.name}"'
             )
+        body = data[r_start : r_end + 1] if has_range else data
 
         async def gen_rclone():
-            pos = r_start
-            while True:
-                if has_range and pos > r_end:
-                    break
-                chunk_end = pos + CHUNK - 1
-                if has_range:
-                    chunk_end = min(chunk_end, r_end)
-                try:
-                    chunk = await gr.stream_rclone_file(
-                        seg.rclone_remote, seg.rclone_path, pos, chunk_end
-                    )
-                except Exception as e:  # noqa: BLE001
-                    log.warning(
-                        "rclone stream segmen %s gagal: %s", seg.name, e
-                    )
-                    break
-                if not chunk:
-                    break
-                yield chunk
-                if len(chunk) < CHUNK:
-                    break
-                pos += CHUNK
+            for i in range(0, len(body), CHUNK):
+                yield body[i : i + CHUNK]
 
         return StreamingResponse(
             gen_rclone(),
