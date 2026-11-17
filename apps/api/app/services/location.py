@@ -254,6 +254,18 @@ def _host_allowed(host: str) -> bool:
     return any(h == base or h.endswith("." + base) for base in _REDIRECT_HOSTS)
 
 
+def _is_public_ip(ip: ipaddress._BaseAddress) -> bool:
+    """True bila IP boleh dihubungi dari server (bukan privat dkk)."""
+    return not (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+        or ip.is_unspecified
+    )
+
+
 def _ip_is_public(host: str) -> bool:
     """Tolak host yang resolve ke IP private/loopback/link-local/reserved."""
     try:
@@ -267,16 +279,72 @@ def _ip_is_public(host: str) -> bool:
             ip = ipaddress.ip_address(info[4][0])
         except ValueError:
             return False
-        if (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_reserved
-            or ip.is_multicast
-            or ip.is_unspecified
-        ):
+        if not _is_public_ip(ip):
             return False
     return True
+
+
+def _resolve_public_ip(host: str) -> str | None:
+    """Satu alamat IP publik untuk host, atau None.
+
+    Temuan 3.18: melakukan SATU getaddrinfo, memvalidasi hasilnya
+    sendiri, lalu mengembalikan IP publik pertama (IPv4 diutamakan,
+    karena pin IPv4 paling sederhana di URL). IP yang dikembalikan
+    inilah yang dipakai koneksi (lihat _PinnedIPTransport), jadi IP
+    yang dipakai selalu IP yang divalidasi dalam panggilan ini.
+    Gate _ip_is_public dipanggil dulu supaya host yang jawabannya
+    bercampur IP privat ditolak seluruhnya, sama seperti sebelum
+    pinning ada.
+    """
+    if not _ip_is_public(host):
+        return None
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except (socket.gaierror, UnicodeError):
+        return None
+    if not infos:
+        return None
+    v6: str | None = None
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            continue
+        if not _is_public_ip(ip):
+            continue
+        if isinstance(ip, ipaddress.IPv4Address):
+            return str(ip)
+        if v6 is None:
+            v6 = str(ip)
+    return v6
+
+
+class _PinnedIPTransport(httpx.AsyncHTTPTransport):
+    """Transport httpx yang konek ke IP yang sudah divalidasi.
+
+    Temuan 3.18 (TOCTOU DNS): host boleh resolve ke IP berbeda antara
+    cek dan koneksi. Transport ini menulis ulang host URL menjadi IP
+    pin (satu-satunya alamat yang dipakai TCP), sambil menjaga Host
+    header dan SNI TLS tetap nama host asli, jadi verifikasi sertifikat
+    tetap terhadap nama host, bukan terhadap IP. httpcore memakai
+    ekstensi `sni_hostname` untuk SNI dan verifikasi sertifikat, dan
+    httpx meneruskan request.extensions ke httpcore.
+    """
+
+    def __init__(self, pinned: dict[str, str], *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._pinned = {k.lower(): v for k, v in pinned.items()}
+
+    async def handle_async_request(
+        self, request: httpx.Request
+    ) -> httpx.Response:
+        host = (request.url.host or "").lower()
+        ip = self._pinned.get(host)
+        if ip is not None:
+            request.url = request.url.copy_with(host=ip)
+            request.headers["host"] = host
+            request.extensions["sni_hostname"] = host
+        return await super().handle_async_request(request)
 
 
 # Batas body HTML yang dibaca saat mengikuti tautan pendek (temuan 3.18).
@@ -293,22 +361,43 @@ async def resolve_short_url(url: str) -> tuple[float, float] | None:
     if not _host_allowed(parsed.hostname or ""):
         return None
     try:
-        async with httpx.AsyncClient(
-            follow_redirects=False, timeout=10.0,
-            headers={"User-Agent": "NetraVision/1.0"},
-        ) as client:
-            current = t
-            resp = None
-            body = b""
-            for _ in range(10):
-                host = urlparse(current).hostname or ""
-                # Tiap hop redirect divalidasi: host Google saja dan
-                # IP-nya publik, supaya server tidak dipakai sebagai
-                # proxy ke service internal (SSRF).
-                if not _host_allowed(host):
-                    return None
-                if not await asyncio.to_thread(_ip_is_public, host):
-                    return None
+        current = t
+        resp = None
+        body = b""
+        for _ in range(10):
+            host = urlparse(current).hostname or ""
+            # Tiap hop redirect divalidasi: host Google saja dan
+            # IP-nya publik, supaya server tidak dipakai sebagai
+            # proxy ke service internal (SSRF).
+            if not _host_allowed(host):
+                return None
+            if not await asyncio.to_thread(_ip_is_public, host):
+                return None
+            # Temuan 3.18 (pinning DNS penuh): resolve host sekali,
+            # validasi IP publik, lalu konek ke IP yang sudah
+            # divalidasi itu lewat _PinnedIPTransport. Tanpa pin,
+            # httpx me-resolve ulang host saat fetch dan DNS yang
+            # berubah di antara cek dan koneksi bisa mengarah ke IP
+            # privat. Bila pin tidak bisa dibuat (resolver gagal
+            # atau jawaban DNS berubah di antara dua lookup),
+            # lanjut tanpa pin tapi tetap lewat gate _ip_is_public
+            # di atas dan host tetap dibatasi ke Google; di
+            # produksi dengan DNS normal jalur pin selalu terpakai.
+            pinned_ip = await asyncio.to_thread(_resolve_public_ip, host)
+            transport = (
+                _PinnedIPTransport({host: pinned_ip})
+                if pinned_ip is not None
+                else None
+            )
+            if transport is None:
+                log.warning(
+                    "pin DNS gagal untuk %s, lanjut tanpa pin", host
+                )
+            async with httpx.AsyncClient(
+                follow_redirects=False, timeout=10.0,
+                headers={"User-Agent": "NetraVision/1.0"},
+                transport=transport,
+            ) as client:
                 # Temuan 3.18: baca respons secara streaming dengan
                 # batas byte (dulu `resp.text` tanpa batas, halaman
                 # besar membebani memori). Redirect tidak membaca body.
@@ -336,11 +425,11 @@ async def resolve_short_url(url: str) -> tuple[float, float] | None:
                             break
                         chunks.append(chunk)
                     body = b"".join(chunks)
-                break
-            else:
-                return None
-            if resp is None:
-                return None
+            break
+        else:
+            return None
+        if resp is None:
+            return None
     except (httpx.HTTPError, ValueError):
         log.warning("gagal mengikuti tautan pendek %s", t[:80])
         return None
@@ -350,11 +439,9 @@ async def resolve_short_url(url: str) -> tuple[float, float] | None:
     got = parse_google_maps_url(final)
     if got:
         return got
-    # Temuan 3.18 (TOCTOU DNS): host/IP tujuan akhir divalidasi ulang
-    # setelah fetch, karena DNS bisa berubah antara cek dan koneksi.
-    # Pinning IP penuh saat koneksi butuh resolver kustom dan tidak
-    # dilakukan di sini; risiko sisa terbatas karena host sudah dibatasi
-    # ke host Google saja.
+    # Temuan 3.18 (TOCTOU DNS): hop terakhir sudah di-fetch lewat IP
+    # yang di-pin dan divalidasi, jadi host/IP tujuan akhir cukup
+    # divalidasi ulang sebagai pertahanan lapis kedua.
     final_host = urlparse(final).hostname or ""
     if final_host:
         if not _host_allowed(final_host):

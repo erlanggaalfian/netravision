@@ -60,6 +60,30 @@ async def _drive_call(fn, *args, timeout: float = _DRIVE_API_TIMEOUT_SEC):
     return await asyncio.wait_for(asyncio.to_thread(fn, *args), timeout)
 
 
+def _build_upload_request(svc, folder_id: str, name: str, local_path: str):
+    """Bangun SATU request upload resumable (MediaFileUpload + create).
+
+    Temuan 3.11: request ini dipakai ulang di semua percobaan upload
+    file yang sama. Chunk 1 MB (CHUNK) supaya timeout per chunk
+    bermakna; chunk default googleapiclient 100 MB membuat satu
+    panggilan next_chunk bisa menggantung lama. Bila googleapiclient
+    tidak terinstal, media None dan request tetap bisa dijalankan
+    lewat execute() (dipakai mock/fake di tes).
+    """
+    try:
+        from googleapiclient.http import MediaFileUpload
+
+        media = MediaFileUpload(
+            local_path, mimetype="video/mp4", chunksize=CHUNK, resumable=True
+        )
+    except ImportError:
+        media = None
+    return svc.files().create(
+        body={"name": name, "parents": [folder_id]},
+        media_body=media, fields="id",
+    )
+
+
 def _drive_list_all(svc, folder_id: str, fields: str) -> list[dict]:
     """List semua file di folder (sync, panggil via to_thread)."""
     out, token = [], None
@@ -315,6 +339,35 @@ class DriveUploader:
 
                 release_claim(stream_id, name, "oauth")
 
+    async def _drive_upload_request(self, request) -> str:
+        """Jalankan satu request upload sampai selesai, kembalikan file id.
+
+        Temuan 3.11 (resume sejati): request resumable googleapiclient
+        digerakkan per chunk lewat next_chunk(), masing-masing dengan
+        timeout _DRIVE_API_TIMEOUT_SEC. Bila satu chunk gagal (timeout
+        atau koneksi putus), percobaan berikut memanggil next_chunk()
+        lagi pada request YANG SAMA, dan googleapiclient melanjutkan
+        dari resumable_progress (bila perlu, next_chunk menanyakan dulu
+        progres server lewat PUT kosong, jadi chunk yang responsnya
+        hilang tidak dikirim ulang). Request tanpa next_chunk (mock di
+        tes, atau media non-resumable bila googleapiclient tidak
+        terinstal) dijalankan sekali lewat execute().
+        """
+        next_chunk = getattr(request, "next_chunk", None)
+        if next_chunk is None:
+            result = await _drive_call(
+                request.execute, timeout=_DRIVE_API_TIMEOUT_SEC
+            )
+            if isinstance(result, dict):
+                return result["id"]
+            return result
+        body = None
+        while body is None:
+            _status, body = await _drive_call(
+                next_chunk, timeout=_DRIVE_API_TIMEOUT_SEC
+            )
+        return body["id"]
+
     async def _upload_file_claimed(
         self, svc, local_path: str, stream_name: str,
         stream_id: int | None, retries: int,
@@ -327,18 +380,12 @@ class DriveUploader:
             _delete_local(local_path, name)
             return None
 
-        def _do():
-            try:
-                from googleapiclient.http import MediaFileUpload
-
-                media = MediaFileUpload(local_path, mimetype="video/mp4", resumable=True)
-            except ImportError:
-                media = None
-            return svc.files().create(
-                body={"name": name, "parents": [folder_id]},
-                media_body=media, fields="id",
-            ).execute()["id"]
-
+        # Temuan 3.11: SATU request resumable untuk seluruh percobaan.
+        # HttpRequest googleapiclient menyimpan resumable_uri dan
+        # resumable_progress, jadi next_chunk() berikutnya melanjutkan
+        # dari byte yang sudah diterima server. Membuat MediaFileUpload
+        # baru per percobaan berarti upload mengulang dari byte 0.
+        request = None
         last: Exception | None = None
         for attempt in range(1, retries + 1):
             if attempt > 1:
@@ -358,7 +405,11 @@ class DriveUploader:
                     _delete_local(local_path, name)
                     return existing
             try:
-                fid = await _drive_call(_do)
+                if request is None:
+                    request = _build_upload_request(
+                        svc, folder_id, name, local_path
+                    )
+                fid = await self._drive_upload_request(request)
                 log.info("drive: %s -> %s", name, fid)
                 # Ter-upload: hapus lokal (perintah user 2026-11-17).
                 self.invalidate_list_cache(folder_id)

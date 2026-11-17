@@ -804,9 +804,23 @@ def _prune_authorize_jobs() -> None:
 
 
 def authorize_job(job_id: str) -> dict | None:
-    """Satu job authorize (atau None bila tidak ada)."""
+    """Satu job authorize (atau None bila tidak ada).
+
+    Temuan 3.13: job terminal (done/error/cancelled) dihapus dari
+    registry begitu dibaca, supaya _AUTHORIZE_JOBS tidak tumbuh tanpa
+    batas dan token job selesai tidak bisa dibaca berulang kali.
+    Job yang masih menunggu tetap tersimpan untuk polling berikutnya.
+    Yang dikembalikan untuk job terminal adalah salinan tanpa `proc`
+    (objek proses tidak boleh bocor ke pemanggil).
+    """
     _prune_authorize_jobs()
-    return _AUTHORIZE_JOBS.get(job_id)
+    job = _AUTHORIZE_JOBS.get(job_id)
+    if job is None:
+        return None
+    if job["status"] in ("done", "error", "cancelled"):
+        _AUTHORIZE_JOBS.pop(job_id, None)
+        return {k: v for k, v in job.items() if k != "proc"}
+    return job
 
 
 async def cancel_authorize(job_id: str) -> dict | None:
@@ -818,6 +832,7 @@ async def cancel_authorize(job_id: str) -> dict | None:
     proc = job.get("proc")
     if proc is not None and proc.returncode is None:
         await _kill_and_wait(proc)
+    job["pid"] = None
     if job["status"] == "waiting":
         job["status"] = "cancelled"
         job["error"] = "Dibatalkan."
@@ -825,49 +840,102 @@ async def cancel_authorize(job_id: str) -> dict | None:
     return job
 
 
-def _find_authorize_pids() -> list[int]:
-    """PID semua proses `rclone authorize` yang sedang berjalan."""
-    pids: list[int] = []
-    try:
-        names = [p for p in os.listdir("/proc") if p.isdigit()]
-    except OSError:
-        return pids
-    for pid in names:
+def _recorded_authorize_pids() -> dict[int, str]:
+    """PID proses authorize yang dicatat job di proses ini saja.
+
+    Temuan 3.13: hanya PID inilah yang boleh dimatikan. Proses yang
+    tidak tercatat di _AUTHORIZE_JOBS (milik admin lain, atau dari
+    proses API sebelumnya) tidak bisa dibedakan dari proses orang
+    lain lewat /proc, jadi tidak disentuh.
+    """
+    out: dict[int, str] = {}
+    for job_id, job in _AUTHORIZE_JOBS.items():
+        proc = job.get("proc")
+        if proc is not None and getattr(proc, "returncode", None) is not None:
+            continue  # sudah mati, bukan yatim
+        pid = job.get("pid")
+        if pid:
+            out[int(pid)] = job_id
+    return out
+
+
+def _wait_pid_gone(pid: int, timeout: float) -> bool:
+    """True bila PID sudah tidak ada sebelum timeout habis."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         try:
-            with open(f"/proc/{pid}/cmdline", "rb") as fh:
-                parts = fh.read().split(b"\0")
+            done_pid, _ = os.waitpid(pid, os.WNOHANG)
+            if done_pid == pid:
+                return True
+        except ChildProcessError:
+            pass
         except OSError:
-            continue
-        args = [p.decode(errors="replace") for p in parts if p]
-        if len(args) >= 2 and "rclone" in os.path.basename(args[0]) and "authorize" in args:
-            pids.append(int(pid))
-    return pids
+            pass
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return True
+        time.sleep(0.05)
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return True
+    return False
 
 
 def _kill_stale_authorize() -> int:
-    """Matikan proses `rclone authorize` yang tertinggal (yatim, mis.
-    dari API yang sudah restart) supaya port 53682 bebas dan authorize
-    baru tidak langsung gagal. Return jumlah proses yang dimatikan."""
+    """Matikan proses `rclone authorize` yatim yang DICATAT job ini.
+
+    Temuan 3.13: dulu fungsi ini memindai /proc dan mematikan SEMUA
+    proses `rclone authorize`, termasuk milik admin lain. Kini hanya
+    PID dari _AUTHORIZE_JOBS yang statusnya sudah terminal
+    (done/error/cancelled) tapi prosesnya masih hidup yang dimatikan.
+    Job yang masih menunggu tidak disentuh di sini; pembatalannya
+    lewat cancel_authorize. Return jumlah proses yang dimatikan.
+    """
     import signal
 
-    pids = _find_authorize_pids()
-    for pid in pids:
+    killed = 0
+    for pid, job_id in _recorded_authorize_pids().items():
+        job = _AUTHORIZE_JOBS.get(job_id)
+        if job is None or job.get("status") == "waiting":
+            continue
         try:
             os.kill(pid, signal.SIGTERM)
         except OSError:
             continue
-    for _ in range(4):
-        if not _find_authorize_pids():
-            break
-        time.sleep(0.5)
-    else:
-        for pid in _find_authorize_pids():
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except OSError:
-                continue
-        time.sleep(0.5)
-    return len(pids)
+        if _wait_pid_gone(pid, 1.0):
+            killed += 1
+            job["pid"] = None
+            continue
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            continue
+        if _wait_pid_gone(pid, 0.5):
+            killed += 1
+            job["pid"] = None
+    return killed
+
+
+def _authorize_port_busy() -> bool:
+    """True bila 127.0.0.1:53682 sedang didengarkan proses lain.
+
+    Dipakai start_authorize sebagai pengganti membunuh proses tak
+    dikenal: bila port masih dipakai proses authorize lain, start
+    gagal dengan pesan yang jelas, bukan mematikan proses itu.
+    Proxy authorize Docker listen di IP container, bukan loopback,
+    jadi tidak memicu cek ini.
+    """
+    import socket
+
+    try:
+        with socket.create_connection(
+            ("127.0.0.1", _AUTHORIZE_PORT), timeout=0.5
+        ):
+            return True
+    except OSError:
+        return False
 
 
 async def start_authorize(remote_name: str, label: str = "") -> dict:
@@ -889,6 +957,15 @@ async def start_authorize(remote_name: str, label: str = "") -> dict:
             if old["status"] == "waiting":
                 await cancel_authorize(old["job_id"])
         _prune_authorize_jobs()
+        # Temuan 3.13: proses authorize tak dikenal tidak lagi
+        # dimatikan. Bila port 53682 masih dipakai proses lain,
+        # gagal dengan pesan jelas, bukan membunuh proses itu.
+        if _authorize_port_busy():
+            raise RuntimeError(
+                "Port 53682 masih dipakai proses authorize lain. "
+                "Tunggu proses itu selesai, atau matikan proses "
+                "`rclone authorize` yang tertinggal, lalu coba lagi."
+            )
         job_id = uuid.uuid4().hex[:12]
         job: dict = {
             "job_id": job_id,
@@ -899,6 +976,7 @@ async def start_authorize(remote_name: str, label: str = "") -> dict:
             "token": None,
             "error": None,
             "proc": None,
+            "pid": None,
             "started_at": time.time(),
             "finished_at": None,
         }
@@ -918,6 +996,9 @@ async def _run_authorize(job: dict, binary: str) -> None:
             stderr=asyncio.subprocess.STDOUT,
         )
         job["proc"] = proc
+        # Temuan 3.13: catat PID supaya _kill_stale_authorize hanya
+        # mematikan proses yang dicatat job ini.
+        job["pid"] = proc.pid
     except Exception as e:  # noqa: BLE001 - proses gagal start
         if job["status"] == "waiting":
             job["status"] = "error"
@@ -957,6 +1038,7 @@ async def _run_authorize(job: dict, binary: str) -> None:
             job["error"] = "Waktu habis (10 menit). Klik lagi untuk mengulang."
             job["finished_at"] = time.time()
         await _kill_and_wait(proc)
+        job["pid"] = None
         return
     except asyncio.CancelledError:
         # Area 5, 5.1: task dibatalkan (mis. shutdown) tidak boleh
@@ -969,12 +1051,14 @@ async def _run_authorize(job: dict, binary: str) -> None:
             await proc.wait()
         except asyncio.CancelledError:
             pass
+        job["pid"] = None
         if job["status"] == "waiting":
             job["status"] = "cancelled"
             job["error"] = "Dibatalkan."
             job["finished_at"] = time.time()
         raise
     await proc.wait()
+    job["pid"] = None
     # Bila job sudah dibatalkan selagi task berjalan, jangan timpa statusnya.
     if job["status"] != "waiting":
         return
