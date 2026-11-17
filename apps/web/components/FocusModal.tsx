@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { playWhep, stopWhep } from "../lib/whep";
 import { usePosterUrl } from "../lib/api";
 import { AdBanner } from "./AdBanner";
@@ -211,6 +211,20 @@ export function FocusModal({ stream, onClose, ad }: Props) {
     };
   }, [stream, want, retryTick]);
 
+  /* Ganti LQ/HQ manual (dipakai tombol di header DAN tombol di overlay
+     panggung, supaya kualitas bisa diganti saat layar penuh, saat tombol
+     header tidak terlihat). Logika sama: batalkan auto-upgrade yang
+     tertunda, sambung halus lewat switchRef. */
+  const toggleQuality = useCallback(() => {
+    const target = quality === "HQ" ? "LQ" : "HQ";
+    const url = target === "HQ" ? stream?.whep_main_url : stream?.whep_sub_url;
+    if (hqTimerRef.current) {
+      clearTimeout(hqTimerRef.current);
+      hqTimerRef.current = undefined;
+    }
+    if (url && switchRef.current) switchRef.current(url, target);
+  }, [quality, stream?.whep_main_url, stream?.whep_sub_url]);
+
   /* Auto-retry TANPA BATAS: bila gagal (termasuk putus di tengah jalan,
      yang dipetakan ke fail) dan kamera masih online serta ada URL WHEP,
      coba lagi tiap 10 dtk sampai berhasil. Tanpa URL sama sekali
@@ -329,19 +343,7 @@ export function FocusModal({ stream, onClose, ad }: Props) {
             {stream?.whep_sub_url && (
             <Button
               variant={quality === "HQ" ? "primary" : "subtle"}
-              onClick={() => {
-                const target = quality === "HQ" ? "LQ" : "HQ";
-                const url = target === "HQ" ? stream?.whep_main_url : stream?.whep_sub_url;
-                // Smooth: sambung di background, tukar saat sudah bergambar.
-                // Jangan ubah `want` agar effect tidak restart (layar hitam).
-                // Batalkan auto-upgrade yang tertunda supaya tidak ada dua
-                // sesi WHEP yang berjalan bersamaan.
-                if (hqTimerRef.current) {
-                  clearTimeout(hqTimerRef.current);
-                  hqTimerRef.current = undefined;
-                }
-                if (url && switchRef.current) switchRef.current(url, target);
-              }}
+              onClick={toggleQuality}
               aria-label={quality === "HQ" ? "Ganti ke sub stream (LQ)" : "Ganti ke main stream (HD)"}
               title={
                 quality === "HQ"
@@ -487,6 +489,26 @@ export function FocusModal({ stream, onClose, ad }: Props) {
                   </div>
                 ))}
               <div className="absolute right-2 top-2 flex gap-2">
+                {/* Tombol LQ/HQ di panggung: terlihat saat layar penuh,
+                    saat tombol kualitas di header tidak terlihat. Tanpa
+                    sub stream tidak ada yang bisa diganti, sembunyikan. */}
+                {fs && stream?.whep_sub_url && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleQuality();
+                    }}
+                    className={`flex h-11 min-w-11 items-center justify-center rounded-xl px-3 text-xs font-bold tracking-wide text-white transition active:scale-95 ${quality === "HQ" ? "bg-accent-600 hover:bg-accent-500" : "bg-white/10 hover:bg-white/25"}`}
+                    aria-label={quality === "HQ" ? "Ganti ke sub stream (LQ)" : "Ganti ke main stream (HD)"}
+                    title={
+                      quality === "HQ"
+                        ? "Kualitas tinggi (main stream, HD). Klik untuk ganti ke kualitas rendah (sub stream, LQ)"
+                        : "Kualitas rendah (sub stream, LQ). Klik untuk ganti ke kualitas tinggi (main stream, HD)"
+                    }
+                  >
+                    {quality}
+                  </button>
+                )}
                 {fs && (
                   <button
                     onClick={(e) => {
