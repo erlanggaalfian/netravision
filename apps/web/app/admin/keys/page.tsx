@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ApiError, api } from "../../../lib/api";
+import { ApiError, api, apiGetPage } from "../../../lib/api";
 import type { AdConfig, ApiKey, Stream } from "../../../lib/types";
-import { ErrorBox, Modal, Spinner, Switch } from "../../../components/ui";
+import { ErrorBox, Modal, Pagination, Spinner, Switch } from "../../../components/ui";
 import {
   NBAccordion,
   NBBadge,
@@ -73,8 +73,8 @@ export default function AdminKeysPage() {
   const [streams, setStreams] = useState<Stream[]>([]);
   const [logs, setLogs] = useState<AccessLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
-  const [logsOffset, setLogsOffset] = useState(0);
-  const [logsDone, setLogsDone] = useState(false);
+  const [logsPage, setLogsPage] = useState(1);
+  const [logsTotal, setLogsTotal] = useState(0);
   const [logKeyF, setLogKeyF] = useState("all");
   const [logStatusF, setLogStatusF] = useState("all");
   const [error, setError] = useState("");
@@ -99,27 +99,28 @@ export default function AdminKeysPage() {
       });
   };
 
-  const loadLogs = (reset: boolean) => {
-    const offset = reset ? 0 : logsOffset;
-    if (reset) {
-      setLogsLoading(true);
-      setLogsDone(false);
-    }
+  /* Log akses memakai Pagination bernomor yang sama seperti semua menu
+     (perintah user 2026-11-17): satu halaman diganti utuh, bukan
+     ditambah ke bawah seperti tombol "Muat lebih banyak" sebelumnya.
+     Total dibaca dari header X-Total-Count. */
+  const logsTotalPages = Math.max(1, Math.ceil(logsTotal / LOG_PAGE));
+  const loadLogs = (page: number) => {
+    setLogsLoading(true);
     const params = new URLSearchParams({
       limit: String(LOG_PAGE),
-      offset: String(offset),
+      offset: String((page - 1) * LOG_PAGE),
     });
     if (logKeyF !== "all") params.set("key_id", logKeyF);
     if (logStatusF !== "all") params.set("status", logStatusF);
-    api
-      .get<AccessLog[]>(`/admin/api-access-logs?${params}`)
-      .then((rows) => {
-        setLogs((prev) => (reset ? rows : [...prev, ...rows]));
-        setLogsOffset(offset + rows.length);
-        if (rows.length < LOG_PAGE) setLogsDone(true);
+    apiGetPage<AccessLog>(`/admin/api-access-logs?${params}`)
+      .then(({ items, total }) => {
+        setLogs(items);
+        setLogsTotal(total);
+        setLogsPage(page);
       })
       .catch(() => {
-        if (reset) setLogs([]);
+        setLogs([]);
+        setLogsTotal(0);
       })
       .finally(() => setLogsLoading(false));
   };
@@ -131,8 +132,7 @@ export default function AdminKeysPage() {
   }, []);
 
   useEffect(() => {
-    setLogsOffset(0);
-    loadLogs(true);
+    loadLogs(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [logKeyF, logStatusF]);
 
@@ -175,8 +175,7 @@ export default function AdminKeysPage() {
     try {
       await api.del("/admin/api-access-logs");
       setClearingLogs(false);
-      setLogsOffset(0);
-      loadLogs(true);
+      loadLogs(1);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Gagal menghapus log");
     } finally {
@@ -344,8 +343,7 @@ export default function AdminKeysPage() {
             variant="secondary"
             disabled={logsLoading}
             onClick={() => {
-              setLogsOffset(0);
-              loadLogs(true);
+              loadLogs(1);
             }}
            
           >
@@ -433,16 +431,13 @@ export default function AdminKeysPage() {
               </tbody>
             </table>
           </NBTableWrap>
-          {!logsDone && (
-            <div className="mt-3 text-center">
-              <NBButton
-                variant="secondary"
-                onClick={() => loadLogs(false)}
-                disabled={logsLoading}
-                className="min-h-[44px]"
-              >
-                {logsLoading ? "Memuat…" : "Muat lebih banyak"}
-              </NBButton>
+          {logsTotalPages > 1 && (
+            <div className="mt-4">
+              <Pagination
+                page={Math.min(logsPage, logsTotalPages)}
+                totalPages={logsTotalPages}
+                onChange={loadLogs}
+              />
             </div>
           )}
         </>

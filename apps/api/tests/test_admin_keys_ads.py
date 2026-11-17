@@ -20,6 +20,38 @@ def _admin_headers():
     return {}
 
 
+async def test_access_logs_total_count_header(app_client):
+    """GET /api/admin/api-access-logs mengembalikan X-Total-Count.
+
+    Header ini dipakai Pagination bernomor di Admin API Key (perintah
+    user 2026-11-17: semua pagination memakai pola jendela geser).
+    Body tetap array supaya kontrak /api/* tidak berubah."""
+    from app.models.keys import ApiAccessLog
+    from tests.conftest import auth_as, make_user
+
+    app, _, db = app_client
+    auth_as(app, make_user(id=1, username="root", role="super_admin"))
+    db.add_all(
+        [
+            ApiAccessLog(api_key_id=None, stream_id=None, action="embed.view", ip="127.0.0.1"),
+            ApiAccessLog(api_key_id=None, stream_id=None, action="embed.view", ip="127.0.0.1"),
+            ApiAccessLog(api_key_id=None, stream_id=None, action="embed.view", ip="127.0.0.1"),
+        ]
+    )
+    await db.commit()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get("/api/admin/api-access-logs?limit=2&offset=0")
+        assert r.status_code == 200
+        assert isinstance(r.json(), list)
+        assert len(r.json()) == 2
+        assert r.headers.get("x-total-count") == "3"
+        # Halaman kedua: 1 baris tersisa, total tetap 3.
+        r2 = await c.get("/api/admin/api-access-logs?limit=2&offset=2")
+        assert r2.status_code == 200
+        assert len(r2.json()) == 1
+        assert r2.headers.get("x-total-count") == "3"
+
+
 async def test_routes_registered():
     from app.main import app as _app
 

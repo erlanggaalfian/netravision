@@ -9,7 +9,7 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -201,6 +201,7 @@ async def list_logs(
     limit: int = Query(default=50, ge=0, le=500),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
+    response: Response = None,
 ):
     q = select(ApiAccessLog).order_by(ApiAccessLog.id.desc())
     if key_id is not None:
@@ -211,6 +212,13 @@ async def list_logs(
         q = q.where(ApiAccessLog.action.like("%.denied%"))
     elif status in ("ok", "hit"):
         q = q.where(~ApiAccessLog.action.like("%.denied%"))
+    # Total untuk pagination bernomor (perintah user 2026-11-17): dikirim
+    # lewat header X-Total-Count supaya body tetap array dan kontrak
+    # /api/* tidak berubah.
+    count_q = select(func.count()).select_from(q.subquery())
+    total = (await db.execute(count_q)).scalar() or 0
+    if response is not None:
+        response.headers["X-Total-Count"] = str(total)
     q = q.limit(limit).offset(offset)
     res = await db.execute(q)
     return [_log_to_out(log) for log in res.scalars().all()]

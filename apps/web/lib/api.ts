@@ -238,6 +238,20 @@ export const api = {
     apiFetch(path, { method: "DELETE" }).then(handle<T>),
 };
 
+/* Ambil daftar berpaginasi: kembalikan { items, total } dengan total
+   dibaca dari header X-Total-Count yang dikirim backend. Dipakai
+   halaman yang menampilkan Pagination bernomor (perintah user
+   2026-11-17). Bila backend belum mengirim header, total 0 dan
+   pemanggil memakai fallback panjang halaman. */
+export async function apiGetPage<T>(
+  path: string,
+): Promise<{ items: T[]; total: number }> {
+  const res = await apiFetch(path);
+  const total = Number(res.headers.get("X-Total-Count") ?? "0") || 0;
+  const items = await handle<T[]>(res);
+  return { items, total };
+}
+
 /* Poster diambil lewat apiFetch (header Authorization) sebagai blob lalu
    dipakai sebagai object URL, jadi JWT tidak pernah muncul di URL gambar
    (tidak bocor ke log/histori/cache). Pemakai wajib revoke object URL
