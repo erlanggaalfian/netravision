@@ -234,6 +234,11 @@ function StreamRow({
         <span className="block truncate text-[15px] font-bold tracking-tight text-slate-100">{s.name}</span>
         <span className="mt-1 flex flex-wrap items-center gap-1.5">
           <NBBadge size="sm" tone={online ? "ok" : "bad"}>{online ? "Online" : "Offline"}</NBBadge>
+          {s.recording_enabled ? (
+            <NBBadge size="sm" tone="warn">Merekam</NBBadge>
+          ) : (
+            <NBBadge size="sm" tone="muted">Stream saja</NBBadge>
+          )}
           {groups.map((g) => (
             <NBBadge key={g} tone="info">
               {g}
