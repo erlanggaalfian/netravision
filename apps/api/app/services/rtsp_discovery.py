@@ -40,7 +40,7 @@ import tempfile
 from dataclasses import dataclass
 from urllib.parse import quote, urlparse
 
-from app.services.stream_resolver import probe_rtsp
+from app.services.stream_resolver import host_allowed_for_probe, probe_rtsp
 
 FFPROBE = "ffprobe"
 _PROBE_TIMEOUT = 3.0
@@ -475,6 +475,11 @@ async def _run_ffprobe(url: str, timeout: float = _FFPROBE_TIMEOUT) -> VideoProb
     """
     fd, list_path = tempfile.mkstemp(prefix="ffprobe-", suffix=".txt")
     try:
+        # Temuan 3.14: URL yang mengandung newline bisa menyisipkan baris
+        # `file '...'` kedua di file concat sehingga ffprobe membaca file
+        # lokal lain. Tolak sebelum ditulis.
+        if "\n" in url or "\r" in url:
+            return VideoProbe(status="error")
         safe_url = url.replace("'", "'\\''")
         with os.fdopen(fd, "w") as f:
             f.write(f"file '{safe_url}'\n")
@@ -496,11 +501,22 @@ async def _run_ffprobe(url: str, timeout: float = _FFPROBE_TIMEOUT) -> VideoProb
             )
             out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
+            # Temuan 3.6: kill tanpa wait meninggalkan zombie; tunggu
+            # sampai proses benar-benar mati.
             if proc is not None:
                 try:
                     proc.kill()
-                except Exception:  # noqa: BLE001
+                except ProcessLookupError:
                     pass
+                else:
+                    try:
+                        await asyncio.wait_for(proc.wait(), timeout=5)
+                    except asyncio.TimeoutError:
+                        try:
+                            proc.kill()
+                        except ProcessLookupError:
+                            pass
+                        await proc.wait()
             return VideoProbe(status="timeout")
         except (FileNotFoundError, OSError):
             return VideoProbe(status="error")
@@ -544,6 +560,11 @@ async def verify_url(url: str) -> VideoProbe:
 
 
 async def _tcp_alive(host: str, port: int) -> bool:
+    # 4.17: tolak probe ke loopback/link-local/metadata.
+    if not await asyncio.to_thread(
+        host_allowed_for_probe, host
+    ):
+        return False
     try:
         _r, writer = await asyncio.wait_for(
             asyncio.open_connection(host, port), timeout=2.0

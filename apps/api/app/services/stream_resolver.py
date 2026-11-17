@@ -10,10 +10,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import ipaddress
 import re
+import secrets
+import socket
 from dataclasses import dataclass
 from urllib.parse import unquote, urlparse
 
+from app.core.config import get_settings
 from app.services.brands import resolve_brand_urls
 
 # Pola generik v2.0 (get_substream_url): (penanda_main, penanda_sub).
@@ -23,6 +27,70 @@ _GENERIC_PATTERNS: tuple[tuple[str, str], ...] = (
     ("/h264", "/h264_sub"),
     ("/h.264", "/H.264_sub"),
 )
+
+
+def _camera_networks() -> list:
+    """Jaringan kamera yang diizinkan di-probe (env CAMERA_NETWORKS,
+    CIDR dipisah koma). Kosong = tidak dibatasi (lihat
+    host_allowed_for_probe)."""
+    nets = []
+    for part in (get_settings().camera_networks or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            nets.append(ipaddress.ip_network(part, strict=False))
+        except ValueError:
+            continue
+    return nets
+
+
+def host_allowed_for_probe(host: str) -> bool:
+    """4.17: bolehkah host ini di-probe (DESCRIBE/ONVIF/TCP/ffprobe)?
+
+    SELALU ditolak: link-local (169.254/16, termasuk metadata cloud
+    169.254.169.254), unspecified, multicast, dan reserved. Loopback
+    (127/8, ::1) ditolak kecuali CAMERA_PROBE_ALLOW_LOOPBACK=true
+    (tes/lab lokal saja). Target internal/metadata tidak boleh dijangkau
+    lewat probe, walau pemanggilnya super_admin (akun super_admin yang
+    dikompromikan tidak boleh mendapat pemindai internal gratis).
+    IP privat LAN diizinkan secara default (kamera memang di LAN);
+    bila CAMERA_NETWORKS diisi, hanya jaringan itu yang diizinkan dan
+    SEMUA hasil DNS host harus masuk jaringan itu (satu hasil di luar
+    = tolak). Hostname yang gagal resolve = tolak. Fungsi ini
+    blocking (getaddrinfo): panggil lewat asyncio.to_thread.
+    """
+    if not host:
+        return False
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except (socket.gaierror, UnicodeError):
+        return False
+    if not infos:
+        return False
+    ips = []
+    for info in infos:
+        try:
+            ips.append(ipaddress.ip_address(info[4][0]))
+        except ValueError:
+            return False
+    for ip in ips:
+        # Link-local (termasuk metadata cloud), unspecified, multicast,
+        # reserved: SELALU ditolak. Loopback ditolak KECUALI
+        # CAMERA_PROBE_ALLOW_LOOPBACK=true (tes/lab lokal saja).
+        if (
+            ip.is_link_local
+            or ip.is_unspecified
+            or ip.is_multicast
+            or ip.is_reserved
+        ):
+            return False
+        if ip.is_loopback and not get_settings().camera_probe_allow_loopback:
+            return False
+    allowed = _camera_networks()
+    if allowed:
+        return all(any(ip in net for net in allowed) for ip in ips)
+    return True
 
 
 def derive_sub_url(rtsp_url: str) -> str | None:
@@ -63,6 +131,10 @@ async def _try_onvif(
     try:
         from onvif import ONVIFCamera  # type: ignore[import-not-found]
     except ImportError:
+        return None
+    # 4.17: ONVIF juga membuka koneksi ke host arbitrer; tolak target
+    # internal/metadata seperti probe RTSP.
+    if not await asyncio.to_thread(host_allowed_for_probe, host):
         return None
 
     def _blocking() -> tuple[str, str | None, str | None] | None:
@@ -109,6 +181,11 @@ async def resolve_stream(
         ValueError: bila input tidak cukup untuk menentukan stream.
     """
     brand_key = (brand or "").strip().lower() or "generic"
+    # A-1.27: "auto" berarti "tidak tahu brand-nya" — samakan dengan
+    # template generik supaya host+force tidak jatuh ke ValueError
+    # "Tidak cukup input" (400) di cabang (c)/(d) di bawah.
+    if brand_key == "auto":
+        brand_key = "generic"
 
     # (a) URL eksplisit tanpa brand: user menempel URL langsung.
     if rtsp_url and not brand:
@@ -130,10 +207,10 @@ async def resolve_stream(
         # TODO: simpan token profil ke streams.onvif_profile saat dipakai.
 
     # (c) Template brand (butuh host untuk format URL).
-    if brand and host:
+    if brand_key and host:
         try:
             main, sub = resolve_brand_urls(
-                brand, user or "", password or "", host, port, channel
+                brand_key, user or "", password or "", host, port, channel
             )
             return StreamResolution(
                 main_url=main, sub_url=sub, brand=brand_key, method="brand"
@@ -175,11 +252,17 @@ def _parse_www_authenticate(header_value: str) -> dict | None:
 
 
 def _digest_auth_value(user: str, password: str | None, method: str, uri: str,
-                       params: dict, cnonce: str = "netravision") -> str:
+                       params: dict, cnonce: str | None = None,
+                       nc: str = "00000001") -> str:
     realm = params.get("realm", "")
     nonce = params["nonce"]
     qop = params.get("qop", "")
-    # Password None (URL tanpa password) harus dihitung sebagai string
+    # Temuan 3.15: cnonce tetap ("netravision") + nc tetap membuat kamera
+    # yang melacak nonce-count bisa menolak Digest. cnonce diacak per
+    # tantangan (default None -> acak); nc diteruskan per tantangan oleh
+    # pemanggil bila ia melakukan beberapa percobaan dalam satu sesi.
+    if cnonce is None:
+        cnonce = secrets.token_hex(8)
     # kosong, bukan literal "None" (bug sebelumnya: f-string None
     # menghasilkan hash untuk password "None" sehingga auth selalu gagal
     # untuk kamera tanpa password yang menantang Digest).
@@ -187,7 +270,6 @@ def _digest_auth_value(user: str, password: str | None, method: str, uri: str,
     ha1 = hashlib.md5(f"{user}:{realm}:{password}".encode()).hexdigest()
     ha2 = hashlib.md5(f"{method}:{uri}".encode()).hexdigest()
     if "auth" in qop:
-        nc = "00000001"
         resp = hashlib.md5(f"{ha1}:{nonce}:{nc}:{cnonce}:auth:{ha2}".encode()).hexdigest()
         return (f'Digest username="{user}", realm="{realm}", nonce="{nonce}", '
                 f'uri="{uri}", qop=auth, nc={nc}, cnonce="{cnonce}", response="{resp}"')
@@ -211,7 +293,10 @@ async def _rtsp_describe(reader: asyncio.StreamReader,
     try:
         data = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=timeout)
     except asyncio.LimitOverrunError as e:
-        data = await reader.read(e.consumed)
+        # Temuan 3.15: fallback ini dulu tanpa timeout, jadi server RTSP
+        # yang mengirim header raksasa lalu diam membuat probe menggantung
+        # sampai budget host 45 dtk membatalkannya dari luar.
+        data = await asyncio.wait_for(reader.read(e.consumed), timeout=timeout)
     return data.decode("utf-8", errors="replace")
 
 
@@ -225,6 +310,10 @@ async def probe_rtsp(url: str, timeout: float = 6.0) -> ProbeResult:
     host = parsed.hostname
     if not host:
         return ProbeResult(url=url, reachable=False, status="invalid_url")
+    # 4.17: tolak probe ke loopback/link-local/metadata sebelum TCP
+    # connect (status "blocked" dipetakan jadi "error" oleh probe_path).
+    if not await asyncio.to_thread(host_allowed_for_probe, host):
+        return ProbeResult(url=url, reachable=False, status="blocked")
     port = parsed.port or 554
     user = unquote(parsed.username) if parsed.username else None
     # Bedakan "tanpa password di URL" (None) dari "password kosong"

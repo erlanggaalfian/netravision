@@ -279,6 +279,10 @@ def _ip_is_public(host: str) -> bool:
     return True
 
 
+# Batas body HTML yang dibaca saat mengikuti tautan pendek (temuan 3.18).
+_MAX_HTML_BYTES = 512 * 1024
+
+
 async def resolve_short_url(url: str) -> tuple[float, float] | None:
     t = url.strip()
     # Host awal harus persis tautan pendek Google (bukan substring di
@@ -295,6 +299,7 @@ async def resolve_short_url(url: str) -> tuple[float, float] | None:
         ) as client:
             current = t
             resp = None
+            body = b""
             for _ in range(10):
                 host = urlparse(current).hostname or ""
                 # Tiap hop redirect divalidasi: host Google saja dan
@@ -304,13 +309,33 @@ async def resolve_short_url(url: str) -> tuple[float, float] | None:
                     return None
                 if not await asyncio.to_thread(_ip_is_public, host):
                     return None
-                resp = await client.get(current)
-                if resp.status_code in (301, 302, 303, 307, 308):
-                    nxt = resp.headers.get("location")
-                    if not nxt:
-                        return None
-                    current = str(httpx.URL(current).join(nxt))
-                    continue
+                # Temuan 3.18: baca respons secara streaming dengan
+                # batas byte (dulu `resp.text` tanpa batas, halaman
+                # besar membebani memori). Redirect tidak membaca body.
+                async with client.stream("GET", current) as r:
+                    resp = r
+                    if r.status_code in (301, 302, 303, 307, 308):
+                        nxt = r.headers.get("location")
+                        if not nxt:
+                            return None
+                        current = str(httpx.URL(current).join(nxt))
+                        continue
+                    length = r.headers.get("content-length")
+                    if length is not None:
+                        try:
+                            if int(length) > _MAX_HTML_BYTES:
+                                body = b""
+                                break
+                        except ValueError:
+                            pass
+                    chunks: list[bytes] = []
+                    total = 0
+                    async for chunk in r.aiter_bytes(65536):
+                        total += len(chunk)
+                        if total > _MAX_HTML_BYTES:
+                            break
+                        chunks.append(chunk)
+                    body = b"".join(chunks)
                 break
             else:
                 return None
@@ -325,9 +350,22 @@ async def resolve_short_url(url: str) -> tuple[float, float] | None:
     got = parse_google_maps_url(final)
     if got:
         return got
-    # Fallback: pindai HTML halaman tujuan untuk koordinat.
+    # Temuan 3.18 (TOCTOU DNS): host/IP tujuan akhir divalidasi ulang
+    # setelah fetch, karena DNS bisa berubah antara cek dan koneksi.
+    # Pinning IP penuh saat koneksi butuh resolver kustom dan tidak
+    # dilakukan di sini; risiko sisa terbatas karena host sudah dibatasi
+    # ke host Google saja.
+    final_host = urlparse(final).hostname or ""
+    if final_host:
+        if not _host_allowed(final_host):
+            return None
+        if not await asyncio.to_thread(_ip_is_public, final_host):
+            return None
+    # Fallback: pindai HTML halaman tujuan untuk koordinat (hanya prefix
+    # yang dibaca, maksimal _MAX_HTML_BYTES).
+    text = body.decode("utf-8", "replace")
     for rx in (_MAPS_AT_RE, _MAPS_DATA_RE, _MAPS_SEARCH_RE):
-        m = rx.search(resp.text or "")
+        m = rx.search(text)
         if m:
             try:
                 return _check_range(float(m.group(1)), float(m.group(2)))
@@ -343,6 +381,18 @@ async def resolve_short_url(url: str) -> tuple[float, float] | None:
 _NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 _nominatim_lock = asyncio.Lock()
 _last_nominatim_call = 0.0
+# 6.15: cache hasil geocoding per teks alamat (TTL 24 jam, maks 512
+# entri, LRU). Alamat yang sama (nama gedung yang dipakai banyak
+# kamera) sebelumnya di-geocode ulang tiap kali, padahal hasilnya
+# deterministik dan Nominatim membatasi 1 req/dtk.
+_GEOCODE_CACHE: dict[str, tuple[float, ResolvedLocation]] = {}
+_GEOCODE_TTL_SEC = 86400.0
+_GEOCODE_MAX_ENTRIES = 512
+
+
+def clear_geocode_cache() -> None:
+    """Buang cache geocoding (dipakai tes)."""
+    _GEOCODE_CACHE.clear()
 
 
 async def geocode_address(text: str) -> ResolvedLocation | None:
@@ -350,6 +400,11 @@ async def geocode_address(text: str) -> ResolvedLocation | None:
     q = text.strip()
     if len(q) < 3:
         return None
+    # 6.15: jawab dari cache bila masih segar (tanpa lock/rate-limit).
+    _now = time.monotonic()
+    _hit = _GEOCODE_CACHE.get(q.lower())
+    if _hit is not None and _now - _hit[0] < _GEOCODE_TTL_SEC:
+        return _hit[1]
     async with _nominatim_lock:
         wait = 1.1 - (time.monotonic() - _last_nominatim_call)
         if wait > 0:
@@ -378,10 +433,15 @@ async def geocode_address(text: str) -> ResolvedLocation | None:
         lat, lng = _check_range(float(row["lat"]), float(row["lon"]))
     except (KeyError, TypeError, ValueError, LocationError):
         return None
-    return ResolvedLocation(
+    found = ResolvedLocation(
         latitude=lat, longitude=lng, format="Alamat",
         place_name=row.get("display_name"),
     )
+    # 6.15: simpan ke cache (LRU sederhana: buang entri terlama).
+    _GEOCODE_CACHE[q.lower()] = (time.monotonic(), found)
+    while len(_GEOCODE_CACHE) > _GEOCODE_MAX_ENTRIES:
+        _GEOCODE_CACHE.pop(next(iter(_GEOCODE_CACHE)))
+    return found
 
 
 # ---------------------------------------------------------------------------

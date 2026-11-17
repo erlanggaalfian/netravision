@@ -25,14 +25,20 @@ import time
 import uuid
 from pathlib import Path
 
+from collections import OrderedDict
+
 log = logging.getLogger("netravision.gdrive_rclone")
 
 REMOTE_NAME = "gdrive"
 
 # Cache daftar file rclone (lsjson): (remote, path) -> (monotonic, items).
-# TTL 120 detik, lihat list_rclone_files.
-_LSJSON_CACHE: dict[tuple[str, str], tuple[float, list[dict]]] = {}
+# TTL 120 detik, lihat list_rclone_files. 6.14: dibatasi LRU 128 entri
+# dan entri kedaluwarsa dibersihkan saat tulis, supaya dict tidak
+# tumbuh tanpa batas (sebelumnya entri kedaluwarsa hanya dilewati
+# saat kunci itu diakses lagi, tidak pernah dihapus).
+_LSJSON_CACHE: OrderedDict[tuple[str, str], tuple[float, list[dict]]] = OrderedDict()
 _LSJSON_TTL_SEC = 120.0
+_LSJSON_MAX_ENTRIES = 128
 
 _REMOTE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _SECTION_HDR = re.compile(r"^\s*\[([^\]]+)\]\s*$")
@@ -100,6 +106,27 @@ def find_rclone() -> str | None:
     return None
 
 
+async def _kill_and_wait(proc: asyncio.subprocess.Process, timeout: float = 5.0) -> None:
+    """Matikan proses anak lalu tunggu sampai benar-benar mati.
+
+    Temuan 3.6: `proc.kill()` saja tanpa `wait()` meninggalkan zombie
+    dan pipe yang menggantung bila proses menulis banyak ke stderr.
+    Dipakai semua jalur timeout subprocess di modul ini.
+    """
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        return
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=timeout)
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        await proc.wait()
+
+
 async def _run_rclone(*args: str, timeout: int = 60) -> tuple[int, str, str]:
     """Jalankan rclone dengan config milik aplikasi. Return (rc, stdout, stderr)."""
     binary = find_rclone()
@@ -116,8 +143,22 @@ async def _run_rclone(*args: str, timeout: int = 60) -> tuple[int, str, str]:
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout)
     except asyncio.TimeoutError:
-        proc.kill()
+        await _kill_and_wait(proc)
         raise RuntimeError("rclone timeout")
+    except asyncio.CancelledError:
+        # Area 5, 5.1: shutdown tidak boleh meninggalkan proses rclone
+        # yatim; matikan dan tunggu sebelum meneruskan pembatalan.
+        # (kill + wait langsung, tanpa wait_for: wait_for di dalam
+        # handler CancelledError bisa gagal menyelesaikan penantian.)
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        try:
+            await proc.wait()
+        except asyncio.CancelledError:
+            pass
+        raise
     return proc.returncode, out.decode(errors="replace"), err.decode(errors="replace")
 
 
@@ -137,9 +178,90 @@ async def _run_rclone_bytes(*args: str, timeout: int = 120) -> tuple[int, bytes,
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout)
     except asyncio.TimeoutError:
-        proc.kill()
+        await _kill_and_wait(proc)
         raise RuntimeError("rclone timeout")
+    except asyncio.CancelledError:
+        # Area 5, 5.1: shutdown tidak boleh meninggalkan proses rclone
+        # yatim; matikan dan tunggu sebelum meneruskan pembatalan.
+        # (kill + wait langsung, tanpa wait_for: wait_for di dalam
+        # handler CancelledError bisa gagal menyelesaikan penantian.)
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        try:
+            await proc.wait()
+        except asyncio.CancelledError:
+            pass
+        raise
     return proc.returncode, out, err.decode(errors="replace")
+
+
+async def download_rclone_file_to(
+    remote_name: str, path: str, dest_path: str, timeout: int = 300
+) -> int:
+    """Unduh satu file rclone langsung ke `dest_path`, tanpa lewat RAM.
+
+    Temuan 3.5: `download_rclone_file` menampung seluruh segmen di
+    memori (`communicate()`), jadi beberapa playback bersamaan berarti
+    beberapa segmen penuh di RAM sekaligus. Di sini stdout `rclone cat`
+    dialihkan langsung ke file, jadi RAM yang dipakai hanya buffer
+    pipe. Return ukuran byte yang tertulis. File sebagian dihapus bila
+    rclone gagal/timeout. Pemanggil bertanggung jawab menghapus
+    `dest_path` setelah dipakai.
+    """
+    remote_name = validate_remote_name(remote_name)
+    path = _validate_rclone_path(path)
+    binary = find_rclone()
+    if not binary:
+        raise RuntimeError(
+            "rclone tidak ditemukan di server. Minta admin menginstal rclone."
+        )
+    cmd = [binary, "--config", conf_path(), "cat", f"{remote_name}:{path}"]
+    written = 0
+    with open(dest_path, "wb") as f:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=f,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            _, err = await asyncio.wait_for(proc.communicate(), timeout)
+        except asyncio.TimeoutError:
+            await _kill_and_wait(proc)
+            try:
+                os.remove(dest_path)
+            except OSError:
+                pass
+            raise RuntimeError("rclone timeout")
+        except asyncio.CancelledError:
+            # Area 5, 5.1: shutdown tidak boleh meninggalkan proses
+            # rclone yatim; matikan, hapus file sebagian, lalu teruskan.
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            try:
+                await proc.wait()
+            except asyncio.CancelledError:
+                pass
+            try:
+                os.remove(dest_path)
+            except OSError:
+                pass
+            raise
+    if proc.returncode != 0:
+        detail = (err or b"").decode(errors="replace").strip().split("\n")[-1][:200]
+        try:
+            os.remove(dest_path)
+        except OSError:
+            pass
+        raise RuntimeError(f"rclone cat gagal: {detail}")
+    try:
+        written = os.path.getsize(dest_path)
+    except OSError:
+        written = 0
+    return written
 
 
 async def list_rclone_files(remote_name: str, path: str) -> list[dict]:
@@ -160,6 +282,7 @@ async def list_rclone_files(remote_name: str, path: str) -> list[dict]:
     now = time.monotonic()
     hit = _LSJSON_CACHE.get(key)
     if hit is not None and now - hit[0] < _LSJSON_TTL_SEC:
+        _LSJSON_CACHE.move_to_end(key)
         return [dict(f) for f in hit[1]]
     rc, out, err = await _run_rclone(
         "lsjson", f"{remote_name}:{path}", "--files-only", "--no-mimetype",
@@ -173,7 +296,13 @@ async def list_rclone_files(remote_name: str, path: str) -> list[dict]:
     except json.JSONDecodeError as e:
         raise RuntimeError(f"rclone lsjson bukan JSON: {e}") from e
     items = items if isinstance(items, list) else []
+    # 6.14: buang entri kedaluwarsa lalu batasi ukuran (LRU).
+    for k in [k for k, v in _LSJSON_CACHE.items() if now - v[0] >= _LSJSON_TTL_SEC]:
+        del _LSJSON_CACHE[k]
     _LSJSON_CACHE[key] = (now, [dict(f) for f in items])
+    _LSJSON_CACHE.move_to_end(key)
+    while len(_LSJSON_CACHE) > _LSJSON_MAX_ENTRIES:
+        _LSJSON_CACHE.popitem(last=False)
     return items
 
 
@@ -186,29 +315,13 @@ def invalidate_lsjson_cache(remote_name: str | None = None) -> None:
         del _LSJSON_CACHE[key]
 
 
-async def stream_rclone_file(
-    remote_name: str, path: str, start: int, end: int
-) -> bytes:
-    """Baca bytes [start..end] dari file rclone via `rclone cat`.
-
-    Dipakai Putar Ulang untuk streaming segmen Drive (dukung HTTP Range).
-    """
-    remote_name = validate_remote_name(remote_name)
-    path = _validate_rclone_path(path)
-    count = max(0, end - start + 1)
-    rc, out, err = await _run_rclone_bytes(
-        "cat", f"{remote_name}:{path}",
-        "--offset", str(start), "--count", str(count),
-        timeout=120,
-    )
-    if rc != 0:
-        detail = err.strip().split("\n")[-1][:200]
-        raise RuntimeError(f"rclone cat gagal: {detail}")
-    return out
-
-
 async def download_rclone_file(remote_name: str, path: str) -> bytes:
-    """Unduh utuh satu file rclone via `rclone cat` (untuk potong ffmpeg)."""
+    """Unduh utuh satu file rclone via `rclone cat` (untuk potong ffmpeg).
+
+    Catatan (temuan 3.5): mengembalikan `bytes` utuh di RAM. Untuk
+    melayani playback, pakai `download_rclone_file_to` supaya segmen
+    besar tidak menumpuk di memori.
+    """
     remote_name = validate_remote_name(remote_name)
     path = _validate_rclone_path(path)
     rc, out, err = await _run_rclone_bytes(
@@ -304,11 +417,31 @@ def _read_conf() -> str | None:
 
 
 def _write_conf_text(content: str) -> None:
-    """Tulis isi conf apa adanya (0600)."""
+    """Tulis isi conf secara atomik (0600).
+
+    Temuan 3.12: tulis langsung `open(path, "w")` bisa meninggalkan
+    `.rclone.conf` terpotong bila proses crash di tengah tulis, dan
+    token semua remote ikut hilang. Di sini tulis dulu ke file temp
+    di direktori yang sama (chmod 0600 sebelum rename), lalu
+    `os.replace` sehingga pembaca selalu melihat conf lama yang utuh
+    atau conf baru yang utuh, tidak pernah setengah.
+    """
+    import tempfile
+
     path = conf_path()
-    with open(path, "w") as f:
-        f.write(content)
-    os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+    d = os.path.dirname(path)
+    fd, tmp = tempfile.mkstemp(prefix=".rclone.conf.", dir=d)
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(content)
+        os.chmod(tmp, stat.S_IRUSR | stat.S_IWUSR)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _write_conf(token_json: str, remote_name: str = REMOTE_NAME) -> None:
@@ -355,6 +488,8 @@ def delete_remote(remote_name: str) -> bool:
             os.remove(conf_path())
         except OSError:
             pass
+    # 6.4: isi remote berubah, buang cache lsjson remote itu.
+    invalidate_lsjson_cache(remote_name)
     return True
 
 
@@ -458,6 +593,9 @@ async def save_token(token_json: str, remote_name: str = REMOTE_NAME) -> dict:
             email = "terhubung"
     except Exception:  # noqa: BLE001
         pass
+    # 6.4: token/remote berubah (akun baru atau ganti), buang cache
+    # lsjson remote itu supaya segmen tidak tertahan sampai TTL habis.
+    invalidate_lsjson_cache(remote_name)
     return {"email": email or "terhubung"}
 
 
@@ -506,9 +644,25 @@ async def connection_status() -> dict:
     return await remote_status(REMOTE_NAME)
 
 
-async def disconnect() -> None:
+async def disconnect(remote_name: str = REMOTE_NAME) -> None:
+    """Putuskan satu remote: hapus hanya section-nya dari conf.
+
+    Temuan 3.19: sebelumnya `disconnect()` menghapus `.rclone.conf`
+    utuh, jadi memutus satu akun menghilangkan semua akun terhubung.
+    Kini hanya section `remote_name` yang dihapus (via `delete_remote`);
+    remote lain tidak disentuh. Pakai `disconnect_all()` bila memang
+    ingin menghapus seluruh conf.
+    """
+    delete_remote(remote_name)
+
+
+async def disconnect_all() -> None:
+    """Hapus seluruh `.rclone.conf` (semua remote). Hanya untuk alur
+    yang memang bermaksud memutus SEMUA akun sekaligus."""
     if os.path.isfile(conf_path()):
         os.remove(conf_path())
+    # 6.4: semua remote hilang, buang seluruh cache lsjson.
+    invalidate_lsjson_cache()
 
 
 async def ensure_netravision_folder(remote_name: str = REMOTE_NAME) -> dict:
@@ -606,6 +760,9 @@ async def upload_segment(
     if rc != 0:
         detail = (err or out).strip().split("\n")[-1][:200]
         raise RuntimeError(f"upload gagal: {detail}")
+    # 6.4: file baru di Drive, buang cache lsjson remote itu supaya
+    # segmen langsung terlihat di Putar Ulang (bukan setelah TTL 120 dtk).
+    invalidate_lsjson_cache(remote)
 
 
 # ---------------------------------------------------------------------------
@@ -625,11 +782,30 @@ async def upload_segment(
 
 _AUTHORIZE_JOBS: dict[str, dict] = {}
 _AUTHORIZE_TIMEOUT_SEC = 600
+# Job yang sudah terminal (done/error/cancelled) dibuang setelah ini,
+# supaya registry tidak tumbuh tanpa batas (temuan 3.13).
+_AUTHORIZE_KEEP_TERMINAL_SEC = 600
+# Output rclone authorize dibatasi: hanya baris terakhir yang disimpan.
+_AUTHORIZE_MAX_LINES = 200
 _AUTH_URL_RE = re.compile(r"https?://127\.0\.0\.1:53682/auth\?state=\S+")
+# Satu authorize dalam satu waktu: start yang bersamaan diserialkan,
+# supaya proses `rclone authorize` yang satu tidak mematikan yang lain.
+_AUTHORIZE_LOCK = asyncio.Lock()
+
+
+def _prune_authorize_jobs() -> None:
+    """Buang job terminal yang sudah lama selesai/dibatalkan/gagal."""
+    now = time.time()
+    for job_id, job in list(_AUTHORIZE_JOBS.items()):
+        if job["status"] in ("done", "error", "cancelled"):
+            finished = job.get("finished_at")
+            if finished is not None and now - finished > _AUTHORIZE_KEEP_TERMINAL_SEC:
+                del _AUTHORIZE_JOBS[job_id]
 
 
 def authorize_job(job_id: str) -> dict | None:
     """Satu job authorize (atau None bila tidak ada)."""
+    _prune_authorize_jobs()
     return _AUTHORIZE_JOBS.get(job_id)
 
 
@@ -641,13 +817,11 @@ async def cancel_authorize(job_id: str) -> dict | None:
         return None
     proc = job.get("proc")
     if proc is not None and proc.returncode is None:
-        try:
-            proc.kill()
-        except ProcessLookupError:
-            pass
+        await _kill_and_wait(proc)
     if job["status"] == "waiting":
         job["status"] = "cancelled"
         job["error"] = "Dibatalkan."
+        job["finished_at"] = time.time()
     return job
 
 
@@ -701,30 +875,36 @@ async def start_authorize(remote_name: str, label: str = "") -> dict:
 
     Job lama yang masih menunggu dibatalkan dulu, dan proses `rclone
     authorize` yatim yang menahan port 53682 dimatikan dulu, supaya
-    tidak ada yang tertahan: pengguna selalu bisa memulai lagi."""
+    tidak ada yang tertahan: pengguna selalu bisa memulai lagi.
+    Start diserialkan dengan lock (temuan 3.13) supaya dua admin yang
+    memulai bersamaan tidak saling membunuh prosesnya.
+    """
     remote_name = validate_remote_name(remote_name)
     binary = find_rclone()
     if not binary:
         raise RuntimeError("rclone belum terinstal di server.")
-    _kill_stale_authorize()
-    for old in list(_AUTHORIZE_JOBS.values()):
-        if old["status"] == "waiting":
-            await cancel_authorize(old["job_id"])
-    job_id = uuid.uuid4().hex[:12]
-    job: dict = {
-        "job_id": job_id,
-        "remote_name": remote_name,
-        "label": label,
-        "status": "waiting",
-        "auth_url": None,
-        "token": None,
-        "error": None,
-        "proc": None,
-        "started_at": time.time(),
-    }
-    _AUTHORIZE_JOBS[job_id] = job
-    asyncio.create_task(_run_authorize(job, binary))
-    return {"job_id": job_id}
+    async with _AUTHORIZE_LOCK:
+        _kill_stale_authorize()
+        for old in list(_AUTHORIZE_JOBS.values()):
+            if old["status"] == "waiting":
+                await cancel_authorize(old["job_id"])
+        _prune_authorize_jobs()
+        job_id = uuid.uuid4().hex[:12]
+        job: dict = {
+            "job_id": job_id,
+            "remote_name": remote_name,
+            "label": label,
+            "status": "waiting",
+            "auth_url": None,
+            "token": None,
+            "error": None,
+            "proc": None,
+            "started_at": time.time(),
+            "finished_at": None,
+        }
+        _AUTHORIZE_JOBS[job_id] = job
+        asyncio.create_task(_run_authorize(job, binary))
+        return {"job_id": job_id}
 
 
 async def _run_authorize(job: dict, binary: str) -> None:
@@ -742,17 +922,29 @@ async def _run_authorize(job: dict, binary: str) -> None:
         if job["status"] == "waiting":
             job["status"] = "error"
             job["error"] = f"Gagal menjalankan rclone authorize: {e}"
+            job["finished_at"] = time.time()
         return
     output_lines: list[str] = []
+    # Temuan 3.13: timeout 10 menit adalah DEADLINE TOTAL job, bukan
+    # per baris. Sebelumnya tiap `readline` diberi 600 dtk, jadi rclone
+    # yang mencetak baris tiap <10 menit bisa jalan tanpa batas.
+    deadline = time.monotonic() + _AUTHORIZE_TIMEOUT_SEC
     try:
         while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise asyncio.TimeoutError
             line = await asyncio.wait_for(
-                proc.stdout.readline(), timeout=_AUTHORIZE_TIMEOUT_SEC
+                proc.stdout.readline(), timeout=remaining
             )
             if not line:
                 break
             text = line.decode(errors="replace").rstrip()
             output_lines.append(text)
+            # Batasi memori: hanya baris terakhir yang relevan (token ada
+            # di akhir output); baris lama dibuang.
+            if len(output_lines) > _AUTHORIZE_MAX_LINES:
+                del output_lines[: len(output_lines) - _AUTHORIZE_MAX_LINES]
             if job["auth_url"] is None:
                 m = _AUTH_URL_RE.search(text)
                 if m:
@@ -763,11 +955,25 @@ async def _run_authorize(job: dict, binary: str) -> None:
         if job["status"] == "waiting":
             job["status"] = "error"
             job["error"] = "Waktu habis (10 menit). Klik lagi untuk mengulang."
+            job["finished_at"] = time.time()
+        await _kill_and_wait(proc)
+        return
+    except asyncio.CancelledError:
+        # Area 5, 5.1: task dibatalkan (mis. shutdown) tidak boleh
+        # meninggalkan proses `rclone authorize` yatim di port 53682.
         try:
             proc.kill()
         except ProcessLookupError:
             pass
-        return
+        try:
+            await proc.wait()
+        except asyncio.CancelledError:
+            pass
+        if job["status"] == "waiting":
+            job["status"] = "cancelled"
+            job["error"] = "Dibatalkan."
+            job["finished_at"] = time.time()
+        raise
     await proc.wait()
     # Bila job sudah dibatalkan selagi task berjalan, jangan timpa statusnya.
     if job["status"] != "waiting":
@@ -775,6 +981,7 @@ async def _run_authorize(job: dict, binary: str) -> None:
     if proc.returncode != 0:
         job["status"] = "error"
         job["error"] = "rclone authorize gagal. Coba lagi."
+        job["finished_at"] = time.time()
         return
     token_json = None
     for line in reversed(output_lines):
@@ -789,9 +996,11 @@ async def _run_authorize(job: dict, binary: str) -> None:
     if not token_json:
         job["status"] = "error"
         job["error"] = "Token tidak ditemukan di output rclone."
+        job["finished_at"] = time.time()
         return
     job["token"] = token_json
     job["status"] = "done"
+    job["finished_at"] = time.time()
 
 
 _AUTHORIZE_PORT = 53682

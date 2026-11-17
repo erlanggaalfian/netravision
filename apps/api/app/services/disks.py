@@ -161,12 +161,58 @@ def list_disks() -> list[dict]:
     return out
 
 
+def _rclone_about_one(binary: str, conf: str, name: str) -> dict | None:
+    """Satu entri disk dari `rclone about {name}: --json`, atau None bila
+    remote gagal dibaca. Dipakai `_rclone_disks` (paralel, temuan 3.9)."""
+    try:
+        proc = subprocess.run(
+            [binary, "--config", conf, "about", f"{name}:", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        data = json.loads(proc.stdout)
+    except ValueError:
+        return None
+    total = data.get("total")
+    used = data.get("used")
+    free = data.get("free")
+    if not isinstance(total, int) or total <= 0:
+        return None
+    if not isinstance(used, int):
+        used = total - free if isinstance(free, int) else 0
+    if not isinstance(free, int):
+        free = total - used
+    unit = _pick_unit(total)
+    return {
+        "mount": f"rclone:{name}",
+        "size_bytes": total,
+        "avail_bytes": free,
+        "size_human": _human(total, unit),
+        "avail_human": _human(free, unit),
+        "fstype": "rclone",
+        "usage_pct": round(used / total * 100, 1),
+    }
+
+
 def _rclone_disks() -> list[dict]:
     """Entri disk untuk tiap remote rclone di conf.
 
     Kapasitas dari `rclone about {remote}: --json` (timeout 10 detik per
     remote). Remote yang gagal dibaca dilewati diam-diam.
+
+    Temuan 3.9: `rclone about` per remote dijalankan PARALEL (dulu
+    berurutan, jadi N remote x 10 dtk memblokir event loop puluhan
+    detik bila Drive lambat).
     """
+    from concurrent.futures import ThreadPoolExecutor
+
     try:
         from app.services.gdrive_rclone import conf_path as _conf_path
         from app.services.gdrive_rclone import find_rclone
@@ -182,46 +228,9 @@ def _rclone_disks() -> list[dict]:
         binary = shutil.which("rclone")
     if not binary or not names:
         return []
-    out: list[dict] = []
-    for name in names:
-        try:
-            proc = subprocess.run(
-                [binary, "--config", conf, "about", f"{name}:", "--json"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-            )
-        except (OSError, subprocess.SubprocessError):
-            continue
-        if proc.returncode != 0:
-            continue
-        try:
-            data = json.loads(proc.stdout)
-        except ValueError:
-            continue
-        total = data.get("total")
-        used = data.get("used")
-        free = data.get("free")
-        if not isinstance(total, int) or total <= 0:
-            continue
-        if not isinstance(used, int):
-            used = total - free if isinstance(free, int) else 0
-        if not isinstance(free, int):
-            free = total - used
-        unit = _pick_unit(total)
-        out.append(
-            {
-                "mount": f"rclone:{name}",
-                "size_bytes": total,
-                "avail_bytes": free,
-                "size_human": _human(total, unit),
-                "avail_human": _human(free, unit),
-                "fstype": "rclone",
-                "usage_pct": round(used / total * 100, 1),
-            }
-        )
-    return out
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        results = list(ex.map(lambda n: _rclone_about_one(binary, conf, n), names))
+    return [r for r in results if r is not None]
 
 
 def _disk_usage_pct(path: str) -> float | None:
@@ -276,15 +285,27 @@ async def cleanup_full_disks(
 
         candidates: list[tuple[float, str]] = []  # (mtime, path), tertua dulu
         for stream in disk_streams:
+            rec_dirs = camera_rec_dirs(stream, recordings_dir)
+            local_names: list[str] = []
+            for rec_dir in rec_dirs:
+                try:
+                    local_names.extend(
+                        n for n in os.listdir(rec_dir) if SEGMENT_RE.match(n)
+                    )
+                except OSError:
+                    continue
             uploaded: set[str] | None = None
-            if stream.storage_mode in ("drive", "both"):
+            if stream.storage_mode in ("drive", "both") and local_names:
+                # 2.3: cek jejak HANYA untuk segmen lokal yang ada
+                # (WHERE segment_name IN (...)), bukan seluruh riwayat
+                # upload kamera yang dimuat ke RAM tiap putaran cleanup.
                 res = await db.execute(
                     select(DriveUpload.segment_name).where(
-                        DriveUpload.stream_id == stream.id
+                        DriveUpload.stream_id == stream.id,
+                        DriveUpload.segment_name.in_(local_names),
                     )
                 )
                 uploaded = {r[0] for r in res.all()}
-            rec_dirs = camera_rec_dirs(stream, recordings_dir)
             for rec_dir in rec_dirs:
                 try:
                     names = os.listdir(rec_dir)
@@ -348,6 +369,52 @@ def _rclone_run_sync(args: list[str], timeout: int = 60) -> tuple[int, str, str]
     return proc.returncode, proc.stdout, proc.stderr
 
 
+_BATCH_DELETE_SIZE = 50
+
+
+async def _rclone_delete_batch(
+    remote_name: str, folder_id: str, names: list[str]
+) -> int:
+    """Hapus banyak file sekaligus via satu `rclone delete --files-from`.
+
+    Temuan 3.10: sebelumnya satu proses `rclone delete` (startup +
+    auth, timeout 120 dtk) PER FILE, jadi cleanup ribuan segmen
+    berjalan berjam-jam. Daftar nama ditulis ke file temp (satu baris
+    per path, relatif terhadap folder), lalu satu proses menghapus
+    semuanya. Return jumlah yang dihapus (0 bila batch gagal; nama yang
+    mengandung newline dilewati karena tidak aman di daftar
+    --files-from).
+    """
+    import tempfile
+
+    safe = [n for n in names if n and "\n" not in n and "\r" not in n]
+    if not safe:
+        return 0
+    fd, list_path = tempfile.mkstemp(prefix="rclone-del-", suffix=".txt")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write("\n".join(safe) + "\n")
+        rc, _out, err = await asyncio.to_thread(
+            _rclone_run_sync,
+            ["delete", f"{remote_name}:{folder_id}", "--files-from", list_path],
+            300,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("cleanup rclone: batch delete gagal: %s", e)
+        return 0
+    finally:
+        try:
+            os.remove(list_path)
+        except OSError:
+            pass
+    if rc != 0:
+        logger.warning(
+            "cleanup rclone: batch delete gagal: %s", err.strip()[:200]
+        )
+        return 0
+    return len(safe)
+
+
 async def _rclone_usage_pct(remote_name: str) -> float | None:
     """Pemakaian remote dalam persen via `rclone about --json`,
     atau None bila rclone/remote tidak bisa dibaca."""
@@ -375,6 +442,7 @@ async def cleanup_rclone_remote(
     remote_name: str,
     threshold_pct: float,
     target_pct: float,
+    max_files: int = 200,
 ) -> int:
     """Hapus file rekaman tertua DI REMOTE rclone sampai usage < target.
 
@@ -388,6 +456,11 @@ async def cleanup_rclone_remote(
     kamera) dihapus dari yang tertua, usage dicek ulang tiap 10 file.
     HANYA file .mp4 rekaman di folder tujuan itu yang dihapus, bukan
     file lain. Return jumlah file yang dihapus.
+
+    Area 5, 5.6: `max_files` membatasi satu putaran (dulu satu putaran
+    bisa menghapus ribuan file dengan `rclone delete` 120 dtk per file,
+    berjalan berjam-jam sambil menahan satu sesi DB). Sisa file
+    dihapus putaran berikut.
     """
     remote_name = (remote_name or "").strip()
     if not remote_name:
@@ -468,28 +541,36 @@ async def cleanup_rclone_remote(
                 files.append((name, name))
             files.sort(key=lambda f: f[0])
 
+        # Temuan 3.10: hapus per batch (satu proses `rclone delete
+        # --files-from` per 50 file), bukan satu proses per file.
+        # Usage dicek ulang tiap batch, bukan tiap 10 file.
         removed = 0
-        for _sort_key, name in files:
-            try:
-                rc3, _, err3 = await asyncio.to_thread(
-                    _rclone_run_sync,
-                    ["delete", f"{remote_name}:{folder_id}/{name}"],
-                    120,
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.warning("cleanup rclone: delete %s gagal: %s", name, e)
-                continue
-            if rc3 != 0:
+        names = [name for _sort_key, name in files]
+        for i in range(0, len(names), _BATCH_DELETE_SIZE):
+            if deleted_total >= max_files:
+                break
+            chunk = names[i : i + _BATCH_DELETE_SIZE]
+            chunk = chunk[: max_files - deleted_total]
+            n = await _rclone_delete_batch(remote_name, folder_id, chunk)
+            removed += n
+            deleted_total += n
+            if n < len(chunk):
                 logger.warning(
-                    "cleanup rclone: delete %s gagal: %s", name, err3.strip()[:200]
+                    "cleanup rclone: batch delete hanya menghapus %d/%d, "
+                    "berhenti di folder ini",
+                    n, len(chunk),
                 )
-                continue
-            removed += 1
-            deleted_total += 1
-            if removed % 10 == 0:
-                pct = await _rclone_usage_pct(remote_name)
-                if pct is None or pct < target_pct:
-                    break
+                break
+            if deleted_total >= max_files:
+                logger.warning(
+                    "cleanup rclone: batas %d file per putaran tercapai, "
+                    "sisa dihapus putaran berikut",
+                    max_files,
+                )
+                break
+            pct = await _rclone_usage_pct(remote_name)
+            if pct is None or pct < target_pct:
+                break
         if removed:
             logger.info(
                 "cleanup rclone: %d file rekaman dihapus dari %s:%s",
@@ -497,10 +578,17 @@ async def cleanup_rclone_remote(
                 remote_name,
                 folder_id,
             )
+        if deleted_total >= max_files:
+            break
         pct = await _rclone_usage_pct(remote_name)
         if pct is not None and pct < target_pct:
             break
     if deleted_total:
+        # 6.4: file dihapus dari remote, buang cache lsjson remote itu
+        # supaya segmen yang sudah dihapus tidak lagi disajikan.
+        from app.services.gdrive_rclone import invalidate_lsjson_cache
+
+        invalidate_lsjson_cache(remote_name)
         pct = await _rclone_usage_pct(remote_name)
         if pct is not None and pct >= threshold_pct:
             logger.warning(
@@ -527,7 +615,7 @@ def _parse_modtime(value: str | None) -> float | None:
     return dt.timestamp()
 
 
-async def cleanup_folder_retention(db: AsyncSession) -> int:
+async def cleanup_folder_retention(db: AsyncSession, max_files: int = 200) -> int:
     """Retensi per folder Drive: hapus file .mp4 yang lebih tua dari
     google_drive_folders.retention_days di folder itu.
 
@@ -535,6 +623,10 @@ async def cleanup_folder_retention(db: AsyncSession) -> int:
     (return 0). Hanya file .mp4 yang dihapus; file yang ModTime-nya
     tidak bisa diparse dilewati (tidak ditebak). Return jumlah file
     yang dihapus.
+
+    Area 5, 5.6: `max_files` membatasi satu putaran supaya tidak
+    berjalan berjam-jam sambil menahan satu sesi DB; sisa file dihapus
+    putaran berikut.
     """
     import time as _time
 
@@ -575,7 +667,10 @@ async def cleanup_folder_retention(db: AsyncSession) -> int:
             entries = json.loads(out)
         except ValueError:
             continue
-        removed = 0
+        # Temuan 3.10: kumpulkan dulu yang kedaluwarsa, lalu hapus per
+        # batch (satu proses `rclone delete --files-from` per 50 file),
+        # bukan satu proses per file.
+        expired: list[str] = []
         for entry in entries:
             name = entry.get("Path") or entry.get("Name") or ""
             if not name.lower().endswith(".mp4"):
@@ -583,22 +678,25 @@ async def cleanup_folder_retention(db: AsyncSession) -> int:
             mtime = _parse_modtime(entry.get("ModTime"))
             if mtime is None or mtime >= cutoff:
                 continue
-            try:
-                rc3, _, err3 = await asyncio.to_thread(
-                    _rclone_run_sync,
-                    ["delete", f"{REMOTE_NAME}:{folder_id}/{name}"],
-                    120,
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.warning("retensi folder: delete %s gagal: %s", name, e)
-                continue
-            if rc3 != 0:
+            expired.append(name)
+        removed = 0
+        for i in range(0, len(expired), _BATCH_DELETE_SIZE):
+            if deleted_total >= max_files:
+                break
+            chunk = expired[i : i + _BATCH_DELETE_SIZE]
+            chunk = chunk[: max_files - deleted_total]
+            n = await _rclone_delete_batch(REMOTE_NAME, folder_id, chunk)
+            removed += n
+            deleted_total += n
+            if n < len(chunk):
+                break
+            if deleted_total >= max_files:
                 logger.warning(
-                    "retensi folder: delete %s gagal: %s", name, err3.strip()[:200]
+                    "retensi folder: batas %d file per putaran tercapai, "
+                    "sisa dihapus putaran berikut",
+                    max_files,
                 )
-                continue
-            removed += 1
-            deleted_total += 1
+                break
         if removed:
             logger.info(
                 "retensi folder: %d file dihapus dari %s:%s (retensi %d hari)",
@@ -607,4 +705,11 @@ async def cleanup_folder_retention(db: AsyncSession) -> int:
                 folder_id,
                 days,
             )
+        if deleted_total >= max_files:
+            break
+    if deleted_total:
+        # 6.4: file dihapus dari remote, buang cache lsjson-nya.
+        from app.services.gdrive_rclone import invalidate_lsjson_cache
+
+        invalidate_lsjson_cache(REMOTE_NAME)
     return deleted_total

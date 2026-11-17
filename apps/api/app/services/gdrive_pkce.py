@@ -15,7 +15,6 @@ import json
 import logging
 import os
 import secrets
-import stat
 import time
 import urllib.parse
 import uuid
@@ -32,12 +31,6 @@ REDIRECT_URI = "urn:ietf:wg:oauth:2.0:oob"
 
 _SESSIONS: dict[str, dict] = {}
 _SESSION_TTL = 600
-
-
-def _conf_path() -> str:
-    d = os.path.join(os.getcwd(), "data")
-    os.makedirs(d, exist_ok=True)
-    return os.path.join(d, ".rclone.conf")
 
 
 def _cleanup() -> None:
@@ -109,22 +102,32 @@ async def finish_session(session_id: str, code: str) -> dict:
             "myaccount.google.com/permissions lalu ulangi."
         )
 
-    # Tulis rclone.conf
-    compact = json.dumps(token, separators=(",", ":"))
-    conf = _conf_path()
-    # Hapus config lama bila ada
-    if os.path.exists(conf):
-        os.remove(conf)
-    with open(conf, "w") as f:
-        f.write(f"[gdrive]\ntype = drive\nscope = drive\ntoken = {compact}\n")
-    os.chmod(conf, stat.S_IRUSR | stat.S_IWUSR)
-
-    # Verifikasi
+    # Tulis rclone.conf (temuan 3.3): JANGAN hapus conf utuh dan JANGAN
+    # tulis ke lokasi lain. Alur lama memakai `os.getcwd()/data` (bisa
+    # berbeda dari `gdrive_rclone._data_dir()`, mis. `apps/api/data`)
+    # dan `os.remove(conf)` sehingga semua remote lain (gdrive-2, dst.)
+    # ikut hilang. Kini memakai `_write_conf` yang sama seperti
+    # `save_token()`: hanya section `[gdrive]` yang di-upsert, remote
+    # lain dipertahankan byte per byte. Bila verifikasi gagal, conf lama
+    # dikembalikan utuh (bukan dihapus).
     from app.services import gdrive_rclone as gr  # noqa: PLC0415
 
+    old_content = gr._read_conf()
+    try:
+        gr._write_conf(json.dumps(token), "gdrive")
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(f"Gagal menyimpan token: {e}") from e
+
+    # Verifikasi
     st = await gr.connection_status()
     if not st.get("connected"):
-        os.path.exists(conf) and os.remove(conf)
+        if old_content is None:
+            try:
+                os.remove(gr.conf_path())
+            except OSError:
+                pass
+        else:
+            gr._write_conf_text(old_content)
         raise RuntimeError(f"Verifikasi gagal: {st.get('error', 'unknown')}")
     log.info("gdrive_pkce: sesi %s terhubung", session_id)
     return {"ok": True}

@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -17,6 +18,46 @@ log = logging.getLogger("netravision.drive")
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 FOLDER_MIME = "application/vnd.google-apps.folder"
 CHUNK = 1024 * 1024
+
+def _atomic_write_text(path: str, content: str) -> None:
+    """Tulis file teks secara atomik (temp + os.replace, 0600).
+
+    Temuan 3.12: tulis token langsung `open(path, "w")` bisa
+    meninggalkan token.json terpotong bila crash di tengah tulis.
+    """
+    import tempfile
+
+    d = os.path.dirname(path) or "."
+    fd, tmp = tempfile.mkstemp(prefix=".token.", dir=d)
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(content)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+# Area 5, temuan 5.2: antrean upload dibatasi + dedup, dan semua
+# pemanggilan Google API punya timeout supaya scan tidak menggantung.
+_QUEUE_MAXSIZE = 1000
+_DRIVE_API_TIMEOUT_SEC = 120.0
+# Area 5, temuan 5.10: cache folder kedaluwarsa (TTL 1 jam) dan dibatasi.
+_FOLDER_CACHE_TTL_SEC = 3600.0
+_FOLDER_CACHE_MAX = 512
+
+
+async def _drive_call(fn, *args, timeout: float = _DRIVE_API_TIMEOUT_SEC):
+    """Jalankan pemanggilan Google API (sync) di thread dengan timeout.
+
+    Timeout hanya membatalkan penantian di sisi asyncio; thread-nya
+    dibiarkan selesai sendiri (googleapiclient tidak bisa diinterupsi),
+    tapi scan/loop tidak lagi menggantung tanpa batas (temuan 5.2/5.8).
+    """
+    return await asyncio.wait_for(asyncio.to_thread(fn, *args), timeout)
 
 
 def _drive_list_all(svc, folder_id: str, fields: str) -> list[dict]:
@@ -69,8 +110,36 @@ class DriveUploader:
         self._service = service
         self._account: AccountCreds | None = account
         self._save_token = save_token
-        self._queue: asyncio.Queue = asyncio.Queue()
-        self._folder_cache: dict[str, str] = {}
+        # Area 5, 5.2: antrean BERBATAS (dulu tanpa maxsize, tumbuh tanpa
+        # batas berisi duplikat dari scan berulang). queue_upload memakai
+        # put_nowait + dedup lewat _queued, jadi scan tidak pernah
+        # tertahan menunggu antrean penuh.
+        self._queue: asyncio.Queue = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
+        self._queued: set[str] = set()
+        # _folder_cache: cache_key -> (folder_id, monotonic). Entri
+        # kedaluwarsa setelah _FOLDER_CACHE_TTL_SEC (temuan 5.10).
+        self._folder_cache: dict[str, tuple[str, float]] = {}
+        # Area 5, 5.2: scan yang belum selesai tidak boleh ditumpuk scan
+        # berikutnya (satu putaran scan bisa lebih lama dari interval).
+        self._scan_lock = asyncio.Lock()
+        # Temuan 3.12: lock per instance untuk pembangunan service
+        # (refresh token ganda) dan find-or-create folder (duplikat).
+        self._svc_lock = asyncio.Lock()
+        self._folder_lock = asyncio.Lock()
+        # 6.7: cache list_files per folder (TTL 60 dtk, seperti lsjson
+        # rclone yang di-cache 120 dtk). Satu alur putar (timeline +
+        # playback-url + file) sebelumnya memanggil list_files segar
+        # 3x untuk folder yang sama.
+        self._list_cache: dict[str, tuple[float, list[dict]]] = {}
+
+    _LIST_TTL_SEC = 60.0
+
+    def invalidate_list_cache(self, folder_id: str | None = None) -> None:
+        """Buang cache list_files (satu folder, atau semua)."""
+        if folder_id is None:
+            self._list_cache.clear()
+        else:
+            self._list_cache.pop(folder_id, None)
 
     def _build_service(self):
         try:
@@ -97,21 +166,28 @@ class DriveUploader:
         if not creds.valid:
             if creds.expired and creds.refresh_token:
                 creds.refresh(Request())
-                with open(s.drive_token_file, "w") as f:
-                    f.write(creds.to_json())
+                # Temuan 3.12: tulis token hasil refresh secara atomik.
+                _atomic_write_text(s.drive_token_file, creds.to_json())
             else:
                 raise RuntimeError("token Drive tak valid, ulangi docs/GOOGLE-DRIVE.md")
         return build("drive", "v3", credentials=creds)
 
     async def _svc(self):
-        if self._service is None:
+        if self._service is not None:
+            return self._service
+        # Temuan 3.12: tanpa lock, dua coroutine yang bersamaan saat
+        # `_service is None` sama-sama refresh token dan hasilnya
+        # saling menimpa.
+        async with self._svc_lock:
+            if self._service is not None:
+                return self._service
             try:
-                self._service = await asyncio.to_thread(self._build_service)
+                self._service = await _drive_call(self._build_service)
             except _TokenRefreshed as e:
                 log.info("drive: token akun di-refresh, disimpan ulang ke DB")
                 if self._save_token is not None:
                     await self._save_token(e.token_json)
-                self._service = await asyncio.to_thread(self._build_service)
+                self._service = await _drive_call(self._build_service)
         return self._service
 
     async def ensure_folder(self, stream_name: str, stream_id: int | None = None) -> str:
@@ -128,16 +204,43 @@ class DriveUploader:
         else:
             cache_key = f"name:{stream_name}"
             folder_name = stream_name
-        if cache_key in self._folder_cache:
-            return self._folder_cache[cache_key]
-        svc = await self._svc()
-        if self._account and self._account.root_folder_id:
-            folder_id = await self._ensure_child(svc, self._account.root_folder_id, folder_name)
-        else:
-            root = await self._ensure_child(svc, None, self.settings.drive_folder_root)
-            folder_id = await self._ensure_child(svc, root, folder_name)
-        self._folder_cache[cache_key] = folder_id
-        return folder_id
+        # Area 5, 5.10: entri cache kedaluwarsa dibuang saat diakses.
+        hit = self._folder_cache_get(cache_key)
+        if hit is not None:
+            return hit
+        # Temuan 3.12: find-or-create tanpa lock bisa membuat dua folder
+        # bernama sama bila dua pemanggil bersamaan sama-sama menemukan
+        # tidak ada. Serialkan per uploader; cache dicek ulang di dalam
+        # lock supaya pemanggil kedua tidak membuat folder lagi.
+        async with self._folder_lock:
+            hit = self._folder_cache_get(cache_key)
+            if hit is not None:
+                return hit
+            svc = await self._svc()
+            if self._account and self._account.root_folder_id:
+                folder_id = await self._ensure_child(svc, self._account.root_folder_id, folder_name)
+            else:
+                root = await self._ensure_child(svc, None, self.settings.drive_folder_root)
+                folder_id = await self._ensure_child(svc, root, folder_name)
+            if len(self._folder_cache) >= _FOLDER_CACHE_MAX:
+                oldest = min(
+                    self._folder_cache,
+                    key=lambda k: self._folder_cache[k][1],
+                )
+                del self._folder_cache[oldest]
+            self._folder_cache[cache_key] = (folder_id, time.monotonic())
+            return folder_id
+
+    def _folder_cache_get(self, cache_key: str) -> str | None:
+        """Folder dari cache, atau None bila belum ada/kedaluwarsa."""
+        hit = self._folder_cache.get(cache_key)
+        if hit is None:
+            return None
+        folder_id, at = hit
+        if time.monotonic() - at < _FOLDER_CACHE_TTL_SEC:
+            return folder_id
+        del self._folder_cache[cache_key]
+        return None
 
     def invalidate_folder_cache(
         self, stream_id: int | None = None, stream_name: str | None = None
@@ -168,7 +271,7 @@ class DriveUploader:
                 body["parents"] = [parent_id]
             return svc.files().create(body=body, fields="id").execute()["id"]
 
-        return await asyncio.to_thread(_find) or await asyncio.to_thread(_create)
+        return await _drive_call(_find) or await _drive_call(_create)
 
     async def find_file(self, folder_id: str, name: str) -> str | None:
         svc = await self._svc()
@@ -181,7 +284,7 @@ class DriveUploader:
             files = res.get("files", [])
             return files[0]["id"] if files else None
 
-        return await asyncio.to_thread(_find)
+        return await _drive_call(_find)
 
     async def upload_file(
         self, local_path: str, stream_name: str,
@@ -189,10 +292,38 @@ class DriveUploader:
     ):
         """Unggah satu segmen (resumable). Return file_id / None bila gagal."""
         svc = await self._svc()
+        name = os.path.basename(local_path)
+        # Temuan 3.2: klaim segmen selama upload supaya jalur uploader
+        # rclone / mirror tidak memproses (dan menghapus) file yang
+        # sama bersamaan. Tanpa stream_id (pemakaian legacy/test) klaim
+        # dilewati karena tidak ada kunci kamera yang stabil.
+        claimed = False
+        if stream_id is not None:
+            from app.services.upload_claims import try_claim
+
+            if not try_claim(stream_id, name, "oauth"):
+                log.info("drive: %s sedang diproses jalur lain, dilewati", name)
+                return None
+            claimed = True
+        try:
+            return await self._upload_file_claimed(
+                svc, local_path, stream_name, stream_id, retries
+            )
+        finally:
+            if claimed:
+                from app.services.upload_claims import release_claim
+
+                release_claim(stream_id, name, "oauth")
+
+    async def _upload_file_claimed(
+        self, svc, local_path: str, stream_name: str,
+        stream_id: int | None, retries: int,
+    ):
         folder_id = await self.ensure_folder(stream_name, stream_id)
         name = os.path.basename(local_path)
         if await self.find_file(folder_id, name):
             # Sudah ada di Drive: hapus lokal (perintah user 2026-11-17).
+            self.invalidate_list_cache(folder_id)
             _delete_local(local_path, name)
             return None
 
@@ -210,10 +341,27 @@ class DriveUploader:
 
         last: Exception | None = None
         for attempt in range(1, retries + 1):
+            if attempt > 1:
+                # Temuan 3.11: respons upload bisa hilang padahal file
+                # sudah sampai di Drive; cek lagi sebelum retry supaya
+                # tidak membuat duplikat.
+                try:
+                    existing = await self.find_file(folder_id, name)
+                except Exception:  # noqa: BLE001
+                    existing = None
+                if existing:
+                    log.info(
+                        "drive: %s ternyata sudah ada di Drive (retry %d), "
+                        "hapus lokal tanpa upload ulang", name, attempt,
+                    )
+                    self.invalidate_list_cache(folder_id)
+                    _delete_local(local_path, name)
+                    return existing
             try:
-                fid = await asyncio.to_thread(_do)
+                fid = await _drive_call(_do)
                 log.info("drive: %s -> %s", name, fid)
                 # Ter-upload: hapus lokal (perintah user 2026-11-17).
+                self.invalidate_list_cache(folder_id)
                 _delete_local(local_path, name)
                 return fid
             except Exception as e:  # noqa: BLE001
@@ -225,14 +373,35 @@ class DriveUploader:
 
     async def queue_upload(
         self, local_path: str, stream_name: str, stream_id: int | None = None
-    ) -> None:
-        # Item 3-elemen bila stream_id diketahui (folder berbasis ID, B-R2);
-        # 2-elemen untuk pemakaian legacy.
-        await self._queue.put(
+    ) -> bool:
+        """Antrekan satu segmen. Return False bila sudah diantrekan
+        (dedup) atau antrean penuh (temuan 5.2); segmen yang ditolak
+        dicoba lagi oleh scan 5 menit berikut, jadi tidak ada yang hilang.
+
+        Item 3-elemen bila stream_id diketahui (folder berbasis ID, B-R2);
+        2-elemen untuk pemakaian legacy.
+        """
+        if local_path in self._queued:
+            return False
+        item = (
             (local_path, stream_name, stream_id)
             if stream_id is not None
             else (local_path, stream_name)
         )
+        try:
+            self._queue.put_nowait(item)
+        except asyncio.QueueFull:
+            log.warning(
+                "drive: antrean upload penuh (%d), %s ditunda ke scan berikut",
+                _QUEUE_MAXSIZE, local_path,
+            )
+            return False
+        self._queued.add(local_path)
+        return True
+
+    def queue_size(self) -> int:
+        """Jumlah segmen menunggu di antrean (untuk /api/health, 5.8)."""
+        return self._queue.qsize()
 
     def _mine(self, drive_account_id, storage_mode: str) -> bool:
         if storage_mode not in ("drive", "both"):
@@ -244,6 +413,19 @@ class DriveUploader:
         return self._account.is_default and drive_account_id is None
 
     async def scan_and_enqueue(self, db=None) -> int:
+        """Pindai segmen lokal yang belum ada di Drive, antrekan upload.
+
+        Area 5, 5.2: bila scan sebelumnya belum selesai, putaran ini
+        dilewati supaya scan tidak menumpuk (satu putaran scan bisa
+        lebih lama dari interval 5 menit saat backlog besar).
+        """
+        if self._scan_lock.locked():
+            log.warning("drive scan dilewati: scan sebelumnya belum selesai")
+            return 0
+        async with self._scan_lock:
+            return await self._scan_and_enqueue_locked(db)
+
+    async def _scan_and_enqueue_locked(self, db=None) -> int:
         import re as _re
 
         s = self.settings
@@ -311,22 +493,43 @@ class DriveUploader:
             except Exception as e:  # noqa: BLE001
                 log.warning("drive scan %s gagal: %s", stream_name, e)
                 continue
+            # 6.2: SATU list_files per folder lalu cocokkan di memori,
+            # bukan satu files.list per segmen. Sebelumnya tiap segmen
+            # memanggil find_file (satu panggilan Drive API) secara
+            # berurutan; backlog besar (Drive mati berjam-jam) berarti
+            # ribuan panggilan API per putaran scan 5 menit.
+            try:
+                existing = {
+                    f.get("name")
+                    for f in await self.list_files(folder_id)
+                }
+            except Exception as e:  # noqa: BLE001
+                # B-R3 (diadaptasi): kegagalan cek JANGAN dianggap
+                # "sudah ada". Lewati folder ini putaran ini; scan
+                # 5 menit berikut mencoba lagi.
+                log.warning(
+                    "drive scan %s: list folder gagal, dicoba lagi "
+                    "putaran berikut: %s",
+                    stream_name, e,
+                )
+                continue
             for name in files:
                 if not name.endswith(".mp4"):
                     continue
-                try:
-                    exists = await self.find_file(folder_id, name)
-                except Exception as e:  # noqa: BLE001
-                    # B-R3: kegagalan cek JANGAN dianggap "sudah ada". Catat
-                    # dan lewati putaran ini; scan 5 menit berikut mencoba lagi.
-                    log.warning(
-                        "drive scan %s: cek %s gagal, dicoba lagi putaran berikut: %s",
-                        stream_name, name, e,
-                    )
+                # Temuan 3.2: segmen yang sedang diproses jalur uploader
+                # rclone / mirror dilewati; scan 5 menit berikut mencoba
+                # lagi bila segmen itu ternyata tidak jadi ter-upload.
+                from app.services.upload_claims import is_claimed
+
+                if is_claimed(sid, name):
                     continue
-                if not exists:
-                    await self.queue_upload(os.path.join(d, name), stream_name, sid)
-                    count += 1
+                if name not in existing:
+                    # Area 5, 5.2: queue_upload False = duplikat/antrean
+                    # penuh; jangan hitung sebagai "diantrekan".
+                    if await self.queue_upload(
+                        os.path.join(d, name), stream_name, sid
+                    ):
+                        count += 1
         return count
 
     async def run_upload_loop(self) -> None:
@@ -341,13 +544,41 @@ class DriveUploader:
                 except Exception as e:  # noqa: BLE001
                     log.warning("drive loop: %s: %s", local_path, e)
                 finally:
+                    # Area 5, 5.2: keluarkan dari set dedup supaya scan
+                    # berikut boleh mengantrekan ulang bila upload gagal
+                    # (file masih ada) atau selesai (file sudah dihapus).
+                    self._queued.discard(local_path)
                     self._queue.task_done()
         except asyncio.CancelledError:
             pass
 
     async def list_files(self, folder_id: str) -> list[dict]:
+        # 6.7: cache TTL 60 dtk per folder (lihat __init__).
+        now = time.monotonic()
+        hit = self._list_cache.get(folder_id)
+        if hit is not None and now - hit[0] < self._LIST_TTL_SEC:
+            return [dict(f) for f in hit[1]]
         svc = await self._svc()
-        return await asyncio.to_thread(_drive_list_all, svc, folder_id, "files(id,name,size)")
+        items = await _drive_call(_drive_list_all, svc, folder_id, "files(id,name,size)")
+        self._list_cache[folder_id] = (now, [dict(f) for f in items])
+        return items
+
+    async def download_drive_file(self, file_id: str) -> bytes:
+        """Unduh utuh satu file Drive via SATU get_media (tanpa Range).
+
+        6.1: cerminan perbaikan rclone 7cbf088. Sebelumnya pemutar
+        memanggil stream_drive_file per potongan 1 MB (satu HTTPS
+        request + auth + seek per MB); segmen 20 MB berarti 20
+        panggilan API berurutan. Kini unduh sekali, Range dilayani
+        dari memori oleh pemanggil.
+        """
+        svc = await self._svc()
+
+        def _get():
+            return svc.files().get_media(fileId=file_id).execute()
+
+        data = await _drive_call(_get)
+        return data if isinstance(data, bytes) else bytes(data)
 
     async def stream_drive_file(self, file_id: str, start: int, end=None) -> bytes:
         svc = await self._svc()
@@ -357,16 +588,27 @@ class DriveUploader:
             req.headers["Range"] = f"bytes={start}-{end}" if end is not None else f"bytes={start}-"
             return req.execute()
 
-        data = await asyncio.to_thread(_get)
+        data = await _drive_call(_get)
         return data if isinstance(data, bytes) else bytes(data)
 
-    async def apply_drive_retention(self, days: int) -> int:
+    async def apply_drive_retention(self, days: int, max_files: int = 1000) -> int:
+        """Retensi Drive: hapus segmen rekaman lama di Drive.
+
+        Temuan 3.4: HANYA file segmen rekaman yang dihapus, yaitu nama
+        `.mp4` yang cocok pola nama segmen MediaMTX (`SEGMENT_RE`,
+        `YYYY-MM-DD_HH-MM-SS-ffffff.mp4`). Sebelumnya SEMUA file lama
+        di folder kamera dihapus, termasuk dokumen/foto/backup yang
+        ditaruh manual. Nama file yang akan dihapus dicatat di log
+        sebelum dihapus (bukan dry-run penuh, tapi jejak audit).
+        """
+        from app.services.recording import SEGMENT_RE
+
         svc = await self._svc()
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         fields = "files(id,name,mimeType,createdTime)"
 
         async def _all(folder_id: str) -> list[dict]:
-            return await asyncio.to_thread(_drive_list_all, svc, folder_id, fields)
+            return await _drive_call(_drive_list_all, svc, folder_id, fields)
 
         if self._account and self._account.root_folder_id:
             root_id = self._account.root_folder_id
@@ -377,13 +619,31 @@ class DriveUploader:
             if folder["mimeType"] != FOLDER_MIME:
                 continue
             for f in await _all(folder["id"]):
+                fname = f.get("name", "") or ""
+                if not fname.lower().endswith(".mp4"):
+                    continue
+                if not SEGMENT_RE.match(fname):
+                    continue
                 try:
                     ts = datetime.fromisoformat(f.get("createdTime", "").replace("Z", "+00:00"))
                 except ValueError:
                     continue
                 if ts < cutoff:
-                    await asyncio.to_thread(svc.files().delete(fileId=f["id"]).execute)
+                    log.info("drive retensi: hapus %s (%s)", fname, f["id"])
+                    await _drive_call(
+                        svc.files().delete(fileId=f["id"]).execute
+                    )
                     deleted += 1
+                    if deleted >= max_files:
+                        # Area 5, 5.7: dibatasi per putaran supaya satu
+                        # putaran tidak me-list dan menghapus tanpa batas;
+                        # sisa file dihapus putaran berikut.
+                        log.warning(
+                            "drive retensi: batas %d file per putaran "
+                            "tercapai, sisa dihapus putaran berikut",
+                            max_files,
+                        )
+                        return deleted
         if deleted:
             log.info("drive retensi: %d file dihapus", deleted)
         return deleted

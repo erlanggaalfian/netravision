@@ -6,9 +6,14 @@ mengecek status path, dan menghapus path yang tidak dipakai lagi.
 
 from __future__ import annotations
 
+import logging
+from collections.abc import AsyncIterator
+
 import httpx
 
 from app.core.config import get_settings
+
+log = logging.getLogger("netravision.mediamtx")
 
 
 class MediaMTXClient:
@@ -53,10 +58,31 @@ class MediaMTXClient:
             ) from exc
 
     async def get_paths(self) -> list[dict]:
-        """Daftar semua path yang terdaftar di MediaMTX."""
+        """Daftar semua path yang terdaftar di MediaMTX.
+
+        Temuan 3.20: bentuk respons divalidasi. Bila API mengembalikan
+        dict tanpa `items` (atau `items` bukan list), kembalikan []
+        dan catat error, jangan kembalikan dict mentah: pemanggil yang
+        mengiterasi dict akan mendapat string kunci dan mengira tidak
+        ada path, sehingga pembersihan path yatim mati diam-diam.
+        """
         resp = await self._request("GET", "/v3/config/paths/list")
         data = resp.json()
-        return data.get("items", data) if isinstance(data, dict) else data
+        if isinstance(data, list):
+            return [p for p in data if isinstance(p, dict)]
+        if isinstance(data, dict):
+            items = data.get("items")
+            if isinstance(items, list):
+                return [p for p in items if isinstance(p, dict)]
+            log.warning(
+                "MediaMTX get_paths: respons dict tanpa items list: %s",
+                str(data)[:200],
+            )
+            return []
+        log.warning(
+            "MediaMTX get_paths: respons bukan list/dict: %s", str(data)[:200]
+        )
+        return []
 
     async def get_path(self, name: str) -> dict | None:
         """Detail satu path, atau None bila tidak terdaftar."""
@@ -94,8 +120,19 @@ class MediaMTXClient:
         """
         cur = await self.get_path(name)
         if cur is None:
-            await self._request("POST", f"/v3/config/paths/add/{name}", json=conf)
-            return
+            try:
+                await self._request("POST", f"/v3/config/paths/add/{name}", json=conf)
+            except RuntimeError:
+                # Temuan 3.20: check-then-act bisa balapan. Dua pemanggil
+                # bersamaan sama-sama melihat path belum ada, lalu yang
+                # kedua gagal add (409/sudah ada). Baca ulang: bila path
+                # kini ada, lanjut ke patch-diff di bawah; bila tetap
+                # tidak ada, errornya nyata dan dilempar ulang.
+                cur = await self.get_path(name)
+                if cur is None:
+                    raise
+            else:
+                return
         diff = {
             k: v for k, v in conf.items() if not _conf_value_equal(cur.get(k), v)
         }
@@ -136,8 +173,33 @@ def _conf_value_equal(cur_val, want_val) -> bool:
 def get_mediamtx() -> MediaMTXClient:
     """Factory dari settings (field: mediamtx_api_url).
 
-    TODO Fase 1+: tambah mediamtx_api_user/mediamtx_api_password di config
-    bila control API diproteksi di produksi.
+    Dipakai pemakaian langsung (main.py, tes). Router WAJIB memakai
+    `get_mediamtx_dep` (dependency yield) supaya client ditutup.
+
+    4.11: kredensial control API (mediamtx_api_user/password) dikirim
+    bila dikonfigurasi; kosong = tanpa auth (perilaku lama). Di
+    produksi, isi MEDIAMTX_API_USER/PASSWORD dengan user/pass yang sama
+    seperti di deploy/mediamtx.yml (authInternalUsers).
     """
     settings = get_settings()
-    return MediaMTXClient(base_url=settings.mediamtx_api_url)
+    return MediaMTXClient(
+        base_url=settings.mediamtx_api_url,
+        username=settings.mediamtx_api_user or None,
+        password=settings.mediamtx_api_password or None,
+    )
+
+
+async def get_mediamtx_dep() -> AsyncIterator[MediaMTXClient]:
+    """Dependency FastAPI untuk router (temuan 3.8).
+
+    `get_mediamtx()` membuat `httpx.AsyncClient` baru tiap panggilan;
+    sebagai dependency biasa (tanpa yield) tidak ada yang memanggil
+    `aclose()`, jadi tiap request admin/stream membocorkan satu client
+    beserta connection pool-nya. Versi yield ini menutup client di
+    `finally`, apa pun hasil endpoint-nya.
+    """
+    client = get_mediamtx()
+    try:
+        yield client
+    finally:
+        await client.aclose()

@@ -58,6 +58,15 @@ def _strip_empty_auth(url: str) -> str:
 # Abus = Vivotek /live.sdp, Hanbang = Infinova) TIDAK dibuatkan
 # profil duplikat — polanya sudah dipindai lewat profil aslinya.
 BRAND_PROFILES: dict[str, dict[str, str | None]] = {
+    # A-1.27: template generik (ONVIF Profile S: /onvif1 main,
+    # /onvif2 sub — pola yang sama dipakai profil XM dan dipindai
+    # discovery). Dipakai bila brand "auto"/tidak dikenal beserta host
+    # dan force=true, supaya kamera tetap bisa didaftar tanpa 400.
+    "generic": {
+        "label": "Generik (ONVIF)",
+        "main": "rtsp://{user}:{password}@{host}:{port}/onvif1",
+        "sub": "rtsp://{user}:{password}@{host}:{port}/onvif2",
+    },
     "hikvision": {
         "label": "Hikvision",
         "main": "rtsp://{user}:{password}@{host}:{port}/Streaming/Channels/{channel}01",
@@ -268,8 +277,14 @@ def resolve_brand_urls(
         known = ", ".join(sorted(BRAND_PROFILES))
         raise ValueError(f"Brand '{brand}' tidak dikenal. Pilihan: {known}")
 
+    # Temuan 3.17: host kosong atau mengandung '/'/'@' merusak URL atau
+    # mengubah makna userinfo; user juga harus di-quote seperti password
+    # (dulu mentah, jadi ':'/'@'/'/'/spasi di username merusak URL).
+    host = (host or "").strip()
+    if not host or "/" in host or "@" in host:
+        raise ValueError("Host tidak valid.")
     ctx = {
-        "user": user,
+        "user": quote(user, safe=""),
         "password": quote(password, safe=""),
         "host": host,
         "port": port,
