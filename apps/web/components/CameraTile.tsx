@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { playWhep, stopWhep } from "../lib/whep";
 import { playHls, stopHls, isHlsWarm, type HlsHandle } from "../lib/hls";
+import { getMediaUrls, type MediaUrls } from "../lib/media-token";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { usePosterUrl } from "../lib/api";
 import { AdBanner } from "./AdBanner";
@@ -61,15 +62,30 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
      sub selalu ada via transcode). FocusModal (popup) memakai sub
      dulu lalu main (HD), dan tidak memakai komponen ini. */
   const hasSub = !!stream.whep_sub_url;
-  const url = stream.whep_sub_url ?? stream.whep_main_url;
-  /* HLS fallback (via Apache /hls/*, HTTP/TCP): dipakai bila
-     WebRTC/WHEP tidak tersambung karena jaringan memblokir UDP
-     (NAT/CGNAT tanpa forwarding UDP 8189). Ikut varian yang dipakai
-     WHEP: sub bila ada, main bila tidak ada sub. URL relatif supaya
-     ikut origin yang sama di produksi maupun demo. */
-  const hlsUrl = hasSub
-    ? `/hls/stream_${stream.id}_sub/index.m3u8`
-    : `/hls/stream_${stream.id}/index.m3u8`;
+  /* K-1: URL WHEP/HLS mentah tidak lagi bisa dibuka tanpa kredensial
+     (proxy API menolak tanpa token). Ambil URL yang sudah membawa token
+     media (?token=) dari POST /api/media/token; token di-cache per
+     kamera di lib/media-token.ts. hasSub menentukan varian yang dipakai
+     (sub bila ada, main bila tidak ada sub), sama seperti sebelumnya. */
+  const [mediaUrls, setMediaUrls] = useState<MediaUrls | null>(null);
+  useEffect(() => {
+    if (!stream.is_online) return;
+    if (!stream.whep_main_url && !stream.whep_sub_url) return;
+    let cancelled = false;
+    getMediaUrls(stream.id, hasSub)
+      .then((u) => {
+        if (!cancelled) setMediaUrls(u);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setFailed(true);
+        setFailMsg("Stream tidak dapat diputar");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [stream.id, stream.is_online, hasSub, retryTick]);
+
   /* Poster lewat blob object URL (header Authorization), bukan ?token= di URL. */
   const posterSrc = usePosterUrl(stream.poster_url);
 
@@ -84,7 +100,8 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
     setFailMsg(null);
     setDisconnected(false);
     setPlaying(false);
-  }, [stream.id, stream.is_online, url]);
+    setMediaUrls(null);
+  }, [stream.id, stream.is_online]);
 
   /* Auto-retry tile yang gagal ATAU terputus, TANPA BATAS: bila kamera
      masih online (is_online) tapi pemutaran gagal (failed) atau WHEP
@@ -110,11 +127,15 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
     if (!stream.is_online) return;
     /* Online tapi tidak ada URL WHEP sama sekali: gagal dengan pesan
        yang jelas, bukan spinner selamanya. */
-    if (!url) {
+    if (!stream.whep_main_url && !stream.whep_sub_url) {
       setFailed(true);
       setFailMsg("URL stream tidak tersedia");
       return;
     }
+    /* Token media belum tiba: tunggu effect pengambilan token di atas. */
+    if (!mediaUrls) return;
+    const url = mediaUrls.whepUrl;
+    const hlsUrl = mediaUrls.hlsUrl;
     if (failed || disconnected) return;
     const box = boxRef.current;
     const video = videoRef.current;
@@ -245,7 +266,7 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
       stopHls(hlsRef.current);
       hlsRef.current = null;
     };
-  }, [url, hlsUrl, stream.is_online, stream.id, failed, disconnected, retryTick]);
+  }, [mediaUrls, stream.is_online, stream.id, failed, disconnected, retryTick]);
 
   const toggleControls = () => setShowControls((v) => !v);
 

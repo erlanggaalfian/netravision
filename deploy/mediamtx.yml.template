@@ -59,14 +59,29 @@ webrtcICEServers:
 api: yes
 apiAddress: :9997
 authInternalUsers:
-  # siapa pun boleh publish/read/playback stream
+  # K-1 (2026-11-17): jalur publik ke stream (WHEP/HLS) TIDAK lagi
+  # lewat MediaMTX langsung; Apache meneruskannya ke proxy API
+  # (/api/media/*) yang memvalidasi token dulu. Entri `any` di sini
+  # hanya tersisa `read`, dan itu HANYA untuk worker poster di dalam
+  # jaringan Docker (ffmpeg menarik RTSP dari MediaMTX tanpa
+  # kredensial; posters.py belum bisa mengirim kredensial). `publish`
+  # dihapus: tidak ada yang me-push stream ke MediaMTX (semua path
+  # memakai source RTSP yang ditarik MediaMTX dari kamera), jadi
+  # tidak ada lagi yang bisa membajak path dengan stream palsu.
+  # `playback` dihapus: server playback MediaMTX tidak diaktifkan
+  # dan rekaman dilayani API sendiri (app/routers/recordings.py).
+  # `ips` dibatasi ke privat/loopback seperti entri netravision.
+  # Catatan: `read` untuk `any` masih mengizinkan baca dari
+  # localhost / jaringan Docker saja (port 8554/8888/8889 hanya
+  # publish ke 127.0.0.1 di compose); publik tidak bisa
+  # menjangkaunya. Bila poster nanti dikirimi kredensial RTSP,
+  # entri ini bisa dihapus total dan `read` pindah ke user
+  # netravision di bawah.
   - user: any
     pass:
-    ips: []
+    ips: ['127.0.0.1', '::1', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']
     permissions:
-      - action: publish
       - action: read
-      - action: playback
   # control API hanya dengan kredensial + dari localhost/jaringan
   # privat (Docker). Password dibuat sekali saat deploy / install
   # pertama dan disimpan di DATABASE (tabel system_settings, key

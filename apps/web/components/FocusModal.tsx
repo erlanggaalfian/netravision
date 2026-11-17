@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { playWhep, stopWhep } from "../lib/whep";
+import { getMediaUrls } from "../lib/media-token";
 import { usePosterUrl } from "../lib/api";
 import { AdBanner } from "./AdBanner";
 import { Badge, Button } from "./ui";
@@ -28,6 +29,10 @@ export function FocusModal({ stream, onClose, ad }: Props) {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const switchRef = useRef<((url: string, target: "LQ" | "HQ") => void) | null>(null);
   const cancelSwitchRef = useRef<(() => void) | null>(null);
+  /* URL WHEP yang sudah membawa token media (?token=), diisi setelah
+     POST /api/media/token (K-1). Dipakai toggle LQ/HQ manual; URL mentah
+     dari stream tidak lagi bisa dibuka tanpa token. */
+  const urlsRef = useRef<{ main: string; sub: string | null } | null>(null);
   const hqTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [failed, setFailed] = useState(false);
   const [failMsg, setFailMsg] = useState<string | null>(null);
@@ -72,16 +77,17 @@ export function FocusModal({ stream, onClose, ad }: Props) {
     setVRati(null);
     setQuality("LQ");
     const video = videoRef.current;
-    const main = stream?.whep_main_url;
-    const sub = stream?.whep_sub_url;
+    const hasMain = !!stream?.whep_main_url;
+    const hasSub = !!stream?.whep_sub_url;
     /* Online tapi tidak ada URL WHEP sama sekali: gagal dengan pesan
        yang jelas, bukan spinner selamanya. */
-    if (stream?.is_online && !(main || sub)) {
+    if (stream?.is_online && !(hasMain || hasSub)) {
       setFailed(true);
       setFailMsg("URL stream tidak tersedia");
       return;
     }
-    if (!video || !(main || sub) || !stream?.is_online) return;
+    if (!video || !(hasMain || hasSub) || !stream?.is_online) return;
+    const streamId = stream.id;
     let cancelled = false;
     let pending: RTCPeerConnection | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -96,6 +102,28 @@ export function FocusModal({ stream, onClose, ad }: Props) {
       cancelSwitchRef.current = null;
       if (msg) setFailMsg(msg);
       setFailed(true);
+    };
+
+    /* K-1: URL WHEP yang sudah membawa token media (?token=) untuk
+       main dan sub. URL mentah tidak lagi bisa dibuka tanpa token.
+       Token di-cache per kamera di lib/media-token.ts. */
+    const getUrls = async (): Promise<{
+      main: string;
+      sub: string | null;
+    } | null> => {
+      try {
+        const [mainUrls, subUrls] = await Promise.all([
+          getMediaUrls(streamId, false),
+          hasSub ? getMediaUrls(streamId, true) : Promise.resolve(null),
+        ]);
+        if (cancelled) return null;
+        const urls = { main: mainUrls.whepUrl, sub: subUrls?.whepUrl ?? null };
+        urlsRef.current = urls;
+        return urls;
+      } catch {
+        if (!cancelled) fail("Stream tidak dapat diputar");
+        return null;
+      }
     };
 
     /* Ganti stream dengan smooth: sambung URL baru di elemen tersembunyi,
@@ -167,37 +195,42 @@ export function FocusModal({ stream, onClose, ad }: Props) {
     /* Sambung MAIN di elemen tersembunyi; tukar srcObject saat sudah
        bergambar (tanpa layar hitam), lalu tutup koneksi SUB. */
     const goHQ = () => {
+      const main = urlsRef.current?.main;
       if (!main || cancelled) return;
       smoothSwitch(main, "HQ");
     };
 
-    if (want === "LQ" || !main || !sub) {
-      /* Putus di tengah jalan ("disconnected") diperlakukan sama seperti
-         gagal: tampilkan error lalu auto-retry tanpa batas (effect di
-         bawah). Sebelumnya argumen onDisconnect tidak diisi, jadi putus
-         di tengah jalan tidak terdeteksi sama sekali. */
-      playWhep(video, (want === "HQ" ? main : sub) || main || sub!, fail, undefined, () => fail())
-        .then((pc) => {
-          if (cancelled) return stopWhep(pc);
-          pcRef.current = pc;
-          /* Tanpa sub, yang diputar adalah main -> kualitas HQ, bukan
-             LQ (label subtitle harus benar). */
-          setQuality(!sub || (want === "HQ" && main) ? "HQ" : "LQ");
-        })
-        .catch(() => fail());
-    } else {
-      playWhep(video, sub, fail, undefined, () => fail())
-        .then((pc) => {
-          if (cancelled) return stopWhep(pc);
-          pcRef.current = pc;
-          // v2: upgrade HD 1 detik setelah sub tampil.
-          timer = setTimeout(goHQ, 1000);
-          hqTimerRef.current = timer;
-        })
-        .catch(() => {
-          if (!cancelled) goHQ();
-        });
-    }
+    void getUrls().then((urls) => {
+      if (!urls || cancelled) return;
+      const { main, sub } = urls;
+      if (want === "LQ" || !main || !sub) {
+        /* Putus di tengah jalan ("disconnected") diperlakukan sama seperti
+           gagal: tampilkan error lalu auto-retry tanpa batas (effect di
+           bawah). Sebelumnya argumen onDisconnect tidak diisi, jadi putus
+           di tengah jalan tidak terdeteksi sama sekali. */
+        playWhep(video, (want === "HQ" ? main : sub) || main || sub!, fail, undefined, () => fail())
+          .then((pc) => {
+            if (cancelled) return stopWhep(pc);
+            pcRef.current = pc;
+            /* Tanpa sub, yang diputar adalah main -> kualitas HQ, bukan
+               LQ (label subtitle harus benar). */
+            setQuality(!sub || (want === "HQ" && main) ? "HQ" : "LQ");
+          })
+          .catch(() => fail());
+      } else {
+        playWhep(video, sub, fail, undefined, () => fail())
+          .then((pc) => {
+            if (cancelled) return stopWhep(pc);
+            pcRef.current = pc;
+            // v2: upgrade HD 1 detik setelah sub tampil.
+            timer = setTimeout(goHQ, 1000);
+            hqTimerRef.current = timer;
+          })
+          .catch(() => {
+            if (!cancelled) goHQ();
+          });
+      }
+    });
     return () => {
       cancelled = true;
       clearTimeout(timer);
@@ -208,6 +241,7 @@ export function FocusModal({ stream, onClose, ad }: Props) {
       stopWhep(pcRef.current);
       pcRef.current = null;
       switchRef.current = null;
+      urlsRef.current = null;
     };
   }, [stream, want, retryTick]);
 
@@ -217,13 +251,15 @@ export function FocusModal({ stream, onClose, ad }: Props) {
      tertunda, sambung halus lewat switchRef. */
   const toggleQuality = useCallback(() => {
     const target = quality === "HQ" ? "LQ" : "HQ";
-    const url = target === "HQ" ? stream?.whep_main_url : stream?.whep_sub_url;
+    /* K-1: pakai URL bertoken dari urlsRef, bukan URL mentah stream. */
+    const urls = urlsRef.current;
+    const url = target === "HQ" ? urls?.main : urls?.sub;
     if (hqTimerRef.current) {
       clearTimeout(hqTimerRef.current);
       hqTimerRef.current = undefined;
     }
     if (url && switchRef.current) switchRef.current(url, target);
-  }, [quality, stream?.whep_main_url, stream?.whep_sub_url]);
+  }, [quality]);
 
   /* Auto-retry TANPA BATAS: bila gagal (termasuk putus di tengah jalan,
      yang dipetakan ke fail) dan kamera masih online serta ada URL WHEP,
