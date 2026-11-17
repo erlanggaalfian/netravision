@@ -9,8 +9,21 @@ NULL = pakai akun default (is_default).
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text, Uuid, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    func,
+    text,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
@@ -41,6 +54,24 @@ class RcloneRemote(Base):
 
 class DriveAccount(Base):
     __tablename__ = "drive_accounts"
+    # 2.15: status hanya boleh salah satu dari tiga nilai ini.
+    # A-1.19: tepat SATU akun default — indeks unik parsial supaya dua
+    # POST bersamaan tidak bisa sama-sama jadi default, dan PUT tidak
+    # bisa mematikan default terakhir tanpa pengganti (penjaga di
+    # router tetap diperlukan untuk pesan error yang jelas).
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'connected', 'error')",
+            name="ck_drive_accounts_status",
+        ),
+        Index(
+            "uq_drive_accounts_is_default",
+            "is_default",
+            unique=True,
+            postgresql_where=text("is_default"),
+            sqlite_where=text("is_default"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, default=uuid.uuid4
@@ -75,17 +106,46 @@ class DriveUpload(Base):
     """Jejak segmen yang sudah ter-upload ke Google Drive (via rclone copyto).
 
     Mencegah upload ganda antar putaran upload loop.
+
+    2.1: stream_id adalah FK ke streams.id (ON DELETE CASCADE, jadi hapus
+    kamera tidak meninggalkan jejak yatim) dan (stream_id, folder_name,
+    segment_name) unik, sehingga dua loop yang balapan tidak bisa
+    memasukkan jejak ganda; _mark_uploaded memakai INSERT ... ON CONFLICT
+    DO NOTHING.
+    2.4: indeks komposit (stream_id, uploaded_at) untuk MAX(uploaded_at) /
+    status antrean; unique di atas melayani filter (stream_id, folder_name).
+    2.9: kolom ini dulu bernama folder_id padahal isinya NAMA folder
+    (kunci jalur rclone, bukan ID Drive); diganti nama menjadi
+    folder_name supaya tidak berbohong. Nilai tetap nama folder.
     """
 
     __tablename__ = "drive_uploads"
+    __table_args__ = (
+        UniqueConstraint(
+            "stream_id",
+            "folder_name",
+            "segment_name",
+            name="uq_drive_uploads_stream_folder_segment",
+        ),
+        Index(
+            "ix_drive_uploads_stream_uploaded",
+            "stream_id",
+            "uploaded_at",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    stream_id: Mapped[int] = mapped_column(nullable=False, index=True)
+    stream_id: Mapped[int] = mapped_column(
+        ForeignKey("streams.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     segment_name: Mapped[str] = mapped_column(String(64), nullable=False)
-    folder_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    folder_name: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+    # 2.16: relasi many-to-one ke kamera.
+    stream = relationship("Stream", lazy="selectin")
 
 
 class GoogleDriveFolder(Base):
@@ -116,5 +176,10 @@ class GoogleDriveFolder(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    updated_by: Mapped[str | None] = mapped_column(String(50), nullable=True, default="")
+    # 2.14/2.20: onupdate supaya updated_at tidak basi bila ada jalur
+    # update yang lupa menulisnya manual.
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, onupdate=func.now()
+    )
+    # 2.13: sentinel ganda '' vs NULL dihapus; kosong = NULL saja.
+    updated_by: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)

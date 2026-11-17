@@ -67,7 +67,7 @@ from app.db.session import get_db
 from app.models.streams import Stream
 from app.schemas.stream import ScanPath
 from app.services import rtsp_discovery
-from app.services.mediamtx import MediaMTXClient, get_mediamtx
+from app.services.mediamtx import MediaMTXClient, get_mediamtx_dep
 
 router = APIRouter(
     # E-K1 (backend): Scanner hanya super_admin, bukan admin biasa.
@@ -82,7 +82,11 @@ _MAX_HOSTS = 256
 # (~24 proses ffprobe ringan) aman di server 8 core yang memang sudah
 # menjalankan 49 transcode; tiap host tetap dibatasi 2 sesi ffprobe).
 _HOST_CONCURRENCY = 12
-_HOST_TIMEOUT = 30.0  # detik maksimum discovery per host (tahap 3)
+_HOST_TIMEOUT = 60.0  # detik maksimum discovery per host (tahap 3)
+# 6.10: HARUS > _HOST_BUDGET discovery (45 dtk, rtsp_discovery.py).
+# Sebelumnya 30 dtk membunuh discovery yang budget dalamnya 45 dtk,
+# jadi budget dalam tidak pernah tercapai dan retry/fallback 12 dtk
+# selalu terpotong di tengah jalan.
 # H1: batas waktu global seluruh scan, satu /24 tak boleh menggantung
 # sampai puluhan menit walau tiap host dibatasi 30 detik.
 _SCAN_GLOBAL_TIMEOUT = 300.0  # detik
@@ -194,7 +198,13 @@ _JOB_TTL = 600.0  # detik
 def _prune_jobs_locked() -> None:
     """Buang job selesai yang kedaluwarsa, lalu pangkas ke 10 job terakhir.
 
-    Harus dipanggil sambil memegang _jobs_lock."""
+    Harus dipanggil sambil memegang _jobs_lock.
+    A-1.11: job yang masih running TIDAK PERNAH dihapus — sebelumnya
+    bila semua job running, korban adalah job running tertua dan
+    GET /admin/scan-subnet/{job_id} lalu 404 di tengah pemindaian
+    yang sebenarnya masih jalan. Bila penuh dan semua running,
+    _MAX_JOBS boleh terlampaui sementara; job baru ditolak 429 di
+    scan_subnet sampai ada yang selesai."""
     now = time.monotonic()
     for jid in [
         jid
@@ -209,12 +219,14 @@ def _prune_jobs_locked() -> None:
             (j for j in _jobs.values() if j.status != "running"),
             key=lambda j: j.finished_at or 0,
         )
-        victim = (
-            finished[0]
-            if finished
-            else min(_jobs.values(), key=lambda j: j.created_at)
-        )
-        del _jobs[victim.job_id]
+        if not finished:
+            break
+        del _jobs[finished[0].job_id]
+
+
+def _running_job_count_locked() -> int:
+    """Jumlah job yang masih running (dipakai penolakan 429)."""
+    return sum(1 for j in _jobs.values() if j.status == "running")
 
 
 def _host_status(disc: rtsp_discovery.DiscoveryResult) -> str:
@@ -296,7 +308,15 @@ async def _host_reachable(host: str, port: int) -> bool:
     hitungan milidetik tanpa menunggu TCP. Kamera yang memblokir
     ICMP tetap lolos lewat TCP, jadi tahap ini tidak membuang kamera
     yang valid (hanya IP yang benar-benar diam di semua probe yang
-    tersaring)."""
+    tersaring).
+
+    4.17: host loopback/link-local/metadata tidak pernah di-probe
+    (mis. scan CIDR 127.0.0.0/8): langsung tidak terjangkau.
+    """
+    from app.services.stream_resolver import host_allowed_for_probe
+
+    if not await asyncio.to_thread(host_allowed_for_probe, host):
+        return False
     probes = [
         asyncio.create_task(_ping_alive(host)),
         asyncio.create_task(
@@ -516,6 +536,17 @@ async def _run_scan(
             job.hosts.append(result)
             job.scanned += 1
         recorded.add(result.host)
+        # 4.6: URL asli hasil scan disimpan di brankas server (bukan
+        # dikembalikan ke klien); GET status hanya mengembalikan URL
+        # teredaksi, dan "Tambah terpilih" memulihkan URL asli lewat
+        # scan_ref=job_id di POST /admin/streams.
+        from app.services import scan_vault
+
+        scan_vault.register(
+            job.job_id,
+            [result.best_main, result.best_sub]
+            + [p.url for p in result.paths],
+        )
 
     try:
         # ---- Tahap 1: IP reachable (cepat, konkurensi tinggi) ----
@@ -687,6 +718,16 @@ async def scan_subnet(data: SubnetScanRequest, db: AsyncSession = Depends(get_db
     known_hosts, known_online, known_info = await _load_known_cameras(db)
     async with _jobs_lock:
         _prune_jobs_locked()
+        # A-1.11: bila semua slot dipakai job running, tolak job baru
+        # dengan 429 daripada menghapus job running tertua.
+        if _running_job_count_locked() >= _MAX_JOBS:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    "terlalu banyak scan berjalan bersamaan "
+                    f"(maks {_MAX_JOBS}), coba lagi setelah ada yang selesai"
+                ),
+            )
         _jobs[job.job_id] = job
     asyncio.create_task(
         _run_scan(
@@ -701,6 +742,31 @@ async def scan_subnet(data: SubnetScanRequest, db: AsyncSession = Depends(get_db
     return SubnetScanJobCreated(job_id=job.job_id)
 
 
+def _redact_host(h: SubnetHost) -> SubnetHost:
+    """Salinan host dengan semua URL hasil scan teredaksi (4.6).
+
+    Job di memori menyimpan URL ASLI (dipakai brankas scan_vault untuk
+    "Tambah terpilih"); yang keluar lewat API hanya password ****.
+    known_main/known_sub sudah teredaksi saat dibuat (_known_fields).
+    """
+    return h.model_copy(
+        update={
+            "best_main": redact_url_credentials(h.best_main)
+            if h.best_main
+            else None,
+            "best_sub": redact_url_credentials(h.best_sub)
+            if h.best_sub
+            else None,
+            "paths": [
+                p.model_copy(
+                    update={"url": redact_url_credentials(p.url)}
+                )
+                for p in h.paths
+            ],
+        }
+    )
+
+
 @router.get(
     "/admin/scan-subnet/{job_id}",
     response_model=SubnetScanJobStatus,
@@ -708,7 +774,11 @@ async def scan_subnet(data: SubnetScanRequest, db: AsyncSession = Depends(get_db
 async def scan_subnet_status(job_id: str):
     """Status + hasil satu job scan. Saat running, hosts/candidates
     berisi hasil parsial sejauh ini (boleh kosong); stage,
-    reachable_count dan port_open_count menunjukkan progres funnel."""
+    reachable_count dan port_open_count menunjukkan progres funnel.
+
+    4.6: semua URL hasil scan dikembalikan TEREDAKSI (password ****).
+    URL asli hanya ada di brankas server dan dipulihkan saat kamera
+    dibuat dengan scan_ref=job_id."""
     async with _jobs_lock:
         _prune_jobs_locked()
         job = _jobs.get(job_id)
@@ -720,8 +790,18 @@ async def scan_subnet_status(job_id: str):
             status=job.status,
             scanned=job.scanned,
             total=job.total,
-            hosts=list(job.hosts),
-            candidates=list(job.candidates),
+            hosts=[_redact_host(h) for h in job.hosts],
+            candidates=[
+                c.model_copy(
+                    update={
+                        "main_url": redact_url_credentials(c.main_url),
+                        "sub_url": redact_url_credentials(c.sub_url)
+                        if c.sub_url
+                        else None,
+                    }
+                )
+                for c in job.candidates
+            ],
             error=job.error,
             stage=job.stage,
             reachable_count=job.reachable_count,
@@ -771,7 +851,7 @@ class CompleteStreamsResponse(BaseModel):
 async def complete_streams(
     data: CompleteStreamsRequest,
     db: AsyncSession = Depends(get_db),
-    mediamtx: MediaMTXClient = Depends(get_mediamtx),
+    mediamtx: MediaMTXClient = Depends(get_mediamtx_dep),
 ):
     """Tambahkan main/sub yang BELUM ADA ke kamera yang sudah terdaftar.
 

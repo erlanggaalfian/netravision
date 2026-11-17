@@ -31,7 +31,48 @@ _MAX_ACCESS_MINUTES = 1440
 
 
 def hash_password(password: str) -> str:
+    # A-1.6: bcrypt menolak password > 72 byte (melempar ValueError dari
+    # passlib). Tolak eksplisit di sini sebagai pertahanan lapis kedua;
+    # skema API sudah membatasi max_length=72.
+    if len(password.encode()) > 72:
+        raise ValueError("password maksimal 72 byte (batas bcrypt)")
     return _hasher.hash(password)
+
+
+# 4.12: kebijakan password minimal. Panjang minimum 12 untuk
+# admin/super_admin, 8 untuk user/guest; password dari daftar umum
+# yang paling sering dipakai ditolak. Daftar ini sengaja pendek
+# (bukan kamus lengkap): tujuannya memblokir password trivial, bukan
+# menjadi penilai kekuatan. Pemeriksaan hanya saat password BARU
+# dibuat/diubah; password lama yang sudah tersimpan tidak dipaksa
+# ganti (hash-nya tidak bisa dinilai tanpa plaintext).
+_COMMON_PASSWORDS = frozenset({
+    "password", "password1", "password123", "password1234",
+    "12345678", "123456789", "1234567890", "12345678910",
+    "qwerty123", "qwertyuiop", "admin123", "admin1234",
+    "administrator", "letmein", "welcome1", "welcome123",
+    "iloveyou", "monkey123", "dragon123", "football1",
+    "00000000", "11111111", "123123123", "abc123456",
+    "admin", "administrator1", "netravision", "netravision123",
+})
+
+
+def validate_password(password: str, role: str) -> str | None:
+    """Periksa password baru. Kembalikan pesan error, atau None bila sah.
+
+    Aturan: panjang minimum menurut peran + tolak password umum.
+    Dipakai create/update user; kunci API embed tidak memakai ini
+    (password kunci boleh kosong dan bukan kredensial login akun).
+    """
+    min_len = 12 if role in ("admin", "super_admin") else 8
+    if len(password) < min_len:
+        return f"password minimal {min_len} karakter"
+    if password.strip() != password:
+        return "password tidak boleh diawali/diakhiri spasi"
+    lowered = password.lower()
+    if lowered in _COMMON_PASSWORDS or lowered == role:
+        return "password terlalu umum, pilih password lain"
+    return None
 
 
 def verify_password(password: str, password_hash: str) -> bool:

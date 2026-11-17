@@ -3,22 +3,26 @@
 Semua endpoint butuh peran admin. Path /api/* persis v2.0.
 """
 
+import asyncio
 import logging
 import os
+import secrets
 import shutil
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.rate_limit import rate_limited
-from app.core.rbac import get_current_user, is_super_admin, mask_rtsp_url, require_reshare, require_roles
+from app.core.rbac import get_current_user, is_super_admin, require_reshare, require_roles
 from app.core.security import redact_url_credentials
 from app.db.session import get_db
+from app.services import scan_vault
 from app.models.access import StreamAdminGrant, StreamPermission, UserStreamAccess
 from app.models.groups import GroupStream, StreamGroup
 from app.models.streams import Stream
@@ -41,10 +45,17 @@ from app.schemas.stream import (
     StreamUpdate,
 )
 from app.services import rtsp_discovery
-from app.services.mediamtx import MediaMTXClient, get_mediamtx
+from app.services.mediamtx import MediaMTXClient, get_mediamtx_dep
 from app.services.stream_resolver import StreamResolution, resolve_stream
 
-router = APIRouter(tags=["admin-streams"], dependencies=[Depends(require_roles("admin"))])
+router = APIRouter(
+    tags=["admin-streams"],
+    # 4.7: seluruh router ini sebelumnya tanpa rate limit (kecuali
+    # /admin/scan): daftar kamera, sharing, grants, groups, dan
+    # disk-summary bisa dibanjiri. 20/menit per IP seperti router admin
+    # lain; endpoint scan yang mahal tetap punya batas sendiri (10/menit).
+    dependencies=[Depends(require_roles("admin")), Depends(rate_limited(20, 60))],
+)
 log = logging.getLogger("netravision.admin_streams")
 
 # Tambah/ubah/hapus kamera dan pengaturannya hanya superadmin. Admin
@@ -176,22 +187,93 @@ async def _admin_visible_stream_ids(me: User, db: AsyncSession) -> set[int] | No
     return allowed
 
 
+async def _mask_rtsp_urls(
+    streams: list[Stream], admin: User, db: AsyncSession
+) -> dict[int, str]:
+    """Batch dari mask_rtsp_url (rbac): rtsp_url per kamera, "" bila
+    admin tidak berhak melihatnya.
+
+    A-1.12: satu query grant (IN admin) untuk semua kamera, bukan
+    satu query per kamera di loop daftar. Semantik sama: super_admin
+    melihat semua; admin hanya kamera miliknya (created_by/owner_id)
+    atau yang di-grant can_view; peran lain tidak melihat apa pun.
+    """
+    if is_super_admin(admin):
+        return {s.id: (getattr(s, "rtsp_url", "") or "") for s in streams}
+    if (getattr(admin, "role", "") or "") != "admin":
+        return {s.id: "" for s in streams}
+    granted = set(
+        (
+            await db.execute(
+                select(StreamAdminGrant.stream_id).where(
+                    StreamAdminGrant.admin_id == admin.id,
+                    StreamAdminGrant.can_view.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    out: dict[int, str] = {}
+    for s in streams:
+        if (
+            getattr(s, "created_by", None) == admin.id
+            or getattr(s, "owner_id", None) == admin.id
+            or s.id in granted
+        ):
+            out[s.id] = getattr(s, "rtsp_url", "") or ""
+        else:
+            out[s.id] = ""
+    return out
+
+
 @router.get("/admin/streams", response_model=list[StreamOut])
 async def admin_list_streams(
+    response: Response,
+    limit: int | None = Query(None, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_user),
 ):
+    """Daftar kamera (admin).
+
+    6.11: paginasi SQL opsional (?limit=&offset=, total di header
+    X-Total-Count seperti admin_keys). Tanpa limit, perilaku lama
+    (daftar penuh) dipertahankan. Untuk super_admin (tanpa filter
+    visibilitas) paginasi terjadi di SQL; untuk admin biasa filter
+    visibilitas tetap di Python (grant) lalu dipotong di Python,
+    supaya tidak ada kamera yang hilang dari halaman.
+    """
     settings = get_settings()
     visible = await _admin_visible_stream_ids(admin, db)
-    result = await db.execute(select(Stream).order_by(Stream.id))
+    if visible is None and limit is not None:
+        # super_admin: paginasi di SQL (tanpa muat seluruh tabel).
+        total = (
+            await db.execute(select(func.count()).select_from(Stream))
+        ).scalar() or 0
+        response.headers["X-Total-Count"] = str(total)
+        result = await db.execute(
+            select(Stream).order_by(Stream.id).limit(limit).offset(offset)
+        )
+        streams = result.scalars().all()
+    else:
+        result = await db.execute(select(Stream).order_by(Stream.id))
+        streams = result.scalars().all()
+        if visible is not None:
+            # Admin biasa: filter visibilitas (grant) di Python lalu
+            # potong di Python, supaya tidak ada kamera yang hilang
+            # dari halaman karena LIMIT diterapkan sebelum filter.
+            streams = [s for s in streams if s.id in visible]
+        if limit is not None:
+            response.headers["X-Total-Count"] = str(len(streams))
+            streams = streams[offset : offset + limit]
+    # A-1.12: mask RTSP diambil sekali (batch), bukan satu query
+    # grant per kamera di loop.
+    masked = await _mask_rtsp_urls(streams, admin, db)
     out = []
-    for s in result.scalars().all():
-        # Admin biasa hanya melihat kamera milik/grant-nya; sebelumnya
-        # daftar ini mengembalikan SEMUA kamera ke admin mana pun.
-        if visible is not None and s.id not in visible:
-            continue
+    for s in streams:
         o = stream_to_out(s, settings)
-        o.rtsp_url = await mask_rtsp_url(s, admin, db)
+        o.rtsp_url = masked.get(s.id, "")
         # T-4: URL RTSP dikembalikan dengan password teredaksi (****),
         # bukan mentah. Frontend menampilkan **** dan mengirim ****
         # kembali; backend memulihkan password tersimpan
@@ -228,26 +310,49 @@ def _validate_record_disk(value: str | None) -> str | None:
     return value
 
 
+def _resolve_scan_url(url: str | None, scan_ref: str | None) -> str | None:
+    """Pulihkan URL asli dari URL teredaksi hasil scan (4.6).
+
+    URL dengan password **** hanya sah bila scan_ref menunjuk ke
+    brankas yang masih menyimpan URL aslinya; tanpa itu, 400 (password
+    **** tidak boleh tersimpan secara harfiah sebagai password kamera).
+    URL tanpa mask diteruskan apa adanya.
+    """
+    if not url or ":****@" not in url:
+        return url
+    real = scan_vault.resolve(scan_ref, url)
+    if real is None:
+        raise HTTPException(
+            status_code=400,
+            detail="URL hasil scan kedaluwarsa atau tidak dikenal, scan ulang",
+        )
+    return real
+
+
 @router.post("/admin/streams", response_model=StreamOut, status_code=201, dependencies=[Depends(super_admin_only)])
 async def admin_create_stream(
     data: StreamCreate,
     db: AsyncSession = Depends(get_db),
-    mediamtx: MediaMTXClient = Depends(get_mediamtx),
+    mediamtx: MediaMTXClient = Depends(get_mediamtx_dep),
     admin: User = Depends(get_current_user),
 ):
     record_disk = _validate_record_disk(data.record_disk)
-    if data.rtsp_url:
+    # 4.6: URL teredaksi (****) dari hasil scan dipulihkan dari brankas
+    # server lewat scan_ref; tanpa scan_ref yang sah, 400 di sini.
+    rtsp_url = _resolve_scan_url(data.rtsp_url, data.scan_ref)
+    sub_url = _resolve_scan_url(data.sub_url, data.scan_ref)
+    if rtsp_url:
         # URL langsung: verifikasi video dulu (kecuali force).
         try:
             res = await resolve_stream(
-                brand=data.brand, rtsp_url=data.rtsp_url, user=data.user,
+                brand=data.brand, rtsp_url=rtsp_url, user=data.user,
                 password=data.password, host=data.host, port=data.port,
                 channel=data.channel,
             )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         if not data.force:
-            vp = await rtsp_discovery.verify_url(data.rtsp_url)
+            vp = await rtsp_discovery.verify_url(rtsp_url)
             if vp.status != "video":
                 raise HTTPException(
                     status_code=400,
@@ -256,6 +361,22 @@ async def admin_create_stream(
                         "atau kirim force=true untuk tetap mendaftar."
                     ),
                 )
+            # A-1.27: sub_url eksplisit juga diverifikasi bila
+            # force=False; sebelumnya hanya rtsp_url yang dicek
+            # sehingga kamera bisa tersimpan dengan sub mati tanpa
+            # peringatan (sub hasil Scanner umumnya sudah terverifikasi,
+            # tapi sub yang diketik manual belum tentu).
+            if sub_url:
+                vs = await rtsp_discovery.verify_url(sub_url)
+                if vs.status != "video":
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            "Substream tidak mengirim video "
+                            f"({vs.status}). Perbaiki URL sub, atau kirim "
+                            "force=true untuk tetap mendaftar."
+                        ),
+                    )
     elif data.host and not data.force:
         # Tanpa URL: discovery otomatis, pakai path video terbaik.
         disc = await rtsp_discovery.discover_host(
@@ -279,7 +400,7 @@ async def admin_create_stream(
     else:
         try:
             res = await resolve_stream(
-                brand=data.brand, rtsp_url=data.rtsp_url, user=data.user,
+                brand=data.brand, rtsp_url=rtsp_url, user=data.user,
                 password=data.password, host=data.host, port=data.port,
                 channel=data.channel,
             )
@@ -290,10 +411,10 @@ async def admin_create_stream(
     # sub_url eksplisit (best_sub terverifikasi dari Scanner) lebih
     # diutamakan daripada turunan resolver; bila tidak diisi, pakai
     # turunan resolver seperti biasa.
-    effective_sub = data.sub_url or res.sub_url
+    effective_sub = sub_url or res.sub_url
     stream = Stream(
         name=data.name,
-        rtsp_url=data.rtsp_url or res.main_url,
+        rtsp_url=rtsp_url or res.main_url,
         brand=res.brand,
         main_url=res.main_url,
         sub_url=effective_sub,
@@ -330,7 +451,7 @@ async def admin_create_stream(
 async def admin_update_stream(
     stream_id: int, data: StreamUpdate,
     db: AsyncSession = Depends(get_db),
-    mediamtx: MediaMTXClient = Depends(get_mediamtx),
+    mediamtx: MediaMTXClient = Depends(get_mediamtx_dep),
 ):
     stream = await _get_stream_or_404(db, stream_id, require_active=False)
     was_active = stream.is_active
@@ -360,9 +481,12 @@ async def admin_update_stream(
                     status_code=404, detail="folder Drive tidak ditemukan"
                 )
         stream.drive_folder_id = data.drive_folder_id
-    if data.latitude is not None:
+    # A-1.20: null eksplisit dihormati (hapus koordinat), pola yang
+    # sama seperti drive_account_id/drive_folder_id di atas; sebelumnya
+    # `if ... is not None` mengabaikan null diam-diam.
+    if "latitude" in data.model_fields_set:
         stream.latitude = data.latitude
-    if data.longitude is not None:
+    if "longitude" in data.model_fields_set:
         stream.longitude = data.longitude
     if data.recording_enabled is not None:
         recording_changed = data.recording_enabled != stream.recording_enabled
@@ -476,7 +600,7 @@ async def admin_update_stream(
 async def admin_delete_stream(
     stream_id: int,
     db: AsyncSession = Depends(get_db),
-    mediamtx: MediaMTXClient = Depends(get_mediamtx),
+    mediamtx: MediaMTXClient = Depends(get_mediamtx_dep),
 ):
     stream = await _get_stream_or_404(db, stream_id, require_active=False)
     try:
@@ -902,11 +1026,17 @@ async def set_group_grants(nama_grup: str, data: StreamIdsIn, db: AsyncSession =
     return {"ok": True, "stream_ids": data.stream_ids}
 
 
-@router.get("/admin/disk-summary")
+@router.get("/admin/disk-summary", dependencies=[Depends(rate_limited(20, 60))])
 async def disk_info(db: AsyncSession = Depends(get_db)):
     # Ringkasan disk agregat (bukan inventaris per kamera/grup):
     # tetap bisa dibaca admin biasa, dikunci test_disks. Folder
     # Drive di dalamnya hanya nama/URL folder, bukan isi rekaman.
+    # A-1.10: hasil di-cache 60 dtk (sebelumnya tiap panggilan
+    # os.walk seluruh staging) + rate limit; pemindaian jalan di
+    # thread (asyncio.to_thread) supaya tidak memblokir event loop.
+    now = time.monotonic()
+    if _disk_cache["body"] is not None and now - _disk_cache["at"] < _DISK_CACHE_TTL:
+        return dict(_disk_cache["body"])
     settings = get_settings()
     target = settings.recordings_dir if Path(settings.recordings_dir).exists() else "/"
     usage = shutil.disk_usage(target)
@@ -960,13 +1090,8 @@ async def disk_info(db: AsyncSession = Depends(get_db)):
         try:
             quota_tb = settings.gdrive_quota_tb
             total = int(quota_tb * (1024**4))
-            used = 0
-            for root, _dirs, files in os.walk(gdrive_path):
-                for fn in files:
-                    try:
-                        used += os.path.getsize(os.path.join(root, fn))
-                    except OSError:
-                        pass
+            # A-1.10: os.walk sinkron dipindah ke thread.
+            used = await asyncio.to_thread(_walk_used_bytes, gdrive_path)
             avail = max(total - used, 0)
             label = f"Google Drive — {fol.folder_name or fol.folder_id}"
             gdrive_entries.append({
@@ -991,7 +1116,33 @@ async def disk_info(db: AsyncSession = Depends(get_db)):
     if gdrive_entries:
         out["google_drive"] = gdrive_entries[0]  # kompatibel lama: satu entri
         out["google_drive_folders"] = gdrive_entries
+    _disk_cache["at"] = now
+    _disk_cache["body"] = out
     return out
+
+
+def _walk_used_bytes(path: str) -> int:
+    """Jumlah byte seluruh file di bawah `path` (sinkron; dipanggil
+    lewat asyncio.to_thread supaya tidak memblokir event loop)."""
+    used = 0
+    for root, _dirs, files in os.walk(path):
+        for fn in files:
+            try:
+                used += os.path.getsize(os.path.join(root, fn))
+            except OSError:
+                pass
+    return used
+
+
+# A-1.10: cache ringkasan disk 60 dtk (in-process, satu nilai).
+_DISK_CACHE_TTL = 60.0
+_disk_cache: dict = {"at": 0.0, "body": None}
+
+
+def reset_disk_cache() -> None:
+    """Kosongkan cache disk-summary (dipakai test)."""
+    _disk_cache["at"] = 0.0
+    _disk_cache["body"] = None
 
 
 def _to_scan_path(p: rtsp_discovery.PathResult, role: str | None) -> ScanPath:
@@ -1002,13 +1153,63 @@ def _to_scan_path(p: rtsp_discovery.PathResult, role: str | None) -> ScanPath:
     )
 
 
+def _redact_scan_result(
+    candidates: list[ScanCandidate],
+    paths: list[ScanPath],
+    best_main: str | None,
+    best_sub: str | None,
+    auth_mode: str | None = None,
+) -> ScanResult:
+    """4.6: hasil scan dikembalikan dengan password TEREDAKSI.
+
+    URL asli (termasuk password yang diisi super_admin dan password
+    default pabrik hasil discovery) disimpan di brankas server di
+    bawah scan_id; POST /admin/streams memulihkannya dengan
+    scan_ref=scan_id. Tanpa ini password tersebar ke body respons,
+    state frontend, dan log.
+    """
+    scan_id = secrets.token_hex(16)
+    scan_vault.register(
+        scan_id,
+        [c.main_url for c in candidates]
+        + [c.sub_url for c in candidates]
+        + [p.url for p in paths]
+        + [best_main, best_sub],
+    )
+    return ScanResult(
+        candidates=[
+            c.model_copy(
+                update={
+                    "main_url": redact_url_credentials(c.main_url),
+                    "sub_url": redact_url_credentials(c.sub_url)
+                    if c.sub_url
+                    else None,
+                }
+            )
+            for c in candidates
+        ],
+        paths=[
+            p.model_copy(update={"url": redact_url_credentials(p.url)})
+            for p in paths
+        ],
+        best_main=redact_url_credentials(best_main) if best_main else None,
+        best_sub=redact_url_credentials(best_sub) if best_sub else None,
+        auth_mode=auth_mode,
+        scan_id=scan_id,
+    )
+
+
 @router.post(
     "/admin/scan",
     response_model=ScanResult,
-    dependencies=[Depends(rate_limited(10, 60))],
+    dependencies=[Depends(super_admin_only), Depends(rate_limited(10, 60))],
 )
 async def scan_camera(data: ScanRequest):
     """Scan kamera dengan verifikasi video (ffprobe), bukan sekadar port/401.
+
+    A-1.4: super_admin-only seperti /admin/scan-subnet (admin_scan,
+    E-K1). Sebelumnya admin biasa bisa memindai URL/host RTSP arbitrer
+    dengan kredensial isiannya (ffprobe/DESCRIBE ke jaringan internal).
 
     - rtsp_url diisi: verifikasi URL itu langsung.
     - host diisi: discovery path RTSP umum + template brand, tiap path yang
@@ -1048,9 +1249,8 @@ async def scan_camera(data: ScanRequest):
             cand.main_ok = vp.status == "video"
             cand.probe_status = vp.status
             best_main = url if vp.status == "video" else None
-        return ScanResult(
-            candidates=candidates, paths=paths,
-            best_main=best_main, best_sub=None,
+        return _redact_scan_result(
+            candidates, paths, best_main, None
         )
 
     if not data.host:
@@ -1105,21 +1305,28 @@ async def scan_camera(data: ScanRequest):
                     c.probe_status = pr.status
                 else:
                     c.sub_ok = pr.status == "video"
-    return ScanResult(
-        candidates=candidates, paths=paths,
-        best_main=best_main, best_sub=best_sub,
-        auth_mode=auth_mode,
+    return _redact_scan_result(
+        candidates, paths, best_main, best_sub, auth_mode
     )
 
 
 @router.post(
-    "/admin/scan/preview", dependencies=[Depends(rate_limited(10, 60))]
+    "/admin/scan/preview",
+    dependencies=[Depends(super_admin_only), Depends(rate_limited(10, 60))],
 )
 async def scan_preview(data: PreviewIn):
+    # A-1.4: super_admin-only, sama seperti /admin/scan di atas.
     # TODO Fase 2: frontend memutar URL hasil resolve untuk preview visual
     # sebelum kamera disimpan.
     try:
         res = await resolve_stream(brand=None, rtsp_url=data.rtsp_url)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return {"main_url": res.main_url, "sub_url": res.sub_url, "method": res.method}
+    # 4.6: URL preview dikembalikan teredaksi seperti hasil scan lain.
+    return {
+        "main_url": redact_url_credentials(res.main_url),
+        "sub_url": redact_url_credentials(res.sub_url)
+        if res.sub_url
+        else None,
+        "method": res.method,
+    }

@@ -1,13 +1,14 @@
 """Router admin: pengguna & hak akses (MIGRATION-MAP §4)."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.rate_limit import rate_limited
 from app.core.rbac import can_manage_user, is_super_admin, require_roles, require_reshare
-from app.core.security import hash_password
+from app.core.security import hash_password, validate_password
+from app.routers.auth import revoke_refresh_sessions
 from app.db.session import get_db
 from app.models.access import StreamAdminGrant, UserStreamAccess
 from app.models.streams import Stream
@@ -81,15 +82,22 @@ class AdminGrantsIn(BaseModel):
     stream_ids: list[int] = []
 
 
-async def _out(u: User, db: AsyncSession) -> UserOut:
+async def _out(
+    u: User, db: AsyncSession, pembuat_map: dict[int, str] | None = None
+) -> UserOut:
     dibuat_oleh: str | None = None
     if u.parent_admin_id:
-        pembuat = (
-            (await db.execute(select(User).where(User.id == u.parent_admin_id)))
-            .scalars()
-            .first()
-        )
-        dibuat_oleh = pembuat.username if pembuat else None
+        # A-1.12: list_users memasok peta parent sekali (satu query IN),
+        # bukan satu query per user.
+        if pembuat_map is not None:
+            dibuat_oleh = pembuat_map.get(u.parent_admin_id)
+        else:
+            pembuat = (
+                (await db.execute(select(User).where(User.id == u.parent_admin_id)))
+                .scalars()
+                .first()
+            )
+            dibuat_oleh = pembuat.username if pembuat else None
     return UserOut(
         id=u.id,
         username=u.username,
@@ -119,10 +127,17 @@ def _tentukan_grup(pengelola: User, diminta: str | None, bawaan: str | None = No
 
 
 async def _super_admin_count(db: AsyncSession) -> int:
-    """Jumlah super_admin aktif di DB; dipakai penjaga super_admin terakhir."""
+    """Jumlah super_admin AKTIF di DB; dipakai penjaga super_admin terakhir.
+
+    A-1.1: sebelumnya menghitung semua super_admin tanpa filter
+    is_active, jadi satu super_admin nonaktif + satu aktif dihitung 2
+    dan guard demote/hapus ikut lolos."""
     return (
         await db.execute(
-            select(func.count(User.id)).where(User.role == "super_admin")
+            select(func.count(User.id)).where(
+                User.role == "super_admin",
+                User.is_active.is_(True),
+            )
         )
     ).scalar() or 0
 
@@ -202,11 +217,20 @@ def _check_same_group(me: User, target: User) -> None:
 
 @router.get("/admin/users", response_model=list[UserOut])
 async def list_users(
+    response: Response,
+    limit: int | None = Query(None, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db), me: User = Depends(admin_only)
 ):
     """Daftar user. Admin biasa hanya melihat dirinya + akun buatannya
     + user/guest di grupnya (satu aturan _admin_may_see_user, S-7);
-    super_admin melihat semua (paritas v2.0: bawahan_saya)."""
+    super_admin melihat semua (paritas v2.0: bawahan_saya).
+
+    6.11: paginasi SQL opsional (?limit=&offset=, total di header
+    X-Total-Count seperti admin_keys). Tanpa limit, perilaku lama
+    (daftar penuh) dipertahankan supaya frontend yang memuat semua
+    tidak berubah.
+    """
     q = select(User).order_by(User.username)
     if not is_super_admin(me):
         from sqlalchemy import or_ as _or
@@ -219,9 +243,24 @@ async def list_users(
                 & (User.role.in_(["user", "guest"]))
             )
         q = q.where(_or(*conds))
+    if limit is not None:
+        total = (
+            await db.execute(select(func.count()).select_from(q.subquery()))
+        ).scalar() or 0
+        response.headers["X-Total-Count"] = str(total)
+        q = q.limit(limit).offset(offset)
     result = await db.execute(q)
     users = result.scalars().all()
-    return [await _out(u, db) for u in users]
+    # A-1.12: nama pembuat (parent_admin_id) diambil sekali dengan
+    # satu query IN (...), bukan satu query per user di _out.
+    parent_ids = {u.parent_admin_id for u in users if u.parent_admin_id}
+    pembuat_map: dict[int, str] = {}
+    if parent_ids:
+        rows = await db.execute(
+            select(User.id, User.username).where(User.id.in_(parent_ids))
+        )
+        pembuat_map = dict(rows.all())
+    return [await _out(u, db, pembuat_map) for u in users]
 
 
 @router.post("/admin/users", response_model=UserOut, status_code=201)
@@ -240,6 +279,12 @@ async def create_user(
         # Keputusan terkunci 2026-11-08: admin TIDAK boleh grant admin.
         # Hanya super_admin yang bisa memberi peran admin/super_admin.
         raise HTTPException(403, "hanya super_admin yang bisa memberi peran admin/super_admin")
+    # 4.12: password baru wajib lolos kebijakan (panjang menurut peran
+    # + tolak password umum). Dicek SETELAH cek peran supaya penolakan
+    # RBAC (403) tidak tertutup 400 kebijakan password.
+    pw_err = validate_password(data.password, data.role)
+    if pw_err:
+        raise HTTPException(400, pw_err)
     exists = await db.execute(
         select(User.id).where(User.username == data.username)
     )
@@ -297,7 +342,18 @@ async def update_user(
             raise HTTPException(409, "username sudah dipakai")
         user.username = data.username
     if data.password:
+        # 4.12: password baru wajib lolos kebijakan (panjang menurut
+        # peran efektif setelah update ini + tolak password umum).
+        pw_err = validate_password(
+            data.password, data.role or user.role
+        )
+        if pw_err:
+            raise HTTPException(400, pw_err)
         user.password_hash = hash_password(data.password)
+        # 4.1: ganti password mencabut SEMUA sesi refresh user ini
+        # (oleh diri sendiri maupun admin): sesi curian tidak boleh
+        # hidup selamanya walau password sudah diganti.
+        revoke_refresh_sessions(user)
     if data.role is not None:
         if data.role not in VALID_ROLES:
             raise HTTPException(400, "role tidak valid")
@@ -305,16 +361,41 @@ async def update_user(
             # Keputusan terkunci 2026-11-08: admin TIDAK boleh grant admin.
             raise HTTPException(403, "hanya super_admin yang bisa memberi peran admin/super_admin")
         # Penjaga super_admin terakhir: menurunkan peran satu-satunya
-        # super_admin mengunci sistem tanpa admin penuh.
+        # super_admin AKTIF mengunci sistem tanpa admin penuh.
+        # (Super_admin yang sudah nonaktif boleh diturunkan: ia tidak
+        # lagi dihitung sebagai admin aktif.)
         if (
             user.role == "super_admin"
+            and user.is_active
             and data.role != "super_admin"
             and await _super_admin_count(db) <= 1
         ):
             raise HTTPException(400, "tidak bisa menurunkan super_admin terakhir")
         user.role = data.role
     if data.is_active is not None:
+        # A-1.1: sebelumnya is_active ditulis tanpa penjaga sama
+        # sekali, jadi super_admin aktif terakhir bisa menonaktifkan
+        # dirinya sendiri dan sistem terkunci (token user nonaktif
+        # ditolak _user_from_token). Tolak bila peran efektif setelah
+        # update ini tetap super_admin.
+        if (
+            data.is_active is False
+            and user.is_active
+            and user.role == "super_admin"
+            and (data.role is None or data.role == "super_admin")
+            and await _super_admin_count(db) <= 1
+        ):
+            raise HTTPException(
+                400, "tidak bisa menonaktifkan super_admin terakhir"
+            )
         user.is_active = data.is_active
+        # 4.1: menonaktifkan akun juga mencabut sesi refresh-nya
+        # (refresh token curian tidak boleh tetap bisa dipakai walau
+        # akun sudah dimatikan; refresh sendiri sudah menolak user
+        # nonaktif, ini menutup celah bila akun diaktifkan lagi tanpa
+        # ganti password).
+        if data.is_active is False:
+            revoke_refresh_sessions(user)
     if data.show_ads is not None:
         user.show_ads = data.show_ads
     if "admin_group" in data.model_fields_set:
@@ -351,8 +432,13 @@ async def delete_user(
     if user.role == "guest":
         raise HTTPException(400, "akun guest tidak bisa dihapus")
     # Penjaga super_admin terakhir: menghapus satu-satunya super_admin
-    # mengunci sistem tanpa admin penuh.
-    if user.role == "super_admin" and await _super_admin_count(db) <= 1:
+    # AKTIF mengunci sistem tanpa admin penuh. Menghapus super_admin
+    # yang sudah nonaktif tidak mengurangi jumlah admin aktif.
+    if (
+        user.role == "super_admin"
+        and user.is_active
+        and await _super_admin_count(db) <= 1
+    ):
         raise HTTPException(400, "tidak bisa menghapus super_admin terakhir")
     if not can_manage_user(me, user):
         raise HTTPException(403, "tidak boleh menghapus akun ini")

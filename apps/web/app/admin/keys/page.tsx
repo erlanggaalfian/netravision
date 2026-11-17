@@ -173,7 +173,7 @@ export default function AdminKeysPage() {
     if (clearBusy) return;
     setClearBusy(true);
     try {
-      await api.del("/admin/api-access-logs");
+      await api.del("/admin/api-access-logs?confirm=true");
       setClearingLogs(false);
       loadLogs(1);
     } catch (e) {

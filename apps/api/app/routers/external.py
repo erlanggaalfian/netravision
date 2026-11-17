@@ -13,6 +13,7 @@ Kegagalan -> 403 (perilaku v2.0), tanpa membocorkan informasi.
 """
 
 import hashlib
+import logging
 import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
@@ -29,39 +30,44 @@ from app.db.session import get_db
 from app.models.keys import ApiAccessLog, ApiKey, ApiKeyStream
 from app.models.misc import AdConfig
 from app.models.streams import Stream
+from app.routers.admin_ads import AdConfigIn
 
 router = APIRouter()
 
+log = logging.getLogger("netravision.external")
+
 _DEFAULT_TTL_MNT = 60
 
-# Kunci per API key terhadap brute force password (T-1): 5 password
+# Kunci per (API key, IP) terhadap brute force password (T-1): 5 password
 # salah dalam 15 menit -> 429 sampai jendela habis. Rate limit per IP
 # saja tidak cukup karena penyerang bisa dari banyak IP; kunci per
 # key menutupnya. Sukses membersihkan hitungan.
-_KEY_FAILURES: dict[int, list[float]] = {}
+# 4.9: kunci per key saja bisa dipakai untuk DoS mitra (penyerang yang
+# tahu kunci embed — kunci itu tampil di halaman mitra — mematikan
+# playback mitra dengan 5 password salah). Dengan kunci gabungan
+# (key, IP), kegagalan dari satu IP hanya mengunci kombinasi itu;
+# mitra dari IP lain tetap bisa masuk.
+_KEY_FAILURES: dict[tuple[int, str], list[float]] = {}
 _KEY_LOCKOUT_MAX = 5
 _KEY_LOCKOUT_WINDOW_SEC = 900.0
 
 
-def _key_locked(key_id: int) -> bool:
+def _key_locked(key_id: int, ip: str) -> bool:
     now = time.monotonic()
-    hits = [t for t in _KEY_FAILURES.get(key_id, []) if t > now - _KEY_LOCKOUT_WINDOW_SEC]
-    _KEY_FAILURES[key_id] = hits
+    hits = [t for t in _KEY_FAILURES.get((key_id, ip), []) if t > now - _KEY_LOCKOUT_WINDOW_SEC]
+    _KEY_FAILURES[(key_id, ip)] = hits
     return len(hits) >= _KEY_LOCKOUT_MAX
 
 
-def _record_key_failure(key_id: int) -> None:
-    _KEY_FAILURES.setdefault(key_id, []).append(time.monotonic())
+def _record_key_failure(key_id: int, ip: str) -> None:
+    _KEY_FAILURES.setdefault((key_id, ip), []).append(time.monotonic())
 
-# Default konfigurasi iklan v2.0 (16 field); digabung dengan yang tersimpan.
-_AD_DEFAULTS = {
-    "image_url": "", "marquee_text": "", "bg_color": "#1e293b",
-    "text_color": "#ffffff", "scroll_speed": 5, "font_size": 10,
-    "font_family": "monospace", "image_opacity": 1.0, "bg_opacity": 1.0,
-    "text_opacity": 1.0, "is_active": True, "box_width": 100,
-    "text_align": "left", "image_height": 20,
-    "embed_timeout_seconds": 300, "click_to_play": True,
-}
+# Default konfigurasi iklan; disamakan dengan AdConfigIn saat ini (v3.0),
+# digabung dengan yang tersimpan. A-1.18: sebelumnya hanya 16 field v2.0
+# di sini sehingga config embed kehilangan field v3.0 (position,
+# banner_height, display_mode, periodic_trigger, audience, click_url,
+# dll.) dan perilaku iklan embed vs web bisa berbeda.
+_AD_DEFAULTS = AdConfigIn().model_dump()
 
 
 # ── util ──────────────────────────────────────────────────────────────
@@ -110,17 +116,35 @@ async def _log(
     stream_id: int | None = None,
 ) -> None:
     """Catat akses embed. ok/gagal dikodekan di `action` karena skema
-    api_access_logs tidak punya kolom ok/reason terpisah."""
-    db.add(
-        ApiAccessLog(
-            api_key_id=key_id,
-            stream_id=stream_id,
-            action=action,
-            ip=_client_ip(request)[:64],
-            user_agent=(request.headers.get("user-agent", "") or "")[:512],
+    api_access_logs tidak punya kolom ok/reason terpisah.
+
+    A-1.9: gagal tulis log (DB error) TIDAK boleh mengubah respons
+    403/200 yang seharusnya menjadi 500 — efek samping sudah terjadi
+    (mis. password salah sudah dicatat di _KEY_FAILURES). Kegagalan
+    hanya ditulis ke log server, lalu sesi di-rollback supaya tetap
+    bisa dipakai pemanggil.
+    """
+    try:
+        db.add(
+            ApiAccessLog(
+                api_key_id=key_id,
+                stream_id=stream_id,
+                action=action,
+                # 2.7: kolom boolean is_denied diisi dari action yang
+                # sama, supaya filter status di list_logs tidak memakai
+                # LIKE '%.denied%' (leading %, tak terindeks).
+                is_denied=".denied" in action,
+                ip=_client_ip(request)[:64],
+                user_agent=(request.headers.get("user-agent", "") or "")[:512],
+            )
         )
-    )
-    await db.commit()
+        await db.commit()
+    except Exception as e:  # noqa: BLE001 - logging tidak boleh menggagalkan request
+        log.warning("log akses embed %s gagal: %s", action, e)
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 # ── validasi kunci ────────────────────────────────────────────────────
@@ -152,20 +176,26 @@ async def _validate_key(
             status.HTTP_403_FORBIDDEN, "Kunci API tidak valid atau tidak aktif"
         )
     if key.password_hash:
-        if _key_locked(key.id):
+        ip = _client_ip(request)
+        if _key_locked(key.id, ip):
             await _log(db, request, f"{action}.denied:locked", key_id=key.id)
             raise HTTPException(
                 status.HTTP_429_TOO_MANY_REQUESTS,
                 "Terlalu banyak percobaan password salah, coba lagi nanti",
             )
         if not password or not verify_password(password, key.password_hash):
-            _record_key_failure(key.id)
+            _record_key_failure(key.id, ip)
             await _log(db, request, f"{action}.denied:bad_password", key_id=key.id)
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN, "Kata sandi akses salah atau tidak disertakan"
             )
-        _KEY_FAILURES.pop(key.id, None)
+        _KEY_FAILURES.pop((key.id, ip), None)
     if key.domain_lock and key.domain_lock.strip():
+        # 4.13: domain lock HANYA pencegahan hotlink di browser, BUKAN
+        # kontrol akses: header Referer/Origin dikontrol penuh oleh
+        # klien non-browser (curl -H "Referer: ..." lolos). Jangan
+        # andalkan sebagai keamanan; yang mengunci akses adalah kunci +
+        # password + token sesi terikat kamera di bawah ini.
         target = key.domain_lock.strip().lower()
         ref = _domain_of(request.headers.get("referer", ""))
         org = _domain_of(request.headers.get("origin", ""))
@@ -174,8 +204,17 @@ async def _validate_key(
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN, "Akses ditolak: domain asal tidak diizinkan"
             )
-    key.last_used_at = _now()
-    await db.commit()
+    # 6.8: update last_used_at secara throttled (maks 1x per 5 menit
+    # per kunci), bukan commit di tiap validasi. Sebelumnya tiap
+    # request embed murah (cek key + ambil URL WHEP) diikuti commit
+    # ini + commit _log, mengunci baris api_keys yang sama saat
+    # banyak embed polling bersamaan. Perubahan tetap tersimpan
+    # lewat commit _log di akhir request yang sama.
+    _now_v = _now()
+    _last = _as_aware(key.last_used_at)
+    if _last is None or (_now_v - _last).total_seconds() > 300:
+        key.last_used_at = _now_v
+        await db.commit()
     return key
 
 
@@ -277,6 +316,57 @@ async def _validate_session_token(
     return key_id
 
 
+def _file_session_token(
+    key: ApiKey, stream_id: int, start: datetime, end: datetime, ttl_mnt: int
+) -> str:
+    """Token sesi embed untuk SATU berkas segmen (4.4).
+
+    Sama seperti _session_token (terikat satu kamera, TTL singkat,
+    dicabut bila kunci dinonaktifkan/kedaluwarsa), ditambah klaim
+    "kind" + rentang start/end: token ini hanya berlaku untuk segmen
+    itu, bukan untuk segmen lain kamera yang sama. URL playback file
+    yang bocor hanya hidup selama TTL sesi (default 60 menit, ikut
+    session_ttl_mnt kunci), bukan selamanya.
+    """
+    settings = get_settings()
+    payload = {
+        "sub": f"key:{key.id}",
+        "username": f"embed:{key.name}",
+        "role": "embed",
+        "type": "access",
+        "kind": "playback_file",
+        "stream_id": stream_id,
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "iat": _now(),
+        "exp": _now() + timedelta(minutes=ttl_mnt),
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+async def _validate_file_session_token(
+    db: AsyncSession, token: str, start: str, end: str
+) -> tuple[int, int]:
+    """Validasi token sesi file: kembalikan (key_id, stream_id).
+
+    Memeriksa klaim kind + rentang, lalu memakai _validate_session_token
+    untuk signature/kedaluwarsa/kunci aktif/tidak kedaluwarsa/kamera
+    masih terikat kunci. Raise ValueError bila tidak sah.
+    """
+    payload = decode_token(token, get_settings())
+    if payload.get("type") != "access" or payload.get("role") != "embed":
+        raise ValueError("bukan token sesi file")
+    if payload.get("kind") != "playback_file":
+        raise ValueError("bukan token sesi file")
+    if payload.get("start") != start or payload.get("end") != end:
+        raise ValueError("token sesi bukan untuk rentang ini")
+    stream_id = payload.get("stream_id")
+    if not isinstance(stream_id, int):
+        raise ValueError("token sesi tidak valid")
+    key_id = await _validate_session_token(db, token, stream_id)
+    return key_id, stream_id
+
+
 def _whep_url(request: Request, stream_id: int, session: str) -> str:
     settings = get_settings()
     base = _public_base(request)
@@ -296,25 +386,64 @@ def _whep_url_sub(
 async def _ad_config_dict(
     db: AsyncSession, base_url: str, key: ApiKey | None = None
 ) -> dict | None:
-    """Konfigurasi iklan penuh (16 field v2.0); None bila tidak aktif.
+    """Konfigurasi iklan penuh (field AdConfigIn saat ini); None bila tidak aktif.
 
     Bila kunci API punya show_ads=False, embed kunci itu tanpa iklan
     (None). Tanpa kunci, atau show_ads True, perilaku lama: tampil
     bila config aktif.
+
+    6.13: baris AdConfig (satu baris, berubah hanya saat admin ubah
+    iklan) di-cache in-process TTL 60 dtk, bukan satu query DB per
+    request /external/stream. Cache menyimpan config mentah (sebelum
+    prefix base_url pada image_url); invalidasi eksplisit di
+    admin_ads._set_value.
     """
     if key is not None and key.show_ads is False:
         return None
+    cfg = await _cached_ad_config(db)
+    if cfg is None:
+        return None
+    cfg = dict(cfg)
+    img = cfg.get("image_url") or ""
+    if img.startswith("/"):
+        cfg["image_url"] = f"{base_url}{img}"
+    return cfg
+
+
+_AD_CONFIG_TTL_SEC = 60.0
+_AD_CONFIG_CACHE_AT = 0.0
+_AD_CONFIG_CACHE: dict | None = None
+_AD_CONFIG_CACHE_SET = False
+
+
+def invalidate_ad_config_cache() -> None:
+    """Buang cache config iklan (dipakai setelah admin ubah iklan)."""
+    global _AD_CONFIG_CACHE_AT, _AD_CONFIG_CACHE, _AD_CONFIG_CACHE_SET
+    _AD_CONFIG_CACHE_AT = 0.0
+    _AD_CONFIG_CACHE = None
+    _AD_CONFIG_CACHE_SET = False
+
+
+async def _cached_ad_config(db: AsyncSession) -> dict | None:
+    """Config iklan gabungan (default + baris DB), atau None bila nonaktif."""
+    global _AD_CONFIG_CACHE_AT, _AD_CONFIG_CACHE, _AD_CONFIG_CACHE_SET
+    now = time.monotonic()
+    if _AD_CONFIG_CACHE_SET and now - _AD_CONFIG_CACHE_AT < _AD_CONFIG_TTL_SEC:
+        return dict(_AD_CONFIG_CACHE) if _AD_CONFIG_CACHE is not None else None
     result = await db.execute(select(AdConfig).where(AdConfig.key == "default"))
     row = result.scalars().first()
     cfg = dict(_AD_DEFAULTS)
     if row and isinstance(row.value, dict):
         cfg.update({k: v for k, v in row.value.items() if k in cfg})
     if not cfg.get("is_active"):
+        _AD_CONFIG_CACHE = None
+        _AD_CONFIG_CACHE_SET = True
+        _AD_CONFIG_CACHE_AT = now
         return None
-    img = cfg.get("image_url") or ""
-    if img.startswith("/"):
-        cfg["image_url"] = f"{base_url}{img}"
-    return cfg
+    _AD_CONFIG_CACHE = cfg
+    _AD_CONFIG_CACHE_SET = True
+    _AD_CONFIG_CACHE_AT = now
+    return dict(cfg)
 
 
 # ── endpoint ──────────────────────────────────────────────────────────
@@ -381,7 +510,8 @@ async def external_stream(
 
     Response {url, expires_at} + ADITIF v2.0: stream {id, name, webrtc_url,
     webrtc_url_sub, coordinates, embed_timeout_seconds, click_to_play}
-    dan ad {16 field konfigurasi iklan} (null bila iklan nonaktif).
+    dan ad {konfigurasi iklan penuh, field AdConfigIn} (null bila iklan
+    nonaktif).
     """
     key_rec = await _validate_key(
         db, request, key, password or pass_, "external.stream"
@@ -424,8 +554,13 @@ async def external_stream(
             "id": target,
             "name": stream.name,
             "webrtc_url": url,
+            # A-1.15: tanpa sub_url, kembalikan None seperti stream_to_out;
+            # sebelumnya URL sub selalu dikembalikan dan klien embed
+            # mencoba substream yang tidak terdaftar di MediaMTX.
             "webrtc_url_sub": (
                 _whep_url_sub(request, target, token)
+                if stream.sub_url
+                else None
             ),
             "coordinates": coords,
             "embed_timeout_seconds": (
@@ -494,23 +629,42 @@ async def external_playback(
     settings = get_settings()
     rec_dir = settings.recordings_dir
     nomor = ids.index(target) + 1
+    # A-1.14: urutan `cameras` mengikuti urutan kamera di kunci (ids),
+    # selaras dengan penomoran ?camera=N di _resolve_camera_ref dan
+    # dengan external_cameras; sebelumnya tanpa ORDER BY sehingga
+    # daftar dan penomoran bisa tidak selaras.
     cam_result = await db.execute(
         select(Stream.id, Stream.name).where(Stream.id.in_(ids))
     )
-    cameras = [{"id": i, "name": n} for i, n in cam_result.all()]
+    by_id = {i: n for i, n in cam_result.all()}
+    cameras = [
+        {"id": sid, "name": by_id[sid]} for sid in ids if sid in by_id
+    ]
 
     def _file_url(seg_start: datetime, seg_end: datetime | None) -> str:
-        q = f"key={quote(key)}"
-        if password or pass_:
-            q += f"&pass={quote(password or pass_ or '')}"
+        # 4.4: URL file memakai token sesi singkat terikat kamera +
+        # rentang (bukan key+pass mentah tanpa kedaluwarsa). Token
+        # kedaluwarsa mengikuti session_ttl_mnt kunci, sama seperti
+        # expires_at yang dikembalikan cabang ?time= di bawah.
+        ttl = key_rec.session_ttl_mnt or _DEFAULT_TTL_MNT
+        seg_end = seg_end or seg_start
+        token = _file_session_token(key_rec, target, seg_start, seg_end, ttl)
         return (
             "/api/external/playback/file"
-            f"?{q}&camera={nomor}"
+            f"?session={quote(token)}&camera={nomor}"
             f"&start={quote(seg_start.isoformat())}"
-            f"&end={quote((seg_end or seg_start).isoformat())}"
+            f"&end={quote(seg_end.isoformat())}"
         )
 
     if date:
+        # A-1.17: ?date= dan ?time= bersamaan ditolak 403 (kontrak
+        # FROZEN external memakai 403 untuk semua error); sebelumnya
+        # cabang date menang dan time diabaikan diam-diam.
+        if time:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "kirim ?date= atau ?time= saja, tidak keduanya",
+            )
         try:
             day = datetime.strptime(date, "%Y-%m-%d").date()
         except ValueError:
@@ -568,13 +722,18 @@ async def external_playback(
         }
 
     dates = []
-    # Tanggal + jumlah segmen dari sumber yang sama seperti ?date=
-    # (Drive-aware), supaya daftar tanggal tidak kosong untuk kamera
-    # yang segmennya hanya di Drive.
-    all_segs = await _all_segments(stream, None, db)
-    from collections import Counter as _Counter
+    # 6.5: tanggal + jumlah segmen dari sumber murah (listdir lokal +
+    # drive_uploads), bukan _all_segments penuh (lsjson + list_files
+    # Drive) hanya untuk daftar tanggal. Fallback penuh hanya bila
+    # jejak upload kosong (pola 1ce30a2).
+    from app.routers.recordings import _cheap_segment_dates
 
-    _counts = _Counter(s.start.date().isoformat() for s in all_segs)
+    _counts, _needs_full = await _cheap_segment_dates(stream, db)
+    if _needs_full:
+        all_segs = await _all_segments(stream, None, db)
+        from collections import Counter as _Counter
+
+        _counts = _Counter(s.start.date().isoformat() for s in all_segs)
     for d in sorted(_counts, reverse=True):
         dates.append({"date": d, "segment_count": _counts[d]})
     await _log(
@@ -591,32 +750,73 @@ async def external_playback(
 @router.get("/external/playback/file", dependencies=[Depends(rate_limited(20, 60))])
 async def external_playback_file(
     request: Request,
-    key: str = Query(...),
+    key: str | None = Query(None),
     camera: int | None = Query(None),
     stream_id: int | None = Query(None, description="alias dari camera"),
     start: str = Query(...),
     end: str = Query(...),
     password: str | None = Query(None),
     pass_: str | None = Query(None, alias="pass"),
+    session: str | None = Query(
+        None,
+        description="token sesi file dari GET /external/playback (4.4)",
+    ),
     db: AsyncSession = Depends(get_db),
 ):
-    """Berkas segmen rekaman untuk klien kunci API (auth via ?key=, pola v2.0)."""
+    """Berkas segmen rekaman untuk klien kunci API.
+
+    Auth utama: ?session= (token sesi file terikat kamera + rentang,
+    TTL singkat, diterbitkan GET /external/playback). Auth lama
+    ?key=&pass= (pola v2.0) tetap diterima untuk URL yang sudah
+    terbit sebelum perbaikan 4.4; URL BARU tidak lagi memakai bentuk
+    itu, jadi kebocoran URL baru hanya hidup selama TTL sesi.
+    """
     from app.routers.recordings import _containing, _serve_segment
 
-    key_rec = await _validate_key(
-        db, request, key, password or pass_, "external.playback.file"
-    )
-    ids = await _key_stream_ids(db, key_rec.id)
-    target = _resolve_camera_ref(camera if camera is not None else stream_id, ids)
-    if target is None or target not in ids:
-        await _log(
-            db, request, "external.playback.file.denied:bad_camera",
-            key_id=key_rec.id,
+    if session:
+        try:
+            key_id, token_stream_id = await _validate_file_session_token(
+                db, session, start, end
+            )
+        except ValueError:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, "Token sesi file tidak valid"
+            )
+        key_rec = await db.get(ApiKey, key_id)
+        if key_rec is None:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, "Kunci API tidak valid atau tidak aktif"
+            )
+        ids = await _key_stream_ids(db, key_rec.id)
+        target = _resolve_camera_ref(camera if camera is not None else stream_id, ids)
+        if target is None or target not in ids or target != token_stream_id:
+            await _log(
+                db, request, "external.playback.file.denied:bad_camera",
+                key_id=key_rec.id,
+            )
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                f"Nomor kamera tidak sah. Kunci ini punya {len(ids)} kamera.",
+            )
+    else:
+        if not key:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, "Kunci API tidak valid atau tidak aktif"
+            )
+        key_rec = await _validate_key(
+            db, request, key, password or pass_, "external.playback.file"
         )
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            f"Nomor kamera tidak sah. Kunci ini punya {len(ids)} kamera.",
-        )
+        ids = await _key_stream_ids(db, key_rec.id)
+        target = _resolve_camera_ref(camera if camera is not None else stream_id, ids)
+        if target is None or target not in ids:
+            await _log(
+                db, request, "external.playback.file.denied:bad_camera",
+                key_id=key_rec.id,
+            )
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                f"Nomor kamera tidak sah. Kunci ini punya {len(ids)} kamera.",
+            )
     result = await db.execute(select(Stream).where(Stream.id == target))
     stream = result.scalars().first()
     if stream is None or not stream.is_active:
@@ -643,7 +843,17 @@ async def external_playback_file(
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "format end tidak valid"
         )
-    if at_end < at:
+    # A-1.16: tolak end <= start seperti /recordings/{id}/file;
+    # sebelumnya end == start lolos lalu trim durasi 0 mengembalikan
+    # None dan segmen utuh disajikan diam-diam. A-1.7: bandingkan
+    # setelah konversi ke waktu lokal server (aware vs naive yang
+    # dicampur bisa TypeError; _containing/_serve_segment juga
+    # mengonversi, tapi perbandingan di sini harus konsisten).
+    from app.routers.recordings import _to_server_naive
+
+    at = _to_server_naive(at)
+    at_end = _to_server_naive(at_end)
+    if at_end <= at:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "end harus setelah start"
         )

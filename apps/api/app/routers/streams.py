@@ -14,8 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings, get_settings
 from app.core.rate_limit import rate_limited
 from app.core.rbac import (
+    get_current_user,
+    is_super_admin,
     require_camera_access,
-    require_camera_access_token_qp,
     require_roles,
 )
 from app.core.security import redact_url_credentials
@@ -25,7 +26,7 @@ from app.models.groups import GroupStream, StreamGroup
 from app.models.streams import Stream
 from app.models.users import User
 from app.schemas.stream import StreamOut
-from app.services.mediamtx import MediaMTXClient, get_mediamtx
+from app.services.mediamtx import MediaMTXClient, get_mediamtx_dep
 
 router = APIRouter(tags=["streams"])
 log = logging.getLogger("netravision.streams")
@@ -140,7 +141,7 @@ async def _get_stream_or_404(
     return stream
 
 
-@router.get("/streams", response_model=list[StreamOut])
+@router.get("/streams", response_model=list[StreamOut], dependencies=[Depends(rate_limited(60, 60))])
 async def list_streams(
     user: User = Depends(require_roles("admin", "user", "guest")),
     db: AsyncSession = Depends(get_db),
@@ -188,16 +189,37 @@ async def list_streams(
     return [stream_to_out(s, settings) for s in streams]
 
 
+# A-1.3: reconnect adalah aksi kelola (hapus + daftar ulang path MediaMTX),
+# bukan aksi lihat. Dependency lama (require_roles + require_camera_access)
+# mengizinkan siapa pun yang bisa melihat kamera, termasuk user can_view.
+# Kini hanya super_admin atau pemilik kamera (created_by/owner_id).
+# Flag grant can_manage tidak dipakai sebagai kriteria: ia sudah tidak
+# dipakai sejak v2.0 dan tertulis True di semua grant, jadi tidak
+# membedakan apa pun; kepemilikan adalah kriteria seperti A-T2.
+async def _require_reconnect_access(
+    stream_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Stream:
+    stream = await _get_stream_or_404(db, stream_id)
+    if is_super_admin(user):
+        return stream
+    if stream.created_by == user.id or stream.owner_id == user.id:
+        return stream
+    raise HTTPException(
+        status_code=403,
+        detail="reconnect hanya untuk super_admin atau pemilik kamera",
+    )
+
+
 @router.post("/streams/{stream_id}/reconnect", dependencies=[Depends(rate_limited(10, 60))])
 async def reconnect_stream(
     stream_id: int,
-    _user: User = Depends(require_roles("admin", "user")),
-    _access: User = Depends(require_camera_access),
+    stream: Stream = Depends(_require_reconnect_access),
     db: AsyncSession = Depends(get_db),
-    mediamtx: MediaMTXClient = Depends(get_mediamtx),
+    mediamtx: MediaMTXClient = Depends(get_mediamtx_dep),
 ):
     """Hapus + daftarkan ulang path MediaMTX dari main_url/sub_url tersimpan."""
-    stream = await _get_stream_or_404(db, stream_id)
     from app.services.disks import record_path_for
     from app.services.stream_paths import register_stream
 
@@ -227,9 +249,15 @@ async def reconnect_stream(
 @router.get("/posters/stream_{stream_id}.jpg")
 async def get_poster(
     stream_id: int,
-    _access: User = Depends(require_camera_access_token_qp),
+    _access: User = Depends(require_camera_access),
 ):
-    # Token boleh via header Authorization atau ?token= (img tidak bisa kirim header).
+    # 4.5: token HANYA via header Authorization. Sebelumnya ?token=
+    # diterima di sini, sehingga JWT akses penuh masuk URL gambar dan
+    # tercatat di log akses Apache + history browser. Frontend sudah
+    # mengambil poster lewat apiFetch (header) sebagai blob sejak lama,
+    # jadi tidak ada pemakai ?token= yang tersisa (cek: tidak ada
+    # "?token=" untuk poster di apps/web). WS tetap memakai ?token=
+    # karena handshake WebSocket browser tidak bisa mengirim header.
     # TODO Fase 3: worker capture poster otomatis mengisi direktori ini.
     path = Path(get_settings().posters_dir) / f"stream_{stream_id}.jpg"
     if not path.is_file():

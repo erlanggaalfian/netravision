@@ -6,6 +6,7 @@ OAuth memakai SATU redirect_uri untuk semua akun:
 Token OAuth tiap akun disimpan terenkripsi (Fernet) di DB.
 """
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -22,6 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -228,12 +230,33 @@ async def create_account(data: AccountCreate, db: AsyncSession = Depends(get_db)
         raise _config_exc(e) from e
     # B-S7: akun pertama otomatis menjadi default, supaya resolve_drive_account
     # tidak mengembalikan None dan Drive tidak diam-diam nonaktif.
+    # A-1.19: dua POST bersamaan sama-sama membaca n_accounts == 0 dan
+    # sama-sama is_default=True; indeks unik parsial di drive_accounts
+    # (is_default WHERE is_default, migrasi 0025) menolak yang kedua —
+    # tangkap dan ulangi sebagai bukan default.
     n_accounts = (await db.execute(
         select(func.count()).select_from(DriveAccount)
     )).scalar() or 0
     acc = DriveAccount(name=data.name, is_default=(n_accounts == 0))
     db.add(acc)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Race dua POST pertama bersamaan: indeks unik parsial
+        # menolak default kedua. Ulangi sebagai bukan default HANYA
+        # bila sekarang sudah ada default (konflik memang soal
+        # default); konflik lain (mis. nama) dilempar ulang.
+        await db.rollback()
+        has_default = (await db.execute(
+            select(DriveAccount.id)
+            .where(DriveAccount.is_default.is_(True))
+            .limit(1)
+        )).scalars().first() is not None
+        if not has_default:
+            raise
+        acc = DriveAccount(name=data.name, is_default=False)
+        db.add(acc)
+        await db.commit()
     await db.refresh(acc)
     try:
         oauth_url = _oauth_url(str(acc.id), settings)
@@ -265,6 +288,20 @@ async def update_account(
         )
         acc.is_default = True
     elif data.is_default is False:
+        # A-1.19: mematikan satu-satunya default membuat tidak ada
+        # default sama sekali; tolak (jadikan akun lain default dulu).
+        if acc.is_default:
+            n_default = (await db.execute(
+                select(func.count()).select_from(DriveAccount).where(
+                    DriveAccount.is_default.is_(True)
+                )
+            )).scalar() or 0
+            if n_default <= 1:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    "tidak bisa mematikan default terakhir; "
+                    "jadikan akun lain default dulu",
+                )
         acc.is_default = False
     await db.commit()
     await db.refresh(acc)
@@ -307,8 +344,18 @@ async def delete_account(account_id: uuid.UUID, db: AsyncSession = Depends(get_d
         except Exception as e:  # noqa: BLE001
             log.warning("revoke token akun %s gagal: %s", acc.id, e)
     clear_drive_client_cache(acc.id)
+    was_default = acc.is_default
     await db.delete(acc)
     await db.commit()
+    if was_default:
+        # A-1.19: hapus akun default tidak boleh menyisakan nol default
+        # bila masih ada akun lain; promosikan yang tertua.
+        nxt = (await db.execute(
+            select(DriveAccount).order_by(DriveAccount.created_at, DriveAccount.id)
+        )).scalars().first()
+        if nxt is not None:
+            nxt.is_default = True
+            await db.commit()
     return {"ok": True}
 
 
@@ -363,11 +410,48 @@ async def oauth_callback(
 
 
 class GoogleDriveFolderIn(BaseModel):
-    folder_url: str
-    folder_name: str = ""
-    local_path: str = ""
+    # A-1.22: batas panjang; local_path divalidasi di
+    # _validate_local_path (tambah/ubah) supaya path arbitrer tidak
+    # dipakai os.listdir/os.walk.
+    folder_url: str = Field(max_length=2048)
+    folder_name: str = Field(default="", max_length=255)
+    local_path: str = Field(default="", max_length=500)
     # Retensi per folder (hari); None = tidak ada hapus otomatis.
     retention_days: int | None = Field(default=None, ge=1)
+
+
+# Direktori sistem yang tidak boleh dipindai sebagai staging lokal.
+_BLOCKED_LOCAL_PATHS = (
+    "/", "/etc", "/proc", "/sys", "/dev", "/root", "/boot",
+    "/bin", "/sbin", "/usr", "/lib", "/lib64",
+)
+
+
+def _validate_local_path(value: str) -> str:
+    """Validasi local_path folder Drive.
+
+    Kosong = pakai default (gdrive_record_path). Bila diisi harus path
+    absolut dan bukan di dalam direktori sistem (A-1.22): local_path
+    dipakai os.listdir/os.walk di _folder_link_segments dan disk_info,
+    jadi path seperti /etc tidak boleh diterima. Keberadaan direktori
+    TIDAK disyaratkan (mount rclone bisa belum naik saat tautan dibuat).
+    """
+    p = (value or "").strip()
+    if not p:
+        return ""
+    if not os.path.isabs(p):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "local_path harus path absolut",
+        )
+    norm = os.path.normpath(p)
+    for b in _BLOCKED_LOCAL_PATHS:
+        if norm == b or (b != "/" and norm.startswith(b + "/")):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"local_path tidak boleh di dalam direktori sistem ({norm})",
+            )
+    return p
 
 
 def parse_gdrive_folder_id(url: str) -> str:
@@ -470,7 +554,7 @@ async def add_gdrive_folder(
         folder_url=payload.folder_url.strip(),
         folder_id=folder_id,
         folder_name=folder_name,
-        local_path=(payload.local_path or "").strip(),
+        local_path=_validate_local_path(payload.local_path),
         retention_days=payload.retention_days,
         updated_at=datetime.now(timezone.utc),
         updated_by=admin.username,
@@ -536,15 +620,12 @@ async def update_gdrive_folder(
     old_name = row.folder_name
     if fid != old_fid:
         # Folder berganti: segmen lama harus di-upload ulang ke folder baru.
-        # DriveUpload.folder_id menyimpan NAMA folder di jalur uploader
-        # rclone (bukan ID Drive), jadi hapus jejak berdasarkan nama
-        # lama DAN id lama supaya re-upload benar-benar terpicu di
-        # kedua jalur (sebelumnya hapus berdasarkan ID saja tidak
-        # pernah cocok dengan jejak yang tersimpan).
+        # 2.9: drive_uploads.folder_name menyimpan NAMA folder (kolom
+        # itu dulu bernama folder_id), jadi hapus jejak berdasarkan
+        # nama lama saja; ID Drive tidak pernah cocok dengan jejak
+        # yang tersimpan.
         res = await db.execute(
-            delete(DriveUpload).where(
-                DriveUpload.folder_id.in_([old_fid, old_name])
-            )
+            delete(DriveUpload).where(DriveUpload.folder_name == old_name)
         )
         if res.rowcount:
             log.info(
@@ -555,7 +636,7 @@ async def update_gdrive_folder(
     row.folder_url = payload.folder_url.strip()
     row.folder_id = fid
     row.folder_name = folder_name
-    row.local_path = (payload.local_path or "").strip()
+    row.local_path = _validate_local_path(payload.local_path)
     row.retention_days = payload.retention_days
     row.updated_at = datetime.now(timezone.utc)
     row.updated_by = admin.username
@@ -618,11 +699,17 @@ async def gdrive_connect(payload: RcloneTokenIn):
 
 
 @admin_router.delete("/admin/storage/google-drive/connection")
-async def gdrive_disconnect():
-    """Putuskan koneksi Drive (hapus token rclone)."""
+async def gdrive_disconnect(remote: str = "gdrive"):
+    """Putuskan koneksi Drive satu remote (hapus token remote itu saja).
+
+    Temuan 3.19: dulu `gr.disconnect()` menghapus `.rclone.conf` utuh
+    sehingga memutus satu akun menghilangkan semua akun terhubung. Kini
+    hanya section remote yang diminta yang dihapus; remote lain tidak
+    disentuh.
+    """
     from app.services import gdrive_rclone as gr
 
-    await gr.disconnect()
+    await gr.disconnect(gr.validate_remote_name(remote))
     return {"ok": True}
 
 
@@ -954,6 +1041,23 @@ async def create_drive_remote(
                 remote_name, new_name,
             )
             remote_name = new_name
+    # A-1.21: parse + enkripsi token DULU (sebelum save_token menulis
+    # conf). Bila token tidak bisa disimpan ke DB (mis. DRIVE_TOKEN_KEY
+    # belum diset atau token bukan JSON object), gagalkan request
+    # dengan 400 — sebelumnya hanya warning lalu sukses, padahal conf
+    # sudah berisi token sementara baris DB tanpa token_encrypted,
+    # sehingga restore_remotes_from_db saat start tidak bisa
+    # memulihkan remote ini. save_token sendiri juga mem-parse token,
+    # jadi parse di sini tidak menambah validasi baru.
+    try:
+        from app.core.drive_tokens import encrypt_token
+
+        token_enc = encrypt_token(json.loads(payload.token))
+    except Exception as e:  # noqa: BLE001 - key belum diset / token aneh
+        raise HTTPException(
+            status_code=400,
+            detail=f"token tidak bisa disimpan ke database: {e}",
+        ) from e
     try:
         await gr.save_token(payload.token, remote_name)
     except ValueError as e:
@@ -965,13 +1069,6 @@ async def create_drive_remote(
     )).scalars().first()
     # Token disimpan terenkripsi di DB (sumber kebenaran): bila .rclone.conf
     # hilang, API membangun ulang conf dari kolom ini saat start.
-    try:
-        from app.core.drive_tokens import encrypt_token
-
-        token_enc = encrypt_token(json.loads(payload.token))
-    except Exception as e:  # noqa: BLE001 - key belum diset / token aneh
-        log.warning("simpan token rclone ke DB gagal (%s), lanjut tanpa DB", e)
-        token_enc = None
     if row is None:
         row = RcloneRemote(
             remote_name=remote_name, label=label, token_encrypted=token_enc
@@ -980,8 +1077,7 @@ async def create_drive_remote(
         response.status_code = status.HTTP_201_CREATED
     else:
         row.label = label
-        if token_enc is not None:
-            row.token_encrypted = token_enc
+        row.token_encrypted = token_enc
         response.status_code = status.HTTP_200_OK
     await db.commit()
     await db.refresh(row)
@@ -1109,7 +1205,7 @@ async def drive_upload_queue(db: AsyncSession = Depends(get_db)):
         )
     ).scalars().all()
     # Nama folder tujuan tiap kamera (dipakai uploader sebagai kunci
-    # jejak di drive_uploads.folder_id): folder kamera itu, atau
+    # jejak di drive_uploads.folder_name): folder kamera itu, atau
     # folder pertama bila kamera tidak menunjuk folder tertentu.
     folders = (
         await db.execute(select(GoogleDriveFolder).order_by(GoogleDriveFolder.id))
@@ -1117,24 +1213,66 @@ async def drive_upload_queue(db: AsyncSession = Depends(get_db)):
     _folder_name_by_id = {f.id: (f.folder_name or "") for f in folders}
     _default_folder_name = folders[0].folder_name or "" if folders else ""
     pending = 0
+    # 2.3: pindai direktori lokal DULU, lalu SATU query jejak yang
+    # dibatasi ke nama segmen lokal yang ada (WHERE segment_name IN
+    # (...)). Versi 6.9 sudah satu query untuk semua kamera, tapi tanpa
+    # batas nama: seluruh riwayat upload (11 ribu baris) dimuat ke RAM
+    # tiap request status. Tetap dikunci per (stream_id, folder tujuan).
+    _local_by_stream: dict[int, set[str]] = {}
+    _target_by_stream: dict[int, str] = {}
     for s in streams:
-        _target_folder = (
+        _target_by_stream[s.id] = (
             _folder_name_by_id.get(s.drive_folder_id) if s.drive_folder_id else None
         ) or _default_folder_name
+        # Pindai direktori main + sub (rekaman dari substream bila ada);
+        # nama segmen yang sama di kedua direktori hanya dihitung sekali.
+        seen_names: set[str] = set()
+        for rec_dir in camera_rec_dirs(s, settings.recordings_dir):
+            try:
+                names = os.listdir(rec_dir)
+            except OSError:
+                continue
+            for name in names:
+                if not name.endswith(".mp4"):
+                    continue
+                if parse_segment_name(name) is None:
+                    continue
+                seen_names.add(name)
+        _local_by_stream[s.id] = seen_names
+    _uploaded_by_stream: dict[int, set[tuple[str, str]]] = {}
+    _all_local = sorted({n for names in _local_by_stream.values() for n in names})
+    if streams and _all_local:
+        _up_rows = (
+            await db.execute(
+                select(
+                    DriveUpload.stream_id,
+                    DriveUpload.segment_name,
+                    DriveUpload.folder_name,
+                ).where(
+                    DriveUpload.stream_id.in_([s.id for s in streams]),
+                    DriveUpload.segment_name.in_(_all_local),
+                )
+            )
+        ).all()
+        for _sid, _name, _fid in _up_rows:
+            _uploaded_by_stream.setdefault(_sid, set()).add((_fid or "", _name))
+    for s in streams:
+        _target_folder = _target_by_stream[s.id]
         # Jejak ter-upload dikunci per folder tujuan, sama seperti
         # uploader (_uploaded_names): segmen yang ter-upload ke folder
         # lama tidak dianggap sudah ter-upload ke folder baru, jadi
         # antrean tidak menampilkan 0 padahal re-upload masih tertunda.
         # Tanpa folder tujuan sama sekali, kunci folder tidak dipakai.
-        _up_q = select(DriveUpload.segment_name).where(
-            DriveUpload.stream_id == s.id
-        )
         if _target_folder:
-            _up_q = _up_q.where(DriveUpload.folder_id == _target_folder)
-        uploaded = {r[0] for r in (await db.execute(_up_q)).all()}
-        # Pindai direktori main + sub (rekaman dari substream bila ada);
-        # nama segmen yang sama di kedua direktori hanya dihitung sekali.
-        seen_names: set[str] = set()
+            uploaded = {
+                n for (f, n) in _uploaded_by_stream.get(s.id, set())
+                if f == _target_folder
+            }
+        else:
+            uploaded = {
+                n for (_f, n) in _uploaded_by_stream.get(s.id, set())
+            }
+        seen_names = set()
         for rec_dir in camera_rec_dirs(s, settings.recordings_dir):
             try:
                 names = os.listdir(rec_dir)
@@ -1166,15 +1304,17 @@ async def drive_upload_queue(db: AsyncSession = Depends(get_db)):
         remote_names = gr.list_remote_names()
     except Exception:  # noqa: BLE001
         remote_names = []
-    remotes = []
-    for name in remote_names:
+    # 6.9: status remote dicek PARALEL (tiap `rclone about` bisa
+    # sampai 20 dtk), bukan satu per satu secara berurutan.
+    async def _one_remote(name: str) -> dict:
         try:
             st = await gr.remote_status(name)
         except Exception:  # noqa: BLE001
             st = {"connected": False}
-        remotes.append(
-            {"remote_name": name, "connected": bool(st.get("connected"))}
-        )
+        return {"remote_name": name, "connected": bool(st.get("connected"))}
+
+    remotes = await asyncio.gather(*[_one_remote(n) for n in remote_names])
+    remotes = list(remotes)
     return {
         "pending": pending,
         "last_success_at": last.isoformat() if last else None,

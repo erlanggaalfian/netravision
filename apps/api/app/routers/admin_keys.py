@@ -28,24 +28,32 @@ router = APIRouter(tags=["admin-keys"], dependencies=[Depends(require_roles("sup
 class ApiKeyCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     stream_ids: list[int]
-    domain_lock: str | None = None
-    password: str | None = None
+    # 4.19: samakan dengan kolom DB (domain_lock 255, custom_camera_name
+    # 128); password kunci dibatasi 72 karena bcrypt.
+    domain_lock: str | None = Field(default=None, max_length=255)
+    password: str | None = Field(default=None, max_length=72)
     session_limit_min: int | None = Field(default=None, ge=1, le=1440)
-    custom_camera_name: str | None = None
+    custom_camera_name: str | None = Field(default=None, max_length=128)
     include_playback: bool | None = None
     show_ads: bool | None = None
+    # 4.3: tanggal kedaluwarsa kunci (NULL = tidak pernah kedaluwarsa).
+    # Kolom expires_at sudah ada dan dicek _validate_key, tapi selama
+    # ini tidak pernah bisa diisi lewat API.
+    expires_at: datetime | None = None
 
 
 class ApiKeyUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
-    domain_lock: str | None = None
-    password: str | None = None
+    domain_lock: str | None = Field(default=None, max_length=255)
+    password: str | None = Field(default=None, max_length=72)
     session_limit_min: int | None = Field(default=None, ge=1, le=1440)
     stream_ids: list[int] | None = None
     is_active: bool | None = None
-    custom_camera_name: str | None = None
+    custom_camera_name: str | None = Field(default=None, max_length=128)
     include_playback: bool | None = None
     show_ads: bool | None = None
+    # 4.3: null eksplisit = hapus kedaluwarsa (kunci berlaku selamanya).
+    expires_at: datetime | None = None
 
 
 def _key_to_out(key: ApiKey, stream_ids: list[int]) -> dict:
@@ -60,6 +68,9 @@ def _key_to_out(key: ApiKey, stream_ids: list[int]) -> dict:
         "include_playback": key.include_playback,
         "show_ads": key.show_ads,
         "session_limit_min": key.session_ttl_mnt,
+        # 4.3: kedaluwarsa ditampilkan supaya admin bisa melihat dan
+        # mengelolanya (sebelumnya nilai ini tidak pernah terisi).
+        "expires_at": key.expires_at.isoformat() if key.expires_at else None,
     }
 
 
@@ -111,10 +122,25 @@ async def _get_key_or_404(db: AsyncSession, key_id: int) -> ApiKey:
 @router.get("/admin/api-keys")
 async def list_keys(db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(ApiKey).order_by(ApiKey.id))
-    out = []
-    for key in res.scalars().all():
-        out.append(_key_to_out(key, await _stream_ids_of(db, key.id)))
-    return out
+    keys = res.scalars().all()
+    # A-1.12: satu query IN (...) untuk semua stream_ids, bukan satu
+    # query per key (N+1).
+    ids_by_key: dict[int, list[int]] = {k.id: [] for k in keys}
+    if keys:
+        rows = (
+            await db.execute(
+                select(ApiKeyStream.api_key_id, ApiKeyStream.stream_id)
+                .where(ApiKeyStream.api_key_id.in_([k.id for k in keys]))
+                .order_by(
+                    ApiKeyStream.api_key_id,
+                    ApiKeyStream.position,
+                    ApiKeyStream.stream_id,
+                )
+            )
+        ).all()
+        for kid, sid in rows:
+            ids_by_key.setdefault(kid, []).append(sid)
+    return [_key_to_out(key, ids_by_key.get(key.id, [])) for key in keys]
 
 
 @router.post("/admin/api-keys", status_code=201)
@@ -131,6 +157,8 @@ async def create_key(data: ApiKeyCreate, db: AsyncSession = Depends(get_db)):
         custom_camera_name=(data.custom_camera_name or "").strip(),
         include_playback=data.include_playback if data.include_playback is not None else True,
         show_ads=data.show_ads if data.show_ads is not None else True,
+        # 4.3: simpan kedaluwarsa bila diisi.
+        expires_at=data.expires_at,
     )
     db.add(key)
     await db.flush()
@@ -166,6 +194,12 @@ async def update_key(key_id: int, data: ApiKeyUpdate, db: AsyncSession = Depends
     if data.session_limit_min is not None:
         # A-S1: simpan TTL sesi embed supaya benar-benar mengikuti setelan.
         key.session_ttl_mnt = data.session_limit_min
+    # 4.3: kedaluwarsa mengikuti pola password/domain_lock: field yang
+    # dikirim eksplisit (termasuk null) dihormati, supaya kedaluwarsa
+    # BISA dihapus; tanpa ini kunci yang sudah kedaluwarsa tidak bisa
+    # diperpanjang lewat API.
+    if "expires_at" in data.model_fields_set:
+        key.expires_at = data.expires_at
     if data.stream_ids is not None:
         await _set_key_streams(db, key_id, data.stream_ids)
     await db.commit()
@@ -208,10 +242,13 @@ async def list_logs(
         q = q.where(ApiAccessLog.api_key_id == key_id)
     if action:
         q = q.where(ApiAccessLog.action == action)
+    # 2.7: filter status memakai kolom is_denied (boolean, terindeks
+    # lewat key_created), bukan LIKE '%.denied%' (leading %, tidak
+    # bisa memakai indeks btree).
     if status == "denied":
-        q = q.where(ApiAccessLog.action.like("%.denied%"))
+        q = q.where(ApiAccessLog.is_denied.is_(True))
     elif status in ("ok", "hit"):
-        q = q.where(~ApiAccessLog.action.like("%.denied%"))
+        q = q.where(ApiAccessLog.is_denied.is_(False))
     # Total untuk pagination bernomor (perintah user 2026-11-17): dikirim
     # lewat header X-Total-Count supaya body tetap array dan kontrak
     # /api/* tidak berubah.
@@ -228,17 +265,27 @@ async def list_logs(
 async def clear_logs(
     days: int | None = Query(
         default=None, ge=1,
-        description="v2.0: hapus log lebih lama dari N hari; kosong = hapus semua",
+        description="hapus log lebih lama dari N hari",
     ),
+    # A-1.25: hapus SEMUA log adalah aksi destruktif; sebelumnya DELETE
+    # tanpa parameter langsung menghapus seluruh tabel tanpa konfirmasi.
+    # Kini wajib ?days=N atau ?confirm=true.
+    confirm: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
 ):
+    if days is None and not confirm:
+        raise HTTPException(
+            status_code=400,
+            detail="tambahkan ?days=N untuk menghapus log lama, "
+            "atau ?confirm=true untuk menghapus semua log",
+        )
     q = delete(ApiAccessLog)
     if days is not None:
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         q = q.where(ApiAccessLog.created_at < cutoff)
-    await db.execute(q)
+    res = await db.execute(q)
     await db.commit()
-    return {"ok": True}
+    return {"ok": True, "deleted": res.rowcount}
 
 
 @router.get("/admin/api-access-logs/summary")

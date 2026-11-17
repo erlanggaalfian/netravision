@@ -11,11 +11,11 @@ Disimpan sebagai baris key/value di tabel ad_config (key "default",
 
 import uuid
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,15 +35,17 @@ admin_router = APIRouter(tags=["admin-ads"], dependencies=[Depends(require_roles
 
 
 class AdConfigIn(BaseModel):
-    image_url: str = ""
-    marquee_text: str = ""
+    # A-1.22: batas panjang/jumlah supaya JSON config raksasa tidak
+    # tersimpan di DB (sebelumnya semua field string/list tanpa batas).
+    image_url: str = Field(default="", max_length=2048)
+    marquee_text: str = Field(default="", max_length=2000)
     bg_color: str = "#1e293b"
     text_color: str = "#ffffff"
     # A-R3: nilai divalidasi (Literal/rentang) supaya nilai tidak
     # valid tidak tersimpan diam-diam.
     scroll_speed: int = Field(default=5, ge=1, le=100)
     font_size: int = Field(default=10, ge=6, le=72)
-    font_family: str = "monospace"
+    font_family: str = Field(default="monospace", max_length=128)
     image_opacity: float = Field(default=1.0, ge=0, le=1)
     bg_opacity: float = Field(default=1.0, ge=0, le=1)
     text_opacity: float = Field(default=1.0, ge=0, le=1)
@@ -71,10 +73,39 @@ class AdConfigIn(BaseModel):
     marquee_click_show_seconds: int = Field(default=5, ge=0, le=3600)  # detik muncul saat diklik
     # Audiens (2026-11-06): all | guest | roles | users
     audience: Literal["all", "guest", "roles", "users"] = "all"
-    audience_roles: list[str] = []
-    audience_user_ids: list[int] = []
+    audience_roles: list[Annotated[str, Field(max_length=64)]] = Field(
+        default=[], max_length=50
+    )
+    audience_user_ids: list[int] = Field(default=[], max_length=1000)
     # Interaksi (2026-11-06):
-    click_url: str = ""
+    click_url: str = Field(default="", max_length=2048)
+
+    @field_validator("click_url")
+    @classmethod
+    def _click_url_scheme(cls, v: str) -> str:
+        # 4.20: hanya http/https (kosong = tanpa tautan). Nilai
+        # javascript:/data: sebelumnya bisa tersimpan dan dirender
+        # sebagai tautan iklan untuk semua penonton.
+        if not v:
+            return v
+        scheme = v.strip().lower().split(":", 1)[0]
+        if scheme not in ("http", "https"):
+            raise ValueError("click_url hanya boleh http/https")
+        return v
+
+    @field_validator("image_url")
+    @classmethod
+    def _image_url_scheme(cls, v: str) -> str:
+        # 4.20: http/https atau path relatif (/api/uploads/...).
+        # javascript:/data: ditolak seperti click_url.
+        if not v:
+            return v
+        if v.startswith("/"):
+            return v
+        scheme = v.strip().lower().split(":", 1)[0]
+        if scheme not in ("http", "https"):
+            raise ValueError("image_url hanya boleh http/https atau path relatif")
+        return v
 
 
 class GroupAdsIn(BaseModel):
@@ -108,6 +139,11 @@ async def _set_value(db: AsyncSession, key: str, value: dict) -> dict:
     else:
         row.value = value
     await db.commit()
+    # 6.13: config iklan di-cache di external.py (TTL 60 dtk); buang
+    # cache supaya perubahan admin langsung terlihat di embed.
+    from app.routers.external import invalidate_ad_config_cache
+
+    invalidate_ad_config_cache()
     return value
 
 
@@ -151,12 +187,17 @@ async def _embed_key_show_ads(db: AsyncSession, raw: str) -> bool | None:
 @router.get("/ad-config")
 async def public_ad_config(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-    token: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ):
     """Config iklan publik; nonaktifkan bila user login punya show_ads=False
-    atau di luar audiens yang dikonfigurasi superadmin."""
-    raw = credentials.credentials if credentials else token
+    atau di luar audiens yang dikonfigurasi superadmin.
+
+    4.5: token HANYA via header Authorization. Sebelumnya ?token=
+    diterima di sini, sehingga JWT akses penuh masuk URL dan tercatat
+    di log akses Apache + history browser. Semua pemakai di apps/web
+    memakai apiFetch (header); embed tanpa login tidak mengirim token.
+    """
+    raw = credentials.credentials if credentials else None
     user: User | None = None
     if raw:
         try:
