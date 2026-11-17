@@ -141,4 +141,11 @@ async def active_uploaders(db) -> dict:
             log.warning("drive: akun %s (%s) dilewati: %s", acc.id, acc.name, e)
     if not out and os.path.exists(settings.drive_token_file):
         out["legacy"] = _legacy_uploader(settings)
+    # Area 5, 5.10: buang client cache akun yang sudah tidak connected /
+    # sudah dihapus dari DB (sebelumnya _clients hanya dibersihkan saat
+    # reauth/hapus eksplisit, jadi akun yang dihapus dari DB tetap
+    # menahan DriveUploader + token di memori).
+    for key in list(_clients):
+        if key != "legacy" and key not in out:
+            _clients.pop(key, None)
     return out

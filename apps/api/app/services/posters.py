@@ -9,6 +9,7 @@ import logging
 import os
 import shutil
 import subprocess
+import time
 from urllib.parse import urlparse
 
 from sqlalchemy import select
@@ -16,6 +17,14 @@ from sqlalchemy import select
 log = logging.getLogger("netravision.posters")
 
 _FFMPEG_WARNED = False
+
+# Area 5, 5.5: tangkap poster paralel (dulu sekuensial 68 kamera x
+# ffmpeg 15 dtk, putaran bisa 17 menit). 6 penangkapan bersamaan cukup
+# untuk memangkas putaran ke kisaran belasan detik tanpa membanjiri
+# MediaMTX dengan 68 sesi RTSP sekaligus.
+_POSTER_MAX_CONCURRENCY = 6
+# Satu putaran tidak boleh menggantung tanpa batas.
+_POSTER_ROUND_TIMEOUT_SEC = 300
 
 # JPEG poster abu-abu polos (solid gray 800x448, q=4) hanya ~2-3 KB,
 # sedangkan foto asli 28 KB ke atas. Bila hasil tangkap di bawah ambang
@@ -31,6 +40,12 @@ def capture_poster(
 ) -> bool:
     """Tangkap satu frame JPEG. Return True bila berkas valid tertulis."""
     if not shutil.which("ffmpeg"):
+        return False
+    # Temuan 3.14: URL yang mengandung newline bisa menyisipkan baris
+    # `file '...'` kedua di file concat sehingga ffmpeg membaca file
+    # lokal lain. Tolak sebelum ditulis.
+    if "\n" in rtsp_url or "\r" in rtsp_url:
+        log.warning("poster stream %s ditolak: URL mengandung newline", stream_id)
         return False
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     tmp = out_path + ".tmp"
@@ -104,12 +119,59 @@ def capture_poster(
             pass
 
 
-async def run_poster_loop(interval_sec: int = 60) -> None:
-    """Loop abadi: tiap interval, tangkap poster semua stream aktif."""
+async def _poster_round(streams, rtsp_host: str, posters_dir: str,
+                        interval_sec: int,
+                        max_concurrency: int = _POSTER_MAX_CONCURRENCY,
+                        _capture=capture_poster) -> int:
+    """Satu putaran tangkap poster semua stream aktif, paralel.
+
+    Kamera yang posternya masih segar (diubah < 2x interval lalu)
+    dilewati: mengulang 68 sesi RTSP tiap 60 detik hanya untuk
+    menimpa poster yang baru saja diambil tidak ada gunanya (5.5).
+    Return jumlah poster yang berhasil ditangkap.
+    """
+    sem = asyncio.Semaphore(max_concurrency)
+    fresh_after = 2 * max(interval_sec, 1)
+
+    async def _one(s) -> bool:
+        url = f"rtsp://{rtsp_host}:8554/stream_{s.id}"
+        out = os.path.join(posters_dir, f"stream_{s.id}.jpg")
+        try:
+            if os.path.exists(out) and time.time() - os.path.getmtime(out) < fresh_after:
+                return False
+        except OSError:
+            pass
+        async with sem:
+            return bool(await asyncio.to_thread(_capture, s.id, url, out))
+
+    results = await asyncio.gather(
+        *[_one(s) for s in streams], return_exceptions=True
+    )
+    ok = 0
+    for s, r in zip(streams, results):
+        if r is True:
+            ok += 1
+        elif isinstance(r, Exception):
+            log.warning("poster stream %s gagal: %s", s.id, r)
+    return ok
+
+
+async def run_poster_loop(interval_sec: int = 60, initial_delay: float = 0,
+                         max_concurrency: int = _POSTER_MAX_CONCURRENCY) -> None:
+    """Loop abadi: tiap interval, tangkap poster semua stream aktif.
+
+    Area 5, 5.11: `initial_delay` menunda putaran pertama supaya tidak
+    semua loop start bersamaan saat API baru naik.
+    """
     global _FFMPEG_WARNED
     from app.core.config import get_settings
     from app.db.session import get_session_factory
     from app.models.streams import Stream
+    from app.services.loop_health import (
+        record_failure,
+        record_success,
+        record_tick,
+    )
 
     if not shutil.which("ffmpeg"):
         if not _FFMPEG_WARNED:
@@ -120,28 +182,44 @@ async def run_poster_loop(interval_sec: int = 60) -> None:
     settings = get_settings()
     rtsp_host = urlparse(settings.mediamtx_api_url).hostname or "127.0.0.1"
     try:
+        if initial_delay:
+            await asyncio.sleep(initial_delay)
         while True:
+            started = time.monotonic()
+            record_tick("poster")
             try:
                 async with get_session_factory()() as db:
                     result = await db.execute(
                         select(Stream).where(Stream.is_active.is_(True))
                     )
                     streams = list(result.scalars().all())
-                for s in streams:
-                    # Lewat MediaMTX dari path MAIN: selalu tersambung (pola
-                    # v2), tanpa membuka sesi RTSP baru ke kamera dan tanpa
-                    # menyalakan transkode sub hanya untuk poster.
-                    url = f"rtsp://{rtsp_host}:8554/stream_{s.id}"
-                    out = os.path.join(
-                        settings.posters_dir, f"stream_{s.id}.jpg"
+                # Lewat MediaMTX dari path MAIN: selalu tersambung (pola
+                # v2), tanpa membuka sesi RTSP baru ke kamera dan tanpa
+                # menyalakan transkode sub hanya untuk poster.
+                try:
+                    ok = await asyncio.wait_for(
+                        _poster_round(
+                            streams, rtsp_host, settings.posters_dir,
+                            interval_sec, max_concurrency,
+                        ),
+                        timeout=_POSTER_ROUND_TIMEOUT_SEC,
                     )
-                    ok = await asyncio.to_thread(
-                        capture_poster, s.id, url, out
+                except asyncio.TimeoutError:
+                    log.warning(
+                        "poster loop: putaran melebihi %ds, dilewati",
+                        _POSTER_ROUND_TIMEOUT_SEC,
                     )
-                    if not ok:
-                        log.debug("poster stream %s dilewati", s.id)
+                    record_failure("poster", "round timeout")
+                    await asyncio.sleep(interval_sec)
+                    continue
+                if ok:
+                    log.debug("poster loop: %d poster ditangkap", ok)
+                record_success(
+                    "poster", (time.monotonic() - started) * 1000
+                )
             except Exception as e:  # satu putaran gagal tidak mematikan loop
                 log.warning("poster loop gagal: %s", e)
+                record_failure("poster", e)
             await asyncio.sleep(interval_sec)
     except asyncio.CancelledError:
         pass
