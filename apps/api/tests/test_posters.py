@@ -55,8 +55,8 @@ def test_capture_poster_forces_jpeg_and_checks_returncode(monkeypatch, tmp_path)
     assert posters.capture_poster(1, "rtsp://mediamtx:8554/stream_1_sub", str(out))
     assert out.read_bytes().startswith(b"\xff\xd8")
     cmd = calls[0]
-    # -f muncul dua kali (concat untuk input, image2 untuk output JPEG);
-    # yang dicek adalah -f terakhir.
+    # -f hanya sekali (image2 untuk output JPEG); input RTSP
+    # dilewatkan langsung sebagai -i, tanpa concat.
     f_indexes = [i for i, v in enumerate(cmd) if v == "-f"]
     assert cmd[f_indexes[-1] + 1] == "image2"
 
@@ -71,13 +71,35 @@ def test_capture_poster_forces_jpeg_and_checks_returncode(monkeypatch, tmp_path)
     assert not (tmp_path / "stream_2.jpg.tmp").exists()
 
 
-def test_capture_poster_url_tidak_masuk_argv(monkeypatch, tmp_path):
-    """URL RTSP berkredensial tidak boleh muncul di argv ffmpeg
-    (terlihat di `ps`); ffmpeg membacanya lewat file concat."""
-    import subprocess
+def test_capture_poster_url_langsung_tcp_tanpa_concat(monkeypatch, tmp_path):
+    """URL dilewatkan langsung sebagai -i dengan -rtsp_transport tcp
+    sebelumnya. Demuxer concat TIDAK meneruskan -rtsp_transport ke
+    demuxer RTSP, sehingga ffmpeg jatuh ke UDP dan MediaMTX menolaknya
+    (461 Unsupported Transport); semua tangkapan poster gagal."""
+    calls = []
 
-    from app.services import posters
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        open(cmd[-1], "wb").write(b"\xff\xd8" + b"x" * 20000)
+        return subprocess.CompletedProcess(cmd, 0, b"", b"")
 
+    monkeypatch.setattr(posters.shutil, "which", lambda _: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(posters.subprocess, "run", fake_run)
+    out = tmp_path / "stream_1.jpg"
+    url = "rtsp://mediamtx:8554/stream_1"
+    assert posters.capture_poster(1, url, str(out))
+    cmd = calls[0]
+    assert "concat" not in cmd
+    assert cmd[cmd.index("-i") + 1] == url
+    assert cmd[cmd.index("-rtsp_transport") + 1] == "tcp"
+    assert cmd.index("-rtsp_transport") < cmd.index("-i")
+
+
+def test_capture_poster_url_berkredensial_ditolak(monkeypatch, tmp_path):
+    """URL RTSP berkredensial ditolak: tidak boleh muncul di argv ffmpeg
+    (terlihat di `ps`). Penangkap poster hanya memakai URL MediaMTX
+    tanpa kredensial, jadi penolakan ini tidak mengubah perilaku
+    produksi."""
     calls = []
 
     def fake_run(cmd, **kw):
@@ -89,8 +111,6 @@ def test_capture_poster_url_tidak_masuk_argv(monkeypatch, tmp_path):
     monkeypatch.setattr(posters.subprocess, "run", fake_run)
     out = tmp_path / "stream_1.jpg"
     url = "rtsp://admin:rahasia123@192.168.1.10:554/stream"
-    assert posters.capture_poster(1, url, str(out))
-    cmd = calls[0]
-    assert "rahasia123" not in " ".join(cmd)
-    assert url not in cmd
-    assert "-f" in cmd and cmd[cmd.index("-f") + 1] == "concat"
+    assert not posters.capture_poster(1, url, str(out))
+    assert calls == []  # ffmpeg tidak pernah dipanggil
+    assert not out.exists()

@@ -41,26 +41,27 @@ def capture_poster(
     """Tangkap satu frame JPEG. Return True bila berkas valid tertulis."""
     if not shutil.which("ffmpeg"):
         return False
-    # Temuan 3.14: URL yang mengandung newline bisa menyisipkan baris
-    # `file '...'` kedua di file concat sehingga ffmpeg membaca file
-    # lokal lain. Tolak sebelum ditulis.
+    # Temuan 3.14: URL yang mengandung newline ditolak.
     if "\n" in rtsp_url or "\r" in rtsp_url:
         log.warning("poster stream %s ditolak: URL mengandung newline", stream_id)
         return False
+    # URL berkredensial TIDAK PERNAH dilewatkan sebagai argv ffmpeg
+    # (terlihat di `ps` oleh semua user di server). Penangkap poster
+    # hanya memakai URL MediaMTX tanpa kredensial; URL berkredensial
+    # ditolak daripada dibocorkan.
+    if urlparse(rtsp_url).username or urlparse(rtsp_url).password:
+        log.warning(
+            "poster stream %s ditolak: URL mengandung kredensial", stream_id
+        )
+        return False
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     tmp = out_path + ".tmp"
-    # URL RTSP (bisa berisi kredensial kamera) TIDAK PERNAH dilewatkan
-    # sebagai argv ffmpeg, sama seperti _run_ffprobe di rtsp_discovery:
-    # argv terlihat di `ps` oleh semua user di server. URL ditulis ke
-    # file concat sementara (0600, dihapus di finally) dan ffmpeg
-    # membacanya lewat demuxer concat.
-    import tempfile
-
-    fd, list_path = tempfile.mkstemp(prefix="poster-", suffix=".txt")
+    # URL dilewatkan langsung sebagai -i. Demuxer concat TIDAK
+    # meneruskan -rtsp_transport ke demuxer RTSP, sehingga ffmpeg jatuh
+    # ke UDP dan MediaMTX menolaknya (461 Unsupported Transport);
+    # semua tangkapan poster gagal sejak concat dipakai. URL MediaMTX
+    # tidak berisi kredensial, jadi aman di argv.
     try:
-        safe_url = rtsp_url.replace("'", "'\\''")
-        with os.fdopen(fd, "w") as f:
-            f.write(f"file '{safe_url}'\n")
         r = subprocess.run(
             [
                 "ffmpeg", "-y", "-v", "error",
@@ -73,9 +74,7 @@ def capture_poster(
                 # H.264 pun ternyata mengirim HEVC (terbukti di 356/358/
                 # 360/361), jadi ini bukan masalah codec semata.
                 "-skip_frame", "nokey",
-                "-protocol_whitelist", "file,rtsp,tcp,udp,rtp,crypto",
-                "-f", "concat", "-safe", "0",
-                "-i", list_path,
+                "-i", rtsp_url,
                 "-frames:v", "1",
                 "-q:v", "4",
                 # Nama berkas *.tmp tak bisa ditebak formatnya — paksa JPEG.
@@ -112,11 +111,6 @@ def capture_poster(
         except OSError:
             pass
         return False
-    finally:
-        try:
-            os.remove(list_path)
-        except OSError:
-            pass
 
 
 async def _poster_round(streams, rtsp_host: str, posters_dir: str,
