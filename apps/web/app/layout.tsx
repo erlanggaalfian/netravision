@@ -36,7 +36,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="id" data-theme="dark" className={jakarta.variable}>
+    <html
+      lang="id"
+      data-theme="dark"
+      className={jakarta.variable}
+      suppressHydrationWarning
+    >
+      {/* suppressHydrationWarning di atas: skrip tema di <head> sengaja
+          mengubah data-theme sebelum hydration (gelap/terang sesuai
+          preferensi tersimpan). Tanpa ini, React melempar error
+          hydration #418 bila tema pengguna bukan gelap, karena atribut
+          di <html> beda dengan hasil build statis (data-theme="dark"). */}
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
