@@ -16,7 +16,11 @@ kedua direktori (masa peralihan), yang dari sub yang dipakai.
 MediaMTX (di deploy: volume recordings di-mount ke path ini di container api).
 
 Waktu pada nama file = waktu lokal server; perbandingan dilakukan konsisten
-dalam zona yang sama (naive).
+dalam zona yang sama (naive). 2.14: ini SENGAJA, bukan bug: segmen
+disimpan dengan jam lokal server (lihat datetime.now() naive di bawah
+dan strip tzinfo di routers/recordings.py), jadi seluruh perbandingan
+retensi/playback memakai zona server secara implisit. Jangan ubah ke
+UTC tanpa mengubah penamaan segmen MediaMTX dan semua pemakaian.
 """
 
 import logging
@@ -226,24 +230,34 @@ async def apply_retention(db: AsyncSession, recordings_dir: str | None = None) -
     kept_unuploaded = 0
     for stream in result.scalars().all():
         cutoff = now - timedelta(days=stream.retention_days or 7)
+        expired = [
+            seg
+            for seg in list_segments(stream.id, None, root, stream=stream)
+            if seg.start < cutoff
+        ]
+        if not expired:
+            continue
         uploaded: set[str] | None = None
         if stream.storage_mode in ("drive", "both"):
+            # 2.3: cek jejak HANYA untuk segmen kedaluwarsa yang ada di
+            # disk (WHERE segment_name IN (...)), bukan seluruh riwayat
+            # upload kamera yang dimuat ke RAM tiap putaran retensi.
             res = await db.execute(
                 select(DriveUpload.segment_name).where(
-                    DriveUpload.stream_id == stream.id
+                    DriveUpload.stream_id == stream.id,
+                    DriveUpload.segment_name.in_([s.name for s in expired]),
                 )
             )
             uploaded = {r[0] for r in res.all()}
-        for seg in list_segments(stream.id, None, root, stream=stream):
-            if seg.start < cutoff:
-                if uploaded is not None and seg.name not in uploaded:
-                    kept_unuploaded += 1
-                    continue
-                try:
-                    os.remove(seg.path)
-                    deleted += 1
-                except OSError as e:
-                    log.warning("gagal hapus segmen %s: %s", seg.path, e)
+        for seg in expired:
+            if uploaded is not None and seg.name not in uploaded:
+                kept_unuploaded += 1
+                continue
+            try:
+                os.remove(seg.path)
+                deleted += 1
+            except OSError as e:
+                log.warning("gagal hapus segmen %s: %s", seg.path, e)
     if deleted:
         log.info("retensi: %d segmen lama dihapus", deleted)
     if kept_unuploaded:

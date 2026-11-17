@@ -3,7 +3,17 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Uuid
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Uuid,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -15,6 +25,17 @@ class Stream(Base, TimestampMixin):
     bukan di-derive ulang setiap request."""
 
     __tablename__ = "streams"
+    __table_args__ = (
+        # 2.18: is_active dipakai hampir semua daftar; (storage_mode,
+        # recording_enabled) dipakai uploader/retensi/cleanup.
+        Index("ix_streams_is_active", "is_active"),
+        Index("ix_streams_storage_recording", "storage_mode", "recording_enabled"),
+        # 2.15: storage_mode hanya boleh salah satu dari tiga nilai ini.
+        CheckConstraint(
+            "storage_mode IN ('local', 'drive', 'both')",
+            name="ck_streams_storage_mode",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -41,7 +62,8 @@ class Stream(Base, TimestampMixin):
 
     # Disk tujuan rekaman per kamera (mount point, mis. "/mnt/disk2").
     # Kosong/NULL = pakai recordings_dir default (perilaku lama).
-    record_disk: Mapped[str | None] = mapped_column(String(100), nullable=True, default="")
+    # 2.13: sentinel ganda '' vs NULL dihapus; kosong = NULL saja.
+    record_disk: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
 
     # Pemilik kamera (dikelola via POST /api/admin/streams/{id}/owner).
     owner_id: Mapped[int | None] = mapped_column(

@@ -55,8 +55,19 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Kembalikan ke seed migrasi 0011 (guest aktif).
+    # 2.11: HANYA aktifkan kembali baris guest yang dibuat migrasi ini
+    # dalam keadaan nonaktif (password_hash '!' + is_active FALSE).
+    # Baris guest asli (hash bcrypt, dari v2) dan baris yang statusnya
+    # sudah diubah operator TIDAK disentuh: versi lama memaksa
+    # is_active=TRUE untuk semua baris guest, sehingga guest yang
+    # sengaja dinonaktifkan operator bisa aktif lagi tanpa jejak.
+    # Catatan: bila operator memang menonaktifkan guest seed ini lalu
+    # rollback dijalankan, guest akan aktif lagi; nonaktifkan ulang
+    # lewat menu Pengguna bila itu yang diinginkan.
     conn = op.get_bind()
     conn.execute(
-        sa.text("UPDATE users SET is_active = TRUE WHERE username = 'guest'")
+        sa.text(
+            "UPDATE users SET is_active = TRUE WHERE username = 'guest' "
+            "AND password_hash = '!' AND is_active IS FALSE"
+        )
     )

@@ -41,5 +41,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # 2.11: HANYA hapus baris guest yang dibuat migrasi ini
+    # (password_hash '!' = seed yang tidak bisa login). Baris guest
+    # produksi berasal dari v2 (hash bcrypt, dibuat 2026-07-01) dan
+    # TIDAK BOLEH dihapus rollback ini; versi lama menghapusnya tanpa
+    # syarat beserta baris akses yang ter-cascade.
     conn = op.get_bind()
-    conn.execute(sa.text("DELETE FROM users WHERE username = 'guest'"))
+    conn.execute(
+        sa.text(
+            "DELETE FROM users WHERE username = 'guest' AND password_hash = '!'"
+        )
+    )

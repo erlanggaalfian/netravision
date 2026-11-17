@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -18,9 +18,18 @@ class TimestampMixin:
 
 
 class User(Base, TimestampMixin):
-    """Pengguna. role: admin | user | guest (dipertahankan dari v2.0)."""
+    """Pengguna. role: super_admin | admin | user | guest (lihat juga
+    CHECK ck_users_role; v2.0 hanya mengenal admin | user | guest)."""
 
     __tablename__ = "users"
+    # 2.15: role hanya boleh salah satu dari empat nilai ini (sama
+    # dengan VALID_ROLES di routers/admin_users.py).
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('super_admin', 'admin', 'user', 'guest')",
+            name="ck_users_role",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
@@ -50,3 +59,9 @@ class User(Base, TimestampMixin):
     # SHA-256 dari refresh token aktif. Dibersihkan saat logout, dirotasi
     # setiap refresh dipakai.
     refresh_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # 4.2: jti refresh token aktif (pasangan hash di atas). Dipakai
+    # deteksi pemakaian ulang: token yang jti-nya sudah dirotasi keluar
+    # dan dipakai lagi di luar grace window menandakan pencurian, dan
+    # seluruh keluarga token user itu dicabut.
+    refresh_token_jti: Mapped[str | None] = mapped_column(String(32), nullable=True)

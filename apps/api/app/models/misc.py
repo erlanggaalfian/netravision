@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,13 +18,23 @@ class AdConfig(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     key: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     value: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # 2.20: samakan dengan TimestampMixin; sebelumnya AdConfig tidak
+    # punya created_at.
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
 
 class DetectionEvent(Base):
-    """Event deteksi AI (YOLO). Tabel siap; diisi bila modul detector aktif."""
+    """Event deteksi AI (YOLO). Tabel siap; diisi bila modul detector aktif.
+
+    2.10: tabel CADANGAN (0 baris, tanpa writer/reader; modul detektor
+    Fase 6 belum ada). Sengaja TIDAK dihapus oleh Area 2: penghapusan
+    butuh keputusan user bila Fase 6 dipastikan tidak jadi.
+    """
 
     __tablename__ = "detection_events"
 
@@ -40,7 +50,11 @@ class DetectionEvent(Base):
 
 
 class Alert(Base, TimestampMixin):
-    """Alert untuk user (dari detection event atau sistem)."""
+    """Alert untuk user (dari detection event atau sistem).
+
+    2.10: tabel CADANGAN (0 baris, tanpa writer/reader). Sengaja TIDAK
+    dihapus oleh Area 2: penghapusan butuh keputusan user.
+    """
 
     __tablename__ = "alerts"
 
@@ -59,9 +73,18 @@ class Alert(Base, TimestampMixin):
 
 
 class AuditLog(Base):
-    """Jejak audit aksi admin (wajib — temuan audit keamanan v2.0)."""
+    """Jejak audit aksi admin (wajib — temuan audit keamanan v2.0).
+
+    2.12: dibaca lewat prune_audit_logs (retensi 90 hari, core/audit.py);
+    endpoint baca belum ada (butuh keputusan/fitur terpisah).
+    """
 
     __tablename__ = "audit_logs"
+    __table_args__ = (
+        # 2.12: filter yang dipakai retensi/pembacaan audit.
+        Index("ix_audit_logs_actor_created", "actor_id", "created_at"),
+        Index("ix_audit_logs_resource_created", "resource", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     actor_id: Mapped[int | None] = mapped_column(

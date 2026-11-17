@@ -18,6 +18,12 @@ def get_engine():
             pool_pre_ping=True,
             pool_size=10,
             max_overflow=20,
+            # 2.19: tanpa batas tunggu dan tanpa recycle, lonjakan
+            # request bersamaan dengan loop background bisa mengantre
+            # atau kehabisan koneksi tanpa batas waktu yang jelas, dan
+            # koneksi basi tidak pernah diganti.
+            pool_timeout=30,
+            pool_recycle=1800,
         )
     return _engine
 

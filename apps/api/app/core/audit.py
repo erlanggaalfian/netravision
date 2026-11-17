@@ -7,6 +7,9 @@
 """
 
 import logging
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import delete
 
 from app.core.config import get_settings
 from app.core.metrics import path_template_for_scope
@@ -57,13 +60,49 @@ def _actor_from_scope(scope) -> tuple[int | None, str]:
     return actor_id, str(payload.get("username") or "anonymous")
 
 
+# 4.15: pembacaan admin yang sensitif ikut diaudit walau GET (daftar
+# kunci + log akses dibaca massal oleh admin yang dikompromikan harus
+# meninggalkan jejak).
+_SENSITIVE_ADMIN_READS = (
+    "/api/admin/api-keys",
+    "/api/admin/api-access-logs",
+)
+
+# 4.15: semua percobaan auth ikut diaudit (login gagal/berhasil,
+# refresh ditolak, guest): brute force login harus meninggalkan jejak
+# di audit_logs, bukan hanya di log teks server.
+_AUTH_PATHS = (
+    "/api/auth/login",
+    "/api/auth/refresh",
+    "/api/auth/logout",
+    "/api/auth/guest",
+)
+
+# 4.15: mutasi non-admin di luar /api/admin/* yang mengubah keadaan
+# (reconnect kamera, resolve lokasi) ikut diaudit.
+_EXTRA_MUTATIONS = (
+    ("/api/maps/resolve-location", {"POST"}),
+    ("/api/streams/", {"POST"}),
+)
+
+
 def _should_audit(scope) -> bool:
     if scope["type"] != "http":
         return False
-    if scope["method"] in _SAFE_METHODS:
-        return False
+    method = scope["method"]
     path = scope.get("path", "")
-    return path == _ADMIN_PREFIX or path.startswith(_ADMIN_PREFIX + "/")
+    if path in _AUTH_PATHS:
+        return True
+    if method not in _SAFE_METHODS:
+        if path == _ADMIN_PREFIX or path.startswith(_ADMIN_PREFIX + "/"):
+            return True
+        for prefix, methods in _EXTRA_MUTATIONS:
+            if method in methods and path.startswith(prefix):
+                return True
+        return False
+    return any(
+        path == p or path.startswith(p + "/") for p in _SENSITIVE_ADMIN_READS
+    )
 
 
 class AuditMiddleware:
@@ -117,3 +156,29 @@ class AuditMiddleware:
                 )
             )
             await db.commit()
+
+
+async def prune_audit_logs(db, days: int = 90) -> int:
+    """2.12: hapus baris audit_logs lebih tua dari `days` hari.
+
+    audit_logs ditulis tiap aksi admin tapi tidak pernah dibaca dan
+    tidak pernah dibersihkan; tanpa retensi tabel tumbuh tanpa batas.
+    Dipanggil harian dari _retention_loop (main.py). Endpoint baca
+    audit belum ada (butuh keputusan/fitur terpisah); retensi 90 hari
+    mempertahankan jejak tiga bulan terakhir.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    # synchronize_session=False: jangan evaluasi WHERE di Python untuk
+    # objek di sesi (di SQLite datetime kembali naive sehingga
+    # perbandingan naive vs aware melempar TypeError); sesi ini
+    # langsung di-commit dan dibuang sesudahnya.
+    res = await db.execute(
+        delete(AuditLog)
+        .where(AuditLog.created_at < cutoff)
+        .execution_options(synchronize_session=False)
+    )
+    await db.commit()
+    n = res.rowcount or 0
+    if n:
+        log.info("retensi audit: %d baris audit_logs dihapus", n)
+    return n

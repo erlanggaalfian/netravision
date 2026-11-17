@@ -79,10 +79,13 @@ def downgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     conn = op.get_bind()
+    # 2.11: kembalikan SEMUA folder, bukan hanya 1 baris pertama;
+    # versi lama (LIMIT 1) menghilangkan konfigurasi multi-folder
+    # saat rollback.
     rows = conn.execute(
         sa.text(
             "SELECT folder_url, folder_id, folder_name, updated_at, updated_by"
-            " FROM google_drive_folders ORDER BY id LIMIT 1"
+            " FROM google_drive_folders ORDER BY id"
         )
     ).fetchall()
     for r in rows:
