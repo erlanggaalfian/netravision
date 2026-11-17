@@ -34,6 +34,17 @@ def _drive_list_all(svc, folder_id: str, fields: str) -> list[dict]:
     return out
 
 
+def _delete_local(local_path: str, name: str) -> None:
+    """Hapus file lokal setelah ter-upload ke Drive (perintah user
+    2026-11-17). Gagal hapus hanya dicatat, bukan kegagalan upload."""
+    try:
+        if os.path.isfile(local_path):
+            os.remove(local_path)
+            log.info("drive: lokal dihapus %s (%s)", local_path, name)
+    except OSError as e:  # noqa: BLE001
+        log.warning("drive: gagal hapus lokal %s: %s", local_path, e)
+
+
 @dataclass
 class AccountCreds:
     """Kredensial akun Drive (primitif, aman lintas sesi DB)."""
@@ -181,6 +192,8 @@ class DriveUploader:
         folder_id = await self.ensure_folder(stream_name, stream_id)
         name = os.path.basename(local_path)
         if await self.find_file(folder_id, name):
+            # Sudah ada di Drive: hapus lokal (perintah user 2026-11-17).
+            _delete_local(local_path, name)
             return None
 
         def _do():
@@ -200,6 +213,8 @@ class DriveUploader:
             try:
                 fid = await asyncio.to_thread(_do)
                 log.info("drive: %s -> %s", name, fid)
+                # Ter-upload: hapus lokal (perintah user 2026-11-17).
+                _delete_local(local_path, name)
                 return fid
             except Exception as e:  # noqa: BLE001
                 last = e

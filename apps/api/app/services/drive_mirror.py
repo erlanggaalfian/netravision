@@ -97,10 +97,13 @@ async def _mirror_candidates() -> list[tuple[int, str, int | None, list[str]]]:
 
 
 def _prune_staging(src_dirs: list[str], dst_base: str, stream_id: int) -> None:
-    """Bersihkan staging lama: file yang sumbernya sudah tak ada, atau lebih
-    tua dari drive_retention_days. Hanya jalan bila mount hidup dan sumber ada.
-    src_dirs = direktori segmen sebenarnya (camera_rec_dirs: main + sub);
-    tujuan staging tetap {dst_base}/stream_{id}.
+    """Bersihkan staging lama: hanya yang lebih tua dari
+    drive_retention_days. Sengaja TIDAK lagi menghapus file yang
+    sumbernya sudah tak ada: sejak perintah user 2026-11-17, sumber
+    lokal dihapus begitu tersalin ke staging, jadi "sumber tak ada"
+    justru berarti file sudah ter-upload dan staging-nya masih
+    dibutuhkan rclone sampai retensi habis. src_dirs dipertahankan
+    sebagai parameter supaya pemanggil lama tidak berubah.
     """
     from datetime import datetime as _dt
 
@@ -109,10 +112,6 @@ def _prune_staging(src_dirs: list[str], dst_base: str, stream_id: int) -> None:
     if not os.path.isdir(dst):
         return
     try:
-        src_names: set[str] = set()
-        for src in src_dirs:
-            if os.path.isdir(src):
-                src_names.update(os.listdir(src))
         cutoff = _dt.now().timestamp() - settings.drive_retention_days * 86400
     except OSError:
         return
@@ -121,7 +120,7 @@ def _prune_staging(src_dirs: list[str], dst_base: str, stream_id: int) -> None:
         try:
             if not os.path.isfile(tpath):
                 continue
-            if fn not in src_names or os.path.getmtime(tpath) < cutoff:
+            if os.path.getmtime(tpath) < cutoff:
                 os.remove(tpath)
                 log.info("mirror: staging lama dihapus %s", tpath)
         except OSError as e:  # noqa: BLE001
@@ -164,13 +163,40 @@ def _mirror_one(src_dirs: list[str], dst_base: str, stream_id: int) -> None:
                 if time.time() - os.path.getmtime(spath) < _STABLE_SEC:
                     continue  # masih ditulis, lewati
                 tpath = os.path.join(dst, fn)
-                if os.path.exists(tpath) and os.path.getsize(tpath) == os.path.getsize(
-                    spath
-                ):
-                    continue  # sudah tercermin
-                os.makedirs(dst, exist_ok=True)
-                shutil.copy2(spath, tpath)
-                log.info("mirror stream_%s -> %s: %s tersalin", stream_id, dst_base, fn)
+                mirrored = os.path.exists(tpath) and os.path.getsize(
+                    tpath
+                ) == os.path.getsize(spath)
+                if not mirrored:
+                    os.makedirs(dst, exist_ok=True)
+                    shutil.copy2(spath, tpath)
+                    mirrored = os.path.exists(tpath) and os.path.getsize(
+                        tpath
+                    ) == os.path.getsize(spath)
+                    if mirrored:
+                        log.info(
+                            "mirror stream_%s -> %s: %s tersalin",
+                            stream_id,
+                            dst_base,
+                            fn,
+                        )
+                if mirrored:
+                    # Salinan di staging terverifikasi (sudah ter-upload
+                    # lewat mount rclone): hapus sumber lokal (perintah
+                    # user 2026-11-17). Gagal hapus hanya dicatat.
+                    try:
+                        os.remove(spath)
+                        log.info(
+                            "mirror stream_%s: lokal dihapus %s",
+                            stream_id,
+                            spath,
+                        )
+                    except OSError as e:  # noqa: BLE001
+                        log.warning(
+                            "mirror stream_%s gagal hapus lokal %s: %s",
+                            stream_id,
+                            spath,
+                            e,
+                        )
             except OSError as e:  # noqa: BLE001
                 log.warning("mirror stream_%s gagal menyalin %s: %s", stream_id, fn, e)
     _prune_staging(src_dirs, dst_base, stream_id)
@@ -209,9 +235,10 @@ async def mirror_loop() -> None:
     Staging/Drive mati tidak mematikan loop: kegagalan satu putaran
     dicatat, lalu retry dengan backoff yang membesar (5s, 15s, 30s,
     maks 60s), direset setelah satu putaran sukses. Segmen lokal sumber
-    TIDAK pernah dihapus di sini; yang dibersihkan hanya salinan di
-    staging (_prune_staging), jadi segmen yang gagal tersalin tetap
-    dicoba lagi putaran berikut."""
+    DIHAPUS begitu salinannya di staging terverifikasi (perintah user
+    2026-11-17); yang dibersihkan di staging hanya file lebih tua dari
+    drive_retention_days (_prune_staging), jadi segmen yang gagal
+    tersalin tetap dicoba lagi putaran berikut."""
     failures = 0
     try:
         while True:

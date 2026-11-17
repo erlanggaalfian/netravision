@@ -162,3 +162,51 @@ def test_mirror_tick_multi_folder(monkeypatch, tmp_path):
         assert len(list((tmp_path / "staging2" / "stream_7").iterdir())) == 1
     finally:
         get_settings.cache_clear()
+
+
+def test_mirror_hapus_sumber_setelah_tersalin(monkeypatch, tmp_path):
+    """Segmen yang sudah tersalin ke staging otomatis menghapus file
+    sumber lokalnya (perintah user 2026-11-17)."""
+    from app.services.drive_mirror import _mirror_one
+
+    rec = tmp_path / "recordings" / "stream_7"
+    rec.mkdir(parents=True)
+    stable = rec / "2026-11-02_10-00-00.mp4"
+    stable.write_bytes(b"x" * 100)
+    old = time.time() - 60
+    os.utime(stable, (old, old))
+    s = get_settings()
+    monkeypatch.setattr(s, "drive_mirror_require_mount", False)
+    try:
+        _mirror_one([str(rec)], str(tmp_path / "staging"), 7)
+        assert (tmp_path / "staging" / "stream_7" / "2026-11-02_10-00-00.mp4").exists()
+        assert not stable.exists()
+    finally:
+        get_settings.cache_clear()
+
+
+def test_prune_staging_hanya_berdasarkan_umur(monkeypatch, tmp_path):
+    """_prune_staging tidak lagi menghapus file staging yang sumbernya
+    sudah tak ada: sumber memang dihapus begitu tersalin (perintah user
+    2026-11-17), jadi 'sumber tak ada' justru berarti sudah ter-upload.
+    Hanya file lebih tua dari retensi yang dihapus."""
+    from app.services.drive_mirror import _prune_staging
+
+    dst = tmp_path / "staging" / "stream_7"
+    dst.mkdir(parents=True)
+    baru = dst / "2026-11-17_10-00-00.mp4"
+    baru.write_bytes(b"x" * 10)
+    lama = dst / "2026-09-01_10-00-00.mp4"
+    lama.write_bytes(b"x" * 10)
+    old = time.time() - 40 * 86400
+    os.utime(lama, (old, old))
+    s = get_settings()
+    monkeypatch.setattr(s, "drive_retention_days", 30)
+    try:
+        # Sumber sudah kosong (dihapus setelah tersalin), tapi file
+        # staging yang masih muda harus tetap ada.
+        _prune_staging([], str(tmp_path / "staging"), 7)
+        assert baru.exists()
+        assert not lama.exists()
+    finally:
+        get_settings.cache_clear()

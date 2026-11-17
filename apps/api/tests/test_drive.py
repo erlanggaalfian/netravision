@@ -231,3 +231,46 @@ async def test_queue_upload_dan_loop(tmp_path):
     fid = await up.upload_file(local_path, stream_name)
     up._queue.task_done()
     assert fid is not None
+
+
+async def test_upload_sukses_hapus_lokal(tmp_path):
+    """Segmen yang sudah ter-upload otomatis menghapus file lokalnya
+    (perintah user 2026-11-17)."""
+    svc = FakeDrive()
+    up = DriveUploader(settings=_settings(), service=svc)
+    p = tmp_path / "2026-11-17_10-00-00-000000.mp4"
+    p.write_bytes(b"v" * 16)
+    file_id = await up.upload_file(str(p), "Cam A")
+    assert file_id is not None
+    assert not p.exists()
+
+
+async def test_upload_gagal_lokal_tetap_ada(tmp_path):
+    """Upload gagal total: file lokal TIDAK dihapus, supaya bisa dicoba
+    lagi putaran berikut."""
+    svc = FakeDrive()
+    svc.fail_create = 99
+    up = DriveUploader(settings=_settings(), service=svc)
+    p = tmp_path / "seg.mp4"
+    p.write_bytes(b"v")
+    assert await up.upload_file(str(p), "Cam A", retries=2) is None
+    assert p.exists()
+
+
+async def test_upload_sudah_ada_hapus_lokal(tmp_path):
+    """File sudah ada di Drive: lokal dihapus karena salinannya sudah
+    aman di Drive."""
+    svc = FakeDrive()
+    up = DriveUploader(settings=_settings(), service=svc)
+    folder_id = await up.ensure_folder("Cam A")
+    svc._files[(folder_id, "lama.mp4")] = {
+        "id": "f9",
+        "name": "lama.mp4",
+        "size": 1,
+        "createdTime": "",
+        "content": b"v",
+    }
+    p = tmp_path / "lama.mp4"
+    p.write_bytes(b"v")
+    assert await up.upload_file(str(p), "Cam A") is None
+    assert not p.exists()

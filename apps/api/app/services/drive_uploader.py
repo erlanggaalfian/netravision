@@ -178,6 +178,19 @@ async def _upload_once() -> None:
             except Exception as e:  # noqa: BLE001
                 log.warning("uploader: gagal %s: %s", seg_name, e)
                 break  # coba lagi putaran berikutnya
+            # Hapus lokal setelah ter-upload (perintah user 2026-11-17):
+            # segmen yang sama bisa ada di main dan sub, hapus di semua
+            # direktori rekaman kamera ini. Gagal hapus hanya dicatat,
+            # bukan kegagalan upload (upload sudah tercatat di
+            # drive_uploads).
+            for rec_dir in rec_dirs:
+                try:
+                    p = os.path.join(rec_dir, seg_name)
+                    if os.path.isfile(p):
+                        os.remove(p)
+                        log.info("uploader: lokal dihapus %s", p)
+                except OSError as e:  # noqa: BLE001
+                    log.warning("uploader: gagal hapus lokal %s: %s", p, e)
 
 
 async def upload_loop() -> None:
@@ -186,9 +199,9 @@ async def upload_loop() -> None:
     Drive mati tidak mematikan loop: kegagalan satu putaran dicatat,
     lalu retry dengan backoff yang membesar (5s, 15s, 30s, maks 60s),
     direset ke interval normal setelah satu putaran sukses. Segmen lokal
-    TIDAK pernah dihapus di sini; yang dicatat hanya jejak ter-upload di
-    drive_uploads, jadi segmen yang gagal tetap dicoba lagi putaran
-    berikut."""
+    DIHAPUS setelah ter-upload dan tercatat di drive_uploads (perintah
+    user 2026-11-17), jadi segmen yang gagal tetap dicoba lagi putaran
+    berikut karena jejaknya belum tercatat."""
     log.info("drive_uploader: mulai")
     failures = 0
     while True:
