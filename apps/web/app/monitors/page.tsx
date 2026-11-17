@@ -11,6 +11,7 @@ import {
   ErrorBox,
   GridIcon,
   Modal,
+  Pagination,
   SectionTitle,
   Spinner,
 } from "../../components/ui";
@@ -676,30 +677,12 @@ export default function MonitorsPage() {
                     ))}
                   </div>
                   {totalPages > 1 && (
-                    <div className="mt-4 flex items-center justify-center gap-2">
-                      <Button
-                        variant="subtle"
-                        onClick={() => setPage((p) => Math.max(1, p - 1))}
-                        disabled={safePage <= 1}
-                        aria-label="Halaman sebelumnya"
-                        className="rounded-full"
-                      >
-                        ‹ Sebelumnya
-                      </Button>
-                      <span className="text-sm font-semibold text-slate-300">
-                        Halaman {safePage} dari {totalPages}
-                      </span>
-                      <Button
-                        variant="subtle"
-                        onClick={() =>
-                          setPage((p) => Math.min(totalPages, p + 1))
-                        }
-                        disabled={safePage >= totalPages}
-                        aria-label="Halaman berikutnya"
-                        className="rounded-full"
-                      >
-                        Berikutnya ›
-                      </Button>
+                    <div className="mt-4">
+                      <Pagination
+                        page={safePage}
+                        totalPages={totalPages}
+                        onChange={setPage}
+                      />
                     </div>
                   )}
                 </div>

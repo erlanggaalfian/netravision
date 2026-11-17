@@ -9,7 +9,7 @@ import type { AdConfig, Disk, DriveFolder, Group, ScanPath, ScanResult, Stream }
 import { ShareModal } from "../../../components/ShareModal";
 import { FocusModal } from "../../../components/FocusModal";
 import { LocationInput } from "../../../components/LocationInput";
-import { ErrorBox, Modal, Spinner, Switch } from "../../../components/ui";
+import { ErrorBox, Modal, Pagination, Spinner, Switch } from "../../../components/ui";
 import {
   NBAccordion,
   NBBadge,
@@ -682,42 +682,12 @@ export default function AdminStreamsPage() {
           </div>
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="mt-4 flex flex-wrap items-center justify-center gap-1.5">
-              <NBButton
-                variant="secondary"
-                disabled={curPage <= 1}
-                onClick={() => setPage(1)}
-                className="px-3"
-              >
-                «
-              </NBButton>
-              <NBButton
-                variant="secondary"
-                disabled={curPage <= 1}
-                onClick={() => setPage(curPage - 1)}
-                className="px-3"
-              >
-                ‹
-              </NBButton>
-              <span className="px-2 text-sm tabular-nums text-slate-400">
-                {curPage} / {totalPages}
-              </span>
-              <NBButton
-                variant="secondary"
-                disabled={curPage >= totalPages}
-                onClick={() => setPage(curPage + 1)}
-                className="px-3"
-              >
-                ›
-              </NBButton>
-              <NBButton
-                variant="secondary"
-                disabled={curPage >= totalPages}
-                onClick={() => setPage(totalPages)}
-                className="px-3"
-              >
-                »
-              </NBButton>
+            <div className="mt-4">
+              <Pagination
+                page={curPage}
+                totalPages={totalPages}
+                onChange={setPage}
+              />
             </div>
           )}
         </>

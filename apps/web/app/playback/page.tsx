@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "../../components/AppShell";
-import { Button, Card, ErrorBox, GridIcon, SectionTitle, Spinner } from "../../components/ui";
+import { Button, Card, ErrorBox, GridIcon, Pagination, SectionTitle, Spinner } from "../../components/ui";
 import { Dropdown } from "../../components/Dropdown";
 import { api, apiFetch, ApiError, usePosterUrl } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
@@ -1187,28 +1187,12 @@ export default function PlaybackPage() {
               ))}
             </div>
             {multi && totalPages > 1 && (
-              <div className="mt-4 flex items-center justify-center gap-2">
-                <Button
-                  variant="subtle"
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={safePage <= 1}
-                  aria-label="Halaman sebelumnya"
-                  className="rounded-full"
-                >
-                  ‹ Sebelumnya
-                </Button>
-                <span className="text-sm font-semibold text-slate-300">
-                  Halaman {safePage} dari {totalPages}
-                </span>
-                <Button
-                  variant="subtle"
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={safePage >= totalPages}
-                  aria-label="Halaman berikutnya"
-                  className="rounded-full"
-                >
-                  Berikutnya ›
-                </Button>
+              <div className="mt-4">
+                <Pagination
+                  page={safePage}
+                  totalPages={totalPages}
+                  onChange={setPage}
+                />
               </div>
             )}
           </>

@@ -147,6 +147,89 @@ export function Button({
   );
 }
 
+/* Pagination jendela geser 5 nomor (perintah user 2026-11-17):
+   « awal, ‹ mundur, 5 nomor halaman, › maju, » akhir.
+   Jendela: halaman 1 tampil 1-5, halaman 2 tampil 1-5, halaman 3
+   ke atas tampil N-2 sampai N+2, halaman terakhir tampil total-4
+   sampai total. Dipakai seragam di Live, Playback, Monitor, dan
+   Admin Kamera supaya pola pagination sama di semua menu. */
+export function Pagination({
+  page,
+  totalPages,
+  onChange,
+  className = "",
+}: {
+  page: number;
+  totalPages: number;
+  onChange: (page: number) => void;
+  className?: string;
+}) {
+  if (totalPages <= 1) return null;
+  const cur = Math.min(Math.max(1, page), totalPages);
+  const start = Math.max(1, Math.min(cur - 2, totalPages - 4));
+  const end = Math.min(totalPages, start + 4);
+  const pages: number[] = [];
+  for (let p = start; p <= end; p++) pages.push(p);
+  const navCls = "min-h-[44px] min-w-[44px] rounded-full px-3";
+  const numCls = "min-h-[44px] min-w-[44px] rounded-full px-3 tabular-nums";
+  return (
+    <div
+      className={`flex flex-wrap items-center justify-center gap-1.5 ${className}`}
+      role="navigation"
+      aria-label="Pagination"
+    >
+      <Button
+        variant="subtle"
+        onClick={() => onChange(1)}
+        disabled={cur <= 1}
+        aria-label="Halaman pertama"
+        className={navCls}
+      >
+        «
+      </Button>
+      <Button
+        variant="subtle"
+        onClick={() => onChange(cur - 1)}
+        disabled={cur <= 1}
+        aria-label="Halaman sebelumnya"
+        className={navCls}
+      >
+        ‹
+      </Button>
+      {pages.map((p) => (
+        <Button
+          key={p}
+          variant={p === cur ? "primary" : "subtle"}
+          onClick={() => onChange(p)}
+          aria-label={`Halaman ${p}`}
+          aria-current={p === cur ? "page" : undefined}
+          className={numCls}
+        >
+          {p}
+        </Button>
+      ))}
+      <Button
+        variant="subtle"
+        onClick={() => onChange(cur + 1)}
+        disabled={cur >= totalPages}
+        aria-label="Halaman berikutnya"
+        className={navCls}
+      >
+        ›
+      </Button>
+      <Button
+        variant="subtle"
+        onClick={() => onChange(totalPages)}
+        disabled={cur >= totalPages}
+        aria-label="Halaman terakhir"
+        className={navCls}
+      >
+        »
+      </Button>
+    </div>
+  );
+}
+
 export function Field({
   label,
   children,
