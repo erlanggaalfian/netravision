@@ -37,13 +37,12 @@ class Settings(BaseSettings):
 
     mediamtx_api_url: str = "http://127.0.0.1:9997"
     mediamtx_whep_base: str = "http://127.0.0.1:8889"
-    # 4.11: kredensial control API MediaMTX. Kosong = tanpa auth (perilaku
-    # lama; control API saat itu hanya dibatasi IP di mediamtx.yml).
-    # Bila diisi, API mengirim HTTP Basic auth di setiap panggilan
-    # control API. WAJIB diisi di produksi bersama user/pass yang sama
-    # di mediamtx.yml (deploy/mediamtx.yml, env MEDIAMTX_API_USER /
-    # MEDIAMTX_API_PASSWORD); lihat deploy/docker-compose.yml.
-    # Default user "netravision" (sama seperti default di mediamtx.yml).
+    # 4.11: kredensial control API MediaMTX. Password utama dibaca
+    # dari DATABASE (system_settings, di-cache saat startup); env
+    # ini hanya fallback bila cache kosong. Kosong = tanpa auth
+    # (perilaku lama; control API saat itu hanya dibatasi IP di
+    # mediamtx.yml). User default "netravision" (sama seperti di
+    # mediamtx.yml.template).
     mediamtx_api_user: str = "netravision"
     mediamtx_api_password: str = ""
 

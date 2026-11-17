@@ -305,6 +305,20 @@ async def _mediamtx_sync_loop() -> None:
 async def lifespan(app: FastAPI):
     settings = get_settings()
     log = logging.getLogger("netravision")
+    # Password MediaMTX di database: dibuat sekali bila belum ada,
+    # di-cache untuk get_mediamtx(). Harus jalan sebelum loop sync
+    # MediaMTX pertama (yang memakai client ber-auth). Bila gagal
+    # (mis. migrasi 0028 belum jalan), fallback ke env
+    # MEDIAMTX_API_PASSWORD dan sync akan retry tiap 60 detik.
+    try:
+        from app.services.system_settings import ensure_mediamtx_password  # noqa: PLC0415
+
+        async with get_session_factory()() as _db:
+            await ensure_mediamtx_password(_db)
+    except Exception:  # noqa: BLE001 - jangan matikan API karena ini
+        log.warning(
+            "mediamtx_api_password belum bisa dibaca dari DB", exc_info=True
+        )
     # Area 5, 5.11: loop tidak start bersamaan; retensi dan disk cleanup
     # yang berat menunda putaran pertamanya beberapa menit supaya tidak
     # membanjiri DB/disk/MediaMTX/Drive tepat saat API baru naik.

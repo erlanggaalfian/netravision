@@ -62,7 +62,14 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-netravision}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD belum di-set}@postgres:5432/${POSTGRES_DB:-netravision}
       PYTHONPATH: /srv/api
     working_dir: /srv/api
-    command: ["alembic", "upgrade", "head"]
+    # Setelah migrasi, hasilkan deploy/mediamtx.yml dari template
+    # dengan password dari database (app/db/setup_mediamtx.py).
+    # Volume ./:/deploy memberi akses tulis ke mediamtx.yml.template
+    # dan mediamtx.yml. Mediamtx bergantung pada service ini supaya
+    # yml sudah terisi password sebelum ia start.
+    volumes:
+      - ./:/deploy:rw
+    command: ["sh", "-c", "alembic upgrade head && python -m app.db.setup_mediamtx /deploy"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -82,10 +89,11 @@ services:
       PYTHONPATH: /srv/api
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       MEDIAMTX_API_URL: http://mediamtx:9997
-      # 4.11: kredensial control API MediaMTX (sama seperti di service
-      # mediamtx di bawah; user default "netravision").
+      # Password control API MediaMTX dibaca dari DATABASE
+      # (system_settings, di-cache saat startup); env ini hanya
+      # fallback bila cache kosong. JANGAN wajibkan di .env lagi.
       MEDIAMTX_API_USER: ${MEDIAMTX_API_USER:-netravision}
-      MEDIAMTX_API_PASSWORD: ${MEDIAMTX_API_PASSWORD:?MEDIAMTX_API_PASSWORD belum di-set di deploy/.env - isi password acak untuk control API MediaMTX (dipakai API + mediamtx.yml)}
+      MEDIAMTX_API_PASSWORD: ${MEDIAMTX_API_PASSWORD:-}
       # 4.8: proxy tepercaya eksplisit untuk X-Forwarded-For. API hanya
       # mempercayai loopback + CIDR ini; jaringan Docker (gateway
       # 172.16.0.0/12) harus ada di sini supaya IP asli dari Apache
@@ -147,10 +155,13 @@ services:
       # deploy/.env (WEBRTC_ADDITIONAL_HOST). Compose gagal dengan pesan jelas
       # bila belum di-set; JANGAN tulis IP hardcoded di mediamtx.yml.
       MTX_WEBRTCADDITIONALHOSTS: ${WEBRTC_ADDITIONAL_HOST:?WEBRTC_ADDITIONAL_HOST belum di-set di deploy/.env - isi IP/domain publik server}
-      # 4.11: kredensial control API (dipakai mediamtx.yml
-      # authInternalUsers; password WAJIB diisi, lihat pesan di atas).
-      MEDIAMTX_API_USER: ${MEDIAMTX_API_USER:-netravision}
-      MEDIAMTX_API_PASSWORD: ${MEDIAMTX_API_PASSWORD:?MEDIAMTX_API_PASSWORD belum di-set di deploy/.env - isi password acak untuk control API MediaMTX (dipakai API + mediamtx.yml)}
+      # Password control API TIDAK lagi lewat env: mediamtx.yml
+      # dihasilkan service `migrate` dari template dengan password
+      # dari database (lihat mediamtx.yml.template). MediaMTX tidak
+      # mengembangkan ${VAR} di yml, jadi env di sini tidak berguna.
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     volumes:
       - ./mediamtx.yml:/mediamtx.yml:ro
       - recordings:/recordings

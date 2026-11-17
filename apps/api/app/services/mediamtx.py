@@ -177,15 +177,19 @@ def get_mediamtx() -> MediaMTXClient:
     `get_mediamtx_dep` (dependency yield) supaya client ditutup.
 
     4.11: kredensial control API (mediamtx_api_user/password) dikirim
-    bila dikonfigurasi; kosong = tanpa auth (perilaku lama). Di
-    produksi, isi MEDIAMTX_API_USER/PASSWORD dengan user/pass yang sama
-    seperti di deploy/mediamtx.yml (authInternalUsers).
+    bila dikonfigurasi; kosong = tanpa auth (perilaku lama).
+    Password diambil dari database (system_settings, di-cache saat
+    startup lifespan); env MEDIAMTX_API_PASSWORD hanya fallback bila
+    cache kosong (mis. sebelum startup selesai / di tes).
     """
+    from app.services.system_settings import get_mediamtx_password  # noqa: PLC0415
+
     settings = get_settings()
+    password = get_mediamtx_password() or settings.mediamtx_api_password or None
     return MediaMTXClient(
         base_url=settings.mediamtx_api_url,
         username=settings.mediamtx_api_user or None,
-        password=settings.mediamtx_api_password or None,
+        password=password,
     )
 
 

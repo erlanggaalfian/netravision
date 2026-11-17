@@ -28,6 +28,22 @@ class AdConfig(Base):
     )
 
 
+class SystemSetting(Base, TimestampMixin):
+    """Pengaturan sistem key-value (mis. kredensial internal).
+
+    Satu baris per key. Dipakai untuk MEDIAMTX_API_PASSWORD: dibuat
+    sekali saat deploy / install pertama, disimpan di database (bukan
+    .env), dibaca backend saat startup dan dipakai deploy untuk
+    menghasilkan deploy/mediamtx.yml. Nilai adalah rahasia, jangan
+    pernah dikembalikan lewat API.
+    """
+
+    __tablename__ = "system_settings"
+
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    value: Mapped[str] = mapped_column(String(512), nullable=False)
+
+
 class DetectionEvent(Base):
     """Event deteksi AI (YOLO). Tabel siap; diisi bila modul detector aktif.
 

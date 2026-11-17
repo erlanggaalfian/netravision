@@ -20,6 +20,9 @@ out/
 # Docker
 .docker/
 
+# Dihasilkan saat deploy (berisi password asli dari database, jangan commit)
+deploy/mediamtx.yml
+
 # OS / editor
 .DS_Store
 .idea/

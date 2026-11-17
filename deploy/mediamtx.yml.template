@@ -68,17 +68,22 @@ authInternalUsers:
       - action: read
       - action: playback
   # control API hanya dengan kredensial + dari localhost/jaringan
-  # privat (Docker). User/pass dari env MEDIAMTX_API_USER (default
-  # "netravision") / MEDIAMTX_API_PASSWORD (deploy/.env ->
-  # docker-compose, WAJIB diisi; compose gagal dengan pesan jelas
-  # bila belum di-set). Tanpa kredensial yang benar, control API
-  # menolak semua (fail-closed). API memakai user/pass yang sama
-  # (MEDIAMTX_API_USER/PASSWORD di apps/api/.env, diteruskan compose).
+  # privat (Docker). Password dibuat sekali saat deploy / install
+  # pertama dan disimpan di DATABASE (tabel system_settings, key
+  # mediamtx_api_password), BUKAN di .env. File ini adalah TEMPLATE:
+  # service `migrate` menghasilkan deploy/mediamtx.yml dari template
+  # ini (app/db/setup_mediamtx.py) dengan password dari database.
+  # JANGAN tulis password asli di sini. MediaMTX TIDAK mengembangkan
+  # ${VAR} di file ini (terbukti 2026-11-17: literal ${...} ditolak
+  # "credential contains unsupported characters"), jadi user/pass
+  # ditulis literal oleh generator. API memakai user/pass yang sama
+  # (dibaca dari database saat startup, lihat
+  # app/services/system_settings.py).
   # 4.11: sebelumnya entri ini user "any" tanpa password, jadi siapa
   # pun yang mencapai 127.0.0.1:9997 bisa membaca source RTSP semua
   # kamera, menambah/menghapus path, dan mematikan rekaman.
-  - user: ${MEDIAMTX_API_USER:-netravision}
-    pass: ${MEDIAMTX_API_PASSWORD}
+  - user: netravision
+    pass: __MEDIAMTX_API_PASSWORD__
     ips: ['127.0.0.1', '::1', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']
     permissions:
       - action: api
