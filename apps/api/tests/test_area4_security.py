@@ -846,7 +846,11 @@ def test_probe_guard_allows_lan_and_camera_networks(monkeypatch):
 def test_mediamtx_auth_from_settings(monkeypatch):
     """get_mediamtx() mengirim Basic auth bila user/password dikonfigurasi."""
     from app.services.mediamtx import get_mediamtx
+    from app.services.system_settings import set_mediamtx_password_cache
 
+    # Cache password DB (diisi lifespan atau tes system_settings) menang
+    # atas env; kosongkan dulu supaya tes ini menguji jalur env.
+    set_mediamtx_password_cache(None)
     monkeypatch.setattr(get_settings(), "mediamtx_api_user", "netravision")
     monkeypatch.setattr(get_settings(), "mediamtx_api_password", "s3cret")
     client = get_mediamtx()

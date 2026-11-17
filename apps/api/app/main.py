@@ -38,6 +38,7 @@ _CLEANUP_MAX_FILES_PER_ROUND = 200
 _DRIVE_RETENTION_TIMEOUT_SEC = 600
 from app.routers import (
     admin_ads,
+    admin_audit,
     admin_disks,
     admin_drive,
     admin_keys,
@@ -47,6 +48,7 @@ from app.routers import (
     auth,
     external,
     maps,
+    media,
     recordings,
     streams,
     system,
@@ -400,6 +402,7 @@ async def _poster_loop(initial_delay: float = 0) -> None:
 async def _retention_loop(initial_delay: float = 0) -> None:
     """Jalankan retensi saat start lalu tiap 24 jam."""
     from app.core.audit import prune_audit_logs
+    from app.services.api_access_log_retention import prune_api_access_logs
     from app.services.drive_uploader import prune_drive_upload_traces
     from app.services.recording import apply_retention
 
@@ -421,6 +424,7 @@ async def _retention_loop(initial_delay: float = 0) -> None:
                 for _prune, _label in (
                     (prune_drive_upload_traces, "jejak upload"),
                     (prune_audit_logs, "audit"),
+                    (prune_api_access_logs, "log akses embed"),
                 ):
                     try:
                         async with get_session_factory()() as db:
@@ -652,6 +656,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_scan.router, prefix="/api")
     app.include_router(admin_users.router, prefix="/api")
     app.include_router(admin_keys.router, prefix="/api")
+    app.include_router(admin_audit.router, prefix="/api")
     app.include_router(admin_ads.router, prefix="/api")
     app.include_router(admin_ads.admin_router, prefix="/api")
     # Akun Google Drive multi-akun (callback OAuth publik, sisanya admin).
@@ -663,6 +668,8 @@ def create_app() -> FastAPI:
     app.include_router(recordings.router, prefix="/api")
     # Penyelesaian lokasi multi-format (kolom "Lokasi").
     app.include_router(maps.router, prefix="/api")
+    # Proxy media ber-auth (K-1): WHEP/HLS hanya lewat API.
+    app.include_router(media.router, prefix="/api")
     # /ws TANPA prefix /api (kontrak).
     app.include_router(ws.router)
     # File statis untuk gambar iklan yang diunggah.
