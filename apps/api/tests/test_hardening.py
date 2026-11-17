@@ -120,7 +120,9 @@ async def test_metrics_admin_only(app_client):
 async def test_scan_rate_limited(app_client):
     """Scan dibatasi 10/menit — request ke-11 harus 429."""
     app, _, db = app_client
-    admin = make_user()
+    # A-1.4: /admin/scan hanya super_admin; test ini menguji rate limit,
+    # jadi pakai super_admin (bukan admin biasa yang akan 403).
+    admin = make_user(role="super_admin")
     db.add(admin)
     await db.commit()
     auth_as(app, admin)

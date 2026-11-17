@@ -23,6 +23,8 @@ class FakeDrive:
         self._files: dict[tuple, dict] = {}  # (folder_id, name) -> file
         self.fail_create = 0
         self._n = 0
+        self.list_calls = 0  # jumlah files().list (untuk tes batching 6.2/6.7)
+        self.media_calls = 0  # jumlah files().get_media (untuk tes 6.1)
 
     def _nid(self, prefix):
         self._n += 1
@@ -42,6 +44,8 @@ class FakeDrive:
         return m.group(1) if m else None
 
     def list(self, q="", fields=None, pageSize=None, pageToken=None):
+        self.list_calls += 1
+
         def run(req):
             parent, name = self._q_parent(q), self._q_name(q)
             only_folders = FOLDER_MIME in q
@@ -98,6 +102,8 @@ class FakeDrive:
         return _Req(run)
 
     def get_media(self, fileId=None):
+        self.media_calls += 1
+
         def run(req):
             for f in self._files.values():
                 if f["id"] == fileId:
@@ -174,6 +180,72 @@ async def test_stream_drive_file_range():
     assert data2 == b"ABCDEF"
 
 
+async def test_download_drive_file_satu_panggilan():
+    """6.1: unduh segmen OAuth SEKALI (satu get_media), bukan satu
+    panggilan per potongan 1 MB. Cerminan perbaikan rclone 7cbf088."""
+    svc = FakeDrive()
+    up = DriveUploader(settings=_settings(), service=svc)
+    folder_id = await up.ensure_folder("Cam A")
+    svc._files[(folder_id, "seg.mp4")] = {
+        "id": "f1",
+        "name": "seg.mp4",
+        "size": 3 * 1024 * 1024,
+        "createdTime": "",
+        "content": b"v" * (3 * 1024 * 1024),
+    }
+    data = await up.download_drive_file("f1")
+    assert len(data) == 3 * 1024 * 1024
+    assert svc.media_calls == 1
+    # stream_drive_file per MB tetap ada (kompatibilitas), tapi
+    # pemutar tidak lagi memakainya per potongan.
+    assert await up.stream_drive_file("f1", 0, 99) == b"v" * 100
+
+
+async def test_list_files_cache_60_detik():
+    """6.7: list_files kedua dalam TTL tidak memanggil Drive API lagi."""
+    svc = FakeDrive()
+    up = DriveUploader(settings=_settings(), service=svc)
+    folder_id = await up.ensure_folder("Cam A")
+    svc._files[(folder_id, "a.mp4")] = {
+        "id": "f1", "name": "a.mp4", "size": 1,
+        "createdTime": "", "content": b"a",
+    }
+    first = await up.list_files(folder_id)
+    calls_after_first = svc.list_calls
+    second = await up.list_files(folder_id)
+    assert first == second
+    assert svc.list_calls == calls_after_first
+    up.invalidate_list_cache(folder_id)
+    await up.list_files(folder_id)
+    assert svc.list_calls == calls_after_first + 1
+
+
+async def test_scan_and_enqueue_batch_list(tmp_path):
+    """6.2: scan memakai SATU list_files per folder, bukan satu
+    files.list per segmen. 2 segmen lokal + ensure_folder (2 list)
+    + 1 list_files = 3 panggilan list total (sebelumnya 4)."""
+    svc = FakeDrive()
+    up = DriveUploader(settings=_settings(tmp_path), service=svc)
+    d = tmp_path / "stream_7"
+    d.mkdir()
+    (d / "a.mp4").write_bytes(b"1")
+    (d / "b.mp4").write_bytes(b"2")
+    folder_id = await up.ensure_folder("stream_7", 7)
+    svc._files[(folder_id, "b.mp4")] = {
+        "id": "f1",
+        "name": "b.mp4",
+        "size": 1,
+        "createdTime": "",
+        "content": b"2",
+    }
+    base_calls = svc.list_calls
+    n = await up.scan_and_enqueue()
+    assert n == 1
+    assert svc.list_calls - base_calls == 1  # hanya list_files
+    item = await up._queue.get()
+    assert item[0].endswith("a.mp4")
+
+
 async def test_scan_and_enqueue_lewati_yang_sudah_ada(tmp_path):
     svc = FakeDrive()
     up = DriveUploader(settings=_settings(tmp_path), service=svc)
@@ -197,27 +269,57 @@ async def test_scan_and_enqueue_lewati_yang_sudah_ada(tmp_path):
 
 
 async def test_apply_drive_retention():
+    """Retensi hanya menghapus segmen rekaman lama (temuan 3.4).
+
+    File non-segmen (dokumen/foto/backup, atau .mp4 yang bukan pola
+    nama segmen MediaMTX) TIDAK boleh ikut terhapus walau sudah tua.
+    """
     svc = FakeDrive()
     up = DriveUploader(settings=_settings(), service=svc)
     folder_id = await up.ensure_folder("Cam A")
-    svc._files[(folder_id, "lama.mp4")] = {
+    svc._files[(folder_id, "2020-01-01_00-00-00-000000.mp4")] = {
         "id": "old1",
-        "name": "lama.mp4",
+        "name": "2020-01-01_00-00-00-000000.mp4",
         "size": 1,
         "createdTime": "2020-01-01T00:00:00Z",
         "content": b"x",
     }
-    svc._files[(folder_id, "baru.mp4")] = {
+    svc._files[(folder_id, "2026-11-02_10-00-00-000000.mp4")] = {
         "id": "new1",
-        "name": "baru.mp4",
+        "name": "2026-11-02_10-00-00-000000.mp4",
         "size": 1,
         "createdTime": "2026-11-02T00:00:00Z",
         "content": b"x",
     }
+    # Bukan segmen rekaman: harus selamat walau sudah tua.
+    svc._files[(folder_id, "dokumen-penting.pdf")] = {
+        "id": "doc1",
+        "name": "dokumen-penting.pdf",
+        "size": 1,
+        "createdTime": "2020-01-01T00:00:00Z",
+        "content": b"x",
+    }
+    svc._files[(folder_id, "backup-foto.zip")] = {
+        "id": "zip1",
+        "name": "backup-foto.zip",
+        "size": 1,
+        "createdTime": "2020-01-01T00:00:00Z",
+        "content": b"x",
+    }
+    svc._files[(folder_id, "video-manual.mp4")] = {
+        "id": "mp41",
+        "name": "video-manual.mp4",
+        "size": 1,
+        "createdTime": "2020-01-01T00:00:00Z",
+        "content": b"x",
+    }
     n = await up.apply_drive_retention(days=30)
     assert n == 1
-    assert await up.find_file(folder_id, "lama.mp4") is None
-    assert await up.find_file(folder_id, "baru.mp4") == "new1"
+    assert await up.find_file(folder_id, "2020-01-01_00-00-00-000000.mp4") is None
+    assert await up.find_file(folder_id, "2026-11-02_10-00-00-000000.mp4") == "new1"
+    assert await up.find_file(folder_id, "dokumen-penting.pdf") == "doc1"
+    assert await up.find_file(folder_id, "backup-foto.zip") == "zip1"
+    assert await up.find_file(folder_id, "video-manual.mp4") == "mp41"
 
 
 async def test_queue_upload_dan_loop(tmp_path):

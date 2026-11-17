@@ -11,7 +11,7 @@ from app.db.base import Base
 from app.db.session import get_db
 from app.main import create_app
 from app.models.users import User
-from app.services.mediamtx import get_mediamtx
+from app.services.mediamtx import get_mediamtx_dep
 
 
 class FakeMediaMTX:
@@ -89,7 +89,9 @@ async def app_client(db_session):
         yield db_session
 
     app.dependency_overrides[get_db] = _get_db
-    app.dependency_overrides[get_mediamtx] = lambda: fake_mtmx
+    # Router memakai get_mediamtx_dep (dependency yield, temuan 3.8);
+    # override di sini supaya tes tetap memakai FakeMediaMTX.
+    app.dependency_overrides[get_mediamtx_dep] = lambda: fake_mtmx
     return app, fake_mtmx, db_session
 
 
@@ -109,9 +111,43 @@ def _reset_rate_limiters():
     from app.routers import external as _external
 
     _external._KEY_FAILURES.clear()
+    # Cache in-process (A-1.5 health, A-1.10 disk-summary) juga
+    # harus bersih antar-test supaya hasil satu test tidak bocor
+    # ke test berikutnya.
+    from app.routers import admin_streams as _admin_streams
+    from app.routers import system as _system
+
+    _system.reset_health_cache()
+    _admin_streams.reset_disk_cache()
+    # Cache in-process Area 6 (config iklan TTL 60 dtk, daftar folder
+    # Drive TTL 60 dtk, geocoding 24 jam) juga harus bersih antar-test,
+    # supaya baris DB yang ditulis langsung oleh satu test tidak
+    # terbaca basi oleh test berikutnya.
+    from app.routers import recordings as _recordings
+    from app.services import location as _location
+
+    _external.invalidate_ad_config_cache()
+    _recordings.invalidate_drive_folders_cache()
+    _location.clear_geocode_cache()
+    # State in-process Area 4 (kunci login, grace + jejak rotasi
+    # refresh, brankas URL scan) juga harus bersih antar-test.
+    from app.routers import auth as _auth
+    from app.services import scan_vault as _scan_vault
+
+    _auth.reset_login_attempts()
+    _auth.reset_refresh_state()
+    _scan_vault.reset()
     yield
     reset_rate_limits()
     _external._KEY_FAILURES.clear()
+    _system.reset_health_cache()
+    _admin_streams.reset_disk_cache()
+    _external.invalidate_ad_config_cache()
+    _recordings.invalidate_drive_folders_cache()
+    _location.clear_geocode_cache()
+    _auth.reset_login_attempts()
+    _auth.reset_refresh_state()
+    _scan_vault.reset()
 
 
 @pytest.fixture(autouse=True)

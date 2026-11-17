@@ -194,7 +194,15 @@ async def test_cleanup_rclone_remote_deletes_oldest_mp4_only(
                  "ModTime": "2026-11-09T10:00:00Z"},
             ]), ""
         if cmd_args[0] == "delete":
-            deleted.append(cmd_args[1])
+            # Temuan 3.10: hapus per batch via --files-from (satu proses
+            # untuk banyak file), bukan satu proses per file.
+            assert "--files-from" in cmd_args
+            list_path = cmd_args[cmd_args.index("--files-from") + 1]
+            with open(list_path) as f:
+                for line in f:
+                    name = line.strip()
+                    if name:
+                        deleted.append(f"{cmd_args[1]}/{name}")
             return 0, "", ""
         raise AssertionError(f"perintah tak terduga: {cmd_args}")
 

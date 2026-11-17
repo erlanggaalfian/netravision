@@ -88,7 +88,8 @@ async def test_super_admin_can_create_super_admin(app_client):
     async with _client(app) as c:
         r = await c.post(
             "/api/admin/users",
-            json={"username": "super2", "password": "rahasia123", "role": "super_admin"},
+            # 4.12: super_admin butuh password minimal 12 karakter.
+            json={"username": "super2", "password": "rahasia123456", "role": "super_admin"},
         )
         assert r.status_code == 201, r.text
         assert r.json()["role"] == "super_admin"

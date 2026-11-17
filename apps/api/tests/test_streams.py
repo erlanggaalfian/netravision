@@ -14,10 +14,14 @@ async def _seed(db):
         id=1, name="Cam 1", rtsp_url="rtsp://cam/1",
         main_url="rtsp://cam/1", sub_url="rtsp://cam/1_sub",
         brand="generic", is_active=True, group_name="MRI",
+        # A-1.3: reconnect hanya super_admin/pemilik; admin seed adalah
+        # pemilik kedua kamera supaya tes reconnect menguji jalurnya.
+        created_by=1,
     )
     s2 = Stream(
         id=2, name="Cam 2", rtsp_url="rtsp://cam/2",
         main_url="rtsp://cam/2", sub_url=None,
+        created_by=1,
         brand="generic", is_active=True,
     )
     db.add_all([admin, op, s1, s2,
@@ -160,7 +164,16 @@ async def test_poster_token_query_param(app_client, monkeypatch, tmp_path):
     # Tanpa override auth - pakai JWT asli.
     tok = create_access_token(admin.id, admin.username, admin.role, get_settings())
     async with _client(app) as c:
+        # 4.5: poster TIDAK lagi menerima ?token= (token di query string
+        # masuk log Apache); token hanya lewat header Authorization,
+        # jadi token valid di query pun ditolak 401.
         r = await c.get(f"/api/posters/stream_1.jpg?token={tok}")
-        assert r.status_code == 404  # auth lolos, file belum ada
+        assert r.status_code == 401
         r2 = await c.get("/api/posters/stream_1.jpg?token=palsu")
         assert r2.status_code == 401
+        # Header Authorization tetap diterima: auth lolos, file belum ada.
+        r3 = await c.get(
+            "/api/posters/stream_1.jpg",
+            headers={"Authorization": f"Bearer {tok}"},
+        )
+        assert r3.status_code == 404

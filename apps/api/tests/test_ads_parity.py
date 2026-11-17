@@ -72,8 +72,8 @@ async def test_ad_config_respects_show_ads(app_client):
         assert r.json()["marquee_text"] == "Promo!"
         assert r.json()["box_width"] == 80
 
-        # user show_ads=False → config nonaktif (via ?token=)
-        r = await c.get("/api/ad-config", params={"token": _token(noads)})
+        # user show_ads=False → config nonaktif (via header Authorization; 4.5: ?token= dihapus)
+        r = await c.get("/api/ad-config", headers={"Authorization": f"Bearer {_token(noads)}"})
         body = r.json()
         assert body["is_active"] is False
         assert body["marquee_text"] == ""
@@ -87,7 +87,7 @@ async def test_ad_config_respects_show_ads(app_client):
         assert r.json()["is_active"] is False
 
         # user show_ads=True → sesuai config tersimpan
-        r = await c.get("/api/ad-config", params={"token": _token(yesads)})
+        r = await c.get("/api/ad-config", headers={"Authorization": f"Bearer {_token(yesads)}"})
         assert r.json()["is_active"] is True
         assert r.json()["marquee_text"] == "Promo!"
 
@@ -122,19 +122,19 @@ async def test_ad_config_respects_show_ads_super_admin(app_client):
         assert r.status_code == 200, r.text
 
         # super_admin show_ads=False -> config nonaktif
-        r = await c.get("/api/ad-config", params={"token": _token(super_noads)})
+        r = await c.get("/api/ad-config", headers={"Authorization": f"Bearer {_token(super_noads)}"})
         body = r.json()
         assert body["is_active"] is False
         assert body["marquee_text"] == ""
         assert body["image_url"] == ""
 
         # super_admin show_ads=True -> sesuai config tersimpan
-        r = await c.get("/api/ad-config", params={"token": _token(super_yesads)})
+        r = await c.get("/api/ad-config", headers={"Authorization": f"Bearer {_token(super_yesads)}"})
         assert r.json()["is_active"] is True
         assert r.json()["marquee_text"] == "Promo!"
 
         # guest show_ads=False -> config nonaktif
-        r = await c.get("/api/ad-config", params={"token": _token(guest_noads)})
+        r = await c.get("/api/ad-config", headers={"Authorization": f"Bearer {_token(guest_noads)}"})
         assert r.json()["is_active"] is False
 
 
@@ -184,7 +184,7 @@ async def test_ad_config_respects_api_key_show_ads(app_client):
         tok_noads = parse_qs(urlparse(r.json()["url"]).query)["session"][0]
 
         # token sesi embed kunci tanpa iklan -> config nonaktif
-        r = await c.get("/api/ad-config", params={"token": tok_noads})
+        r = await c.get("/api/ad-config", headers={"Authorization": f"Bearer {tok_noads}"})
         assert r.json()["is_active"] is False
         assert r.json()["marquee_text"] == ""
 
@@ -196,7 +196,7 @@ async def test_ad_config_respects_api_key_show_ads(app_client):
         tok_yesads = parse_qs(urlparse(r.json()["url"]).query)["session"][0]
 
         # token sesi embed kunci dengan iklan -> config aktif
-        r = await c.get("/api/ad-config", params={"token": tok_yesads})
+        r = await c.get("/api/ad-config", headers={"Authorization": f"Bearer {tok_yesads}"})
         assert r.json()["is_active"] is True
         assert r.json()["marquee_text"] == "Promo!"
 

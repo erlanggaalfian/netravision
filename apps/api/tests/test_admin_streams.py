@@ -61,8 +61,10 @@ async def test_group_crud(app_client):
 
 async def test_scan_auto(app_client):
     app, _, db = app_client
-    admin, _ = await _seed(db)
-    auth_as(app, admin)
+    await _seed(db)
+    # A-1.4: /admin/scan hanya super_admin.
+    su = await _seed_super(db)
+    auth_as(app, su)
     async with _client(app) as c:
         r = await c.post("/api/admin/scan", json={
             "brand": "auto", "host": "192.168.1.10",
@@ -76,10 +78,27 @@ async def test_scan_auto(app_client):
     assert all(c["main_url"] and c["method"] == "brand" for c in cands)
 
 
-async def test_scan_single_brand(app_client):
+async def test_scan_ditolak_admin_biasa(app_client):
+    """A-1.4: admin biasa tidak boleh memindai RTSP arbitrer."""
     app, _, db = app_client
     admin, _ = await _seed(db)
     auth_as(app, admin)
+    async with _client(app) as c:
+        r = await c.post("/api/admin/scan", json={
+            "brand": "auto", "host": "192.168.1.10",
+            "user": "admin", "password": "x", "probe": False,
+        })
+        assert r.status_code == 403, r.text
+        r = await c.post("/api/admin/scan/preview",
+                         json={"rtsp_url": "rtsp://h:554/h264Preview_01_main"})
+        assert r.status_code == 403, r.text
+
+
+async def test_scan_single_brand(app_client):
+    app, _, db = app_client
+    await _seed(db)
+    su = await _seed_super(db)
+    auth_as(app, su)
     async with _client(app) as c:
         r = await c.post("/api/admin/scan", json={
             "brand": "dahua", "host": "192.168.1.11",
@@ -94,8 +113,9 @@ async def test_scan_single_brand(app_client):
 
 async def test_scan_preview(app_client):
     app, _, db = app_client
-    admin, _ = await _seed(db)
-    auth_as(app, admin)
+    await _seed(db)
+    su = await _seed_super(db)
+    auth_as(app, su)
     async with _client(app) as c:
         r = await c.post("/api/admin/scan/preview",
                          json={"rtsp_url": "rtsp://h:554/h264Preview_01_main"})

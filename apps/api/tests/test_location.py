@@ -157,6 +157,21 @@ async def test_resolve_short_url_mock(monkeypatch):
         url = "https://www.google.com/maps/@-7.873522,111.257658,15z"
         text = ""
         status_code = 200
+        headers = {}
+
+        async def aiter_bytes(self, chunk_size=65536):
+            if False:
+                yield b""
+
+    class _FakeStreamCtx:
+        def __init__(self, resp):
+            self._resp = resp
+
+        async def __aenter__(self):
+            return self._resp
+
+        async def __aexit__(self, *a):
+            return False
 
     class _FakeClient:
         def __init__(self, *a, **k):
@@ -170,6 +185,9 @@ async def test_resolve_short_url_mock(monkeypatch):
 
         async def get(self, *a, **k):
             return _FakeResp()
+
+        def stream(self, *a, **k):
+            return _FakeStreamCtx(_FakeResp())
 
     monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
     # Cek IP publik di-resolve via DNS sungguhan; di tes tanpa jaringan
@@ -193,9 +211,25 @@ async def test_resolve_short_url_ssrf_ditolak(monkeypatch):
     class _RedirectResp:
         status_code = 302
         text = ""
+        url = "https://maps.app.goo.gl/abc123"
+        headers = {}
 
         def __init__(self, location):
             self.headers = {"location": location}
+
+        async def aiter_bytes(self, chunk_size=65536):
+            if False:
+                yield b""
+
+    class _FakeStreamCtx:
+        def __init__(self, resp):
+            self._resp = resp
+
+        async def __aenter__(self):
+            return self._resp
+
+        async def __aexit__(self, *a):
+            return False
 
     class _FakeClient:
         def __init__(self, *a, **k):
@@ -210,10 +244,57 @@ async def test_resolve_short_url_ssrf_ditolak(monkeypatch):
         async def get(self, *a, **k):
             return _RedirectResp("https://169.254.169.254/latest/meta-data/")
 
+        def stream(self, *a, **k):
+            return _FakeStreamCtx(
+                _RedirectResp("https://169.254.169.254/latest/meta-data/")
+            )
+
     monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
     monkeypatch.setattr(loc, "_ip_is_public", lambda host: True)
     got = await loc.resolve_short_url("https://maps.app.goo.gl/abc123")
     assert got is None
+
+
+async def test_geocode_cache_dua_kali_satu_http(monkeypatch):
+    """6.15: alamat yang sama di-geocode sekali; panggilan kedua
+    dijawab dari cache tanpa HTTP ke Nominatim."""
+    import httpx
+
+    import app.services.location as loc
+
+    calls = {"n": 0}
+
+    class _FakeResp:
+        status_code = 200
+
+        def json(self):
+            return [{
+                "lat": "-7.873522",
+                "lon": "111.257658",
+                "display_name": "Ponorogo, Jawa Timur",
+            }]
+
+    class _FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, *a, **k):
+            calls["n"] += 1
+            return _FakeResp()
+
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+    monkeypatch.setattr(loc, "_last_nominatim_call", 0.0)
+    first = await resolve_location("Ponorogo, Jawa Timur")
+    second = await resolve_location("Ponorogo, Jawa Timur")
+    assert (first.latitude, first.longitude) == (-7.873522, 111.257658)
+    assert second == first
+    assert calls["n"] == 1
 
 
 async def test_resolve_geocode_mock(monkeypatch):

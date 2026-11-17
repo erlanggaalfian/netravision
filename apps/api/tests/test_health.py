@@ -42,7 +42,25 @@ async def test_health_degraded_when_mediamtx_down(monkeypatch, app):
     monkeypatch.setattr(system_mod, "check_mediamtx", _bad_mtx)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         r = await c.get("/api/health")
-    assert r.status_code == 200
+    # A-1.5: komponen gagal dijawab 503, bukan 200 dengan field degraded.
+    assert r.status_code == 503
     body = r.json()
     assert body["status"] == "degraded"
     assert body["components"]["mediamtx"]["status"] == "error"
+
+
+async def test_health_cached_lima_detik(monkeypatch, app):
+    """A-1.5: hasil health di-cache 5 detik (check tidak dipanggil ulang)."""
+    calls = {"n": 0}
+
+    async def _counting_db():
+        calls["n"] += 1
+        return await _ok_db()
+
+    monkeypatch.setattr(system_mod, "check_database", _counting_db)
+    monkeypatch.setattr(system_mod, "check_mediamtx", _ok_mtx)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        r1 = await c.get("/api/health")
+        r2 = await c.get("/api/health")
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert calls["n"] == 1

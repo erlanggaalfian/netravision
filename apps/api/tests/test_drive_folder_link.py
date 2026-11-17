@@ -132,7 +132,30 @@ async def test_disks_includes_google_drive_folders(app_client, monkeypatch, tmp_
         get_settings.cache_clear()
 
 
+def _reset_mirror_state():
+    """Bersihkan state modul mirror/uploader antar-tes (pending, klaim,
+    catatan kestabilan). Tanpa ini klaim dari satu tes memblokir tes
+    lain yang memakai stream/nama segmen sama."""
+    from app.services import drive_mirror as dm
+    from app.services.drive_uploader import _SEEN_STABLE as _US
+    from app.services.upload_claims import _reset_for_tests as _rc
+
+    dm._PENDING_DELETE.clear()
+    dm._REMOTE_LS_CACHE.clear()
+    _US.clear()
+    _rc()
+
+
 def test_mirror_tick_multi_folder(monkeypatch, tmp_path):
+    """Penyalinan multi-folder; stabilitas butuh dua putaran (3.16).
+
+    Putaran pertama hanya mencatat (mtime, size); putaran kedua baru
+    menyalin karena (mtime, size) tidak berubah. Sumber TIDAK langsung
+    dihapus setelah tersalin (3.1): menunggu verifikasi remote atau
+    grace, jadi sumber masih ada setelah tick.
+    """
+    from app.services import drive_mirror as dm
+
     rec = tmp_path / "recordings" / "stream_7"
     rec.mkdir(parents=True)
     stable = rec / "2026-11-02_10-00-00.mp4"
@@ -153,20 +176,33 @@ def test_mirror_tick_multi_folder(monkeypatch, tmp_path):
     ]
     try:
         # Kamera 7 -> folder 2 saja; kamera 8 -> default (folder 1)
+        # Putaran 1: hanya mencatat kestabilan, belum menyalin.
+        _mirror_tick([(7, "Gudang", 2), (8, "Parkir", None)], folders)
+        assert not (tmp_path / "staging2" / "stream_7").exists()
+        # Putaran 2: (mtime, size) sama -> disalin.
         _mirror_tick([(7, "Gudang", 2), (8, "Parkir", None)], folders)
         assert (tmp_path / "staging2" / "stream_7" / "2026-11-02_10-00-00.mp4").exists()
         assert not (tmp_path / "staging1" / "stream_7").exists()
         assert not (tmp_path / "staging2" / "stream_7" / "2026-11-02_10-05-00.mp4").exists()
-        # idempotent
+        # Sumber belum dihapus: menunggu verifikasi remote / grace (3.1).
+        assert stable.exists()
+        # idempotent: putaran berikut tidak menggandakan staging.
         _mirror_tick([(7, "Gudang", 2)], folders)
         assert len(list((tmp_path / "staging2" / "stream_7").iterdir())) == 1
     finally:
         get_settings.cache_clear()
+        _reset_mirror_state()
 
 
 def test_mirror_hapus_sumber_setelah_tersalin(monkeypatch, tmp_path):
-    """Segmen yang sudah tersalin ke staging otomatis menghapus file
-    sumber lokalnya (perintah user 2026-11-17)."""
+    """Segmen yang sudah tersalin ke staging menghapus file sumber
+    lokalnya (perintah user 2026-11-17), TAPI hanya setelah bukti
+    upload (temuan 3.1): terverifikasi di Drive, atau grace habis.
+
+    Di sini verifikasi remote dipalsukan sukses, jadi sumber dihapus
+    pada putaran berikut setelah salinan berumur >= _VERIFY_MIN_AGE_SEC.
+    """
+    from app.services import drive_mirror as dm
     from app.services.drive_mirror import _mirror_one
 
     rec = tmp_path / "recordings" / "stream_7"
@@ -177,12 +213,82 @@ def test_mirror_hapus_sumber_setelah_tersalin(monkeypatch, tmp_path):
     os.utime(stable, (old, old))
     s = get_settings()
     monkeypatch.setattr(s, "drive_mirror_require_mount", False)
+    monkeypatch.setattr(dm, "_VERIFY_MIN_AGE_SEC", 0)
+    # Remote memuat file yang sama: verifikasi sukses.
+    monkeypatch.setattr(
+        dm, "_remote_files",
+        lambda remote_name, stream_id: {"2026-11-02_10-00-00.mp4": 100},
+    )
     try:
+        _mirror_one([str(rec)], str(tmp_path / "staging"), 7)
+        # Putaran 1: baru mencatat kestabilan, belum menyalin.
+        assert not (tmp_path / "staging" / "stream_7" / "2026-11-02_10-00-00.mp4").exists()
+        assert stable.exists()
+        _mirror_one([str(rec)], str(tmp_path / "staging"), 7)
+        # Putaran 2: tersalin + terverifikasi di Drive -> sumber dihapus.
+        assert (tmp_path / "staging" / "stream_7" / "2026-11-02_10-00-00.mp4").exists()
+        assert not stable.exists()
+    finally:
+        get_settings.cache_clear()
+        _reset_mirror_state()
+
+
+def test_mirror_tidak_hapus_sumber_tanpa_bukti(monkeypatch, tmp_path):
+    """Tanpa bukti remote dan sebelum grace habis, sumber dipertahankan
+    (temuan 3.1): salinan staging saja bukan bukti upload karena
+    `rclone mount` meng-upload asinkron."""
+    from app.services import drive_mirror as dm
+    from app.services.drive_mirror import _mirror_one
+
+    rec = tmp_path / "recordings" / "stream_7"
+    rec.mkdir(parents=True)
+    stable = rec / "2026-11-02_10-00-00.mp4"
+    stable.write_bytes(b"x" * 100)
+    old = time.time() - 60
+    os.utime(stable, (old, old))
+    s = get_settings()
+    monkeypatch.setattr(s, "drive_mirror_require_mount", False)
+    monkeypatch.setattr(dm, "_VERIFY_MIN_AGE_SEC", 0)
+    monkeypatch.setattr(dm, "_VERIFY_GRACE_SEC", 3600)
+    # Remote BELUM memuat file (mount belum sempat upload).
+    monkeypatch.setattr(dm, "_remote_files", lambda remote_name, stream_id: {})
+    try:
+        _mirror_one([str(rec)], str(tmp_path / "staging"), 7)
+        _mirror_one([str(rec)], str(tmp_path / "staging"), 7)
+        assert (tmp_path / "staging" / "stream_7" / "2026-11-02_10-00-00.mp4").exists()
+        assert stable.exists()
+    finally:
+        get_settings.cache_clear()
+        _reset_mirror_state()
+
+
+def test_mirror_hapus_sumber_setelah_grace(monkeypatch, tmp_path):
+    """Bila verifikasi remote tidak bisa dilakukan (rclone hilang) dan
+    salinan staging sudah stabil melewati grace, sumber dihapus dengan
+    catatan log (fallback 3.1)."""
+    from app.services import drive_mirror as dm
+    from app.services.drive_mirror import _mirror_one
+
+    rec = tmp_path / "recordings" / "stream_7"
+    rec.mkdir(parents=True)
+    stable = rec / "2026-11-02_10-00-00.mp4"
+    stable.write_bytes(b"x" * 100)
+    old = time.time() - 60
+    os.utime(stable, (old, old))
+    s = get_settings()
+    monkeypatch.setattr(s, "drive_mirror_require_mount", False)
+    monkeypatch.setattr(dm, "_VERIFY_MIN_AGE_SEC", 0)
+    monkeypatch.setattr(dm, "_VERIFY_GRACE_SEC", 0)
+    # Remote tidak bisa diperiksa (rclone hilang).
+    monkeypatch.setattr(dm, "_remote_files", lambda remote_name, stream_id: None)
+    try:
+        _mirror_one([str(rec)], str(tmp_path / "staging"), 7)
         _mirror_one([str(rec)], str(tmp_path / "staging"), 7)
         assert (tmp_path / "staging" / "stream_7" / "2026-11-02_10-00-00.mp4").exists()
         assert not stable.exists()
     finally:
         get_settings.cache_clear()
+        _reset_mirror_state()
 
 
 def test_prune_staging_hanya_berdasarkan_umur(monkeypatch, tmp_path):

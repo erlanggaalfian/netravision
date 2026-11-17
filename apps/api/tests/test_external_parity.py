@@ -112,8 +112,9 @@ async def test_stream_tanpa_sub(app_client):
         )
         assert r.status_code == 200, r.text
         data = r.json()
-        # Sub transkode selalu tersedia (pola v2), walau kamera tanpa sub_url.
-        assert "/stream_12_sub/whep" in data["stream"]["webrtc_url_sub"]
+        # A-1.15: transcoder mati total (2026-11-14), sub hanya dari
+        # sub_url asli; kamera tanpa sub_url -> webrtc_url_sub None.
+        assert data["stream"]["webrtc_url_sub"] is None
         assert data["stream"]["coordinates"] is None
 
 
@@ -178,8 +179,10 @@ async def _seed_logs(db):
     logs = [
         ApiAccessLog(api_key_id=1, action="external.cameras.ok",
                      created_at=now - timedelta(days=10)),
+        # 2.7: is_denied diisi dari action (seperti _log di external.py);
+        # filter ?status=denied membaca kolom ini, bukan LIKE action.
         ApiAccessLog(api_key_id=1, action="external.stream.denied:bad_key",
-                     created_at=now - timedelta(days=1)),
+                     is_denied=True, created_at=now - timedelta(days=1)),
         ApiAccessLog(api_key_id=2, action="external.stream.ok",
                      created_at=now),
     ]
@@ -221,8 +224,14 @@ async def test_delete_logs_days(app_client):
         res = await db.execute(select(ApiAccessLog))
         remaining = res.scalars().all()
         assert len(remaining) == 2  # yang 10 hari lalu terhapus
-        # tanpa days = hapus semua
+        # A-1.25: tanpa days DAN tanpa confirm -> 400, bukan hapus semua.
         r = await c.delete("/api/admin/api-access-logs")
+        assert r.status_code == 400
+        # confirm=true menghapus semua.
+        r = await c.delete(
+            "/api/admin/api-access-logs", params={"confirm": "true"}
+        )
         assert r.status_code == 200
+        assert r.json()["deleted"] == 2
         res = await db.execute(select(ApiAccessLog))
         assert res.scalars().all() == []

@@ -254,7 +254,13 @@ async def test_verify_url_no_video(monkeypatch):
     assert (await rtsp_discovery.verify_url("rtsp://h/H.264")).status == "no_video"
 
 
-async def test_probe_rtsp_password_kosong_dicoba():
+async def test_probe_rtsp_password_kosong_dicoba(monkeypatch):
+    # 4.17: server RTSP palsu tes ini berjalan di 127.0.0.1, jadi
+    # guard probe harus diizinkan loopback khusus untuk tes ini
+    # (produksi tetap menolak loopback).
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "camera_probe_allow_loopback", True)
     """Kamera tanpa password yang menantang 401: Basic admin: (password
     kosong) HARUS dicoba dan diterima, bukan langsung auth_required.
     Server RTSP palsu: 401 bila tanpa auth, 200 bila Basic admin:."""

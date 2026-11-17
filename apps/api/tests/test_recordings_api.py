@@ -99,7 +99,7 @@ async def test_cameras_drive_tanpa_lsjson(app_client, monkeypatch, tmp_path):
         DriveUpload(
             stream_id=s.id,
             segment_name="2026-11-02_10-00-00-000000.mp4",
-            folder_id="f1",
+            folder_name="f1",
         )
     )
     await db.commit()
@@ -166,20 +166,22 @@ async def test_stream_file_playbackurl_nextplayable(app_client, monkeypatch, tmp
     _seg(str(tmp_path), s.id, "2026-11-02_10-00-00-000000.mp4")
 
     async with _client(app) as c:
+        # A-1.8: segmen palsu (bukan mp4 asli) tidak bisa dipotong
+        # ffmpeg; rentang parsial kini 500 "gagal memotong", bukan lagi
+        # segmen utuh yang disajikan diam-diam.
         r = await c.get(
             f"/api/recordings/{s.id}/stream",
             params={"start": "2026-11-02T10:15:00"},
         )
-        assert r.status_code == 200, r.text
-        assert r.headers["content-type"] == "video/mp4"
+        assert r.status_code == 500, r.text
+        assert "gagal memotong" in r.json()["detail"]
 
         r = await c.get(
             f"/api/recordings/{s.id}/file",
             params={"start": "2026-11-02T10:15:00", "end": "2026-11-02T10:20:00"},
         )
-        assert r.status_code == 200
-        assert r.headers["content-type"] == "application/octet-stream"
-        assert len(r.content) == 2048
+        assert r.status_code == 500, r.text
+        assert "gagal memotong" in r.json()["detail"]
 
         r = await c.get(
             f"/api/recordings/{s.id}/playback-url",
@@ -284,16 +286,18 @@ async def test_playback_baca_drive_rclone(app_client, monkeypatch, tmp_path):
             {"name": "bukan-segmen.txt", "size": 10, "id": "f3"},
         ]
 
-    async def _fake_download(remote_name, path):
+    async def _fake_download(remote_name, path, dest_path):
         assert remote_name == "gdrive"
         assert path == "netravision/Cam 1/2026-11-02_10-00-00-000000.mp4"
         # Unduh utuh sekali (perintah user 2026-11-17: percepat Putar
-        # Ulang); Range dilayani dari memori, bukan satu `rclone cat`
-        # per potongan 1 MB.
-        return b"v" * 5000
+        # Ulang); Range dilayani dari disk, bukan satu `rclone cat`
+        # per potongan 1 MB, dan bukan dari RAM (temuan 3.5).
+        with open(dest_path, "wb") as f:
+            f.write(b"v" * 5000)
+        return 5000
 
     monkeypatch.setattr(gr, "list_rclone_files", _fake_list)
-    monkeypatch.setattr(gr, "download_rclone_file", _fake_download)
+    monkeypatch.setattr(gr, "download_rclone_file_to", _fake_download)
 
     async with _client(app) as c:
         # Timeline memuat 2 segmen rclone.
@@ -328,7 +332,8 @@ async def test_playback_rclone_satu_unduhan_untuk_file_besar(
     Perintah user 2026-11-17 (Putar Ulang "Memuat video..." sangat
     lambat): sebelumnya tiap potongan 1 MB memicu satu proses `rclone
     cat` baru, jadi segmen 3 MB berarti 3 proses berurutan. Kini
-    `download_rclone_file` dipanggil sekali, Range dilayani dari memori.
+    `download_rclone_file_to` dipanggil sekali, Range dilayani dari
+    disk (temuan 3.5: bukan dari RAM).
     """
     from app.models.drive import GoogleDriveFolder
     from app.services import gdrive_rclone as gr
@@ -354,12 +359,14 @@ async def test_playback_rclone_satu_unduhan_untuk_file_besar(
             {"name": "2026-11-02_10-00-00-000000.mp4", "size": 3 * 1024 * 1024, "id": "f1"},
         ]
 
-    async def _fake_download(remote_name, path):
+    async def _fake_download(remote_name, path, dest_path):
         calls["n"] += 1
-        return b"v" * (3 * 1024 * 1024)
+        with open(dest_path, "wb") as f:
+            f.write(b"v" * (3 * 1024 * 1024))
+        return 3 * 1024 * 1024
 
     monkeypatch.setattr(gr, "list_rclone_files", _fake_list)
-    monkeypatch.setattr(gr, "download_rclone_file", _fake_download)
+    monkeypatch.setattr(gr, "download_rclone_file_to", _fake_download)
 
     async with _client(app) as c:
         r = await c.get(
@@ -510,6 +517,124 @@ async def test_download_range_validasi_dan_kosong(app_client, monkeypatch, tmp_p
             params={"start": "2026-11-02T12:00:00", "end": "2026-11-02T12:10:00"},
         )
         assert r.status_code == 404, r.text
+
+
+async def test_dates_drive_tanpa_lsjson(app_client, monkeypatch, tmp_path):
+    """6.5: GET /dates kamera Drive dijawab dari drive_uploads
+    (listdir lokal + jejak upload), TANPA _all_segments penuh."""
+    from app.models.drive import DriveUpload
+
+    app, _, db = app_client
+    admin = make_user()
+    db.add(admin)
+    s = Stream(
+        name="Cam Drive",
+        rtsp_url="rtsp://x/9",
+        main_url="rtsp://x/9",
+        is_active=True,
+        recording_enabled=True,
+        storage_mode="drive",
+        created_by=admin.id,
+    )
+    db.add(s)
+    await db.flush()
+    db.add(
+        DriveUpload(
+            stream_id=s.id,
+            segment_name="2026-11-02_10-00-00-000000.mp4",
+            folder_name="f1",
+        )
+    )
+    await db.commit()
+    auth_as(app, admin)
+    monkeypatch.setattr(get_settings(), "recordings_dir", str(tmp_path))
+
+    import app.routers.recordings as rec
+
+    async def _boom(*args, **kwargs):
+        raise AssertionError("_all_segments tidak boleh dipanggil")
+
+    monkeypatch.setattr(rec, "_all_segments", _boom)
+
+    async with _client(app) as cl:
+        r = await cl.get(f"/api/recordings/{s.id}/dates")
+        assert r.status_code == 200, r.text
+        assert r.json() == {"dates": ["2026-11-02"]}
+
+
+async def test_playback_url_tanpa_pindai_penuh(app_client, monkeypatch, tmp_path):
+    """6.3: playback-url hanya memindai jendela hari-1..hari+1,
+    bukan seluruh riwayat (_all_segments tanpa hari)."""
+    import app.routers.recordings as rec
+
+    app, _, db = app_client
+    s = await _seed(app, db, monkeypatch, tmp_path)
+    _seg(str(tmp_path), s.id, "2026-11-02_10-00-00-000000.mp4")
+
+    seen_days = []
+    orig = rec._all_segments
+
+    async def _spy(stream, day, db):
+        seen_days.append(day)
+        return await orig(stream, day, db)
+
+    monkeypatch.setattr(rec, "_all_segments", _spy)
+
+    async with _client(app) as c:
+        r = await c.get(
+            f"/api/recordings/{s.id}/playback-url",
+            params={"time": "2026-11-02T09:00:00"},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["url"].startswith(f"/api/recordings/{s.id}/file?")
+    assert seen_days, "playback-url harus memindai jendela hari"
+    assert all(d is not None for d in seen_days), seen_days
+    assert set(seen_days) <= {
+        date(2026, 11, 1), date(2026, 11, 2), date(2026, 11, 3),
+    }, seen_days
+
+
+async def test_playback_oauth_satu_unduhan(app_client, monkeypatch, tmp_path):
+    """6.1: segmen Drive-OAuth 3 MB disajikan dengan SATU get_media
+    (download_drive_file), bukan satu panggilan per potongan 1 MB."""
+    from tests.test_drive import FakeDrive, _settings as _drive_settings
+
+    from app.services.drive import DriveUploader
+
+    app, _, db = app_client
+    s = await _seed(app, db, monkeypatch, tmp_path)
+    s.storage_mode = "drive"
+    await db.commit()
+
+    svc = FakeDrive()
+    up = DriveUploader(settings=_drive_settings(), service=svc)
+    folder_id = await up.ensure_folder(s.name, s.id)
+    name = "2026-11-02_10-00-00-000000.mp4"
+    svc._files[(folder_id, name)] = {
+        "id": "f-oauth-1",
+        "name": name,
+        "size": 3 * 1024 * 1024,
+        "createdTime": "",
+        "content": b"v" * (3 * 1024 * 1024),
+    }
+
+    async def _fake_uploader(db, stream):
+        return up
+
+    import app.services.drive_accounts as da
+
+    monkeypatch.setattr(da, "uploader_for_stream", _fake_uploader)
+    monkeypatch.setattr(get_settings(), "drive_enabled", True)
+
+    async with _client(app) as c:
+        # Segmen utuh (10:00-10:10) supaya tidak perlu potong ffmpeg.
+        r = await c.get(
+            f"/api/recordings/{s.id}/file",
+            params={"start": "2026-11-02T10:00:00", "end": "2026-11-02T10:10:00"},
+        )
+        assert r.status_code == 200, r.text
+        assert len(r.content) == 3 * 1024 * 1024
+    assert svc.media_calls == 1, svc.media_calls
 
 
 async def test_download_range_recordings_dir_relatif(app_client, monkeypatch, tmp_path):

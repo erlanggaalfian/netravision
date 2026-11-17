@@ -21,6 +21,31 @@ async def _seed(db):
     return admin, op
 
 
+async def test_list_users_paginasi_sql(app_client):
+    """6.11: ?limit=&offset= memotong di SQL dengan total di header
+    X-Total-Count; tanpa limit, daftar penuh seperti sebelumnya."""
+    app, _, db = app_client
+    admin, op = await _seed(db)
+    third = make_user(id=3, username="tiga", role="user", admin_group="grup-jakarta")
+    db.add(third)
+    await db.commit()
+    auth_as(app, admin)
+
+    async with _client(app) as c:
+        r = await c.get("/api/admin/users", params={"limit": 2, "offset": 0})
+        assert r.status_code == 200, r.text
+        assert len(r.json()) == 2
+        assert r.headers.get("X-Total-Count") == "3"
+
+        r = await c.get("/api/admin/users", params={"limit": 2, "offset": 2})
+        assert r.status_code == 200, r.text
+        assert len(r.json()) == 1
+
+        r = await c.get("/api/admin/users")
+        assert r.status_code == 200, r.text
+        assert len(r.json()) == 3
+
+
 async def test_user_crud(app_client):
     app, _, db = app_client
     admin, _ = await _seed(db)
