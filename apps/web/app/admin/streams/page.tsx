@@ -439,7 +439,16 @@ export default function AdminStreamsPage() {
         const on = status.get(s.id) ?? s.is_online;
         if ((statusF === "online") !== on) return false;
       }
-      if (groupF !== "all" && !(effectiveGroupMap[s.id] || []).includes(groupF))
+      if (groupF === "none") {
+        /* "Tanpa grup": hanya kamera yang tidak punya grup sama sekali.
+           Untuk admin biasa hasilnya kosong (scoping per grup menyembunyikan
+           kamera tanpa grup), jadi opsi ini praktis hanya berguna untuk
+           super_admin. */
+        if ((effectiveGroupMap[s.id] || []).length > 0) return false;
+      } else if (
+        groupF !== "all" &&
+        !(effectiveGroupMap[s.id] || []).includes(groupF)
+      )
         return false;
       return true;
     });
@@ -549,6 +558,7 @@ export default function AdminStreamsPage() {
               }}
             >
               <option value="all">Semua grup</option>
+              <option value="none">Tanpa grup</option>
               {filterGroups.map((g) => (
                 <option key={g.id} value={g.name}>
                   {g.name}
