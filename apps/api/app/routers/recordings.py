@@ -642,7 +642,16 @@ async def recording_cameras(
     rekamannya sudah dimatikan masih bisa punya rekaman lama yang bisa
     diputar. Lokal dicek dulu (murah, satu listdir); Drive hanya dicek bila
     lokal kosong dan kamera memakai storage Drive.
+
+    Perintah user 2026-11-17 (Putar Ulang sangat lambat): cek Drive memakai
+    kueri EXISTS murah ke tabel drive_uploads dulu. Sebelumnya, tiap kamera
+    Drive memanggil _all_segments yang menjalankan `rclone lsjson` (~2 detik
+    per kamera, cache 120 detik) plus list_files Google Drive API, hanya
+    untuk menjawab "ada segmen atau tidak". Fallback ke _all_segments hanya
+    bila drive_uploads kosong, supaya kamera yang segmennya hanya ada di
+    folder OAuth / staging folder-link tetap ketemu.
     """
+    from app.models.drive import DriveUpload
     from app.routers.streams import _visible_streams, stream_to_out
 
     streams = await _visible_streams(user, db)
@@ -660,6 +669,20 @@ async def recording_cameras(
             out.append(stream_to_out(s, settings))
             continue
         if s.storage_mode in ("drive", "both"):
+            # Cek murah dulu: ada jejak upload rclone di drive_uploads?
+            # (indeks stream_id; tanpa panggilan Drive API sama sekali).
+            has_upload = (
+                await db.execute(
+                    select(DriveUpload.id)
+                    .where(DriveUpload.stream_id == s.id)
+                    .limit(1)
+                )
+            ).scalars().first() is not None
+            if has_upload:
+                out.append(stream_to_out(s, settings))
+                continue
+            # Fallback mahal (hanya bila jejak upload kosong): segmen
+            # bisa saja hanya ada di folder OAuth / staging folder-link.
             segs = await _all_segments(s, None, db)
             if segs:
                 out.append(stream_to_out(s, settings))

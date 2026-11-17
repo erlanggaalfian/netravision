@@ -70,6 +70,56 @@ async def test_cameras_timeline_segments_dates(app_client, monkeypatch, tmp_path
         assert r.json() == {"dates": ["2026-11-02"]}
 
 
+async def test_cameras_drive_tanpa_lsjson(app_client, monkeypatch, tmp_path):
+    """GET /recordings/cameras: kamera Drive dikenali lewat drive_uploads.
+
+    Perintah user 2026-11-17 (Putar Ulang sangat lambat): kamera mode
+    Drive yang tidak punya segmen lokal harus tampil bila ada jejak
+    upload di drive_uploads, TANPA memanggil _all_segments (rclone
+    lsjson ~2 detik + list_files Drive API). Tes ini memastikan kamera
+    Drive muncul walau _all_segments dibuat gagal total.
+    """
+    from app.models.drive import DriveUpload
+
+    app, _, db = app_client
+    admin = make_user()
+    db.add(admin)
+    s = Stream(
+        name="Cam Drive",
+        rtsp_url="rtsp://x/9",
+        main_url="rtsp://x/9",
+        is_active=True,
+        recording_enabled=True,
+        storage_mode="drive",
+        created_by=admin.id,
+    )
+    db.add(s)
+    await db.flush()
+    db.add(
+        DriveUpload(
+            stream_id=s.id,
+            segment_name="2026-11-02_10-00-00-000000.mp4",
+            folder_id="f1",
+        )
+    )
+    await db.commit()
+    auth_as(app, admin)
+    monkeypatch.setattr(get_settings(), "recordings_dir", str(tmp_path))
+
+    import app.routers.recordings as rec
+
+    async def _boom(*args, **kwargs):
+        raise AssertionError("_all_segments tidak boleh dipanggil")
+
+    monkeypatch.setattr(rec, "_all_segments", _boom)
+
+    async with _client(app) as cl:
+        r = await cl.get("/api/recordings/cameras")
+        assert r.status_code == 200, r.text
+        ids = {k["id"] for k in r.json()}
+        assert s.id in ids
+
+
 async def test_cameras_hanya_yang_punya_segmen(app_client, monkeypatch, tmp_path):
     """GET /recordings/cameras hanya kembalikan kamera yang punya segmen.
 
