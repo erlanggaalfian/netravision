@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.rbac import _user_from_token
-from app.core.security import decode_token
+from app.core.security import ACCESS_COOKIE, decode_token
 from app.db.session import get_db, get_session_factory
 from app.routers.streams import _visible_streams
 
@@ -128,6 +128,11 @@ async def ws_endpoint(
         except Exception:
             pass
 
+    # T-2: token dibaca dari cookie HttpOnly dulu (browser mengirimnya
+    # otomatis saat handshake same-origin); ?token= tetap diterima
+    # sebagai fallback.
+    if not token:
+        token = websocket.cookies.get(ACCESS_COOKIE)
     if not token:
         await _reject_unauthorized()
         return

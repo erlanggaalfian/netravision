@@ -6,13 +6,13 @@ super_admin adalah kuasa penuh (KUASA_PENUH v2.0): lolos semua gerbang peran.
 
 from collections.abc import Callable
 
-from fastapi import Depends, HTTPException, Query, status
+from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.security import decode_token
+from app.core.security import ACCESS_COOKIE, decode_token
 from app.db.session import get_db
 from app.models.access import StreamAdminGrant, StreamPermission, UserStreamAccess
 from app.models.streams import Stream
@@ -87,23 +87,36 @@ async def _user_from_token(raw: str, db: AsyncSession) -> User:
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    request: Request = None,  # type: ignore[assignment]
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    if credentials is None:
+    # T-2: token dibaca dari cookie HttpOnly dulu bila header tidak ada;
+    # header Authorization tetap diterima sebagai fallback (klien API,
+    # skrip, dan tes lama).
+    raw = credentials.credentials if credentials else None
+    if not raw and request is not None:
+        raw = request.cookies.get(ACCESS_COOKIE)
+    if not raw:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="butuh login")
-    return await _user_from_token(credentials.credentials, db)
+    return await _user_from_token(raw, db)
 
 
 async def get_current_user_flexible(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     token: str | None = Query(default=None),
+    request: Request = None,  # type: ignore[assignment]
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Terima token via header Authorization ATAU query ?token=.
+    """Terima token via header Authorization, cookie HttpOnly, ATAU query ?token=.
 
     Diperlukan untuk <img src> (poster kamera) yang tidak bisa mengirim header.
     """
-    raw = credentials.credentials if credentials else token
+    # T-2: urutan header, cookie, lalu query (perilaku lama: header/query).
+    raw = credentials.credentials if credentials else None
+    if not raw and request is not None:
+        raw = request.cookies.get(ACCESS_COOKIE)
+    if not raw:
+        raw = token
     if not raw:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="butuh login")
     return await _user_from_token(raw, db)

@@ -1,6 +1,10 @@
 """Auth: login, refresh (rotation), logout, guest.
 
 Path dipertahankan persis seperti v2.0: POST /api/auth/login|refresh|logout|guest.
+
+T-2: login/refresh/guest menerbitkan token sebagai cookie HttpOnly
+(nv_access, nv_refresh); refresh juga membaca cookie itu, dengan body
+JSON sebagai fallback klien API. Logout menghapus kedua cookie.
 """
 
 import hmac
@@ -8,7 +12,7 @@ import logging
 import secrets
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +20,8 @@ from app.core.config import get_settings
 from app.core.rate_limit import client_ip, rate_limited
 from app.core.rbac import get_current_user
 from app.core.security import (
+    ACCESS_COOKIE,
+    REFRESH_COOKIE,
     create_access_token,
     create_refresh_token,
     decode_token,
@@ -25,7 +31,7 @@ from app.core.security import (
 )
 from app.db.session import get_db
 from app.models.users import User
-from app.schemas.auth import GuestIn, LoginIn, RefreshIn, TokenOut
+from app.schemas.auth import GuestIn, LoginIn, TokenOut
 
 router = APIRouter(tags=["auth"])
 log = logging.getLogger("netravision.auth")
@@ -73,6 +79,55 @@ def _login_succeeded(username: str, ip: str) -> None:
 def reset_login_attempts() -> None:
     """Kosongkan kunci login (dipakai test agar antar-test terisolasi)."""
     _login_failures.clear()
+
+
+# T-2: cookie HttpOnly untuk token. Secure hanya bila request lewat HTTPS
+# (di belakang Apache produksi selalu HTTPS; di demo/dev HTTP lokal
+# cookie tetap terkirim karena Secure=False). SameSite=Lax: cookie ikut
+# pada navigasi top-level dan request same-site, tapi tidak pada request
+# cross-site biasa. Frontend adalah static export satu origin dengan API
+# (proxy /api/* yang sama), jadi cookie first-party ini selalu terkirim.
+def _cookie_secure(request: Request) -> bool:
+    return request.url.scheme == "https"
+
+
+def _set_auth_cookies(
+    response: Response,
+    request: Request,
+    access: str,
+    refresh: str | None,
+    expires_in: int,
+) -> None:
+    secure = _cookie_secure(request)
+    response.set_cookie(
+        ACCESS_COOKIE,
+        access,
+        max_age=expires_in,
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        path="/",
+    )
+    if refresh:
+        settings = get_settings()
+        response.set_cookie(
+            REFRESH_COOKIE,
+            refresh,
+            max_age=settings.jwt_refresh_days * 86400,
+            httponly=True,
+            secure=secure,
+            samesite="lax",
+            path="/api/auth",
+        )
+    else:
+        # Tamu tidak punya refresh token: hapus cookie refresh basi
+        # dari sesi sebelumnya supaya tidak ikut terkirim.
+        response.delete_cookie(REFRESH_COOKIE, path="/api/auth")
+
+
+def _clear_auth_cookies(response: Response) -> None:
+    response.delete_cookie(ACCESS_COOKIE, path="/")
+    response.delete_cookie(REFRESH_COOKIE, path="/api/auth")
 # 4.2: grace window dipersempit dari 60 detik menjadi 10 detik.
 # Fungsinya hanya menahan race refresh bersamaan (dua request dengan
 # token yang sama meluncur bersamaan, mis. retry klien / double-submit);
@@ -198,7 +253,10 @@ def _token_pair(user: User) -> TokenOut:
     dependencies=[Depends(rate_limited(5, 60))],
 )
 async def login(
-    data: LoginIn, request: Request, db: AsyncSession = Depends(get_db)
+    data: LoginIn,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
 ) -> TokenOut:
     ip = client_ip(request)
     if _login_locked(data.username, ip):
@@ -223,6 +281,10 @@ async def login(
     _login_succeeded(data.username, ip)
     pair = _token_pair(user)
     await db.commit()
+    # T-2: token juga diterbitkan sebagai cookie HttpOnly; body TokenOut
+    # dipertahankan supaya klien API (non-browser) tetap bisa memakai
+    # header Authorization seperti sebelumnya.
+    _set_auth_cookies(response, request, pair.access_token, pair.refresh_token, pair.expires_in)
     return pair
 
 
@@ -231,10 +293,35 @@ async def login(
     response_model=TokenOut,
     dependencies=[Depends(rate_limited(20, 60))],
 )
-async def refresh(data: RefreshIn, db: AsyncSession = Depends(get_db)) -> TokenOut:
+async def refresh(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> TokenOut:
+    """Rotasi refresh token. Token dibaca dari body JSON
+    {"refresh_token": ...} bila ada (klien API dan tes lama), bila tidak
+    dari cookie HttpOnly (browser). Body sengaja dibaca manual (bukan
+    lewat skema RefreshIn) agar body kosong {} dari browser yang memakai
+    cookie tidak ditolak validasi 422. Urutan ini penting: token body
+    yang eksplisit harus menang atas cookie, supaya pemakaian ulang
+    token lama tetap terdeteksi walau klien juga menyimpan cookie baru.
+    """
     settings = get_settings()
+    raw_token = None
     try:
-        payload = decode_token(data.refresh_token, settings)
+        body = await request.json()
+    except Exception:
+        body = {}
+    if isinstance(body, dict):
+        raw_token = body.get("refresh_token")
+    if not raw_token:
+        raw_token = request.cookies.get(REFRESH_COOKIE)
+    if not raw_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="refresh ditolak"
+        )
+    try:
+        payload = decode_token(raw_token, settings)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e)) from e
     if payload.get("type") != "refresh":
@@ -246,7 +333,7 @@ async def refresh(data: RefreshIn, db: AsyncSession = Depends(get_db)) -> TokenO
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token tidak valid")
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalars().first()
-    presented = hash_token(data.refresh_token)
+    presented = hash_token(raw_token)
     presented_jti = payload.get("jti")
     # 4.2: token aktif harus cocok hash-nya DAN jti-nya (bila jti
     # tersimpan; token terbitan sebelum migrasi 0026 tidak punya jti
@@ -302,12 +389,15 @@ async def refresh(data: RefreshIn, db: AsyncSession = Depends(get_db)) -> TokenO
     _grace_remember(user.id, old_hash, old_jti)
     _rotated_remember(user.id, old_hash)
     await db.commit()
+    _set_auth_cookies(response, request, pair.access_token, pair.refresh_token, pair.expires_in)
     return pair
 
 
 @router.post("/auth/logout")
 async def logout(
-    user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    response: Response,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     if user.id:  # guest ephemeral tidak punya baris DB
         result = await db.execute(select(User).where(User.id == user.id))
@@ -315,6 +405,8 @@ async def logout(
         if db_user is not None:
             revoke_refresh_sessions(db_user)
             await db.commit()
+    # T-2: hapus cookie auth di browser, walau sesi sudah mati.
+    _clear_auth_cookies(response)
     return {"ok": True}
 
 
@@ -343,7 +435,12 @@ async def _guest_login_enabled(db: AsyncSession) -> bool:
     response_model=TokenOut,
     dependencies=[Depends(rate_limited(5, 60))],
 )
-async def guest(data: GuestIn, db: AsyncSession = Depends(get_db)) -> TokenOut:
+async def guest(
+    data: GuestIn,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> TokenOut:
     """Login tamu untuk semua pengunjung — tanpa password, tanpa
     autentikasi apapun (2026-11-06). Nonaktif bila baris guest di DB
     is_active False (diatur superadmin lewat web); bila baris belum
@@ -354,7 +451,11 @@ async def guest(data: GuestIn, db: AsyncSession = Depends(get_db)) -> TokenOut:
         )
     settings = get_settings()
     access = create_access_token("guest", "guest", "guest", settings, expires_minutes=60)
-    return TokenOut(access_token=access, refresh_token=None, expires_in=3600)
+    out = TokenOut(access_token=access, refresh_token=None, expires_in=3600)
+    # T-2: access token tamu sebagai cookie HttpOnly; refresh tidak ada,
+    # jadi cookie refresh basi ikut dihapus oleh _set_auth_cookies.
+    _set_auth_cookies(response, request, access, None, 3600)
+    return out
 
 
 @router.get("/auth/me")

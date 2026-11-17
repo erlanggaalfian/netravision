@@ -1,27 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { getAccessToken, isGuestSession, tryGuestLogin, tryRefresh } from "../lib/api";
+import { isGuestSession, tryGuestLogin, tryRefresh } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import type { StatusChange, Stream } from "../lib/types";
 
-/* Hook status kamera real-time via WebSocket /ws. */
-
-const TOKEN_REFRESH_MARGIN_MS = 60_000;
-
-/* Kedaluwarsa access token (ms sejak epoch) dari klaim exp JWT, tanpa
-   pustaka: token yang tidak bisa dibaca dianggap tidak kedaluwarsa agar
-   server yang memutuskan (tutup 4401 -> refresh). */
-function getTokenExpiryMs(token: string): number | null {
-  try {
-    const payload = JSON.parse(
-      atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")),
-    ) as { exp?: number };
-    return typeof payload.exp === "number" ? payload.exp * 1000 : null;
-  } catch {
-    return null;
-  }
-}
+/* Hook status kamera real-time via WebSocket /ws.
+   T-2: token TIDAK LAGI dikirim lewat ?token= (tidak ada token di
+   localStorage). Browser mengirim cookie HttpOnly otomatis saat
+   handshake WebSocket same-origin; server membaca cookie itu
+   (lihat routers/ws.py, perubahan koordinator). */
 
 /* Pulihkan sesi lewat jalur yang sama seperti HTTP: sesi guest login
    ulang sebagai guest (refresh token guest memang null), sesi biasa
@@ -55,26 +43,9 @@ export function useCameraStatus() {
     };
 
     const connect = async () => {
-      let token = getAccessToken();
-      /* Jangan menyambung dengan token yang sudah kedaluwarsa atau
-         tinggal <60 detik: server akan menutup (4401) dan hook akan
-         berputar memakai token basi yang sama. Refresh dulu. */
-      const exp = token ? getTokenExpiryMs(token) : null;
-      if (token && exp !== null && exp - Date.now() < TOKEN_REFRESH_MARGIN_MS) {
-        await healSession();
-        if (cancelled) return;
-        token = getAccessToken();
-      }
-      if (!token) {
-        // Token belum ada (mis. re-login guest AuthProvider masih jalan):
-        // jangan return mati, jadwalkan percobaan ulang.
-        scheduleReconnect();
-        return;
-      }
       const proto = location.protocol === "https:" ? "wss" : "ws";
-      const ws = new WebSocket(
-        `${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`,
-      );
+      // Cookie HttpOnly ikut otomatis pada handshake same-origin.
+      const ws = new WebSocket(`${proto}://${location.host}/ws`);
       wsRef.current = ws;
       let opened = false;
 

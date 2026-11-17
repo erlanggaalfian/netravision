@@ -40,9 +40,20 @@ class SecurityHeadersMiddleware:
 
         async def send_with_headers(message):
             if message["type"] == "http.response.start":
-                headers = dict(message.get("headers", []))
+                # T-2: JANGAN ubah header jadi dict: dict meruntuhkan
+                # header multi-nilai (mis. dua Set-Cookie untuk
+                # nv_access dan nv_refresh) menjadi satu. Pertahankan
+                # daftar mentah, hanya ganti header keamanan yang sama.
+                managed = {k.lower() for k in _HEADERS}
+                managed.add("strict-transport-security")
+                managed.add("content-security-policy")
+                headers = [
+                    (k, v)
+                    for k, v in message.get("headers", [])
+                    if k.decode("latin-1").lower() not in managed
+                ]
                 for name, value in _HEADERS.items():
-                    headers[name.lower().encode("latin-1")] = value.encode("latin-1")
+                    headers.append((name.lower().encode("latin-1"), value.encode("latin-1")))
                 # 4.16: HSTS hanya untuk respons yang datang lewat HTTPS.
                 scheme = scope.get("scheme", "http")
                 fwd_proto = ""
@@ -51,11 +62,15 @@ class SecurityHeadersMiddleware:
                         fwd_proto = v.decode("latin-1").strip().lower()
                         break
                 if scheme == "https" or fwd_proto == "https":
-                    headers[b"strict-transport-security"] = _HSTS.encode("latin-1")
+                    headers.append(
+                        (b"strict-transport-security", _HSTS.encode("latin-1"))
+                    )
                 # 4.16: CSP ketat untuk file statis /api/uploads.
                 if (scope.get("path", "") or "").startswith("/api/uploads"):
-                    headers[b"content-security-policy"] = _CSP_UPLOADS.encode("latin-1")
-                message = {**message, "headers": list(headers.items())}
+                    headers.append(
+                        (b"content-security-policy", _CSP_UPLOADS.encode("latin-1"))
+                    )
+                message = {**message, "headers": headers}
             await send(message)
 
         await self.app(scope, receive, send_with_headers)

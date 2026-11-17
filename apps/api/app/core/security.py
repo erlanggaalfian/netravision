@@ -3,6 +3,9 @@
 - Access token: umur pendek (default 15 menit), dipakai di header Authorization.
 - Refresh token: umur panjang (default 7 hari), hash-nya disimpan di DB dan
   dirotasi setiap dipakai (refresh rotation).
+- T-2: token juga diterbitkan sebagai cookie HttpOnly (nv_access,
+  nv_refresh) supaya JavaScript tidak bisa membacanya dari localStorage.
+  Header Authorization tetap diterima sebagai fallback untuk klien API.
 - decode_token menolak token tanpa exp/iat/sub (token abadi atau tanpa
   pemilik tidak pernah sah) dan hanya menerima algoritma yang dikonfigurasi.
 - redact_url_credentials: satu-satunya tempat menyembunyikan kredensial
@@ -24,6 +27,12 @@ from app.core.config import Settings
 # Eksplisit bcrypt (kompatibel dengan hash v2.0); bukan recommended() karena
 # itu butuh argon2 bila terinstal dan perilakunya bisa berubah antar env.
 _hasher = PasswordHash((BcryptHasher(),))
+
+# T-2: nama cookie HttpOnly untuk token. Access dikirim ke semua path
+# (termasuk /ws saat handshake), refresh dibatasi ke /api/auth supaya
+# tidak ikut terkirim ke setiap request API.
+ACCESS_COOKIE = "nv_access"
+REFRESH_COOKIE = "nv_refresh"
 
 # Batas umur access token yang boleh diminta pemanggil (menit). Guest memakai
 # 60 menit; tidak ada pemanggil sah yang butuh lebih dari sehari.

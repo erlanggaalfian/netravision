@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api, clearTokens, getAccessToken, isGuestSession, setGuestSession, setTokens } from "./api";
+import { api, clearSession, isGuestSession, setGuestSession } from "./api";
 import type { User } from "./types";
 
 /* Peran dengan hak admin penuh di UI (paritas v2.0: super_admin = kuasa penuh). */
@@ -26,13 +26,6 @@ interface AuthCtx {
 
 const Ctx = createContext<AuthCtx | null>(null);
 
-interface TokenPair {
-  access_token: string;
-  // Guest mendapat refresh_token null dari backend; setTokens tidak
-  // pernah menyimpannya sebagai string literal "null".
-  refresh_token: string | null;
-}
-
 async function fetchMe(): Promise<User | null> {
   try {
     return await api.get<User>("/auth/me");
@@ -46,32 +39,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Sesi guest lama (sebelum flag nv_guest ada) ditandai refresh token
-    // "null"; isGuestSession() sudah mengenalinya.
-    const wasGuest = () => isGuestSession();
+    // T-2: sesi dikenali lewat cookie HttpOnly, bukan token di
+    // localStorage. Boot selalu mencoba /auth/me (cookie ikut otomatis);
+    // bila gagal dan sebelumnya sesi guest, login ulang diam-diam.
     const boot = async () => {
       try {
-        if (!getAccessToken()) {
-          // Tanpa token tapi sebelumnya sesi guest: login ulang diam-diam
-          // (guest tanpa autentikasi; jangan lempar ke halaman login).
-          if (wasGuest() && !window.location.pathname.startsWith("/login")) {
-            try {
-              await loginGuest();
-            } catch {
-              /* gagal (mis. guest nonaktif / jaringan mati): biarkan login manual */
-            }
-          }
-          return;
-        }
         const u = await fetchMe();
         if (u) {
           setUser(u);
-        } else if (wasGuest() && !window.location.pathname.startsWith("/login")) {
-          // Token mati/kedaluwarsa tapi sebelumnya sesi guest: pulihkan diam-diam.
+        } else if (
+          isGuestSession() &&
+          !window.location.pathname.startsWith("/login")
+        ) {
           try {
             await loginGuest();
           } catch {
-            /* gagal: biarkan login manual */
+            /* gagal (mis. guest nonaktif / jaringan mati): biarkan login manual */
           }
         }
       } finally {
@@ -83,30 +66,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {
-    const data = await api.post<TokenPair & { user: User }>("/auth/login", {
-      username,
-      password,
-    });
-    setTokens(data.access_token, data.refresh_token);
+    // T-2: backend mengatur cookie HttpOnly; respons login tidak
+    // disimpan ke mana pun, profil dibaca lewat /auth/me.
+    await api.post("/auth/login", { username, password });
     setGuestSession(false);
-    setUser(data.user ?? (await fetchMe()));
+    setUser(await fetchMe());
   }, []);
 
   const loginGuest = useCallback(async () => {
-    const data = await api.post<TokenPair & { user: User }>("/auth/guest", {});
-    setTokens(data.access_token, data.refresh_token);
+    await api.post("/auth/guest", {});
     setGuestSession(true);
-    setUser(data.user ?? (await fetchMe()));
+    setUser(await fetchMe());
   }, []);
 
   const logout = useCallback(async () => {
     try {
+      // Server menghapus cookie HttpOnly.
       await api.post("/auth/logout", {});
     } catch {
       /* abaikan */
     }
-    clearTokens();
-    setGuestSession(false);
+    clearSession();
     setUser(null);
   }, []);
 
