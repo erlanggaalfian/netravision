@@ -78,8 +78,9 @@ export function AppShell({ children }: { children: ReactNode }) {
      Keluar selama proses supaya tidak diklik ganda. */
   const [loggingOut, setLoggingOut] = useState(false);
   /* Diam 1 jam tanpa gerakan -> minta login lagi; selama masih ada
-     pengoperasian, sesi tidak putus. */
-  useIdleLogout();
+     pengoperasian, sesi tidak putus. F3.6: hook mengembalikan status
+     peringatan supaya banner hitung mundur bisa dirender di sini. */
+  const { idleWarning, idleSecondsLeft, stayLoggedIn } = useIdleLogout();
 
   const items = NAV.filter((n) => !n.adminOnly || isAdminRole(user?.role));
 
@@ -96,9 +97,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       <aside className="hidden w-64 shrink-0 flex-col border-r border-ink-800 bg-ink-900 md:flex">
         <div className="flex items-center gap-3 px-5 pb-1 pt-6">
           {/* eslint-disable-next-line @next/next/no-img-element */}
+          {/* F5.11: turunan kecil logo-96.webp (4,1 KB), bukan logo.png 174 KB. */}
           <img
-            src="/icons/logo.png"
+            src="/icons/logo-96.webp"
             alt="Logo NetraVision"
+            width={40}
+            height={40}
             className="h-10 w-10 object-contain"
           />
           <div>
@@ -125,7 +129,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 aria-current={active ? "page" : undefined}
                 className={`flex min-h-[44px] items-center gap-3 rounded-xl px-4 py-2.5 text-sm transition-colors duration-150 active:scale-[0.98] ${
                   active
-                    ? "bg-accent-500/10 font-semibold text-accent-500"
+                    ? "bg-gradient-to-r from-accent-600 to-accent-500 font-semibold text-onaccent"
                     : "font-medium text-slate-400 hover:bg-ink-800 hover:text-slate-200"
                 }`}
               >
@@ -138,7 +142,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className="mt-auto border-t border-ink-800 p-4">
           <div className="mb-3 flex items-center gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-500/10 text-xs font-bold uppercase text-accent-500">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-500/10 text-xs font-bold uppercase text-accent-text">
               {(user?.username ?? "?").slice(0, 1)}
             </span>
             <div className="min-w-0">
@@ -169,9 +173,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         <header className="flex items-center justify-between border-b border-ink-800 bg-ink-900 px-4 py-3 md:hidden">
           <div className="flex items-center gap-2.5">
             {/* eslint-disable-next-line @next/next/no-img-element */}
+            {/* F5.11: turunan kecil logo-64.webp (2,6 KB), bukan logo.png 174 KB. */}
             <img
-              src="/icons/logo.png"
+              src="/icons/logo-64.webp"
               alt="Logo NetraVision"
+              width={32}
+              height={32}
               className="h-8 w-8 object-contain"
             />
             <div>
@@ -200,9 +207,36 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <main className="min-w-0 flex-1 pb-[72px] md:pb-8">{children}</main>
 
-        {/* Tab bar mobile: putih menempel bawah */}
+        {/* F3.6: peringatan sebelum logout paksa karena diam, dengan
+            tombol "Tetap masuk". Sesi guest tidak pernah sampai ke sini
+            (guest diperbarui diam-diam di hook). */}
+        {idleWarning && (
+          <div
+            role="alertdialog"
+            aria-live="assertive"
+            aria-label="Sesi hampir berakhir"
+            className="fixed inset-x-3 bottom-[76px] z-[80] flex flex-col gap-3 rounded-2xl bg-ink-800 p-4 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.5)] ring-1 ring-ink-600/40 sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[380px] md:bottom-6"
+          >
+            <p className="text-sm font-semibold text-slate-100">
+              Sesi Anda akan berakhir dalam {idleSecondsLeft} detik
+            </p>
+            <p className="text-xs text-slate-400">
+              Tidak ada aktivitas selama hampir 1 jam. Ketuk Tetap masuk
+              supaya sesi tidak putus.
+            </p>
+            <button
+              onClick={stayLoggedIn}
+              className="flex min-h-[48px] w-full cursor-pointer items-center justify-center rounded-xl bg-gradient-to-b from-accent-500 to-accent-600 px-4 text-sm font-semibold text-onaccent transition active:scale-[0.98]"
+            >
+              Tetap masuk
+            </button>
+          </div>
+        )}
+
+        {/* Tab bar mobile: PUTIH menempel bawah di kedua tema
+            (keputusan pengguna), dengan padding safe-area. */}
         <nav
-          className="fixed inset-x-0 bottom-0 z-40 flex border-t border-ink-800 bg-ink-900 px-2 pt-1 md:hidden"
+          className="fixed inset-x-0 bottom-0 z-40 flex border-t border-[#e2e8f0] bg-[#ffffff] px-2 pb-[env(safe-area-inset-bottom)] pt-1 md:hidden"
           aria-label="Navigasi utama"
         >
           {items
@@ -215,8 +249,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                 href={n.href}
                 prefetch={n.noPrefetch ? false : undefined}
                 aria-current={active ? "page" : undefined}
-                className={`flex min-h-[56px] flex-1 cursor-pointer flex-col items-center justify-center gap-1 text-[10px] font-medium leading-tight transition-colors duration-150 active:scale-95 ${
-                  active ? "text-accent-500" : "text-slate-400"
+                className={`flex min-h-[56px] flex-1 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl text-[11px] font-medium leading-tight transition-colors duration-150 active:scale-95 ${
+                  active ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent" : "text-[#64748b]"
                 }`}
               >
                 {n.icon}

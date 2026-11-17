@@ -23,9 +23,15 @@ import type { RefObject } from "react";
 import type { AdConfig, Stream } from "../../lib/types";
 
 /* Monitor kustom: tata letak kisi tersimpan (pengganti custom-monitor v2.0).
-   Disimpan di localStorage key "nv_monitors". */
+   Disimpan di localStorage, satu key per pengguna ("nv_monitors:<userId>")
+   supaya layout pengguna sebelumnya tidak terlihat pengguna berikutnya
+   di perangkat bersama. Key lama "nv_monitors" dipindah sekali saat
+   pengguna pertama memuat halaman sesudah perubahan ini. */
 
-const LS_KEY = "nv_monitors";
+const LEGACY_LS_KEY = "nv_monitors";
+
+const lsKeyFor = (userId: number | null | undefined): string =>
+  userId != null ? `nv_monitors:${userId}` : LEGACY_LS_KEY;
 
 interface MonitorLayout {
   id: string;
@@ -36,7 +42,8 @@ interface MonitorLayout {
 
 const COLS_CLASS: Record<number, string> = {
   1: "grid-cols-1",
-  2: "grid-cols-1 sm:grid-cols-2",
+  /* F4.12: mode 2x2 mulai 2 kolom dari 400px, sama seperti Live. */
+  2: "grid-cols-1 min-[400px]:grid-cols-2",
   3: "grid-cols-1 sm:grid-cols-2 md:grid-cols-3",
   4: "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4",
 };
@@ -48,9 +55,18 @@ const MINI_COLS_CLASS: Record<number, string> = {
   4: "grid-cols-4",
 };
 
-function loadLayouts(): MonitorLayout[] {
+function loadLayouts(userId?: number | null): MonitorLayout[] {
   try {
-    const raw = localStorage.getItem(LS_KEY);
+    let raw = localStorage.getItem(lsKeyFor(userId));
+    if (!raw && userId != null) {
+      /* Migrasi sekali: pindah key lama ke key per pengguna. */
+      const legacy = localStorage.getItem(LEGACY_LS_KEY);
+      if (legacy) {
+        localStorage.setItem(lsKeyFor(userId), legacy);
+        localStorage.removeItem(LEGACY_LS_KEY);
+        raw = legacy;
+      }
+    }
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -293,7 +309,7 @@ export default function MonitorsPage() {
     }
     if (user) {
       load();
-      setLayouts(loadLayouts());
+      setLayouts(loadLayouts(user?.id));
     }
   }, [loading, user, router, load]);
 
@@ -317,19 +333,39 @@ export default function MonitorsPage() {
   const persist = (next: MonitorLayout[]) => {
     setLayouts(next);
     try {
-      localStorage.setItem(LS_KEY, JSON.stringify(next));
+      localStorage.setItem(lsKeyFor(user?.id), JSON.stringify(next));
     } catch {
       /* abaikan */
     }
   };
 
-  const merged = useMemo(
-    () =>
-      streams.map((s) =>
-        status.has(s.id) ? { ...s, is_online: status.get(s.id)! } : s,
-      ),
-    [streams, status],
-  );
+  /* F5.3: pertahankan identitas objek stream yang tidak berubah.
+     Tanpa ini merged membuat objek baru untuk SEMUA kamera tiap pesan
+     status WS, dan memo CameraTile tidak pernah bisa skip render. */
+  const prevMergedRef = useRef(new Map<number, Stream>());
+  const merged = useMemo(() => {
+    const prev = prevMergedRef.current;
+    const next = streams.map((s) => {
+      const online = status.has(s.id) ? status.get(s.id)! : s.is_online;
+      const old = prev.get(s.id);
+      if (
+        old &&
+        old.is_online === online &&
+        old.name === s.name &&
+        old.brand === s.brand &&
+        old.group_name === s.group_name &&
+        old.is_active === s.is_active &&
+        old.poster_url === s.poster_url &&
+        old.whep_main_url === s.whep_main_url &&
+        old.whep_sub_url === s.whep_sub_url
+      ) {
+        return old;
+      }
+      return { ...s, is_online: online };
+    });
+    prevMergedRef.current = new Map(next.map((s) => [s.id, s]));
+    return next;
+  }, [streams, status]);
 
   const byId = useMemo(() => new Map(merged.map((s) => [s.id, s])), [merged]);
 

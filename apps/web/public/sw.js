@@ -9,13 +9,24 @@
  */
 
 const CACHE = "nv-shell-v3";
-const PRECACHE = ["/live/", "/login/", "/manifest.webmanifest", "/icons/icon.svg"];
+/* F5.4: "/icons/icon.svg" dihapus dari PRECACHE karena file itu tidak
+   ada di public/icons (hanya icon-192.png, icon-512.png,
+   apple-touch-icon.png, logo.png); cache.addAll gagal total bila satu
+   saja item 404, jadi SW tidak pernah terpasang. */
+const PRECACHE = ["/live/", "/login/", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(CACHE)
-      .then((cache) => cache.addAll(PRECACHE))
+      /* F5.4: per-item Promise.allSettled, bukan cache.addAll, supaya
+         satu item gagal (mis. offline saat install) tidak menggagalkan
+         seluruh install service worker. */
+      .then((cache) =>
+        Promise.allSettled(
+          PRECACHE.map((u) => cache.add(u)),
+        ),
+      )
       .then(() => self.skipWaiting()),
   );
 });
@@ -59,10 +70,18 @@ self.addEventListener("fetch", (event) => {
   }
 
   // Navigasi & HTML lain: network-first agar selalu versi terbaru.
+  // F6.10: shell /admin/ dan /embed/ JANGAN masuk cache navigasi.
+  // Shell admin yang ter-cache bisa tampil sekilas setelah logout saat
+  // offline; shell embed membawa ?key= di URL, tidak pantas di-cache.
+  const noCacheNav =
+    url.pathname.startsWith("/admin/") ||
+    url.pathname === "/admin" ||
+    url.pathname.startsWith("/embed/") ||
+    url.pathname === "/embed";
   event.respondWith(
     fetch(request)
       .then((response) => {
-        if (response && response.ok) {
+        if (response && response.ok && !noCacheNav) {
           const copy = response.clone();
           caches.open(CACHE).then((cache) => cache.put(request, copy));
         }
@@ -70,8 +89,9 @@ self.addEventListener("fetch", (event) => {
       })
       .catch(() => {
         // Offline: pakai cache, fallback ke /live/ untuk navigasi.
+        // Path noCacheNav tidak pernah disajikan dari cache.
         return caches.match(request).then((cached) => {
-          if (cached) return cached;
+          if (cached && !noCacheNav) return cached;
           if (request.mode === "navigate") return caches.match("/live/");
           throw new Error("offline");
         });

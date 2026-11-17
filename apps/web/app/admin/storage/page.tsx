@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
+import { useAuth } from "../../../lib/auth";
 import { ErrorBox, Spinner } from "../../../components/ui";
 import {
   NBBadge,
@@ -11,7 +12,6 @@ import {
   NBEmptyState,
   NBField,
   NBInput,
-  NBTextArea,
   NBTitle,
 } from "../_nb";
 
@@ -102,6 +102,11 @@ function isHttpUrl(u: string | null | undefined): boolean {
    mengisi nama akun yang mudah dibaca dan menempel kode. */
 
 export default function AdminStoragePage() {
+  const { user: me } = useAuth();
+  /* Pertahanan berlapis: halaman ini super_admin-only (layout juga
+     mengalihkan admin biasa), jangan render atau muat kontennya bila
+     peran tidak cocok. */
+  const isSuperAdmin = me?.role === "super_admin";
   const [data, setData] = useState<GDriveList | null>(null);
   const [conn, setConn] = useState<GDriveConn | null>(null);
   const [remotes, setRemotes] = useState<RcloneRemote[]>([]);
@@ -131,6 +136,10 @@ export default function AdminStoragePage() {
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [accountLabel, setAccountLabel] = useState("");
   const [accountToken, setAccountToken] = useState("");
+  /* F6.4: token OAuth berisi refresh_token berumur panjang, jadi
+     default tersembunyi (input password) sampai pengguna sengaja
+     menampilkannya. */
+  const [showToken, setShowToken] = useState(false);
   const [showHowTo, setShowHowTo] = useState(false);
   const [showManual, setShowManual] = useState(false);
   const [accountBusy, setAccountBusy] = useState(false);
@@ -343,9 +352,11 @@ export default function AdminStoragePage() {
   }
 
   useEffect(() => {
+    if (!isSuperAdmin) return;
     refreshAll();
     loadActiveAuthorize();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuperAdmin]);
 
   function nextRemoteName(): string {
     const taken = new Set(remotes.map((r) => r.remote_name));
@@ -472,6 +483,18 @@ export default function AdminStoragePage() {
   // manual yang tampil.
   const visibleFolders = (data?.folders ?? []).filter((f) => !f.remote_name);
   const folderCount = visibleFolders.length;
+
+  if (me && !isSuperAdmin) {
+    return (
+      <div>
+        <NBTitle
+          title="Penyimpanan Google Drive"
+          desc="Simpan rekaman CCTV ke Google Drive secara otomatis. Hubungkan akun Google, lalu tempel tautan folder."
+        />
+        <NBEmptyState text="Halaman ini hanya untuk super admin." />
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -682,12 +705,22 @@ export default function AdminStoragePage() {
                       label="Kode dari rclone"
                       hint='Tempel seluruh kode yang muncul setelah menjalankan rclone authorize. Kode dimulai dengan {"access_token": ...'
                     >
-                      <NBTextArea
-                        rows={3}
-                        placeholder='{"access_token":"ya29...","token_type":"Bearer","refresh_token":"1//...","expiry":"..."}'
-                        value={accountToken}
-                        onChange={(e) => setAccountToken(e.target.value)}
-                      />
+                      <div className="flex items-start gap-2">
+                        <NBInput
+                          type={showToken ? "text" : "password"}
+                          placeholder='{"access_token":"ya29...","token_type":"Bearer","refresh_token":"1//...","expiry":"..."}'
+                          value={accountToken}
+                          onChange={(e) => setAccountToken(e.target.value)}
+                          autoComplete="off"
+                        />
+                        <NBButton
+                          variant="secondary"
+                          onClick={() => setShowToken((v) => !v)}
+                          className="shrink-0 px-3"
+                        >
+                          {showToken ? "Sembunyi" : "Tampil"}
+                        </NBButton>
+                      </div>
                     </NBField>
                     <div>
                       <button
@@ -740,7 +773,13 @@ export default function AdminStoragePage() {
                 <NBButton
                   variant="secondary"
                   onClick={() => {
+                    /* F6.4: menutup form membuang token dari state, bukan
+                       hanya setelah simpan berhasil, supaya token tidak
+                       tertinggal di layar bila form dibuka lagi. */
                     cancelAuthorize();
+                    setAccountToken("");
+                    setAccountError("");
+                    setShowToken(false);
                     setShowAddAccount(false);
                   }}
                 >

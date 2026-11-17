@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import type { ReactNode } from "react";
 import { AdminGuard } from "../../components/AdminGuard";
@@ -43,6 +43,7 @@ export default function AdminLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { user } = useAuth();
   const isSuperAdmin = user?.role === "super_admin";
   const visibleNav = NAV.filter((n) => !n.superAdminOnly || isSuperAdmin);
@@ -57,18 +58,19 @@ export default function AdminLayout({
         (cleanPath === n.href || cleanPath.startsWith(n.href + "/")),
     );
   useEffect(() => {
-    if (user && restricted && typeof window !== "undefined") {
-      window.location.href = "/admin/streams";
+    if (user && restricted) {
+      router.replace("/admin/streams");
     }
-  }, [user, restricted]);
+  }, [user, restricted, router]);
   if (user && restricted) return null;
 
   return (
     <AdminGuard>
       <AppShell>
         <div className="mx-auto w-full max-w-6xl px-4 py-5 sm:py-8">
-          {/* Desktop: tab horizontal */}
-          <nav aria-label="Navigasi admin" className="mb-5 hidden sm:mb-7 md:block">
+          {/* Desktop dan tablet: tab horizontal, tampil mulai sm
+              supaya navigasi admin tetap ada di lebar 640-767px. */}
+          <nav aria-label="Navigasi admin" className="mb-5 hidden sm:mb-7 sm:block">
             <div className="nv-scroll-x -mx-4 flex gap-2 overflow-x-auto px-4 py-2">
               {visibleNav.map((n) => {
                 const cleanPath = (pathname ?? "").replace(/\/+$/, "") || "/";
@@ -78,7 +80,7 @@ export default function AdminLayout({
                     key={n.href}
                     href={n.href}
                     aria-current={active ? "page" : undefined}
-                    className={`flex min-h-[42px] shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap rounded-full px-4 text-sm transition-all duration-150 active:scale-[0.97] ${
+                    className={`flex min-h-[44px] shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap rounded-full px-4 text-sm transition-all duration-150 active:scale-[0.97] ${
                       active
                         ? "bg-gradient-to-r from-accent-600 to-accent-500 font-semibold text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
                         : "bg-ink-800/60 font-medium text-slate-300 shadow-[0_1px_3px_rgba(0,0,0,0.2)] hover:bg-ink-800 hover:text-slate-200"
@@ -101,7 +103,7 @@ export default function AdminLayout({
             return (
               <>
                 {isAdminIndex && (
-                  <nav aria-label="Navigasi admin" className="mb-5 md:hidden">
+                  <nav aria-label="Navigasi admin" className="mb-5 sm:hidden">
                     <Group title="Admin">
                       {visibleNav.map((n) => (
                         <li key={n.href}>

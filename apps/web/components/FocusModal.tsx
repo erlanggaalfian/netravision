@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { playWhep, stopWhep } from "../lib/whep";
-import { getMediaUrls } from "../lib/media-token";
+import { playWhep, stopWhep, WhepError } from "../lib/whep";
+import { getMediaUrls, clearMediaTokenCache } from "../lib/media-token";
 import { usePosterUrl } from "../lib/api";
 import { AdBanner } from "./AdBanner";
 import { Badge, Button } from "./ui";
 import { useFullscreen } from "../hooks/useFullscreen";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 import type { Stream, AdConfig } from "../lib/types";
 
 interface Props {
@@ -32,8 +33,13 @@ export function FocusModal({ stream, onClose, ad }: Props) {
   /* URL WHEP yang sudah membawa token media (?token=), diisi setelah
      POST /api/media/token (K-1). Dipakai toggle LQ/HQ manual; URL mentah
      dari stream tidak lagi bisa dibuka tanpa token. */
-  const urlsRef = useRef<{ main: string; sub: string | null } | null>(null);
+  const urlsRef = useRef<{ main: string | null; sub: string | null } | null>(null);
   const hqTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /* F3.3: id kamera yang tokennya sudah sekali diinvalidasi lalu
+     diminta baru karena WHEP menolak 401/403. Per id supaya ganti
+     kamera membuka jatah baru; token yang berhasil memutar mereset
+     jatah (null) bila nanti dicabut lagi. */
+  const authRetryForRef = useRef<number | null>(null);
   const [failed, setFailed] = useState(false);
   const [failMsg, setFailMsg] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -47,6 +53,8 @@ export function FocusModal({ stream, onClose, ad }: Props) {
   const AUTO_RETRY_DELAY_MS = 10000;
   const [vRatio, setVRati] = useState<string | null>(null);
   const [quality, setQuality] = useState<"LQ" | "HQ">("LQ");
+  /* F2.9: tombol LQ/HQ dinonaktifkan sampai token media tiba. */
+  const [urlsReady, setUrlsReady] = useState(false);
   const isDesktop = () =>
     typeof window !== "undefined" &&
     window.matchMedia("(min-width: 768px)").matches &&
@@ -76,6 +84,7 @@ export function FocusModal({ stream, onClose, ad }: Props) {
     setPlaying(false);
     setVRati(null);
     setQuality("LQ");
+    setUrlsReady(false);
     const video = videoRef.current;
     const hasMain = !!stream?.whep_main_url;
     const hasSub = !!stream?.whep_sub_url;
@@ -88,11 +97,32 @@ export function FocusModal({ stream, onClose, ad }: Props) {
     }
     if (!video || !(hasMain || hasSub) || !stream?.is_online) return;
     const streamId = stream.id;
+    /* F3.3: token ditolak server (WHEP 401/403). Hapus cache kamera
+       ini lalu picu satu percobaan ulang dengan token baru (lewat
+       retryTick, effect berjalan lagi dan getUrls meminta token baru).
+       Kembalikan true bila retry dijadwalkan, false bila jatah sudah
+       habis atau error bukan karena token ditolak. */
+    const retryWithFreshToken = (e: unknown): boolean => {
+      if (
+        !(e instanceof WhepError) ||
+        (e.status !== 401 && e.status !== 403) ||
+        authRetryForRef.current === streamId
+      ) {
+        return false;
+      }
+      authRetryForRef.current = streamId;
+      clearMediaTokenCache(streamId);
+      setRetryTick((v) => v + 1);
+      return true;
+    };
     let cancelled = false;
     let pending: RTCPeerConnection | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const fail = (msg?: string) => {
       if (cancelled) return;
+      /* F2.10: tutup koneksi WHEP yang gagal, jangan dibiarkan hidup. */
+      stopWhep(pcRef.current);
+      pcRef.current = null;
       /* Gagal/putus: batalkan upgrade HQ yang tertunda dan switch yang
          masih jalan, supaya tidak ada sesi tersembunyi yang menukar
          srcObject saat modal sudah menampilkan error. */
@@ -108,17 +138,24 @@ export function FocusModal({ stream, onClose, ad }: Props) {
        main dan sub. URL mentah tidak lagi bisa dibuka tanpa token.
        Token di-cache per kamera di lib/media-token.ts. */
     const getUrls = async (): Promise<{
-      main: string;
+      main: string | null;
       sub: string | null;
     } | null> => {
       try {
+        /* F5.7: token main hanya diminta bila dibutuhkan. Tanpa sub,
+           main adalah satu-satunya jalur jadi wajib diminta; dengan
+           sub dan want LQ (HP), main TIDAK diminta dulu, baru diminta
+           saat pengguna menekan HQ (lihat toggleQuality). Sebelumnya
+           modal selalu meminta 2 token dan membuka 2 sesi sekaligus. */
+        const needMain = want === "HQ" || !hasSub;
         const [mainUrls, subUrls] = await Promise.all([
-          getMediaUrls(streamId, false),
+          needMain ? getMediaUrls(streamId, false) : Promise.resolve(null),
           hasSub ? getMediaUrls(streamId, true) : Promise.resolve(null),
         ]);
         if (cancelled) return null;
-        const urls = { main: mainUrls.whepUrl, sub: subUrls?.whepUrl ?? null };
+        const urls = { main: mainUrls?.whepUrl ?? null, sub: subUrls?.whepUrl ?? null };
         urlsRef.current = urls;
+        setUrlsReady(true);
         return urls;
       } catch {
         if (!cancelled) fail("Stream tidak dapat diputar");
@@ -157,16 +194,36 @@ export function FocusModal({ stream, onClose, ad }: Props) {
          (termasuk upgrade otomatis LQ ke HQ) tidak punya handler sama
          sekali, jadi putusnya tidak terdeteksi. */
       let isLive = false;
+      let swapped = false;
+      /* F2.11: bila video tersembunyi tidak pernah bergambar, batalkan
+         switch setelah 12 detik dan tutup koneksi tersembunyi, supaya
+         tidak ada sesi WHEP zombie per toggle gagal. */
+      const switchTimer = setTimeout(() => {
+        if (swapped || cancelled || myCancelled) return;
+        myCancelled = true;
+        if (cancelSwitchRef.current === cancelMine) {
+          cancelSwitchRef.current = null;
+        }
+        if (pending) {
+          stopWhep(pending);
+          pending = null;
+        }
+      }, 12000);
       const onSwitchConnFail = () => {
         if (cancelled || myCancelled || !isLive) return;
         fail();
       };
       playWhep(hidden, url, onSwitchConnFail, undefined, onSwitchConnFail)
         .then((pc) => {
-          if (cancelled || myCancelled) return stopWhep(pc);
+          if (cancelled || myCancelled) {
+            clearTimeout(switchTimer);
+            return stopWhep(pc);
+          }
           pending = pc;
           const swap = () => {
             if (cancelled || myCancelled || hidden.videoWidth === 0) return;
+            swapped = true;
+            clearTimeout(switchTimer);
             video.srcObject = hidden.srcObject;
             video.play().catch(() => {});
             stopWhep(pcRef.current);
@@ -181,10 +238,28 @@ export function FocusModal({ stream, onClose, ad }: Props) {
           if (hidden.videoWidth > 0) swap();
           else hidden.addEventListener("resize", swap, { once: true });
         })
-        .catch(() => {
-          /* gagal: tetap di stream lama, jangan tampilkan error */
+        .catch((e) => {
+          /* gagal: tetap di stream lama, jangan tampilkan error.
+             F3.3: token ditolak saat switch kualitas, hapus cache,
+             minta token baru sekali, lalu coba switch lagi dengan URL
+             baru; tetap di stream lama bila token baru juga gagal. */
+          clearTimeout(switchTimer);
           if (cancelSwitchRef.current === cancelMine) {
             cancelSwitchRef.current = null;
+          }
+          if (
+            e instanceof WhepError &&
+            (e.status === 401 || e.status === 403) &&
+            authRetryForRef.current !== streamId
+          ) {
+            authRetryForRef.current = streamId;
+            clearMediaTokenCache(streamId);
+            getMediaUrls(streamId, target === "LQ")
+              .then((u) => {
+                if (cancelled || myCancelled) return;
+                smoothSwitch(u.whepUrl, target);
+              })
+              .catch(() => {});
           }
         });
       return cancelMine;
@@ -193,10 +268,18 @@ export function FocusModal({ stream, onClose, ad }: Props) {
     switchRef.current = smoothSwitch;
 
     /* Sambung MAIN di elemen tersembunyi; tukar srcObject saat sudah
-       bergambar (tanpa layar hitam), lalu tutup koneksi SUB. */
+       bergambar (tanpa layar hitam), lalu tutup koneksi SUB (di dalam
+       smoothSwitch, tepat setelah frame pertama main tampil). */
     const goHQ = () => {
       const main = urlsRef.current?.main;
       if (!main || cancelled) return;
+      /* F5.7: jangan upgrade selagi sub belum benar-benar bergambar
+         stabil; bila video belum punya frame, tunda 1 detik lagi. */
+      if (!video.videoWidth || video.readyState < 2) {
+        timer = setTimeout(goHQ, 1000);
+        hqTimerRef.current = timer;
+        return;
+      }
       smoothSwitch(main, "HQ");
     };
 
@@ -212,22 +295,33 @@ export function FocusModal({ stream, onClose, ad }: Props) {
           .then((pc) => {
             if (cancelled) return stopWhep(pc);
             pcRef.current = pc;
+            authRetryForRef.current = null;
             /* Tanpa sub, yang diputar adalah main -> kualitas HQ, bukan
                LQ (label subtitle harus benar). */
             setQuality(!sub || (want === "HQ" && main) ? "HQ" : "LQ");
           })
-          .catch(() => fail());
+          .catch((e) => {
+            /* F3.3: token ditolak, coba sekali dengan token baru
+               sebelum menyatakan gagal. */
+            if (!retryWithFreshToken(e)) fail();
+          });
       } else {
         playWhep(video, sub, fail, undefined, () => fail())
           .then((pc) => {
             if (cancelled) return stopWhep(pc);
             pcRef.current = pc;
-            // v2: upgrade HD 1 detik setelah sub tampil.
-            timer = setTimeout(goHQ, 1000);
+            authRetryForRef.current = null;
+            /* F5.7: upgrade HD 2,5 detik setelah sub tampil (sebelumnya
+               1 detik), supaya sub benar-benar bergambar stabil dulu;
+               goHQ menunda lagi bila video belum punya frame. */
+            timer = setTimeout(goHQ, 2500);
             hqTimerRef.current = timer;
           })
-          .catch(() => {
-            if (!cancelled) goHQ();
+          .catch((e) => {
+            if (cancelled) return;
+            /* F3.3: token sub ditolak, coba sekali dengan token baru
+               sebelum jatuh ke HQ. */
+            if (!retryWithFreshToken(e)) goHQ();
           });
       }
     });
@@ -258,8 +352,24 @@ export function FocusModal({ stream, onClose, ad }: Props) {
       clearTimeout(hqTimerRef.current);
       hqTimerRef.current = undefined;
     }
-    if (url && switchRef.current) switchRef.current(url, target);
-  }, [quality]);
+    if (url && switchRef.current) {
+      switchRef.current(url, target);
+      return;
+    }
+    /* F5.7: token main belum diminta (modal dibuka sebagai LQ di HP):
+       minta token main dulu, baru switch ke HQ. */
+    if (target === "HQ" && stream && switchRef.current) {
+      const switchFn = switchRef.current;
+      getMediaUrls(stream.id, false)
+        .then((u) => {
+          urlsRef.current = { main: u.whepUrl, sub: urlsRef.current?.sub ?? null };
+          switchFn(u.whepUrl, "HQ");
+        })
+        .catch(() => {
+          /* token main gagal: tetap di LQ, jangan tampilkan error */
+        });
+    }
+  }, [quality, stream]);
 
   /* Auto-retry TANPA BATAS: bila gagal (termasuk putus di tengah jalan,
      yang dipetakan ke fail) dan kamera masih online serta ada URL WHEP,
@@ -285,40 +395,8 @@ export function FocusModal({ stream, onClose, ad }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  /* Focus trap (I3): fokus awal ke tombol tutup, Tab berputar di dalam
-     dialog, fokus dikembalikan ke pemicu saat modal ditutup. */
-  useEffect(() => {
-    if (!stream) return;
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    const prev = document.activeElement as HTMLElement | null;
-    dialog
-      .querySelector<HTMLElement>("[data-focus-close]")
-      ?.focus({ preventScroll: true });
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Tab") return;
-      const els = Array.from(
-        dialog.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        ),
-      ).filter((el) => el.getClientRects().length > 0);
-      if (els.length === 0) return;
-      const first = els[0];
-      const last = els[els.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    dialog.addEventListener("keydown", onKeyDown);
-    return () => {
-      dialog.removeEventListener("keydown", onKeyDown);
-      prev?.focus?.({ preventScroll: true });
-    };
-  }, [stream]);
+  /* Focus trap bersama (F4.2), sama seperti Modal umum. */
+  useFocusTrap(dialogRef, !!stream);
 
   if (!stream) return null;
 
@@ -336,7 +414,15 @@ export function FocusModal({ stream, onClose, ad }: Props) {
     c.getContext("2d")?.drawImage(video, 0, 0);
     const a = document.createElement("a");
     a.href = c.toDataURL("image/jpeg", 0.85);
-    a.download = `${stream.name}-${Date.now()}.jpg`;
+    /* F6.8: nama file dari nama kamera disanitasi dulu: karakter yang
+       tidak valid di nama file diganti "_", dipotong 80 karakter, dan
+       titik di awal/akhir dibuang, supaya unduhan tidak menghasilkan
+       nama file aneh atau terpotong. */
+    const safeName = stream.name
+      .replace(/[\\/:*?"<>|]/g, "_")
+      .slice(0, 80)
+      .replace(/^\.+|\.+$/g, "");
+    a.download = `${safeName || "kamera"}-${Date.now()}.jpg`;
     a.click();
   };
 
@@ -345,12 +431,12 @@ export function FocusModal({ stream, onClose, ad }: Props) {
       /* Backdrop blur disamakan di semua popup (FocusModal, Modal ui.tsx,
          Modal _nb.tsx): backdrop-blur-sm, tipis dan modern. Opasitas
          dilonggarkan 70 ke 60 supaya blur di balik video tetap terbaca. */
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-3 sm:p-6"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 backdrop-blur-sm p-0 sm:items-center sm:p-6"
       onClick={onClose}
     >
       <div
         ref={dialogRef}
-        className="nv-pop max-h-[calc(100dvh-1.5rem)] w-full max-w-5xl overflow-x-hidden overflow-y-auto rounded-2xl bg-ink-900 ring-1 ring-ink-600/20 sm:max-h-[calc(100dvh-3rem)]"
+        className="nv-pop max-h-[calc(100dvh-1.5rem)] w-full max-w-5xl overflow-x-hidden overflow-y-auto rounded-t-2xl bg-ink-900 ring-1 ring-ink-600/20 pb-[env(safe-area-inset-bottom)] sm:max-h-[calc(100dvh-3rem)] sm:rounded-2xl sm:pb-0"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -380,6 +466,7 @@ export function FocusModal({ stream, onClose, ad }: Props) {
             <Button
               variant={quality === "HQ" ? "primary" : "subtle"}
               onClick={toggleQuality}
+              disabled={!urlsReady}
               aria-label={quality === "HQ" ? "Ganti ke sub stream (LQ)" : "Ganti ke main stream (HD)"}
               title={
                 quality === "HQ"
@@ -414,7 +501,7 @@ export function FocusModal({ stream, onClose, ad }: Props) {
                   strokeLinejoin="round"
                 />
               </svg>
-              <span>Snapshot</span>
+              <span className="hidden sm:inline">Snapshot</span>
             </Button>
             <button
               onClick={onClose}
@@ -534,7 +621,8 @@ export function FocusModal({ stream, onClose, ad }: Props) {
                       e.stopPropagation();
                       toggleQuality();
                     }}
-                    className={`flex h-11 min-w-11 items-center justify-center rounded-xl px-3 text-xs font-bold tracking-wide text-white transition active:scale-95 ${quality === "HQ" ? "bg-accent-600 hover:bg-accent-500" : "bg-white/10 hover:bg-white/25"}`}
+                    disabled={!urlsReady}
+                    className={`flex h-11 min-w-11 items-center justify-center rounded-xl px-3 text-xs font-bold tracking-wide text-white transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 ${quality === "HQ" ? "bg-accent-600 hover:bg-accent-500" : "bg-white/10 hover:bg-white/25"}`}
                     aria-label={quality === "HQ" ? "Ganti ke sub stream (LQ)" : "Ganti ke main stream (HD)"}
                     title={
                       quality === "HQ"

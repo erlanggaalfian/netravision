@@ -8,7 +8,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../lib/api";
 
 type ResolveOut = {
@@ -33,8 +33,22 @@ export function LocationInput({
   const [busy, setBusy] = useState(false);
   const [okMsg, setOkMsg] = useState("");
   const [errMsg, setErrMsg] = useState("");
+  /* F2.13: nomor urut request; respons yang bukan terbaru diabaikan,
+     supaya tempel lalu Enter cepat tidak mengisi koordinat teks lama. */
+  const seqRef = useRef(0);
+  /* Koordinat hasil urai terakhir dari komponen ini sendiri; dipakai
+     membedakan perubahan lat/lng dari luar (bersihkan okMsg) dengan
+     perubahan hasil urai sendiri (okMsg dipertahankan). */
+  const resolvedRef = useRef("");
+
+  /* F2.13: bersihkan pesan hasil basi saat prop lat/lng berubah dari
+     luar (mis. edit manual kolom angka), bukan dari urai sendiri. */
+  useEffect(() => {
+    if (`${lat},${lng}` !== resolvedRef.current) setOkMsg("");
+  }, [lat, lng]);
 
   async function resolve(value: string) {
+    const mySeq = ++seqRef.current;
     const t = value.trim();
     if (!t) {
       setErrMsg("");
@@ -48,14 +62,17 @@ export function LocationInput({
       const got = await api.post<ResolveOut>("/maps/resolve-location", {
         text: t,
       });
+      if (mySeq !== seqRef.current) return;
       const la = String(got.latitude.toFixed(6));
       const lo = String(got.longitude.toFixed(6));
+      resolvedRef.current = `${la},${lo}`;
       onChange(la, lo);
       setOkMsg(
         `Ditemukan: ${la}, ${lo} (${got.format})` +
           (got.place_name ? ` · ${got.place_name}` : ""),
       );
     } catch (e) {
+      if (mySeq !== seqRef.current) return;
       setErrMsg(
         e instanceof ApiError
           ? e.message
@@ -64,7 +81,7 @@ export function LocationInput({
             : "Lokasi tidak bisa diurai.",
       );
     } finally {
-      setBusy(false);
+      if (mySeq === seqRef.current) setBusy(false);
     }
   }
 
@@ -95,7 +112,7 @@ export function LocationInput({
           type="button"
           onClick={() => void resolve(text)}
           disabled={disabled || busy || text.trim() === ""}
-          className="shrink-0 rounded-xl bg-accent-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent-500 disabled:cursor-not-allowed disabled:opacity-50"
+          className="min-h-[44px] shrink-0 rounded-xl bg-accent-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent-500 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {busy ? "Mencari…" : "Cari"}
         </button>
@@ -105,12 +122,12 @@ export function LocationInput({
         Enter atau tempel langsung mengurai.
       </span>
       {okMsg && (
-        <span className="mt-1.5 block text-xs leading-relaxed text-ok-300">
+        <span className="mt-1.5 block text-xs leading-relaxed text-ok-text">
           {okMsg}
         </span>
       )}
       {errMsg && (
-        <span className="mt-1.5 block text-xs leading-relaxed text-red-400">
+        <span className="mt-1.5 block text-xs leading-relaxed text-bad-text">
           {errMsg}
         </span>
       )}

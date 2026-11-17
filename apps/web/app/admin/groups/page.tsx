@@ -5,7 +5,7 @@ import { ApiError, api } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import { filterStreamsForRole } from "../../../lib/scope";
 import type { Group, Stream } from "../../../lib/types";
-import { ErrorBox, Modal, Spinner } from "../../../components/ui";
+import { ErrorBox, Modal, Pagination, Spinner } from "../../../components/ui";
 import {
   NBAccordion,
   NBButton,
@@ -50,6 +50,9 @@ export default function AdminGroupsPage() {
   const [error, setError] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [grantsFor, setGrantsFor] = useState<Group | null>(null);
+  /* Pagination bernomor yang sama seperti halaman Kamera. */
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 12;
 
   const load = () =>
     api
@@ -84,6 +87,17 @@ export default function AdminGroupsPage() {
     return groups.filter((g) => names.has(g.name));
   }, [groups, streams, isSuperAdmin, me]);
 
+  /* Halaman yang tampil dari daftar yang sudah difilter. */
+  const totalPages = Math.max(
+    1,
+    Math.ceil((visibleGroups?.length ?? 0) / PAGE_SIZE),
+  );
+  const curPage = Math.min(page, totalPages);
+  const pageGroups = (visibleGroups ?? []).slice(
+    (curPage - 1) * PAGE_SIZE,
+    curPage * PAGE_SIZE,
+  );
+
   return (
     <div>
       <NBTitle
@@ -112,8 +126,9 @@ export default function AdminGroupsPage() {
           }
         />
       ) : (
-        <div className="space-y-2">
-          {visibleGroups.map((g) => {
+        <>
+          <div className="space-y-2">
+            {pageGroups.map((g) => {
             const summary = (
               <span className="block min-w-0">
                 <span className="block truncate font-medium text-white">
@@ -148,8 +163,18 @@ export default function AdminGroupsPage() {
                 </div>
               </div>
             );
-          })}
-        </div>
+            })}
+          </div>
+          {totalPages > 1 && (
+            <div className="mt-4">
+              <Pagination
+                page={curPage}
+                totalPages={totalPages}
+                onChange={setPage}
+              />
+            </div>
+          )}
+        </>
       )}
 
       {showAdd && (

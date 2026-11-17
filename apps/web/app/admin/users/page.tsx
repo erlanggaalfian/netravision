@@ -5,7 +5,7 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 import { ApiError, api } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import type { Stream, User } from "../../../lib/types";
-import { ErrorBox, Modal, Spinner, Switch } from "../../../components/ui";
+import { ErrorBox, Modal, Pagination, Spinner, Switch } from "../../../components/ui";
 import {
   NBAccordion,
   NBBadge,
@@ -42,7 +42,7 @@ function NBCheckbox({
   onClick?: (e: ReactMouseEvent) => void;
 }) {
   return (
-    <span className="relative inline-flex h-4 w-4 shrink-0">
+    <span className="relative inline-flex h-11 w-11 shrink-0 items-center justify-center">
       <input
         type="checkbox"
         checked={checked}
@@ -164,8 +164,9 @@ export default function AdminUsersPage() {
   }
 
   function toggleSelectAllPage() {
-    /* Superadmin dan guest tidak bisa masuk grup: tidak ikut dipilih. */
-    const ids = (users ?? [])
+    /* Superadmin dan guest tidak bisa masuk grup: tidak ikut dipilih.
+       Hanya pengguna di halaman ini yang dipilih. */
+    const ids = pageUsers
       .filter((u) => u.role !== "super_admin" && u.role !== "guest")
       .map((u) => u.id);
     const allChecked = ids.length > 0 && ids.every((id) => selected.has(id));
@@ -208,6 +209,40 @@ export default function AdminUsersPage() {
       lepas: free,
     };
   }, [users]);
+
+  /* Pagination bernomor yang sama seperti halaman Kamera: satu entri
+     per halaman adalah satu grup atau satu pengguna lepas. */
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 12;
+  const pageEntries: (
+    | { kind: "group"; name: string; members: User[] }
+    | { kind: "user"; user: User }
+  )[] = [
+    ...perGrup.map(([name, members]) => ({
+      kind: "group" as const,
+      name,
+      members,
+    })),
+    ...lepas.map((user) => ({ kind: "user" as const, user })),
+  ];
+  const totalPages = Math.max(1, Math.ceil(pageEntries.length / PAGE_SIZE));
+  const curPage = Math.min(page, totalPages);
+  const pageSlice = pageEntries.slice(
+    (curPage - 1) * PAGE_SIZE,
+    curPage * PAGE_SIZE,
+  );
+  const pageGroups = pageSlice.filter(
+    (e): e is { kind: "group"; name: string; members: User[] } =>
+      e.kind === "group",
+  );
+  const pageLepas = pageSlice
+    .filter((e): e is { kind: "user"; user: User } => e.kind === "user")
+    .map((e) => e.user);
+  /* Pengguna yang tampil di halaman ini (untuk "Pilih semua"). */
+  const pageUsers = [
+    ...pageGroups.flatMap((g) => g.members),
+    ...pageLepas,
+  ];
 
   /* Satu baris pengguna. Anggota grup tidak menampilkan lencana iklan:
      iklan diatur serentak di baris induk grup, dan nama grup sudah
@@ -599,10 +634,10 @@ export default function AdminUsersPage() {
             <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-400">
               <NBCheckbox
                 checked={
-                  (users ?? []).filter(
+                  pageUsers.filter(
                     (u) => u.role !== "super_admin" && u.role !== "guest",
                   ).length > 0 &&
-                  (users ?? [])
+                  pageUsers
                     .filter(
                       (u) => u.role !== "super_admin" && u.role !== "guest",
                     )
@@ -616,7 +651,7 @@ export default function AdminUsersPage() {
           </div>
           )}
           <div className="space-y-3">
-          {perGrup.map(([name, members]) => {
+          {pageGroups.map(({ name, members }) => {
             const allAds =
               members.length > 0 && members.every((m) => m.show_ads);
             const open = openGroups.has(name);
@@ -765,8 +800,17 @@ export default function AdminUsersPage() {
               </div>
             );
           })}
-          {lepas.map((u) => renderUser(u))}
+          {pageLepas.map((u) => renderUser(u))}
           </div>
+          {totalPages > 1 && (
+            <div className="mt-4">
+              <Pagination
+                page={curPage}
+                totalPages={totalPages}
+                onChange={setPage}
+              />
+            </div>
+          )}
         </>
       )}
 

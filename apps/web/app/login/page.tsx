@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
-import { ErrorBox } from "../../components/ui";
+import { ErrorBox, Spinner } from "../../components/ui";
 
 /* Input modern: radius 14px, 16px (anti-zoom iOS), focus glow. */
 const inputCls =
@@ -35,6 +35,25 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  /* F3.5: pesan bila pengguna diarahkan ke sini karena sesi berakhir
+     (WebSocket ditolak berulang karena refresh token mati). Dibaca
+     dari query ?session=expired dan penanda sessionStorage, supaya
+     pesan tetap tampil bila query hilang saat navigasi. */
+  const [sessionExpired, setSessionExpired] = useState(false);
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const flagged =
+        params.get("session") === "expired" ||
+        sessionStorage.getItem("nv_session_expired") === "1";
+      if (flagged) {
+        setSessionExpired(true);
+        sessionStorage.removeItem("nv_session_expired");
+      }
+    } catch {
+      /* abaikan */
+    }
+  }, []);
   /* Tombol Download APK: tampil bila pengunjung memakai browser (belum
      pasang aplikasi) atau memakai aplikasi yang versinya lebih lama dari
      terbaru. Sembunyi bila aplikasi sudah versi terbaru. Default tampil
@@ -91,7 +110,16 @@ export default function LoginPage() {
   useEffect(() => {
     if (!loading && user) router.replace("/live");
   }, [loading, user, router]);
-  if (!loading && user) return null;
+  /* Selama status auth masih dimuat, tampilkan Spinner saja: formulir
+     tidak boleh sempat tampil dan ditekan sebelum redirect. */
+  if (loading) {
+    return (
+      <main className="flex min-h-dvh flex-col items-center justify-center bg-ink-950 px-5 py-8">
+        <Spinner />
+      </main>
+    );
+  }
+  if (user) return null;
 
   async function onLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -143,15 +171,23 @@ export default function LoginPage() {
         <div className="nv-panel-modern p-6 sm:p-8">
           <div className="mb-7 flex flex-col items-center gap-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
+            {/* F5.11: turunan kecil logo-96.webp (4,1 KB), bukan logo.png 174 KB. */}
             <img
-              src="/icons/logo.png"
+              src="/icons/logo-96.webp"
               alt="Logo NetraVision"
+              width={80}
+              height={80}
               className="h-20 w-20 object-contain"
             />
             <p className="text-[22px] font-extrabold tracking-tight text-slate-100">
               NetraVision
             </p>
           </div>
+          {sessionExpired && (
+            <div className="mb-4 rounded-xl bg-warn-500/10 px-4 py-3 text-sm text-warn-200 ring-1 ring-warn-500/30">
+              Sesi Anda telah berakhir. Silakan masuk lagi.
+            </div>
+          )}
           {error && (
             <div className="mb-4">
               <ErrorBox message={error} />

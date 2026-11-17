@@ -80,6 +80,23 @@ function coordError(lat: string, lon: string): string | null {
   return null;
 }
 
+/* F6.7: validasi nama dan skema URL RTSP di frontend, sebelum kirim.
+   Backend tetap otorisasi akhir; ini supaya admin tidak menyimpan nama
+   kosong atau URL berskema aneh yang gagal di MediaMTX. */
+function cameraNameError(name: string): string | null {
+  const n = name.trim();
+  if (!n) return "Nama kamera tidak boleh kosong.";
+  if (n.length > 100) return "Nama kamera maksimal 100 karakter.";
+  return null;
+}
+
+function rtspUrlError(url: string | null, label: string): string | null {
+  if (url == null || url.trim() === "") return null;
+  const u = url.trim();
+  if (u.startsWith("rtsp://") || u.startsWith("rtsps://")) return null;
+  return `${label} harus diawali rtsp:// atau rtsps://.`;
+}
+
 /* Sanitasi satu segmen path rekaman: hanya alnum, "-", "_", spasi jadi "_". */
 function sanitizePathPart(v: string): string {
   return v.replace(/[^A-Za-z0-9\-_ ]/g, "_").replace(/ /g, "_");
@@ -206,7 +223,7 @@ function StreamRow({
       checked={selected}
       onChange={onToggleSelect}
       onClick={(e) => e.stopPropagation()}
-      className="h-5 w-5 shrink-0 accent-accent-500"
+      className="h-5 w-5 shrink-0 accent-accent-500 p-2 -m-2"
       aria-label={`Pilih ${s.name}`}
     />
   );
@@ -1084,6 +1101,18 @@ function AddStreamModal({
       setError(badCoord);
       return;
     }
+    /* F6.7: nama wajib isi (maks 100 karakter) dan path hasil scan
+       wajib RTSP. */
+    const badName = cameraNameError(name);
+    if (badName) {
+      setError(badName);
+      return;
+    }
+    const badRtsp = rtspUrlError(picked.url, "URL RTSP");
+    if (badRtsp) {
+      setError(badRtsp);
+      return;
+    }
     setBusy(true);
     try {
       const lat = latitude.trim() === "" ? null : parseFloat(latitude);
@@ -1426,13 +1455,15 @@ function AddStreamModal({
                 Tidak ada path yang bisa dicoba (host tidak terjangkau).
               </p>
             )}
-            <NBButton
-              onClick={save}
-              disabled={busy || !name.trim() || !picked}
-              className="w-full"
-            >
-              {busy ? "Menyimpan…" : "Simpan kamera"}
-            </NBButton>
+            <div className="mt-5 grid gap-2.5 sm:flex sm:justify-end">
+              <NBButton
+                onClick={save}
+                disabled={busy || !name.trim() || !picked}
+                className="min-h-[48px] w-full sm:w-auto"
+              >
+                {busy ? "Menyimpan…" : "Simpan kamera"}
+              </NBButton>
+            </div>
           </div>
         )}
       </div>
@@ -1531,6 +1562,23 @@ function EditStreamModal({
       subUrl.trim() === ""
         ? null
         : unmaskRtspPassword(subUrl.trim(), origSubUrlRef.current);
+    /* F6.7: nama wajib isi (maks 100 karakter); mainstream wajib RTSP,
+       substream boleh kosong tapi bila diisi wajib RTSP. */
+    const badName = cameraNameError(name);
+    if (badName) {
+      setError(badName);
+      return;
+    }
+    const badMain = rtspUrlError(realMain, "Mainstream");
+    if (badMain) {
+      setError(badMain);
+      return;
+    }
+    const badSub = rtspUrlError(realSub, "Substream");
+    if (badSub) {
+      setError(badSub);
+      return;
+    }
     setBusy(true);
     try {
       const lat = latitude.trim() === "" ? null : parseFloat(latitude);
@@ -1723,9 +1771,11 @@ function EditStreamModal({
             )}
           </div>
         </div>
-        <NBButton onClick={save} disabled={busy || !name.trim()} className="w-full">
-          {busy ? "Menyimpan…" : "Simpan"}
-        </NBButton>
+        <div className="mt-5 grid gap-2.5 sm:flex sm:justify-end">
+          <NBButton onClick={save} disabled={busy || !name.trim()} className="min-h-[48px] w-full sm:w-auto">
+            {busy ? "Menyimpan…" : "Simpan"}
+          </NBButton>
+        </div>
       </div>
     </Modal>
   );

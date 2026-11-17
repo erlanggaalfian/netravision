@@ -50,6 +50,20 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   }, [theme]);
 
+  /* F3.13: sinkronkan tema antar tab. Tab lain yang mengganti tema
+     menulis kunci yang sama ke localStorage, event storage di tab ini
+     menerapkan nilainya tanpa reload. */
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== KEY || !e.newValue) return;
+      if (e.newValue === "dark" || e.newValue === "light") {
+        setTheme(e.newValue);
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
   const toggle = useCallback(
     () => setTheme((t) => (t === "dark" ? "light" : "dark")),
     [],

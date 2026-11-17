@@ -12,6 +12,14 @@ const BASE =
 
 const GUEST_KEY = "nv_guest";
 
+/* Batas tunggu respons API (F3.2): timer hanya menunggu respons awal
+   (header) dari server, lalu dibersihkan begitu fetch resolve, jadi
+   unduhan body yang panjang (mis. segmen rekaman di Playback) tidak
+   ikut dibatalkan. Request API biasa 15 detik, refresh 30 detik. */
+const API_TIMEOUT_MS = 15_000;
+const REFRESH_TIMEOUT_MS = 30_000;
+const GUEST_TIMEOUT_MS = 15_000;
+
 /* Penanda sesi guest: dipakai agar sesi guest yang mati (token kedaluwarsa
    / network blip / reload) bisa login ulang sendiri tanpa dilempar ke
    halaman login, guest memang tanpa autentikasi apapun. */
@@ -47,42 +55,114 @@ export function parseRetryAfter(res: Response): number | null {
   return null;
 }
 
+export class ApiError extends Error {
+  status: number;
+  retryAfter: number | null;
+  /* Kode yang bisa dibedakan pemanggil: "timeout" bila server tidak
+     merespons dalam batas waktu, "network" bila fetch gagal total,
+     null untuk error HTTP biasa. Pesan sudah berbahasa Indonesia
+     supaya halaman bisa menampilkannya langsung dengan tombol coba lagi. */
+  code: "timeout" | "network" | null;
+  constructor(
+    status: number,
+    message: string,
+    retryAfter: number | null = null,
+    code: "timeout" | "network" | null = null,
+  ) {
+    super(message);
+    this.status = status;
+    this.retryAfter = retryAfter;
+    this.code = code;
+  }
+}
+
+/* Fetch dengan batas waktu (F3.2): AbortController membatalkan request
+   bila server tidak memberi respons awal dalam timeoutMs. Sinyal dari
+   pemanggil (bila ada) tetap dihormati dan diteruskan. */
+async function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  const onOuterAbort = () => ctrl.abort();
+  const outer = init.signal;
+  if (outer) {
+    if (outer.aborted) ctrl.abort();
+    else outer.addEventListener("abort", onOuterAbort, { once: true });
+  }
+  try {
+    return await fetch(input, { ...init, signal: ctrl.signal });
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    /* Pembatalan dari pemanggil sendiri: teruskan error aslinya,
+       jangan disamarkan jadi error jaringan. */
+    if (outer?.aborted) throw e;
+    if (ctrl.signal.aborted) {
+      throw new ApiError(0, "Server tidak merespons, coba lagi", null, "timeout");
+    }
+    throw new ApiError(0, "Jaringan tidak tersedia, coba lagi", null, "network");
+  } finally {
+    clearTimeout(timer);
+    outer?.removeEventListener("abort", onOuterAbort);
+  }
+}
+
+/* Hasil kegagalan refresh terakhir: status HTTP, "network" bila fetch
+   gagal total (jaringan mati), "timeout" bila server tidak merespons,
+   atau null bila refresh belum pernah gagal / terakhir berhasil. */
+export type RefreshFailure = number | "network" | "timeout" | null;
+
+export interface RefreshResult {
+  ok: boolean;
+  failure: RefreshFailure;
+}
+
 /* Single-flight: refresh yang sedang berjalan dipakai bersama agar
    dua request 401 bersamaan tidak saling menginvalidasi token. */
-let refreshPromise: Promise<boolean> | null = null;
-/* Hasil kegagalan refresh terakhir: status HTTP, "network" bila fetch
-   gagal total (jaringan mati), atau null bila refresh belum pernah gagal.
-   Dipakai apiFetch (F-R6) untuk membedakan 401 (token mati) dari
-   jaringan/500. */
-let lastRefreshFailure: number | "network" | null = null;
+let refreshPromise: Promise<RefreshResult> | null = null;
+/* Hasil kegagalan refresh terakhir, dipertahankan untuk kompatibilitas
+   pembaca lama (getLastRefreshFailure). Nilai ini DITULIS oleh
+   tryRefresh dan DIRESET di awal tiap apiFetch (F3.12), supaya jalur
+   retried atau guest tidak membaca hasil percobaan sebelumnya.
+   Jalur utama apiFetch memakai nilai kembalian lokal tryRefresh,
+   bukan global ini. */
+let lastRefreshFailure: RefreshFailure = null;
 
-export function getLastRefreshFailure(): number | "network" | null {
+export function getLastRefreshFailure(): RefreshFailure {
   return lastRefreshFailure;
 }
 
-export async function tryRefresh(): Promise<boolean> {
+export async function tryRefresh(): Promise<RefreshResult> {
   if (refreshPromise) return refreshPromise;
-  refreshPromise = (async () => {
+  refreshPromise = (async (): Promise<RefreshResult> => {
     try {
       // T-2: refresh token dibaca server dari cookie HttpOnly, jadi
       // body dikirim kosong dan cookie ikut lewat credentials.
-      const res = await fetch(`${BASE}/auth/refresh`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-        credentials: "include",
-      });
+      const res = await fetchWithTimeout(
+        `${BASE}/auth/refresh`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+          credentials: "include",
+        },
+        REFRESH_TIMEOUT_MS,
+      );
       if (!res.ok) {
         lastRefreshFailure = res.status;
         // Refresh token mati/kedaluwarsa: sesi berakhir, hapus penanda.
         if (res.status === 401) clearSession();
-        return false;
+        return { ok: false, failure: res.status };
       }
       lastRefreshFailure = null;
-      return true;
-    } catch {
-      lastRefreshFailure = "network";
-      return false;
+      return { ok: true, failure: null };
+    } catch (e) {
+      const failure: RefreshFailure =
+        e instanceof ApiError && e.code === "timeout" ? "timeout" : "network";
+      lastRefreshFailure = failure;
+      return { ok: false, failure };
     } finally {
       refreshPromise = null;
     }
@@ -99,12 +179,16 @@ export async function tryGuestLogin(): Promise<boolean> {
   if (guestLoginPromise) return guestLoginPromise;
   guestLoginPromise = (async () => {
     try {
-      const g = await fetch(`${BASE}/auth/guest`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-        credentials: "include",
-      });
+      const g = await fetchWithTimeout(
+        `${BASE}/auth/guest`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+          credentials: "include",
+        },
+        GUEST_TIMEOUT_MS,
+      );
       if (!g.ok) return false;
       setGuestSession(true);
       return true;
@@ -117,21 +201,15 @@ export async function tryGuestLogin(): Promise<boolean> {
   return guestLoginPromise;
 }
 
-export class ApiError extends Error {
-  status: number;
-  retryAfter: number | null;
-  constructor(status: number, message: string, retryAfter: number | null = null) {
-    super(message);
-    this.status = status;
-    this.retryAfter = retryAfter;
-  }
-}
-
 export async function apiFetch(
   path: string,
   init: RequestInit = {},
   retried = false,
 ): Promise<Response> {
+  /* F3.12: reset penanda kegagalan refresh di awal tiap percobaan
+     (bukan retried), supaya tidak ada yang membaca hasil percobaan
+     refresh sebelumnya. */
+  if (!retried) lastRefreshFailure = null;
   const headers: Record<string, string> = {
     ...(init.headers as Record<string, string> | undefined),
   };
@@ -140,11 +218,15 @@ export async function apiFetch(
   }
   // T-2: tanpa header Authorization; cookie HttpOnly ikut otomatis
   // lewat credentials: "include" (same-origin lewat proxy /api/*).
-  const res = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers,
-    credentials: "include",
-  });
+  const res = await fetchWithTimeout(
+    `${BASE}${path}`,
+    {
+      ...init,
+      headers,
+      credentials: "include",
+    },
+    API_TIMEOUT_MS,
+  );
   if (res.status === 401 && !retried) {
     // Sesi guest mati (token kedaluwarsa): login ulang diam-diam sebagai
     // guest lalu ulangi sekali, guest tanpa autentikasi, jangan lempar
@@ -155,26 +237,21 @@ export async function apiFetch(
         return apiFetch(path, init, true);
       }
     }
-    if (await tryRefresh()) {
+    const refresh = await tryRefresh();
+    if (refresh.ok) {
       return apiFetch(path, init, true);
     }
-  }
-  if (
-    res.status === 401 &&
-    typeof window !== "undefined" &&
-    !window.location.pathname.startsWith("/login") &&
-    !window.location.pathname.startsWith("/embed")
-  ) {
-    // Sesi benar-benar mati: kembali ke halaman login. Bukan hanya bila
-    // refresh gagal 401, tapi juga bila refresh gagal karena
-    // jaringan/500 (bukan 401): token mati tidak akan pernah pulih
-    // sendiri, jadi bersihkan lalu antar ke /login.
-    const hardFailure =
-      getLastRefreshFailure() === "network" ||
-      (typeof getLastRefreshFailure() === "number" &&
-        (getLastRefreshFailure() as number) !== 401);
-    if (getLastRefreshFailure() === 401 || hardFailure) {
-      if (hardFailure) clearSession();
+    /* F3.1: hanya redirect ke /login bila refresh gagal 401 (token
+       benar-benar mati). Bila refresh gagal karena jaringan, timeout,
+       atau 5xx, sesi mungkin masih bisa pulih: JANGAN clearSession
+       dan JANGAN redirect, kembalikan respons 401 supaya pemanggil
+       menampilkan pesan error dengan tombol coba lagi. */
+    if (
+      refresh.failure === 401 &&
+      typeof window !== "undefined" &&
+      !window.location.pathname.startsWith("/login") &&
+      !window.location.pathname.startsWith("/embed")
+    ) {
       window.location.href = "/login";
     }
   }
@@ -214,18 +291,42 @@ export const api = {
     apiFetch(path, { method: "DELETE" }).then(handle<T>),
 };
 
-/* Ambil daftar berpaginasi: kembalikan { items, total } dengan total
-   dibaca dari header X-Total-Count yang dikirim backend. Dipakai
+/* Ambil daftar berpaginasi: kembalikan { items, total, hasMore } dengan
+   total dibaca dari header X-Total-Count yang dikirim backend. Dipakai
    halaman yang menampilkan Pagination bernomor (perintah user
-   2026-11-17). Bila backend belum mengirim header, total 0 dan
-   pemanggil memakai fallback panjang halaman. */
+   2026-11-17).
+   F3.11: bila backend tidak mengirim header (total 0) tetapi halaman
+   penuh, hasMore true supaya pemanggil tetap menampilkan halaman
+   berikut atau tombol "Muat lagi" sebagai cadangan, bukan terkunci
+   di 1 halaman. */
 export async function apiGetPage<T>(
   path: string,
-): Promise<{ items: T[]; total: number }> {
+): Promise<{ items: T[]; total: number; hasMore: boolean }> {
   const res = await apiFetch(path);
   const total = Number(res.headers.get("X-Total-Count") ?? "0") || 0;
   const items = await handle<T[]>(res);
-  return { items, total };
+  let hasMore: boolean;
+  if (total > 0) {
+    hasMore = items.length > 0;
+    try {
+      const q = new URL(path, "http://localhost").searchParams;
+      const offset = Number(q.get("offset") ?? "0") || 0;
+      hasMore = offset + items.length < total;
+    } catch {
+      /* abaikan: pakai hasMore dari panjang items */
+    }
+  } else {
+    /* Tanpa header total: halaman penuh berarti mungkin masih ada
+       halaman berikut. Ukuran halaman dibaca dari param limit. */
+    let limit = 0;
+    try {
+      limit = Number(new URL(path, "http://localhost").searchParams.get("limit") ?? "0") || 0;
+    } catch {
+      limit = 0;
+    }
+    hasMore = limit > 0 ? items.length >= limit : items.length > 0;
+  }
+  return { items, total, hasMore };
 }
 
 /* Poster diambil lewat apiFetch sebagai blob lalu dipakai sebagai object
@@ -234,7 +335,29 @@ export async function apiGetPage<T>(
    lagi, lihat usePosterUrl. Cookie HttpOnly ikut otomatis (credentials)
    untuk URL satu origin; URL absolut ke origin lain diambil tanpa
    kredensial. */
+/* F5.8: cache bersama poster per URL (modul-level). Satu poster_url
+   hanya di-fetch sekali per tab, bukan sekali per mount tile/panel.
+   Object URL hasil cache sengaja TIDAK di-revoke oleh pemakai
+   (usePosterUrl tidak lagi revoke): URL itu dipakai bersama banyak
+   tile, revoke oleh satu tile akan merusak tile lain. Jumlah entri
+   terbatas pada jumlah poster kamera, jadi kebocoran terkendali. */
+const posterCache = new Map<string, Promise<string | undefined>>();
+
 export async function fetchPosterObjectUrl(
+  url: string | null | undefined,
+): Promise<string | undefined> {
+  if (!url) return undefined;
+  const cached = posterCache.get(url);
+  if (cached) return cached;
+  const promise = fetchPosterObjectUrlUncached(url).then((u) => {
+    if (!u) posterCache.delete(url);
+    return u;
+  });
+  posterCache.set(url, promise);
+  return promise;
+}
+
+async function fetchPosterObjectUrlUncached(
   url: string | null | undefined,
 ): Promise<string | undefined> {
   if (!url) return undefined;
@@ -252,10 +375,17 @@ export async function fetchPosterObjectUrl(
     } catch {
       sameOrigin = false;
     }
-    const res = await fetch(
-      url,
-      sameOrigin ? { credentials: "include" } : {},
-    );
+    if (!sameOrigin) {
+      const res = await fetch(url);
+      if (!res.ok) return undefined;
+      return URL.createObjectURL(await res.blob());
+    }
+    /* F3.10: URL absolut satu origin lewat apiFetch, supaya 401 ikut
+       jalur refresh token, bukan fetch mentah yang diam-diam gagal.
+       apiFetch menambah BASE di depan path, jadi potong origin dulu
+       menjadi path relatif. */
+    const u = new URL(url);
+    const res = await apiFetch(u.pathname + u.search);
     if (!res.ok) return undefined;
     return URL.createObjectURL(await res.blob());
   }
@@ -269,18 +399,16 @@ export function usePosterUrl(url: string | null | undefined): string | undefined
   const [src, setSrc] = useState<string | undefined>(undefined);
   useEffect(() => {
     let alive = true;
-    let obj: string | undefined;
+    /* F3.10: kosongkan poster lama di awal effect saat url berubah,
+       supaya tile tidak menampilkan poster kamera lama sampai poster
+       baru tiba. */
+    setSrc(undefined);
     if (!url) {
-      setSrc(undefined);
       return;
     }
     fetchPosterObjectUrl(url)
       .then((u) => {
-        if (!alive) {
-          if (u) URL.revokeObjectURL(u);
-          return;
-        }
-        obj = u;
+        if (!alive) return;
         setSrc(u);
       })
       .catch(() => {
@@ -288,7 +416,8 @@ export function usePosterUrl(url: string | null | undefined): string | undefined
       });
     return () => {
       alive = false;
-      if (obj) URL.revokeObjectURL(obj);
+      /* F5.8: object URL dari cache bersama tidak di-revoke di sini,
+         supaya tile lain yang memakai poster yang sama tidak rusak. */
     };
   }, [url]);
   return src;

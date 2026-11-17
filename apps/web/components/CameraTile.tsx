@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { playWhep, stopWhep } from "../lib/whep";
+import { memo, useEffect, useRef, useState } from "react";
+import { playWhep, stopWhep, WhepError } from "../lib/whep";
 import { playHls, stopHls, isHlsWarm, type HlsHandle } from "../lib/hls";
-import { getMediaUrls, type MediaUrls } from "../lib/media-token";
+import { getMediaUrls, isMediaTokenExpired, clearMediaTokenCache, type MediaUrls } from "../lib/media-token";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { usePosterUrl } from "../lib/api";
 import { AdBanner } from "./AdBanner";
@@ -26,7 +26,12 @@ interface Props {
    Kontrol overlay: tap-toggle di layar sentuh (class vk-touch-toggle).
    Visual konsol NVR: rounded-2xl, ring status 2px (ok/warn/bad),
    scrim netral untuk kontrol, empty/offline state rapi (ikon SVG + teks). */
-export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell = false }: Props) {
+/* F5.3: tile di-memo supaya satu pesan status WS tidak me-render
+   ulang seluruh grid. Perbandingan memakai field yang memengaruhi
+   tampilan/pemutaran, bukan identitas objek stream (halaman Live dan
+   Monitor kini juga mempertahankan identitas objek stream yang tidak
+   berubah statusnya, lihat merged di kedua halaman itu). */
+function CameraTileInner({ stream, onExpand, ad, adInFrame = false, fillCell = false }: Props) {
   const boxRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -34,8 +39,16 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
   const [playing, setPlaying] = useState(false);
   const [failed, setFailed] = useState(false);
   const [failMsg, setFailMsg] = useState<string | null>(null);
+  /* F5.6: status saat fallback HLS sedang dicoba, supaya pengguna
+     tidak menatap spinner diam lebih dari 30 detik tanpa penjelasan. */
+  const [hlsFallback, setHlsFallback] = useState(false);
   const [disconnected, setDisconnected] = useState(false);
   const [retryTick, setRetryTick] = useState(0);
+  /* F3.3: id kamera yang tokennya sudah sekali diinvalidasi lalu
+     diminta baru karena WHEP menolak 401/403. Disimpan per id supaya
+     ganti kamera membuka jatah coba ulang yang baru, dan token yang
+     berhasil memutar mereset jatah (null) bila nanti dicabut lagi. */
+  const authRetryForRef = useRef<number | null>(null);
   /* Auto-retry TANPA BATAS (keputusan user 2026-11-13): bila tile gagal
      atau koneksi putus di tengah jalan (mis. muxer HLS dingin, atau
      kamera RTSP putus sesaat), coba lagi otomatis tiap 10 dtk selama
@@ -98,6 +111,7 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
     hlsRef.current = null;
     setFailed(false);
     setFailMsg(null);
+    setHlsFallback(false);
     setDisconnected(false);
     setPlaying(false);
     setMediaUrls(null);
@@ -151,11 +165,14 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
       setPlaying(false);
       setFailed(true);
       setFailMsg(msg);
+      setHlsFallback(false);
     };
     /* Fallback HLS bila WebRTC/WHEP gagal tersambung (UDP diblokir).
        HLS memakai varian yang sama dengan WHEP (sub bila ada, main
        bila tidak ada sub) via HTTP, jadi grid tetap menampilkan
        stream yang sama. Bila HLS juga gagal, baru fail.
+       F6.5: hlsUrl membawa ?token= (lihat lib/media-token.ts).
+       Risiko yang diterima, jangan tambahkan fitur salin URL stream.
        TUNGGU HANGAT: muxer HLS MediaMTX per-path butuh ~7-10 dtk untuk
        hangat (playlist awal berisi segmen gap, dan hls.js tetap mencoba
        memuat gap.mp4 lalu gagal fatal dengan 404). Sebelum memulai
@@ -163,12 +180,13 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
        bila WHEP gagal cepat (bukan timeout 10 dtk), penantian ini yang
        menyelamatkan percobaan pertama. Bila setelah menunggu masih ada
        gap, tetap coba (retry di bawah yang menangani).
-       RETRY: percobaan pertama menyalakan muxer; bila gagal, coba lagi
-       setelah jeda supaya playlist sudah hangat. Maks 5 percobaan
-       (naik dari 3, supaya menutup jendela hangat muxer ~10 dtk walau
-       WHEP gagal cepat). */
+       RETRY (F5.6): maks 3 percobaan, jeda 2 detik (sebelumnya 5x
+       jeda 4 detik, total menunggu bisa lebih dari 30 detik sebelum
+       tampil gagal). Selama mencoba, tampilkan "Mencoba jalur
+       cadangan..." lewat state hlsFallback. */
     const tryHls = async (attempt = 1) => {
       if (cancelled || hlsRef.current) return;
+      setHlsFallback(true);
       /* Tunggu playlist bebas gap (maks 3x cek, jeda 2 dtk). */
       for (let i = 0; i < 3; i++) {
         if (cancelled || hlsRef.current) return;
@@ -187,26 +205,35 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
         /* abaikan */
       }
       try {
-        const handle = playHls(v, hlsUrl, () => {
+        /* F5.1: playHls kini async (dynamic import hls.js). */
+        const handle = await playHls(v, hlsUrl, () => {
           if (cancelled) return;
           stopHls(hlsRef.current);
           hlsRef.current = null;
-          if (attempt < 5) {
+          if (attempt < 3) {
             setTimeout(() => {
               if (!cancelled) tryHls(attempt + 1);
-            }, 4000);
+            }, 2000);
           } else {
+            setHlsFallback(false);
+            /* F3.3: HLS juga gagal setelah semua percobaan, token
+               mungkin sudah dicabut. Hapus cache supaya percobaan
+               auto-retry berikutnya memakai token baru, bukan URL
+               bertoken lama yang sama. */
+            clearMediaTokenCache(stream.id);
             fail("Stream tidak dapat diputar");
           }
         });
         hlsRef.current = handle;
         const onPlaying = () => {
           if (cancelled) return;
+          setHlsFallback(false);
           setDisconnected(false);
           setPlaying(true);
         };
         v.addEventListener("playing", onPlaying, { once: true });
       } catch {
+        setHlsFallback(false);
         fail("Stream tidak dapat diputar");
       }
     };
@@ -214,13 +241,21 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
       (entries) => {
         const entry = entries[0];
         if (entry.isIntersecting && !pcRef.current && !hlsRef.current && !cancelled) {
-          /* Hangatkan muxer HLS selagi WHEP dicoba: muxer per-path butuh
-             ~7-10 dtk untuk hangat. Bila WHEP gagal (timeout 10 dtk),
-             playlist HLS sudah hangat dan fallback langsung jalan tanpa
-             menunggu retry. Fetch ini ringan (master playlist saja) dan
-             dibuang hasilnya; sesi HLS yang dipakai nanti dibuat baru
-             oleh hls.js tapi muxer-nya sudah hangat. */
-          fetch(hlsUrl, { method: "GET" }).catch(() => {});
+          /* F2.12: tile kembali terlihat dengan token basi (cache
+             kedaluwarsa) jangan diputar ulang dulu; minta URL baru,
+             effect di atas memutar ulang begitu mediaUrls diperbarui. */
+          if (isMediaTokenExpired(stream.id, hasSub)) {
+            getMediaUrls(stream.id, hasSub)
+              .then((u) => {
+                if (!cancelled) setMediaUrls(u);
+              })
+              .catch(() => {});
+            return;
+          }
+          /* F5.6: JANGAN panaskan HLS selagi WHEP dicoba. Pemanasan
+             hanya di dalam tryHls (lewat isHlsWarm), yaitu setelah
+             WHEP gagal atau timeout; sebelumnya tiap tile membayar
+             1 request HLS sia-sia walau WHEP sukses. */
           playWhep(
             video,
             url,
@@ -240,10 +275,31 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
                 return;
               }
               pcRef.current = pc;
+              authRetryForRef.current = null;
               setDisconnected(false);
               setPlaying(true);
             })
-            .catch(() => {
+            .catch((e) => {
+              /* F3.3: token ditolak server (401/403). Hapus entri cache
+                 kamera ini lalu minta token baru sekali; effect di atas
+                 memutar ulang begitu mediaUrls diperbarui. Bila token
+                 baru juga ditolak, baru jatuh ke HLS. */
+              if (
+                e instanceof WhepError &&
+                (e.status === 401 || e.status === 403) &&
+                authRetryForRef.current !== stream.id
+              ) {
+                authRetryForRef.current = stream.id;
+                clearMediaTokenCache(stream.id);
+                getMediaUrls(stream.id, hasSub)
+                  .then((u) => {
+                    if (!cancelled) setMediaUrls(u);
+                  })
+                  .catch(() => {
+                    if (!cancelled) tryHls();
+                  });
+                return;
+              }
               /* WebRTC gagal (biasanya UDP diblokir): coba HLS. */
               tryHls();
             });
@@ -271,15 +327,25 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
   const toggleControls = () => setShowControls((v) => !v);
 
   const online = stream.is_online && !failed && !disconnected;
-  /* Kontrol terlihat saat tap-toggle aktif, hover mouse, atau fokus keyboard
-     masuk (tiga pemicu yang sama dengan CSS .cam-controls di globals.css);
-     saat ketiganya mati, kontrol juga disembunyikan dari keyboard
-     (invisible), bukan cuma opacity 0. */
-  const controlsVisible = showControls || tileHovered;
+  /* Kontrol disembunyikan hanya dengan opacity 0 + pointer-events none
+     (CSS .cam-controls di globals.css), BUKAN visibility hidden, supaya
+     tombol tetap bisa difokuskan keyboard saat :focus-within aktif. */
 
   return (
     <div
       ref={boxRef}
+      /* Tile bisa difokuskan keyboard (F4.1): Enter saat fokus di tile
+         membuka FocusModal, sama seperti klik Perbesar. Fokus di tombol
+         dalam tile tidak memicu ini (target bukan tile itu sendiri). */
+      tabIndex={0}
+      role="group"
+      aria-label={`Kamera ${stream.name}, tekan Enter untuk memperbesar`}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && e.target === e.currentTarget) {
+          e.preventDefault();
+          onExpand(stream);
+        }
+      }}
       onMouseEnter={() => setTileHovered(true)}
       onMouseLeave={() => setTileHovered(false)}
       /* Fallback keyboard untuk :focus-within (I1): tampilkan kontrol saat
@@ -327,7 +393,7 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
               <div className="absolute inset-0 flex items-center justify-center">
                 <span className="flex items-center gap-2.5 rounded-full bg-black/50 px-4 py-2 text-xs font-medium text-slate-300">
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/15 border-t-accent-400 motion-reduce:animate-none" />
-                  Menghubungkan…
+                  {hlsFallback ? "Mencoba jalur cadangan…" : "Menghubungkan…"}
                 </span>
               </div>
             ))}
@@ -422,7 +488,7 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
       )}
 
       {/* Overlay kontrol: hanya tombol aksi (nama + status ada di footer kartu) */}
-      <div className={`cam-controls absolute inset-x-0 bottom-0 z-30 flex items-center justify-end gap-2 bg-gradient-to-t from-black/85 via-black/40 to-transparent px-3 pb-3 pt-8 ${controlsVisible ? "visible" : "invisible"}`}>
+      <div className="cam-controls absolute inset-x-0 bottom-0 z-30 flex items-center justify-end gap-2 bg-gradient-to-t from-black/85 via-black/40 to-transparent px-3 pb-3 pt-8">
         <div className="flex shrink-0 items-center gap-2">
           {fs && (
             <button
@@ -477,6 +543,9 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
           <button
             onClick={(e) => {
               e.stopPropagation();
+              /* F2.1: FocusModal (z-50) terbuka di balik tile fullscreen
+                 (z-[70]); keluar fullscreen dulu bila aktif. */
+              if (fs) toggleFs();
               onExpand(stream);
             }}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white shadow-[0_4px_12px_rgba(0,0,0,0.3)] transition-all duration-200 hover:bg-white/25 hover:shadow-[0_6px_16px_rgba(0,0,0,0.4)] active:scale-95"
@@ -534,3 +603,20 @@ export function CameraTile({ stream, onExpand, ad, adInFrame = false, fillCell =
     </div>
   );
 }
+
+function cameraTilePropsEqual(prev: Props, next: Props): boolean {
+  return (
+    prev.stream.id === next.stream.id &&
+    prev.stream.is_online === next.stream.is_online &&
+    prev.stream.name === next.stream.name &&
+    prev.stream.poster_url === next.stream.poster_url &&
+    prev.stream.whep_main_url === next.stream.whep_main_url &&
+    prev.stream.whep_sub_url === next.stream.whep_sub_url &&
+    prev.onExpand === next.onExpand &&
+    prev.ad === next.ad &&
+    prev.adInFrame === next.adInFrame &&
+    prev.fillCell === next.fillCell
+  );
+}
+
+export const CameraTile = memo(CameraTileInner, cameraTilePropsEqual);

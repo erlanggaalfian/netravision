@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "../../components/AppShell";
 import { CameraTile } from "../../components/CameraTile";
@@ -49,7 +49,10 @@ const GRID_OPTS_MOBILE: GridOpt[] = [
    tampilan tidak tertinggal satu breakpoint dari pilihan. */
 const GRID_CLASS: Record<number, string> = {
   1: "grid-cols-1",
-  2: "grid-cols-1 md:grid-cols-2",
+  /* F4.12: mode 2x2 mulai 2 kolom dari 400px (tile ~184px di 400px,
+     masih terbaca); mode 3x3/4x4 tetap 1 kolom sampai md supaya tile
+     tidak mengecil di bawah ~170px. */
+  2: "grid-cols-1 min-[400px]:grid-cols-2",
   3: "grid-cols-1 md:grid-cols-3",
   4: "grid-cols-1 md:grid-cols-4",
 };
@@ -180,14 +183,33 @@ export default function LivePage() {
     };
   }, [user]);
 
-  /* Override status dari WebSocket bila tersedia. */
-  const merged = useMemo(
-    () =>
-      streams.map((s) =>
-        status.has(s.id) ? { ...s, is_online: status.get(s.id)! } : s,
-      ),
-    [streams, status],
-  );
+  /* F5.3: pertahankan identitas objek stream yang tidak berubah.
+     Tanpa ini merged membuat objek baru untuk SEMUA kamera tiap pesan
+     status WS, dan memo CameraTile tidak pernah bisa skip render. */
+  const prevMergedRef = useRef(new Map<number, Stream>());
+  const merged = useMemo(() => {
+    const prev = prevMergedRef.current;
+    const next = streams.map((s) => {
+      const online = status.has(s.id) ? status.get(s.id)! : s.is_online;
+      const old = prev.get(s.id);
+      if (
+        old &&
+        old.is_online === online &&
+        old.name === s.name &&
+        old.brand === s.brand &&
+        old.group_name === s.group_name &&
+        old.is_active === s.is_active &&
+        old.poster_url === s.poster_url &&
+        old.whep_main_url === s.whep_main_url &&
+        old.whep_sub_url === s.whep_sub_url
+      ) {
+        return old;
+      }
+      return { ...s, is_online: online };
+    });
+    prevMergedRef.current = new Map(next.map((s) => [s.id, s]));
+    return next;
+  }, [streams, status]);
 
   /* FocusModal memakai data kamera terbaru, bukan salinan saat diklik:
      perbarui salinan focus saat merged berubah (status/nama/URL). */
@@ -290,7 +312,7 @@ export default function LivePage() {
         <div className="nv-panel-modern mb-5 p-4 sm:p-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <h1 className="text-2xl font-extrabold tracking-tight text-white sm:text-[26px]">
+              <h1 className="text-[28px] font-extrabold tracking-tight text-white">
                 Live
               </h1>
               <p className="mt-1.5 text-sm text-slate-400">
@@ -352,7 +374,7 @@ export default function LivePage() {
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Cari kamera…"
                 aria-label="Cari kamera"
-                className="h-11 w-full rounded-full bg-ink-800 pl-10 pr-4 text-base text-white shadow-sm placeholder:text-neutral-500 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-accent-500/30"
+                className="h-11 w-full rounded-full bg-ink-800 pl-10 pr-4 text-base text-white shadow-sm placeholder:text-neutral-400 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-accent-500/30"
               />
             </div>
             <button
@@ -405,7 +427,6 @@ export default function LivePage() {
                 )}
                 <div
                   className="flex min-w-0 items-center gap-1 rounded-full bg-ink-800 p-1 shadow-sm max-md:flex-1"
-                  role="tablist"
                   aria-label={
                     isDesktop
                       ? "Tata letak grid"
@@ -415,8 +436,8 @@ export default function LivePage() {
                   {gridOpts.map((g) => (
                     <button
                       key={g.key}
-                      role="tab"
-                      aria-selected={activeOpt.key === g.key}
+                      type="button"
+                      aria-pressed={activeOpt.key === g.key}
                       aria-label={
                         isDesktop
                           ? `Grid ${g.label}`
@@ -486,14 +507,13 @@ export default function LivePage() {
               </Button>
               <div
                 className="nv-scroll-x flex w-full items-center gap-1 overflow-x-auto rounded-full bg-ink-800 p-1 shadow-sm sm:w-auto"
-                role="tablist"
                 aria-label="Filter status kamera"
               >
                 {FILTERS.map((f) => (
                   <button
                     key={f.id}
-                    role="tab"
-                    aria-selected={filter === f.id}
+                    type="button"
+                    aria-pressed={filter === f.id}
                     onClick={() => setFilter(f.id)}
                     className={`flex h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm font-semibold transition-all duration-200 active:scale-95 sm:px-5 lg:flex-none ${
                       filter === f.id
@@ -619,7 +639,9 @@ export default function LivePage() {
             </p>
             <p className="max-w-xs text-sm leading-relaxed text-neutral-400">
               {merged.length === 0
-                ? "Tambahkan kamera lewat halaman Admin untuk mulai memantau."
+                ? user?.role === "super_admin"
+                  ? "Tambahkan kamera lewat halaman Admin untuk mulai memantau."
+                  : "Belum ada kamera di grup Anda. Hubungi admin untuk akses kamera."
                 : "Coba ubah kata kunci, filter status, atau filter grup."}
             </p>
           </div>

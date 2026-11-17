@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useId, useState, type ReactNode } from "react";
-import { Dropdown, selectChildrenToOptions } from "./Dropdown";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 /* Komponen UI bersama, "ruang kendali siaran": permukaan bertingkat,
    hairline white/8, radius 12-16px, satu aksen biru. API tidak berubah. */
@@ -111,15 +111,11 @@ export function Stat({
   );
 }
 
-/* Varian tombol "subtle": ALIAS dari NBButton "secondary"
-   (app/admin/_nb.tsx). Keduanya SENGAJA identik, class yang sama persis:
-   "bg-ink-800 text-slate-200 hover:bg-ink-700".
+/* Varian tombol "subtle": NBButton "secondary" di app/admin/_nb.tsx
+   kini wrapper di atas Button ini (F2.6), jadi satu definisi saja.
    Kapan memakai yang mana: Button variant="subtle" untuk menu utama,
    NBButton variant="secondary" untuk menu admin. Jangan menulis class
-   varian ini secara manual di tempat lain, pakai salah satu varian di atas.
-   Kalau tampilannya perlu berubah, ubah KEDUA definisi sekaligus supaya
-   tetap identik; cek dengan:
-   grep -h 'bg-ink-800 text-slate-200 hover:bg-ink-700' components/ui.tsx app/admin/_nb.tsx */
+   varian ini secara manual di tempat lain, pakai salah satu varian di atas. */
 type BtnVariant = "primary" | "ghost" | "danger" | "subtle";
 
 export function Button({
@@ -257,35 +253,8 @@ export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`${inputCls} ${props.className ?? ""}`} />;
 }
 
-/* Adapter di atas Dropdown bersama (dipakai di mana pun, saat ini
-   belum ada call site; export dipertahankan, Zero Deprecation).
-   API LAMA <select> dipertahankan: value, onChange(e.target.value),
-   children <option>, className, disabled. Value yang tidak ada di
-   opsi ditambahkan sebagai opsi ekstra dengan label = value-nya. */
-export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  const options = selectChildrenToOptions(props.children);
-  const cur = props.value == null ? "" : String(props.value);
-  const finalOptions =
-    cur === "" || options.some((o) => o.value === cur)
-      ? options
-      : [...options, { value: cur, label: cur }];
-  return (
-    <Dropdown
-      variant="field"
-      options={finalOptions}
-      value={cur}
-      onChange={(v) =>
-        props.onChange?.({
-          target: { value: v },
-        } as unknown as React.ChangeEvent<HTMLSelectElement>)
-      }
-      ariaLabel={props["aria-label"]}
-      className={props.className ?? ""}
-      disabled={props.disabled}
-      id={props.id}
-    />
-  );
-}
+/* F2.5: adapter Select di sini dihapus; duplikatnya NBSelect di
+   app/admin/_nb.tsx yang dipakai semua call site admin. */
 
 export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
@@ -332,11 +301,13 @@ export function Badge({
   tone: "ok" | "bad" | "warn" | "info" | "muted";
   children: ReactNode;
 }) {
+  /* Teks badge memakai token *-text (F4.3): turunan gelap di tema
+     terang supaya lolos WCAG AA 4,5 untuk teks 10-11px. */
   const styles = {
-    ok: "bg-ok-400/12 text-ok-400",
-    bad: "bg-bad-400/12 text-bad-400",
-    warn: "bg-warn-400/12 text-warn-300",
-    info: "bg-accent-500/12 text-accent-300",
+    ok: "bg-ok-400/12 text-ok-text",
+    bad: "bg-bad-400/12 text-bad-text",
+    warn: "bg-warn-400/12 text-warn-text",
+    info: "bg-accent-500/12 text-accent-text",
     muted: "bg-ink-800 text-slate-400",
   } as const;
   return (
@@ -408,6 +379,8 @@ export function Modal({
   wide?: boolean;
 }) {
   const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -426,6 +399,7 @@ export function Modal({
       aria-labelledby={titleId}
     >
       <div
+        ref={dialogRef}
         className={`nv-pop max-h-[92dvh] w-full overflow-y-auto rounded-t-2xl bg-ink-900 ring-1 ring-ink-600/20 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:rounded-2xl ${
           wide ? "sm:max-w-2xl" : "sm:max-w-lg"
         }`}
@@ -437,6 +411,7 @@ export function Modal({
           </h2>
           <button
             onClick={onClose}
+            data-focus-close
             aria-label="Tutup"
             className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-xl text-slate-400 transition-colors duration-150 hover:bg-ink-700 hover:text-slate-200"
           >

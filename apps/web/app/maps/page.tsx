@@ -9,11 +9,11 @@ import "leaflet.markercluster/dist/MarkerCluster.css";
 import type * as LType from "leaflet";
 import { AppShell } from "../../components/AppShell";
 import { FocusModal } from "../../components/FocusModal";
-import { Button, Card, ErrorBox, SectionTitle } from "../../components/ui";
+import { Button, Card, ErrorBox, SectionTitle, Spinner } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { useCameraStatus } from "../../hooks/useCameraStatus";
-import type { Stream } from "../../lib/types";
+import type { AdConfig, Stream } from "../../lib/types";
 
 /* Peta kamera (Leaflet, client-only, aman untuk static export).
    Marker: hijau = online, merah = offline.
@@ -223,6 +223,8 @@ export default function MapsPage() {
   } | null>(null);
   const editOriginRef = useRef<{ lat: number; lng: number } | null>(null);
   const [focus, setFocus] = useState<Stream | null>(null);
+  /* F2.8: config iklan untuk popup live (FocusModal), sama seperti Live. */
+  const [ad, setAd] = useState<AdConfig | null>(null);
   const [mapQuery, setMapQuery] = useState("");
   const [locating, setLocating] = useState(false);
   const [locateMsg, setLocateMsg] = useState<string | null>(null);
@@ -340,8 +342,28 @@ export default function MapsPage() {
     if (user) load();
   }, [loading, user, router, load]);
 
-  /* Inisialisasi peta sekali (client-only). */
+  /* Config iklan: sekali per halaman, dipakai popup live. */
   useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    api
+      .get<AdConfig>("/ad-config")
+      .then((c) => {
+        if (!cancelled) setAd(c);
+      })
+      .catch(() => {
+        /* iklan opsional; abaikan bila gagal */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  /* Inisialisasi peta sekali (client-only), hanya setelah login:
+     tanpa guard, pengunjung belum login sempat melihat peta kosong
+     dan Leaflet diinisialisasi sia-sia sebelum redirect. */
+  useEffect(() => {
+    if (!user) return;
     let cancelled = false;
     (async () => {
       const leafletNs = await import("leaflet");
@@ -520,7 +542,7 @@ export default function MapsPage() {
         }
       }
     };
-  }, []);
+  }, [user]);
 
   /* Status gabungan: API + override WebSocket. */
   const merged = useMemo(
@@ -723,10 +745,10 @@ export default function MapsPage() {
         if (accuracy && isFinite(accuracy)) {
           L.circle([lat, lng], {
             radius: accuracy,
-            color: "#3b82f6",
+            color: "var(--nv-accent-500)",
             weight: 1,
             opacity: 0.5,
-            fillColor: "#3b82f6",
+            fillColor: "var(--nv-accent-500)",
             fillOpacity: 0.12,
           }).addTo(meLayerRef.current);
         }
@@ -734,7 +756,7 @@ export default function MapsPage() {
           radius: 8,
           color: "#ffffff",
           weight: 3,
-          fillColor: "#3b82f6",
+          fillColor: "var(--nv-accent-500)",
           fillOpacity: 1,
         }).addTo(meLayerRef.current);
         map.flyTo([lat, lng], Math.max(map.getZoom(), 15), { duration: 0.8 });
@@ -750,6 +772,16 @@ export default function MapsPage() {
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
     );
   };
+
+  /* Guard loading seperti Live/Putar Ulang/Monitor: jangan tampilkan
+     sidebar, topbar, dan peta sebelum status login diketahui. */
+  if (loading || (!user && !loading)) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-ink-950">
+        <Spinner />
+      </div>
+    );
+  }
 
   return (
     <AppShell>
@@ -797,6 +829,13 @@ export default function MapsPage() {
           }
         />
       </div>
+      {/* Banner error di atas peta: di HP pesan di panel samping
+          tersembunyi di bawah peta sampai scroll ke bawah. */}
+      {error && (
+        <div className="px-4 pt-4 md:px-5">
+          <ErrorBox message={error} />
+        </div>
+      )}
       <div className="flex flex-col gap-4 p-4 md:h-[calc(100dvh-150px)] md:min-h-[420px] md:flex-row md:p-5">
         {/* Peta */}
         <div className="relative min-h-[320px] flex-1 overflow-hidden rounded-2xl shadow-[0_12px_40px_-12px_rgba(0,0,0,0.45)]">
@@ -978,7 +1017,7 @@ export default function MapsPage() {
         </div>
       </div>
 
-      <FocusModal stream={focus} onClose={() => setFocus(null)} />
+      <FocusModal stream={focus} onClose={() => setFocus(null)} ad={ad} />
     </AppShell>
   );
 }

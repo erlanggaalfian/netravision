@@ -43,7 +43,8 @@ const GRID_OPTS = [
    di md, bukan baru di lg; 4x4 jadi 4 kolom di md, bukan baru di xl). */
 const GRID_CLASS: Record<number, string> = {
   1: "md:grid-cols-1",
-  2: "md:grid-cols-2",
+  /* F4.12: mode 2x2 mulai 2 kolom dari 400px, sama seperti Live. */
+  2: "min-[400px]:grid-cols-2",
   3: "md:grid-cols-3",
   4: "md:grid-cols-4",
 };
@@ -125,6 +126,7 @@ function PlaybackPanel({
   date,
   posterUrl,
   ad,
+  enablePrefetch = true,
 }: {
   streamId: number;
   streamName: string;
@@ -132,6 +134,9 @@ function PlaybackPanel({
   date: string;
   posterUrl: string | null;
   ad: AdConfig | null;
+  /* F5.9: prefetch hanya di mode single kamera; di mode multi tiap
+     panel menahan 2 segmen penuh di memori (puluhan MB per panel). */
+  enablePrefetch?: boolean;
 }) {
   /* Poster terbaru kamera (blob object URL, header Authorization),
      pola sama seperti CameraTile. */
@@ -177,6 +182,18 @@ function PlaybackPanel({
     xPct: number;
     label: string;
   } | null>(null);
+  /* F5.10: throttle hover lewat requestAnimationFrame, hanya update
+     bila xPct berubah lebih dari 0,5 persen (sebelumnya setState tiap
+     gerakan mouse me-render ulang seluruh panel). */
+  const hoverRafRef = useRef<number | undefined>(undefined);
+  const lastHoverXPctRef = useRef<number | null>(null);
+  useEffect(() => {
+    return () => {
+      if (hoverRafRef.current !== undefined) {
+        cancelAnimationFrame(hoverRafRef.current);
+      }
+    };
+  }, []);
   /* Posisi putar saat ini (ms sejak 00:00) untuk playhead + jam berjalan. */
   const [playheadMs, setPlayheadMs] = useState<number | null>(null);
   /* Cabut prefetch yang tidak jadi dipakai (mis. user pindah segmen). */
@@ -240,9 +257,9 @@ function PlaybackPanel({
 
   /* Unduh satu segmen jadi blob object URL (dipakai putar + prefetch).
      <video> tidak bisa mengirim header Authorization (token ada di
-     localStorage), jadi segmen diunduh lewat apiFetch lalu diputar dari
-     blob object URL. Pola yang sama dengan poster kamera, bukan ?token=
-     di URL. */
+     cookie HttpOnly, <video> tetap tidak bisa mengirim header), jadi
+     segmen diunduh lewat apiFetch lalu diputar dari blob object URL.
+     Pola yang sama dengan poster kamera, bukan ?token= di URL. */
   const fetchSegmentBlob = useCallback(
     async (entry: TimelineEntry): Promise<string> => {
       const p = await api.get<PlaybackUrl>(
@@ -264,9 +281,11 @@ function PlaybackPanel({
     [streamId],
   );
 
-  /* Unduh segmen berikut di latar belakang selagi segmen aktif diputar. */
+  /* Unduh segmen berikut di latar belakang selagi segmen aktif diputar.
+     F5.9: hanya bila enablePrefetch (mode single kamera). */
   const prefetchNext = useCallback(
     (entry: TimelineEntry) => {
+      if (!enablePrefetch) return;
       if (!timeline) return;
       const idx = timeline.entries.findIndex((e) => e.start === entry.start);
       const next = timeline.entries[idx + 1];
@@ -282,7 +301,7 @@ function PlaybackPanel({
            saat dipilih. */
       });
     },
-    [timeline, fetchSegmentBlob],
+    [timeline, fetchSegmentBlob, enablePrefetch],
   );
 
   const playEntry = useCallback(
@@ -343,10 +362,17 @@ function PlaybackPanel({
     if (off > 0 && off < v.duration) v.currentTime = off;
   }, []);
 
-  /* Jam berjalan selama video diputar (untuk playhead + header). */
+  /* F5.5: throttle jam berjalan ke 1x per detik (sebelumnya
+     onTimeUpdate memicu setState sekitar 4x per detik per panel,
+     36x per detik dalam mode multi 3x3, me-render ulang seluruh
+     panel). Playhead dan jam hanya butuh ketelitian detik. */
+  const lastPlayheadRef = useRef(0);
   const handleTimeUpdate = useCallback(() => {
     const v = videoRef.current;
     if (!v || !active) return;
+    const now = Date.now();
+    if (now - lastPlayheadRef.current < 1000) return;
+    lastPlayheadRef.current = now;
     setPlayheadMs(new Date(active.start).getTime() + v.currentTime * 1000);
   }, [active]);
 
@@ -571,6 +597,7 @@ function PlaybackPanel({
             <div
               role="slider"
               aria-label="Linimasa rekaman"
+              aria-orientation="horizontal"
               aria-valuemin={0}
               aria-valuemax={1439}
               aria-valuenow={
@@ -588,12 +615,24 @@ function PlaybackPanel({
                   1,
                   Math.max(0, (e.clientX - rect.left) / rect.width),
                 );
-                setHoverTime({
-                  xPct: xPct * 100,
-                  label: fmtClock(dayStart + xPct * DAY_MS),
+                /* F5.10: abaikan gerakan di bawah 0,5 persen, dan
+                   jadwalkan update lewat rAF (maks 1x per frame). */
+                const last = lastHoverXPctRef.current;
+                if (last !== null && Math.abs(xPct - last) < 0.005) return;
+                if (hoverRafRef.current !== undefined) return;
+                hoverRafRef.current = requestAnimationFrame(() => {
+                  hoverRafRef.current = undefined;
+                  lastHoverXPctRef.current = xPct;
+                  setHoverTime({
+                    xPct: xPct * 100,
+                    label: fmtClock(dayStart + xPct * DAY_MS),
+                  });
                 });
               }}
-              onMouseLeave={() => setHoverTime(null)}
+              onMouseLeave={() => {
+                lastHoverXPctRef.current = null;
+                setHoverTime(null);
+              }}
               onClick={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
                 const xPct = Math.min(
@@ -603,13 +642,32 @@ function PlaybackPanel({
                 seekToTime(dayStart + xPct * DAY_MS);
               }}
               onKeyDown={(e) => {
+                /* F4.8: Home/End lompat ke 00.00/23.59, PageUp/PageDown
+                   dan Shift+Arrow lompat 10 menit, Arrow biasa 1 menit. */
+                if (e.key === "Home") {
+                  e.preventDefault();
+                  seekToTime(dayStart);
+                  return;
+                }
+                if (e.key === "End") {
+                  e.preventDefault();
+                  seekToTime(dayStart + 1439 * 60_000);
+                  return;
+                }
                 if (!playheadMs) return;
+                const step = e.shiftKey ? 600_000 : 60_000;
                 if (e.key === "ArrowRight") {
                   e.preventDefault();
-                  seekToTime(playheadMs + 60_000);
+                  seekToTime(playheadMs + step);
                 } else if (e.key === "ArrowLeft") {
                   e.preventDefault();
-                  seekToTime(playheadMs - 60_000);
+                  seekToTime(playheadMs - step);
+                } else if (e.key === "PageUp") {
+                  e.preventDefault();
+                  seekToTime(playheadMs + 600_000);
+                } else if (e.key === "PageDown") {
+                  e.preventDefault();
+                  seekToTime(playheadMs - 600_000);
                 }
               }}
               className="relative h-12 cursor-pointer overflow-hidden rounded-full bg-ink-800 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
@@ -1121,14 +1179,13 @@ export default function PlaybackPage() {
                 </span>
                 <div
                   className="flex items-center gap-1 rounded-full bg-ink-800 p-1 shadow-sm"
-                  role="tablist"
                   aria-label="Tata letak grid playback"
                 >
                   {GRID_OPTS.map((g) => (
                     <button
                       key={g.cols}
-                      role="tab"
-                      aria-selected={gridCols === g.cols}
+                      type="button"
+                      aria-pressed={gridCols === g.cols}
                       aria-label={`Grid ${g.label}`}
                       title={`Grid ${g.label}`}
                       onClick={() => setGridCols(g.cols)}
@@ -1183,6 +1240,7 @@ export default function PlaybackPage() {
                   date={date}
                   posterUrl={s.poster_url}
                   ad={ad}
+                  enablePrefetch={!multi}
                 />
               ))}
             </div>

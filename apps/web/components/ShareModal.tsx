@@ -197,7 +197,7 @@ export function ShareModal({
                     checked={shared}
                     disabled={isSuper}
                     onChange={() => toggleShare(u.id)}
-                    className="h-5 w-5 shrink-0 accent-blue-500 disabled:opacity-60"
+                    className="h-5 w-5 shrink-0 accent-accent-500 p-2 -m-2 disabled:opacity-60"
                     aria-label={`Bagikan ke ${u.username}`}
                   />
                   <span className="min-w-0 flex-1 text-sm text-slate-200">
@@ -212,7 +212,7 @@ export function ShareModal({
                       type="button"
                       onClick={() => togglePlayback(u.id)}
                       disabled={isSuper}
-                      className={`shrink-0 cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all active:scale-[0.97] disabled:cursor-default disabled:opacity-80 ${
+                      className={`min-h-[44px] shrink-0 cursor-pointer rounded-full px-3.5 py-1 text-[11px] font-semibold transition-all active:scale-[0.97] disabled:cursor-default disabled:opacity-80 ${
                         playback
                           ? "bg-accent-500/15 text-accent-300"
                           : "bg-ink-800 text-slate-400"
@@ -233,11 +233,11 @@ export function ShareModal({
               })}
             </div>
           )}
-          <div className="mt-5 flex justify-end gap-2">
-            <Button variant="subtle" onClick={onClose}>
+          <div className="mt-5 grid gap-2.5 sm:flex sm:justify-end">
+            <Button variant="subtle" onClick={onClose} className="min-h-[48px] w-full sm:w-auto">
               Batal
             </Button>
-            <Button onClick={save} disabled={busy}>
+            <Button onClick={save} disabled={busy} className="min-h-[48px] w-full sm:w-auto">
               {busy ? "Menyimpan…" : "Simpan"}
             </Button>
           </div>

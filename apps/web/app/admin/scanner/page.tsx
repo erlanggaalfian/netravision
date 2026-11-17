@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../../../lib/api";
+import { useAuth } from "../../../lib/auth";
 import type { Group, Stream, SubnetHost } from "../../../lib/types";
 import { ErrorBox, Modal, Switch } from "../../../components/ui";
 import { LocationInput } from "../../../components/LocationInput";
-import { NBBadge, NBButton, NBCard, NBField, NBInput, NBSelect, NBTitle, NBTableWrap, NBTh, NBTd, NBTr } from "../_nb";
+import { NBBadge, NBButton, NBCard, NBEmptyState, NBField, NBInput, NBSelect, NBTitle, NBTableWrap, NBTh, NBTd, NBTr } from "../_nb";
 
 type Tone = "ok" | "bad" | "warn" | "info" | "muted";
 const SCAN_STATUS: Record<string, { label: string; tone: Tone }> = {
@@ -185,6 +186,11 @@ function stripScanAuth(scanUrl: string): string {
 }
 
 export default function AdminScannerPage() {
+  const { user: me } = useAuth();
+  /* Pertahanan berlapis: halaman ini super_admin-only (layout juga
+     mengalihkan admin biasa), jangan render kontennya bila peran
+     tidak cocok. */
+  const isSuperAdmin = me?.role === "super_admin";
   const [ipRange, setIpRange] = useState("192.168.1.0/24");
   const [port, setPort] = useState("554");
   const [username, setUsername] = useState("admin");
@@ -815,7 +821,7 @@ export default function AdminScannerPage() {
         checked={checked.has(key(h))}
         onChange={() => toggle(h)}
         disabled={!canPick}
-        className="h-5 w-5 shrink-0 accent-accent-500 disabled:opacity-40"
+        className="h-5 w-5 shrink-0 accent-accent-500 p-2 -m-2 disabled:opacity-40"
         aria-label={`Pilih ${h.host}`}
       />
     );
@@ -905,6 +911,18 @@ export default function AdminScannerPage() {
           {h.known ? <KnownHostActions h={h} /> : <span className="text-slate-600">-</span>}
         </NBTd>
       </NBTr>
+    );
+  }
+
+  if (me && !isSuperAdmin) {
+    return (
+      <div>
+        <NBTitle
+          title="Camera Scanner"
+          desc="Pindai subnet jaringan lokal untuk menemukan kamera (maks 256 host)"
+        />
+        <NBEmptyState text="Halaman ini hanya untuk super admin." />
+      </div>
     );
   }
 

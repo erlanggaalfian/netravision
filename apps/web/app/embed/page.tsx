@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { api, ApiError } from "../../lib/api";
+import { ApiError } from "../../lib/api";
 import { playWhep, stopWhep } from "../../lib/whep";
 import { AdBanner } from "../../components/AdBanner";
 import { Button } from "../../components/ui";
@@ -36,6 +36,24 @@ interface StreamSession {
 /* Base API tanpa header Authorization: halaman embed publik tidak boleh
    membawa token login ambient (D-R8). */
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
+
+/* Fetch publik tanpa kredensial (D-R8): semua panggilan /external/*
+   memakai ini, bukan apiFetch. credentials: "omit" eksplisit, karena
+   default same-origin tetap mengirim cookie sesi login ke /api. */
+async function fetchExternal<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, { credentials: "omit" });
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try {
+      const data = await res.json();
+      msg = data.detail || data.message || msg;
+    } catch {
+      /* abaikan */
+    }
+    throw new ApiError(res.status, msg);
+  }
+  return res.json() as Promise<T>;
+}
 
 function msLeft(expiresAt: string | null): number | null {
   if (!expiresAt) return null;
@@ -109,7 +127,7 @@ function EmbedPlayer({
     setLoadingSession(true);
     setFailed(null);
     try {
-      const s = await api.get<StreamSession>(
+      const s = await fetchExternal<StreamSession>(
         `/external/stream?key=${encodeURIComponent(apiKey)}&camera=${camera.id}`,
       );
       /* camera.id sudah dicocokkan dari /external/cameras berdasarkan id
@@ -451,15 +469,12 @@ function EmbedInner() {
     let cancelled = false;
     (async () => {
       try {
-        const data = await api.get<EmbedCamera[]>(
+        const data = await fetchExternal<EmbedCamera[]>(
           `/external/cameras?key=${encodeURIComponent(key)}`,
         );
-        /* Banner iklan publik: fetch langsung TANPA header Authorization
-           (D-R8). api.get akan melampirkan token login ambient bila ada,
-           sehingga tampilan iklan ikut preferensi akun yang kebetulan
-           login di browser ini. /ad-config publik: tanpa token, backend
-           memperlakukannya sebagai tamu anonim. */
-        fetch(`${API_BASE}/ad-config`)
+        /* Banner iklan publik: fetch langsung TANPA kredensial (D-R8),
+           sama seperti semua panggilan /external/* di halaman ini. */
+        fetch(`${API_BASE}/ad-config`, { credentials: "omit" })
           .then((r) => (r.ok ? r.json() : null))
           .then((c) => {
             if (!cancelled && c) setAd(c);
@@ -468,11 +483,10 @@ function EmbedInner() {
         if (cancelled) return;
         setCameraState(null);
         setLoadError(null);
-        /* D-K1: ?camera= diartikan ID dulu; bila bukan ID yang sah dalam
-           cakupan kunci, baru fallback ke nomor urut 1-based sesuai
-           urutan /external/cameras. Frontend mengirim camera.id ke
-           /external/stream, jadi kamera yang tampil dan yang diputar
-           selalu sama. */
+        /* D-K1: ?camera= diartikan ID saja. Bila ID tidak ada dalam
+           cakupan kunci, tampilkan panel "Kamera tidak tersedia":
+           tanpa fallback nomor urut, supaya tautan embed tidak
+           diam-diam menampilkan kamera lain. */
         let list = data;
         if (data.length === 0) {
           /* D-R7: kunci memang tidak punya kamera: biarkan panel
@@ -480,18 +494,9 @@ function EmbedInner() {
           list = [];
         } else if (cameraParam) {
           const wanted = Number(cameraParam);
-          let match: EmbedCamera | undefined;
-          if (Number.isFinite(wanted)) {
-            match = data.find((c) => c.id === wanted);
-            if (
-              !match &&
-              Number.isInteger(wanted) &&
-              wanted >= 1 &&
-              wanted <= data.length
-            ) {
-              match = data[wanted - 1];
-            }
-          }
+          const match = Number.isFinite(wanted)
+            ? data.find((c) => c.id === wanted)
+            : undefined;
           if (match) {
             list = [match];
           } else {
@@ -540,9 +545,12 @@ function EmbedInner() {
       <header className="flex items-center justify-between px-4 py-3 sm:px-6">
         <div className="flex items-center gap-2.5">
           {/* eslint-disable-next-line @next/next/no-img-element */}
+          {/* F5.11: turunan kecil logo-64.webp (2,6 KB), bukan logo.png 174 KB. */}
           <img
-            src="/icons/logo.png"
+            src="/icons/logo-64.webp"
             alt="Logo NetraVision"
+            width={32}
+            height={32}
             className="h-8 w-8 object-contain"
           />
           <span className="text-sm font-bold text-white">NetraVision</span>

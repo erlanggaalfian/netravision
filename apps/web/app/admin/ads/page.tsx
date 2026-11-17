@@ -3,10 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { AdConfig } from "../../../lib/types";
 import { ApiError, api, apiFetch, normalizeUploadUrl } from "../../../lib/api";
+import { useAuth } from "../../../lib/auth";
 import { ErrorBox, Spinner, Switch } from "../../../components/ui";
 import {
   NBButton,
   NBCard,
+  NBEmptyState,
   NBField,
   NBInput,
   NBSelect,
@@ -228,7 +230,7 @@ function RangeRow({
           max={max}
           value={value}
           onChange={(e) => onChange(Number(e.target.value))}
-          className="h-1.5 flex-1 cursor-pointer appearance-none rounded-lg bg-ink-600 accent-sky-500"
+          className="h-1.5 flex-1 cursor-pointer appearance-none rounded-lg bg-ink-600 accent-accent-500"
         />
         <span className="w-12 text-right font-mono text-xs font-bold text-accent-400">
           {display}
@@ -257,7 +259,7 @@ function ColorRow({
           type="color"
           value={/^#[0-9a-fA-F]{6}$/.test(value) ? value : "#1e293b"}
           onChange={(e) => onChange(e.target.value)}
-          className="h-9 w-9 shrink-0 cursor-pointer rounded-lg border border-ink-600 bg-transparent"
+          className="h-11 w-11 shrink-0 cursor-pointer rounded-lg border border-ink-600 bg-transparent"
           aria-label={label}
         />
         <NBInput
@@ -272,6 +274,11 @@ function ColorRow({
 }
 
 export default function AdminAdsPage() {
+  const { user: me } = useAuth();
+  /* Pertahanan berlapis: halaman ini super_admin-only (layout juga
+     mengalihkan admin biasa), jangan render atau muat kontennya bila
+     peran tidak cocok. */
+  const isSuperAdmin = me?.role === "super_admin";
   const [cfg, setCfg] = useState<AdConfig | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -280,6 +287,7 @@ export default function AdminAdsPage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (!isSuperAdmin) return;
     /* E-T1: muat config mentah dari endpoint admin, bukan dari
        GET /ad-config publik yang difilter audiens/show_ads. */
     api
@@ -288,7 +296,7 @@ export default function AdminAdsPage() {
       .catch((e) =>
         setError(e instanceof ApiError ? e.message : "Gagal memuat konfigurasi"),
       );
-  }, []);
+  }, [isSuperAdmin]);
 
   function set<K extends keyof AdConfig>(key: K, value: AdConfig[K]) {
     setCfg((c) => (c ? { ...c, [key]: value } : c));
@@ -338,6 +346,18 @@ export default function AdminAdsPage() {
     } finally {
       setUploading(false);
     }
+  }
+
+  if (me && !isSuperAdmin) {
+    return (
+      <div>
+        <NBTitle
+          title="Ad Space Config"
+          desc="Atur gambar dan teks berjalan pada popup guest"
+        />
+        <NBEmptyState text="Halaman ini hanya untuk super admin." />
+      </div>
+    );
   }
 
   if (cfg === null && !error) return <Spinner />;

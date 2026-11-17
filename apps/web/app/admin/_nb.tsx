@@ -5,8 +5,9 @@
    (nv-panel-modern), heading besar/bold. Permukaan SOLID (tanpa blur),
    memakai token tema (ink/accent/slate) sehingga mode gelap/terang benar. */
 
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Dropdown, selectChildrenToOptions } from "../../components/Dropdown";
+import { Button, ConfirmModal } from "../../components/ui";
 
 export function NBCard({
   children,
@@ -48,16 +49,17 @@ export function NBTitle({
   );
 }
 
-/* Varian tombol "secondary": ALIAS dari Button "subtle"
-   (components/ui.tsx). Keduanya SENGAJA identik, class yang sama persis:
-   "bg-ink-800 text-slate-200 hover:bg-ink-700".
-   Kapan memakai yang mana: NBButton variant="secondary" untuk menu admin,
-   Button variant="subtle" untuk menu utama. Jangan menulis class
-   varian ini secara manual di tempat lain, pakai salah satu varian di atas.
-   Kalau tampilannya perlu berubah, ubah KEDUA definisi sekaligus supaya
-   tetap identik; cek dengan:
-   grep -h 'bg-ink-800 text-slate-200 hover:bg-ink-700' components/ui.tsx app/admin/_nb.tsx */
+/* Varian tombol "secondary": wrapper di atas Button "subtle"
+   (components/ui.tsx, F2.6), jadi satu definisi saja. Kapan memakai
+   yang mana: NBButton variant="secondary" untuk menu admin,
+   Button variant="subtle" untuk menu utama. */
 type NBBtnVariant = "primary" | "secondary" | "danger";
+
+const NB_TO_UI_VARIANT = {
+  primary: "primary",
+  secondary: "subtle",
+  danger: "danger",
+} as const;
 
 export function NBButton({
   children,
@@ -67,19 +69,10 @@ export function NBButton({
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: NBBtnVariant;
 }) {
-  const base =
-    "inline-flex min-h-[44px] cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]";
-  const styles: Record<NBBtnVariant, string> = {
-    primary:
-      "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)] hover:shadow-[0_6px_20px_-4px_var(--nv-accent-600)]",
-    secondary: "bg-ink-800 text-slate-200 hover:bg-ink-700",
-    danger:
-      "bg-bad-400/15 text-bad-400 hover:bg-bad-400/25 hover:shadow-[0_4px_16px_-6px_var(--nv-bad-400)]",
-  };
   return (
-    <button className={`${base} ${styles[variant]} ${className}`} {...rest}>
+    <Button variant={NB_TO_UI_VARIANT[variant]} className={className} {...rest}>
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -92,11 +85,14 @@ export function NBBadge({
   size?: "sm" | "md";
   children: ReactNode;
 }) {
+  /* Teks badge memakai token *-text (F4.3): turunan gelap di tema
+     terang supaya lolos WCAG AA 4,5 untuk teks 10-11px. NBConfirmModal
+     kini wrapper ConfirmModal, jadi focus trap-nya ikut Modal umum. */
   const styles = {
-    ok: "bg-ok-400/15 text-ok-400 ring-1 ring-ok-400/25",
-    bad: "bg-bad-400/15 text-bad-400 ring-1 ring-bad-400/25",
-    warn: "bg-warn-400/15 text-warn-400 ring-1 ring-warn-400/25",
-    info: "bg-accent-500/15 text-accent-600 ring-1 ring-accent-500/25",
+    ok: "bg-ok-400/15 text-ok-text ring-1 ring-ok-400/25",
+    bad: "bg-bad-400/15 text-bad-text ring-1 ring-bad-400/25",
+    warn: "bg-warn-400/15 text-warn-text ring-1 ring-warn-400/25",
+    info: "bg-accent-500/15 text-accent-text ring-1 ring-accent-500/25",
     muted: "bg-ink-800 text-slate-400 ring-1 ring-slate-200/15",
   } as const;
   const sizes = {
@@ -279,7 +275,9 @@ export function NBAccordion({
   );
 }
 
-/* Modal konfirmasi: tombol Batal netral + aksi danger. */
+/* Modal konfirmasi: wrapper tipis di atas ConfirmModal
+   (components/ui.tsx, F2.4), supaya tidak ada dua implementasi yang
+   harus diubah berbarengan; max-h-[92dvh] ikut dari Modal di sana. */
 export function NBConfirmModal({
   title,
   message,
@@ -299,53 +297,15 @@ export function NBConfirmModal({
      Sama seperti ConfirmModal di components/ui.tsx. */
   busy?: boolean;
 }) {
-  const titleId = useId();
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
   return (
-    <div
-      /* Backdrop blur disamakan di semua popup (FocusModal, Modal ui.tsx,
-         Modal _nb.tsx): backdrop-blur-sm, tipis dan modern. */
-      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 backdrop-blur-sm p-0 sm:items-center sm:p-6"
-      onClick={onCancel}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={titleId}
-    >
-      <div
-        className="nv-pop w-full max-w-lg overflow-y-auto rounded-2xl bg-ink-900 ring-1 ring-ink-600/20 pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-ink-800 px-4 py-3">
-          <h2 id={titleId} className="text-lg font-bold tracking-tight text-slate-100">{title}</h2>
-          <button
-            onClick={onCancel}
-            aria-label="Tutup"
-            className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-xl text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-200"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-            </svg>
-          </button>
-        </div>
-        <div className="px-4 py-4">
-          <p className="text-[15px] leading-relaxed text-slate-300">{message}</p>
-          <div className="mt-5 grid gap-2.5 sm:flex sm:justify-end">
-            <NBButton variant="secondary" onClick={onCancel} disabled={busy} className="w-full sm:w-auto">
-              Batal
-            </NBButton>
-            <NBButton variant="danger" onClick={onConfirm} disabled={busy} className="w-full sm:w-auto">
-              {busy ? "Menghapus…" : confirmLabel}
-            </NBButton>
-          </div>
-        </div>
-      </div>
-    </div>
+    <ConfirmModal
+      title={title}
+      message={message}
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+      confirmLabel={confirmLabel}
+      busy={busy}
+    />
   );
 }
 

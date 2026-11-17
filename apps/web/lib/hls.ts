@@ -4,19 +4,23 @@
    (NAT/CGNAT yang tidak meneruskan UDP 8189 ke server).
    Safari memutar HLS secara native; browser lain memakai hls.js. */
 
-import Hls from "hls.js";
+/* F5.1: hls.js TIDAK diimpor statis lagi. Dynamic import di dalam
+   playHls, hanya saat fallback HLS benar-benar dipakai (WHEP gagal
+   dan HLS native tidak tersedia), supaya First Load JS /live tidak
+   lagi membawa chunk hls.js 586 KB. */
 
 export interface HlsHandle {
   destroy: () => void;
 }
 
 /* Putar URL HLS pada elemen video. Kembalikan handle untuk cleanup.
-   Melempar bila HLS tidak didukung atau gagal memuat manifest. */
-export function playHls(
+   Melempar bila HLS tidak didukung atau gagal memuat manifest.
+   Async karena hls.js diimpor dinamis hanya di jalur fallback. */
+export async function playHls(
   video: HTMLVideoElement,
   url: string,
   onFail?: () => void,
-): HlsHandle {
+): Promise<HlsHandle> {
   // Safari / iOS: HLS native.
   if (video.canPlayType("application/vnd.apple.mpegurl")) {
     video.src = url;
@@ -43,6 +47,7 @@ export function playHls(
     };
   }
 
+  const { default: Hls } = await import("hls.js");
   if (!Hls.isSupported()) {
     throw new Error("HLS tidak didukung browser ini");
   }
@@ -93,8 +98,26 @@ export function stopHls(handle: HlsHandle | null) {
    dingin; playlist awal berisi segmen `gap.mp4` bertanda #EXT-X-GAP.
    hls.js tetap mencoba memuat gap.mp4 (404) dan gagal fatal, jadi HLS
    tidak boleh dimulai selagi masih ada gap. Kembalikan true bila bebas
-   gap, false bila masih ada gap atau gagal mengambil playlist. */
+   gap, false bila masih ada gap atau gagal mengambil playlist.
+   F6.5: masterUrl dan URL segmen hasil penulisan ulang playlist
+   membawa ?token= (lihat lib/media-token.ts). Risiko yang diterima:
+   <video>/hls.js tidak bisa mengirim header Authorization, jadi
+   token harus di URL. */
+/* F5.6: cache hasil isHlsWarm per URL selama 10 detik, supaya tiap
+   tile tidak mengulang fetch master + variant playlist berkali-kali
+   saat WHEP gagal dan retry HLS berjalan. */
+const warmCache = new Map<string, { at: number; warm: boolean }>();
+const WARM_CACHE_MS = 10000;
+
 export async function isHlsWarm(masterUrl: string): Promise<boolean> {
+  const cached = warmCache.get(masterUrl);
+  if (cached && Date.now() - cached.at < WARM_CACHE_MS) return cached.warm;
+  const warm = await checkHlsWarm(masterUrl);
+  warmCache.set(masterUrl, { at: Date.now(), warm });
+  return warm;
+}
+
+async function checkHlsWarm(masterUrl: string): Promise<boolean> {
   try {
     const masterRes = await fetch(masterUrl);
     if (!masterRes.ok) return false;

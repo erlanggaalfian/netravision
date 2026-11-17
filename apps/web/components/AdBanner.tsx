@@ -209,6 +209,9 @@ export function AdBanner({
             {[0, 1, 2, 3].map((i) => (
               <span
                 key={i}
+                /* Tiga salinan duplikat disembunyikan dari screen reader
+                   (F4.14): teks iklan hanya dibacakan sekali. */
+                aria-hidden={i > 0 ? true : undefined}
                 className="pr-16"
                 style={{
                   color: hexA(config.text_color, txtAlpha),
@@ -232,7 +235,6 @@ export function AdBanner({
 
   return (
     <div className={wrapCls}>
-      <style>{`@keyframes nv-marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }`}</style>
       {/* click_url hanya jadi tautan bila http(s): skema lain (mis.
           javascript:) tidak boleh dieksekusi dari klik banner. */}
       {/^https?:\/\//i.test(config.click_url?.trim() ?? "") ? (

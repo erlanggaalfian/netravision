@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, api, apiGetPage } from "../../../lib/api";
+import { useAuth } from "../../../lib/auth";
 import type { AdConfig, ApiKey, Stream } from "../../../lib/types";
 import { ErrorBox, Modal, Pagination, Spinner, Switch } from "../../../components/ui";
 import {
@@ -69,12 +70,20 @@ async function copyText(text: string): Promise<boolean> {
 }
 
 export default function AdminKeysPage() {
+  const { user: me } = useAuth();
+  /* Pertahanan berlapis: halaman ini super_admin-only (layout juga
+     mengalihkan admin biasa), jangan render atau muat kontennya bila
+     peran tidak cocok. */
+  const isSuperAdmin = me?.role === "super_admin";
   const [keys, setKeys] = useState<KeyOut[] | null>(null);
   const [streams, setStreams] = useState<Stream[]>([]);
   const [logs, setLogs] = useState<AccessLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
   const [logsPage, setLogsPage] = useState(1);
   const [logsTotal, setLogsTotal] = useState(0);
+  /* F3.11: cadangan bila header X-Total-Count hilang (total 0) tetapi
+     halaman penuh: masih ada halaman berikut. */
+  const [logsHasMore, setLogsHasMore] = useState(false);
   const [logKeyF, setLogKeyF] = useState("all");
   const [logStatusF, setLogStatusF] = useState("all");
   const [error, setError] = useState("");
@@ -102,9 +111,22 @@ export default function AdminKeysPage() {
   /* Log akses memakai Pagination bernomor yang sama seperti semua menu
      (perintah user 2026-11-17): satu halaman diganti utuh, bukan
      ditambah ke bawah seperti tombol "Muat lebih banyak" sebelumnya.
-     Total dibaca dari header X-Total-Count. */
-  const logsTotalPages = Math.max(1, Math.ceil(logsTotal / LOG_PAGE));
+     Total dibaca dari header X-Total-Count. F3.11: bila total 0 tetapi
+     halaman penuh (logsHasMore), anggap masih ada satu halaman berikut
+     supaya pagination tidak terkunci di halaman 1. */
+  const logsTotalPages =
+    logsTotal > 0
+      ? Math.max(1, Math.ceil(logsTotal / LOG_PAGE))
+      : logsHasMore
+        ? logsPage + 1
+        : 1;
+  /* F3.7: nomor urutan loadLogs, pola yang sama dengan playback
+     (loadSeqRef): hanya respons terbaru yang dipakai, respons lama
+     yang tiba belakangan diabaikan supaya tabel tidak menampilkan
+     log filter atau halaman lama. */
+  const logsSeqRef = useRef(0);
   const loadLogs = (page: number) => {
+    const mySeq = ++logsSeqRef.current;
     setLogsLoading(true);
     const params = new URLSearchParams({
       limit: String(LOG_PAGE),
@@ -113,28 +135,36 @@ export default function AdminKeysPage() {
     if (logKeyF !== "all") params.set("key_id", logKeyF);
     if (logStatusF !== "all") params.set("status", logStatusF);
     apiGetPage<AccessLog>(`/admin/api-access-logs?${params}`)
-      .then(({ items, total }) => {
+      .then(({ items, total, hasMore }) => {
+        if (mySeq !== logsSeqRef.current) return;
         setLogs(items);
         setLogsTotal(total);
+        setLogsHasMore(hasMore);
         setLogsPage(page);
       })
       .catch(() => {
+        if (mySeq !== logsSeqRef.current) return;
         setLogs([]);
         setLogsTotal(0);
+        setLogsHasMore(false);
       })
-      .finally(() => setLogsLoading(false));
+      .finally(() => {
+        if (mySeq === logsSeqRef.current) setLogsLoading(false);
+      });
   };
 
   useEffect(() => {
+    if (!isSuperAdmin) return;
     loadKeys();
     api.get<Stream[]>("/admin/streams").then((d) => setStreams(d ?? [])).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isSuperAdmin]);
 
   useEffect(() => {
+    if (!isSuperAdmin) return;
     loadLogs(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [logKeyF, logStatusF]);
+  }, [logKeyF, logStatusF, isSuperAdmin]);
 
   const [togglingId, setTogglingId] = useState<number | null>(null);
   /* Hapus key / hapus log async: modal konfirmasi nonaktif selama
@@ -187,6 +217,18 @@ export default function AdminKeysPage() {
     streams.find((s) => s.id === id)?.name ?? (id != null ? `#${id}` : "-");
   const keyName = (id: number | null) =>
     keys?.find((k) => k.id === id)?.name ?? (id != null ? `#${id}` : "-");
+
+  if (me && !isSuperAdmin) {
+    return (
+      <div>
+        <NBTitle
+          title="API Key"
+          desc="Kunci embed untuk pihak ketiga, key penuh hanya tampil sekali saat dibuat"
+        />
+        <NBEmptyState text="Halaman ini hanya untuk super admin." />
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -458,7 +500,16 @@ export default function AdminKeysPage() {
         />
       )}
       {created && (
-        <Modal title="API key dibuat" onClose={() => setCreated(null)}>
+        <Modal
+          title="API key dibuat"
+          onClose={() => {
+            /* F6.3: key hanya tampil sekali. Menutup modal ini membuang
+               key dari state, jadi Panduan Integrasi yang dibuka belakangan
+               tidak bisa menampilkan lagi key yang sama. */
+            setCreated(null);
+            setGuideKey("");
+          }}
+        >
           {/* Peringatan sekali tampil, bukan error: kotak kuning, bukan
               ErrorBox merah (ErrorBox hanya untuk kegagalan). */}
           <div className="rounded-xl bg-warn-400/15 px-3.5 py-2.5 text-sm font-medium text-warn-300 ring-1 ring-warn-400/30">
@@ -497,7 +548,16 @@ export default function AdminKeysPage() {
             >
               Panduan Integrasi
             </NBButton>
-            <NBButton onClick={() => setCreated(null)}>Selesai</NBButton>
+            <NBButton
+              onClick={() => {
+                /* F6.3: sama seperti menutup modal, key dibuang supaya
+                   tidak bisa ditampilkan lagi lewat Panduan Integrasi. */
+                setCreated(null);
+                setGuideKey("");
+              }}
+            >
+              Selesai
+            </NBButton>
           </div>
         </Modal>
       )}
@@ -522,7 +582,13 @@ export default function AdminKeysPage() {
       {showGuide && (
         <IntegrationGuideModal
           initialKey={guideKey}
-          onClose={() => setShowGuide(false)}
+          onClose={() => {
+            /* F6.3: menutup panduan membuang key dari state. Panduan yang
+               dibuka lagi sesudahnya meminta pengguna menempel key sendiri,
+               key hasil buat tidak bisa ditampilkan ulang. */
+            setShowGuide(false);
+            setGuideKey("");
+          }}
         />
       )}
     </div>
@@ -693,6 +759,18 @@ function IntegrationGuideModal({
           placeholder="Tempel API key di sini…"
         />
       </NBField>
+      {/* F6.11: tautan di bawah berisi key di URL (?key=). Key ikut
+          tersimpan di histori browser dan address bar, jadi tautan ini
+          jangan dibagikan sembarangan; bila sudah tersebar, cabut key
+          dari halaman ini dan buat key baru. Peringatan ini tampil
+          sebelum tombol Salin mana pun, supaya tidak ada penyalinan
+          URL ber-key tanpa peringatan. */}
+      {key && (
+        <div className="mt-4 rounded-xl bg-warn-400/15 px-3.5 py-2.5 text-sm font-medium text-warn-300 ring-1 ring-warn-400/30">
+          Tautan di bawah berisi API key Anda. Jangan dibagikan sembarangan,
+          key tersimpan di histori browser.
+        </div>
+      )}
       <div className="mt-4 space-y-4">
         {methods.map((m) => (
           <div
@@ -925,13 +1003,15 @@ function KeyFormModal({
             </div>
           </NBField>
         )}
-        <NBButton
-          onClick={save}
-          disabled={busy || !name.trim() || ordered.length === 0}
-          className="w-full"
-        >
-          {busy ? "Membuat…" : "Buat Key"}
-        </NBButton>
+        <div className="mt-5 grid gap-2.5 sm:flex sm:justify-end">
+          <NBButton
+            onClick={save}
+            disabled={busy || !name.trim() || ordered.length === 0}
+            className="min-h-[48px] w-full sm:w-auto"
+          >
+            {busy ? "Membuat…" : "Buat Key"}
+          </NBButton>
+        </div>
       </div>
     </Modal>
   );
