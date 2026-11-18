@@ -6,6 +6,7 @@ mengecek status path, dan menghapus path yang tidak dipakai lagi.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 
@@ -14,6 +15,23 @@ import httpx
 from app.core.config import get_settings
 
 log = logging.getLogger("netravision.mediamtx")
+
+# P0: SATU lock proses untuk semua mutasi path MediaMTX. Sync loop
+# (main.py), admin, dan reconnect memakai instance client berbeda, jadi
+# lock per-instance tidak cukup, lock ini di level modul agar
+# ensure/create/patch/delete dari mana pun ter-serialisasi.
+MEDIA_PATH_LOCK = asyncio.Lock()
+
+
+def mediamtx_path_lock() -> asyncio.Lock:
+    """Kembalikan lock mutasi path MediaMTX (ekspor untuk main.py).
+
+    Pakai sebagai `async with mediamtx_path_lock():` untuk mengelompokkan
+    beberapa mutasi menjadi satu bagian kritis. Jangan ambil lock ini lalu
+    memanggil ensure/create/patch/delete: mereka sudah mengambilnya
+    sendiri dan asyncio.Lock tidak reentrant (deadlock).
+    """
+    return MEDIA_PATH_LOCK
 
 
 class MediaMTXClient:
@@ -44,18 +62,33 @@ class MediaMTXClient:
         )
 
     async def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
-        try:
-            resp = await self._client.request(method, path, **kwargs)
-            if resp.status_code == 404:
+        # Retry 1x HANYA untuk GET (idempotent) pada error koneksi/timeout,
+        # dengan backoff 0,3 detik. POST/PATCH/DELETE TIDAK di-retry:
+        # pengulangan add bisa menduplikasi efek di sisi server, dan
+        # 4xx (mis. 409 path sudah ada) tidak pernah di-retry.
+        # Timeout tetap 5 detik (di AsyncClient); tidak diubah.
+        attempts = 2 if method.upper() == "GET" else 1
+        for attempt in range(attempts):
+            try:
+                resp = await self._client.request(method, path, **kwargs)
+                if resp.status_code == 404:
+                    return resp
+                resp.raise_for_status()
                 return resp
-            resp.raise_for_status()
-            return resp
-        except httpx.HTTPError as exc:
-            # Semua error HTTP/timeout/connection -> RuntimeError agar pemanggil
-            # cukup tangkap satu tipe (kontrak: gagal = RuntimeError).
-            raise RuntimeError(
-                f"MediaMTX tidak terjangkau di {self._client.base_url}: {exc}"
-            ) from exc
+            except (httpx.ConnectError, httpx.TimeoutException) as exc:
+                if attempt + 1 < attempts:
+                    await asyncio.sleep(0.3)
+                    continue
+                # Semua error HTTP/timeout/connection -> RuntimeError agar
+                # pemanggil cukup tangkap satu tipe (kontrak: gagal =
+                # RuntimeError).
+                raise RuntimeError(
+                    f"MediaMTX tidak terjangkau di {self._client.base_url}: {exc}"
+                ) from exc
+            except httpx.HTTPError as exc:
+                raise RuntimeError(
+                    f"MediaMTX tidak terjangkau di {self._client.base_url}: {exc}"
+                ) from exc
 
     async def get_paths(self) -> list[dict]:
         """Daftar semua path yang terdaftar di MediaMTX.
@@ -74,13 +107,19 @@ class MediaMTXClient:
             items = data.get("items")
             if isinstance(items, list):
                 return [p for p in items if isinstance(p, dict)]
+            # P0: JANGAN log isi data mentah, field `source` bisa berisi
+            # URL RTSP berkredensial. Hanya bentuknya: nama-nama key
+            # (tanpa nilai) dan jumlahnya.
             log.warning(
-                "MediaMTX get_paths: respons dict tanpa items list: %s",
-                str(data)[:200],
+                "MediaMTX get_paths: respons dict tanpa items list: "
+                "keys=%s (n=%d)",
+                sorted(data.keys()),
+                len(data),
             )
             return []
         log.warning(
-            "MediaMTX get_paths: respons bukan list/dict: %s", str(data)[:200]
+            "MediaMTX get_paths: respons bukan list/dict: type=%s",
+            type(data).__name__,
         )
         return []
 
@@ -93,21 +132,29 @@ class MediaMTXClient:
 
     async def create_path(self, name: str, source: str,
                           record: bool = False) -> None:
-        """Daftarkan path dengan source RTSP (idempoten bila sudah ada)."""
-        if await self.get_path(name):
-            return
-        body: dict = {"source": source}
-        if record:
-            body["record"] = True
-        await self._request(
-            "POST", f"/v3/config/paths/add/{name}", json=body
-        )
+        """Daftarkan path dengan source RTSP (idempoten bila sudah ada).
+
+        Seluruh mutasi lewat MEDIA_PATH_LOCK (lihat atas file).
+        """
+        async with MEDIA_PATH_LOCK:
+            if await self.get_path(name):
+                return
+            body: dict = {"source": source}
+            if record:
+                body["record"] = True
+            await self._request(
+                "POST", f"/v3/config/paths/add/{name}", json=body
+            )
 
     async def patch_path(self, name: str, patch: dict) -> None:
-        """Ubah konfigurasi path yang sudah ada (mis. record on/off)."""
-        await self._request(
-            "PATCH", f"/v3/config/paths/patch/{name}", json=patch
-        )
+        """Ubah konfigurasi path yang sudah ada (mis. record on/off).
+
+        Seluruh mutasi lewat MEDIA_PATH_LOCK (lihat atas file).
+        """
+        async with MEDIA_PATH_LOCK:
+            await self._request(
+                "PATCH", f"/v3/config/paths/patch/{name}", json=patch
+            )
 
     async def ensure_path(self, name: str, conf: dict) -> None:
         """Pastikan path ada dengan konfigurasi `conf`.
@@ -117,27 +164,36 @@ class MediaMTXClient:
         sudah sama, agar sync berkala tiap 60 detik tidak me-reload path
         yang sedang ditonton. Perbandingan dinormalisasi (bool vs string)
         karena API MediaMTX kadang mengembalikan bentuk yang berbeda.
+
+        Seluruh check-then-act berjalan di bawah MEDIA_PATH_LOCK (lihat
+        atas file) supaya dua pemanggil bersamaan tidak balapan add.
+        patch_path TIDAK dipanggil dari sini, ia mengambil lock yang
+        sama dan asyncio.Lock tidak reentrant, PATCH dilakukan langsung
+        lewat _request di bawah lock yang sama.
         """
-        cur = await self.get_path(name)
-        if cur is None:
-            try:
-                await self._request("POST", f"/v3/config/paths/add/{name}", json=conf)
-            except RuntimeError:
-                # Temuan 3.20: check-then-act bisa balapan. Dua pemanggil
-                # bersamaan sama-sama melihat path belum ada, lalu yang
-                # kedua gagal add (409/sudah ada). Baca ulang: bila path
-                # kini ada, lanjut ke patch-diff di bawah; bila tetap
-                # tidak ada, errornya nyata dan dilempar ulang.
-                cur = await self.get_path(name)
-                if cur is None:
-                    raise
-            else:
-                return
-        diff = {
-            k: v for k, v in conf.items() if not _conf_value_equal(cur.get(k), v)
-        }
-        if diff:
-            await self.patch_path(name, diff)
+        async with MEDIA_PATH_LOCK:
+            cur = await self.get_path(name)
+            if cur is None:
+                try:
+                    await self._request("POST", f"/v3/config/paths/add/{name}", json=conf)
+                except RuntimeError:
+                    # Temuan 3.20: check-then-act bisa balapan. Dua pemanggil
+                    # bersamaan sama-sama melihat path belum ada, lalu yang
+                    # kedua gagal add (409/sudah ada). Baca ulang: bila path
+                    # kini ada, lanjut ke patch-diff di bawah; bila tetap
+                    # tidak ada, errornya nyata dan dilempar ulang.
+                    cur = await self.get_path(name)
+                    if cur is None:
+                        raise
+                else:
+                    return
+            diff = {
+                k: v for k, v in conf.items() if not _conf_value_equal(cur.get(k), v)
+            }
+            if diff:
+                await self._request(
+                    "PATCH", f"/v3/config/paths/patch/{name}", json=diff
+                )
 
     async def path_ready(self, name: str) -> bool:
         """Status runtime: sumber path sedang tersambung & mengirim media."""
@@ -147,10 +203,14 @@ class MediaMTXClient:
         return bool(resp.json().get("ready"))
 
     async def delete_path(self, name: str) -> None:
-        """Hapus path bila terdaftar."""
-        resp = await self._request("DELETE", f"/v3/config/paths/delete/{name}")
-        if resp.status_code not in (200, 404):
-            resp.raise_for_status()
+        """Hapus path bila terdaftar.
+
+        Seluruh mutasi lewat MEDIA_PATH_LOCK (lihat atas file).
+        """
+        async with MEDIA_PATH_LOCK:
+            resp = await self._request("DELETE", f"/v3/config/paths/delete/{name}")
+            if resp.status_code not in (200, 404):
+                resp.raise_for_status()
 
     async def aclose(self) -> None:
         await self._client.aclose()

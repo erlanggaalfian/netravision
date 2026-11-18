@@ -108,18 +108,49 @@ export function stopHls(handle: HlsHandle | null) {
    saat WHEP gagal dan retry HLS berjalan. */
 const warmCache = new Map<string, { at: number; warm: boolean }>();
 const WARM_CACHE_MS = 10000;
+/* P0 code-review 2026-11-18: batas atas cache hangat, supaya URL HLS
+   baru (token baru tiap 60 menit) tidak menumpuk selamanya. */
+const WARM_CACHE_MAX_ENTRIES = 200;
+
+/* P0 code-review 2026-11-18: fetch playlist dengan timeout 10 detik.
+   Sebelumnya fetch() mentah tanpa timeout/AbortSignal: bila MediaMTX
+   menggantung, isHlsWarm() menggantung dan tile menunggu >30 detik
+   sebelum menampilkan "Gagal memutar". */
+async function fetchWithTimeout(
+  input: string,
+  timeoutMs: number,
+): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(input, { signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export async function isHlsWarm(masterUrl: string): Promise<boolean> {
+  /* Hapus entri kedaluwarsa saat dibaca, supaya map tidak tumbuh
+     tanpa batas selama tab hidup. */
+  const now = Date.now();
+  for (const [key, entry] of warmCache) {
+    if (now - entry.at >= WARM_CACHE_MS) warmCache.delete(key);
+  }
   const cached = warmCache.get(masterUrl);
-  if (cached && Date.now() - cached.at < WARM_CACHE_MS) return cached.warm;
+  if (cached && now - cached.at < WARM_CACHE_MS) return cached.warm;
   const warm = await checkHlsWarm(masterUrl);
+  if (warmCache.size >= WARM_CACHE_MAX_ENTRIES) {
+    /* Penuh: hapus entri tertua (Map menjaga urutan penyisipan). */
+    const oldest = warmCache.keys().next();
+    if (!oldest.done) warmCache.delete(oldest.value);
+  }
   warmCache.set(masterUrl, { at: Date.now(), warm });
   return warm;
 }
 
 async function checkHlsWarm(masterUrl: string): Promise<boolean> {
   try {
-    const masterRes = await fetch(masterUrl);
+    const masterRes = await fetchWithTimeout(masterUrl, 10000);
     if (!masterRes.ok) return false;
     const masterText = await masterRes.text();
     const variantLine = masterText
@@ -131,7 +162,7 @@ async function checkHlsWarm(masterUrl: string): Promise<boolean> {
        fungsi selalu mengembalikan false (pemeriksaan hangat mati). */
     const base = new URL(masterUrl, window.location.href);
     const variantUrl = new URL(variantLine.trim(), base).toString();
-    const variantRes = await fetch(variantUrl);
+    const variantRes = await fetchWithTimeout(variantUrl, 10000);
     if (!variantRes.ok) return false;
     const variantText = await variantRes.text();
     return !variantText.includes("gap.mp4");

@@ -257,7 +257,13 @@ async def _upload_once() -> int:
         # sub yang dipakai (ditulis belakangan).
         pending: dict[str, str] = {}
         for rec_dir in rec_dirs:
-            for seg_name, seg_path in _stable_segments(rec_dir):
+            # P1: _stable_segments memindai direktori (os.listdir +
+            # os.stat per file), jalankan di thread supaya tidak
+            # memblokir event loop. Fungsi sync-nya sendiri dibiarkan
+            # sync (dipakai dari konteks sync lewat to_thread).
+            for seg_name, seg_path in await asyncio.to_thread(
+                _stable_segments, rec_dir
+            ):
                 pending[seg_name] = seg_path
         if not pending:
             continue

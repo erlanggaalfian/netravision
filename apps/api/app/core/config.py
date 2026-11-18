@@ -3,6 +3,8 @@
 Tanpa nilai rahasia di repo, lihat .env.example.
 """
 
+import os
+import sys
 from functools import lru_cache
 
 from pydantic import Field, field_validator, model_validator
@@ -23,6 +25,12 @@ class Settings(BaseSettings):
     )
 
     jwt_secret: str = "CHANGE-ME-IN-PROD"
+    # 2026-11-18 (code review): secret default HANYA boleh hidup di dev
+    # lokal yang eksplisit. Set true HANYA lewat env
+    # ALLOW_DEFAULT_JWT_SECRET=true di mesin dev sendiri; JANGAN
+    # pernah di server/demo/produksi. Test otomatis diizinkan lewat
+    # deteksi PYTEST_CURRENT_TEST (lihat _prod_requires_real_secret).
+    allow_default_jwt_secret: bool = False
     jwt_algorithm: str = "HS256"
     jwt_access_minutes: int = Field(default=15, ge=1, le=1440)
     jwt_refresh_days: int = Field(default=7, ge=1, le=90)
@@ -51,6 +59,11 @@ class Settings(BaseSettings):
     # diizinkan (perilaku lama), tapi loopback/link-local/metadata
     # SELALU ditolak. Bila diisi, hanya jaringan itu yang boleh di-probe.
     camera_networks: str = ""
+    # 2026-11-18 (integrasi): escape hatch eksplisit untuk deployment
+    # yang memang memindai kamera publik (CAMERA_PROBE_ALLOW_PUBLIC=true).
+    # Default False: CAMERA_NETWORKS kosong = tolak IP publik. Hanya
+    # berlaku bila CAMERA_NETWORKS kosong; bila diisi, daftar itu menang.
+    camera_probe_allow_public: bool = False
     # 4.17: izinkan probe ke loopback (127/8, ::1). MATI secara default:
     # loopback adalah jalur SSRF ke layanan internal (MediaMTX control
     # API, Postgres, dsb.). Hanya untuk tes otomatis (server RTSP palsu
@@ -134,15 +147,39 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _prod_requires_real_secret(self) -> "Settings":
-        # Di produksi, secret default atau terlalu pendek membuat SEMUA
-        # token (user, embed, OAuth state) bisa dipalsukan siapa pun yang
-        # membaca repo. Gagal sejak start, bukan cuma warning di log.
+        # 2026-11-18 (code review): secret default/pendek ditolak SELALU,
+        # bukan hanya bila app_env == "prod". Celah lama: guard hanya
+        # aktif di prod, padahal default app_env adalah "dev" dan tidak
+        # ada satu pun penempatan APP_ENV=prod di deploy/, deploy yang
+        # lupa menyetel env memakai secret yang ada di repo, dan semua
+        # JWT (user, embed, media, OAuth state) bisa dipalsukan.
+        # Pengecualian: (a) dev lokal yang EKSPLISIT mengizinkan lewat
+        # ALLOW_DEFAULT_JWT_SECRET=true, (b) test otomatis (pytest
+        # terdeteksi lewat PYTEST_CURRENT_TEST saat test jalan, ATAU
+        # modul pytest sudah ter-import, yang kedua menutupi conftest
+        # yang mengimpor app.main saat collection, sebelum satu pun
+        # test jalan sehingga PYTEST_CURRENT_TEST belum diset; test
+        # tidak menyetel secret).
+        # Selain itu, Settings() gagal sejak start, bukan cuma warning.
+        weak = self.jwt_secret in (
+            "CHANGE-ME-IN-PROD",
+            "CHANGE_ME_GENERATED_BY_INSTALL_SH",
+        ) or len(self.jwt_secret) < 32
+        if not weak:
+            return self
         if self.app_env == "prod":
-            if self.jwt_secret == "CHANGE-ME-IN-PROD" or len(self.jwt_secret) < 32:
-                raise ValueError(
-                    "JWT_SECRET wajib diset di produksi (acak, minimal 32 karakter)"
-                )
-        return self
+            raise ValueError(
+                "JWT_SECRET wajib diset di produksi (acak, minimal 32 karakter)"
+            )
+        if self.allow_default_jwt_secret:
+            return self
+        if "PYTEST_CURRENT_TEST" in os.environ or "pytest" in sys.modules:
+            return self
+        raise ValueError(
+            "JWT_SECRET masih default/terlalu pendek (minimal 32 karakter acak). "
+            "Set JWT_SECRET yang acak, atau set ALLOW_DEFAULT_JWT_SECRET=true "
+            "hanya untuk dev lokal."
+        )
 
 
 @lru_cache

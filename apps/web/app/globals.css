@@ -4,7 +4,23 @@
    Tema via atribut data-theme pada <html>: "dark" (default) atau "light".
    Seluruh token warna dirutekan lewat var(--nv-*) (@theme inline) sehingga
    utilitas Tailwind (bg-ink-900, text-neutral-400, …) bertukar nilai saat
-   tema diganti, tanpa mengubah satu pun class di markup. */
+   tema diganti, tanpa mengubah satu pun class di markup.
+
+   PENGECUALIAN RESMI, tab bar bawah mobile (components/AppShell.tsx):
+   tab bar memakai bg-[#ffffff] + border-[#e2e8f0] di KEDUA tema, sengaja
+   (keputusan pengguna). Di mode gelap strip putih ini memang kontras
+   dengan UI gelap, tetapi teks tab (#64748b / aksen) terbaca di atas
+   putih dan perilakunya sudah dikunci, JANGAN "memperbaiki" dengan
+   mengganti ke bg-ink-900 tanpa persetujuan pengguna.
+
+   SKALA Z-INDEX: lihat komentar di components/ui.tsx (satu-satunya
+   sumber kebenaran). Nilai z-* di file ini tidak ada; semua lapisan
+   memakai skala di sana.
+
+   REDUCED MOTION: blok @media (prefers-reduced-motion: reduce) di bawah
+   mematikan SEMUA animasi (animation: none !important), termasuk
+   marquee iklan (nv-marquee) yang disetel lewat style inline di
+   AdBanner, !important mengalahkan style inline. */
 
 @theme inline {
   --color-ink-950: var(--nv-ink-950);

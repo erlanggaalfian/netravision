@@ -20,6 +20,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    false,
     func,
     text,
 )
@@ -50,19 +51,28 @@ class RcloneRemote(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    # 0030: sebelumnya RcloneRemote tidak punya updated_at sama
+    # sekali (tidak konsisten dengan tabel lain).
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
 
 
 class DriveAccount(Base):
     __tablename__ = "drive_accounts"
     # 2.15: status hanya boleh salah satu dari tiga nilai ini.
-    # A-1.19: tepat SATU akun default — indeks unik parsial supaya dua
+    # A-1.19: tepat SATU akun default, indeks unik parsial supaya dua
     # POST bersamaan tidak bisa sama-sama jadi default, dan PUT tidak
     # bisa mematikan default terakhir tanpa pengganti (penjaga di
     # router tetap diperlukan untuk pesan error yang jelas).
     __table_args__ = (
         CheckConstraint(
             "status IN ('pending', 'connected', 'error')",
-            name="ck_drive_accounts_status",
+            # Nama pendek, lihat komentar yang sama di models/users.py.
+            name="status",
         ),
         Index(
             "uq_drive_accounts_is_default",
@@ -80,7 +90,9 @@ class DriveAccount(Base):
     token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     root_folder_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     is_default: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default="false"
+        # 0030: server_default diseragamkan ke false(), migrasi 0004
+        # memang memakai sa.false() di DB; "false" di model hanya drift.
+        Boolean, nullable=False, default=False, server_default=false()
     )
     # status: pending | connected | error
     status: Mapped[str] = mapped_column(
@@ -132,13 +144,31 @@ class DriveUpload(Base):
             "stream_id",
             "uploaded_at",
         ),
+        # 0030: prune jejak (DELETE WHERE uploaded_at < cutoff) tidak
+        # dilayani indeks komposit (stream_id, uploaded_at).
+        Index("ix_drive_uploads_uploaded_at", "uploaded_at"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    # 0030: index=True dihapus, indeks tunggal ix_drive_uploads_
+    # stream_id redundan (unique + komposit di atas keduanya
+    # berawalan stream_id); indeksnya di-drop migrasi 0030.
     stream_id: Mapped[int] = mapped_column(
-        ForeignKey("streams.id", ondelete="CASCADE"), nullable=False, index=True
+        ForeignKey("streams.id", ondelete="CASCADE"), nullable=False
     )
     segment_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    # 0030 (DIBATALKAN, lihat bawah): default ORM "" -> None sempat
+    # diterapkan untuk menghapus sentinel ganda '' vs NULL, tapi
+    # DIVERIFIKASI merusak 15 test (NOT NULL constraint failed:
+    # drive_uploads.folder_name / google_drive_folders.local_path)
+    # karena kolom ini NOT NULL dan ada penulis yang mengisi
+    # folder_name secara eksplisit SELALU, kecuali bila lupa, dan
+    # justru di situlah "" menyelamatkan insert. Menghapus sentinel
+    # dengan benar butuh kolom dibuat nullable ATAU semua penulis
+    # diperbarui (router di luar kepemilikan area ini), dicatat
+    # sebagai tindak lanjut, bukan dipaksa lewat default ORM.
+    # Default "" dipertahankan; server_default '' di DB juga
+    # dipertahankan (migrasi 0030 tidak menyentuhnya).
     folder_name: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -157,8 +187,43 @@ class GoogleDriveFolder(Base):
     """
 
     __tablename__ = "google_drive_folders"
+    # 0030: tabel ini sebelumnya tanpa indeks sama sekali.
+    # - uq_google_drive_folders_folder_id: indeks unik PARSIAL
+    #   (folder_id <> ''), satu folder Drive tidak boleh ditautkan
+    #   dua kali dengan local_path berbeda ("folder pertama" jadi
+    #   ambigu). Sentinel '' dikecualikan: jalur fallback di
+    #   admin_drive.py menulis folder_id="" bila pembuatan folder
+    #   gagal, dan baris '' itu berarti "tidak diketahui", bukan
+    #   sebuah folder, dua baris '' boleh ada.
+    # - CHECK retensi: nilai negatif tidak bermakna.
+    __table_args__ = (
+        Index(
+            "uq_google_drive_folders_folder_id",
+            "folder_id",
+            unique=True,
+            postgresql_where=text("folder_id <> ''"),
+            sqlite_where=text("folder_id <> ''"),
+        ),
+        Index("ix_google_drive_folders_folder_id", "folder_id"),
+        Index("ix_google_drive_folders_remote_name", "remote_name"),
+        CheckConstraint(
+            "retention_days IS NULL OR retention_days >= 0",
+            # Nama pendek, lihat komentar yang sama di models/users.py.
+            name="retention_days_nonnegative",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    # 0030 (DIBATALKAN, lihat komentar di DriveUpload.folder_name):
+    # default ORM "" -> None sempat diterapkan, tapi DIVERIFIKASI
+    # merusak 15 test: penulis (termasuk test) mengisi folder_url/
+    # folder_id/folder_name secara eksplisit, tapi local_path
+    # sering dihilangkan (kolom NOT NULL), insert mengirim NULL
+    # dan gagal. Default "" dipertahankan untuk keempat kolom;
+    # server_default '' di DB juga dipertahankan (migrasi 0030
+    # tidak menyentuhnya). Penghapusan sentinel yang benar butuh
+    # kolom nullable ATAU semua penulis diperbarui, tindak lanjut,
+    # bukan dipaksa lewat default ORM.
     folder_url: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     folder_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     folder_name: Mapped[str] = mapped_column(String(128), nullable=False, default="")
@@ -178,8 +243,17 @@ class GoogleDriveFolder(Base):
     )
     # 2.14/2.20: onupdate supaya updated_at tidak basi bila ada jalur
     # update yang lupa menulisnya manual.
-    updated_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True, onupdate=func.now()
+    # 0030: sebelumnya nullable tanpa server_default, baris lama
+    # NULL selamanya. Migrasi 0030 mengisi NULL dari created_at,
+    # lalu kolom menjadi NOT NULL + server_default (pola
+    # TimestampMixin). server_onupdate sengaja TIDAK dipakai:
+    # PostgreSQL/SQLite tidak merendernya di DDL (no-op yang
+    # diverifikasi), onupdate ORM di atas adalah penegaknya.
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
     # 2.13: sentinel ganda '' vs NULL dihapus; kosong = NULL saja.
     updated_by: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)

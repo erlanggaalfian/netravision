@@ -37,6 +37,11 @@ webrtcAddress: :8889
 # M1: JANGAN tulis IP hardcoded di sini. Nilainya diisi dari environment
 # (deploy/.env -> WEBRTC_ADDITIONAL_HOST -> MTX_WEBRTCADDITIONALHOSTS di
 # docker-compose.yml, service mediamtx). Daftar di bawah sengaja kosong.
+# WAJIB: WEBRTC_ADDITIONAL_HOST harus terisi di deploy/.env, compose
+# memakai ${WEBRTC_ADDITIONAL_HOST:?} dan GAGAL bila kosong; install.sh
+# mengisinya otomatis dari DOMAIN bila kosong, dan scripts/preflight.py
+# memeriksanya. Jangan isi daftar ini manual di template: nilainya akan
+# tertimpa env compose dan membingungkan operator berikutnya.
 webrtcAdditionalHosts: []
 # Jangan iklankan IP internal Docker ke browser.
 webrtcIPsFromInterfaces: no
@@ -103,10 +108,18 @@ authInternalUsers:
     permissions:
       - action: api
       - action: metrics
-      - action: pprof
+      # pprof SENGAJA DIHAPUS (D-2026-11-18): profiling Go bisa dipakai
+      # untuk DoS / info leak bila kredensial control API bocor; di
+      # produksi tidak ada yang membutuhkannya. Lihat juga `pprof: no`
+      # di bawah (server pprof mati total, bukan hanya tanpa izin).
 
 # Metrics tidak diekspos ke host pada Fase 0.
 metrics: no
+# PPROF MATI di produksi (D-2026-11-18): samakan dengan metrics (no).
+# Sebelumnya server pprof aktif tapi hanya diizinkan via action di atas;
+# sekarang keduanya mati, jangan hidupkan satu tanpa yang lain tanpa
+# alasan yang didokumentasikan.
+pprof: no
 
 #######################################################
 # Path defaults, berlaku untuk semua path stream_{id} / stream_{id}_sub

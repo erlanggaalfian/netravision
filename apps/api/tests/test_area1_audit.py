@@ -642,12 +642,13 @@ async def test_1_14_playback_cameras_urut_kunci(app_client):
     await _seed_key(db, stream_ids=(3, 1))
     async with _client(app) as c:
         r = await c.get("/api/external/playback",
-                        params={"key": "KUNCI-RAHASIA-123"})
+                        headers={"X-Api-Key": "KUNCI-RAHASIA-123"})
         assert r.status_code == 200, r.text
         assert [cam["id"] for cam in r.json()["cameras"]] == [3, 1]
         # ?camera=1 berarti kamera pertama di daftar (id 3).
         r = await c.get("/api/external/playback",
-                        params={"key": "KUNCI-RAHASIA-123", "camera": 1})
+                        params={"camera": 1},
+                        headers={"X-Api-Key": "KUNCI-RAHASIA-123"})
         assert r.json()["camera"] == 1
         assert r.json()["camera_name"] == "Cam 3"
 
@@ -658,7 +659,8 @@ async def test_1_15_webrtc_sub_none_tanpa_sub_url(app_client):
     await _seed_key(db)
     async with _client(app) as c:
         r = await c.get("/api/external/stream",
-                        params={"key": "KUNCI-RAHASIA-123", "camera": 1})
+                        params={"camera": 1},
+                        headers={"X-Api-Key": "KUNCI-RAHASIA-123"})
         assert r.status_code == 200, r.text
         assert r.json()["stream"]["webrtc_url_sub"] is None
 
@@ -669,21 +671,31 @@ async def test_1_15_webrtc_sub_ada_bila_punya_sub(app_client):
     await _seed_key(db)
     async with _client(app) as c:
         r = await c.get("/api/external/stream",
-                        params={"key": "KUNCI-RAHASIA-123", "camera": 1})
+                        params={"camera": 1},
+                        headers={"X-Api-Key": "KUNCI-RAHASIA-123"})
         assert r.status_code == 200, r.text
         assert r.json()["stream"]["webrtc_url_sub"] is not None
         assert "stream_1_sub" in r.json()["stream"]["webrtc_url_sub"]
 
 
 async def test_1_16_playback_file_start_sama_dengan_end_ditolak(app_client):
+    from datetime import datetime
+
+    from app.routers.external import _file_session_token
+
     app, _, db = app_client
     await _seed_streams(db)
-    await _seed_key(db)
+    key = await _seed_key(db)
+    # Token sesi file yang sah (start == end) supaya request sampai
+    # ke pemeriksaan end > start, bukan ditolak lebih dulu karena
+    # tidak ada ?session=.
+    start = datetime(2026, 11, 2, 10, 0)
+    token = _file_session_token(key, 1, start, start, 60)
     async with _client(app) as c:
         r = await c.get(
             "/api/external/playback/file",
             params={
-                "key": "KUNCI-RAHASIA-123", "camera": 1,
+                "session": token, "camera": 1,
                 "start": "2026-11-02T10:00:00", "end": "2026-11-02T10:00:00",
             },
         )
@@ -699,9 +711,10 @@ async def test_1_17_playback_date_dan_time_bersamaan_ditolak(app_client):
         r = await c.get(
             "/api/external/playback",
             params={
-                "key": "KUNCI-RAHASIA-123", "camera": 1,
+                "camera": 1,
                 "date": "2026-11-02", "time": "2026-11-02T10:00:00",
             },
+            headers={"X-Api-Key": "KUNCI-RAHASIA-123"},
         )
         assert r.status_code == 403, r.text
 
@@ -725,7 +738,8 @@ async def test_1_18_ad_config_embed_memuat_field_v3(app_client):
         assert r.status_code == 200, r.text
         invalidate_ad_config_cache()
         r = await c.get("/api/external/stream",
-                        params={"key": "KUNCI-RAHASIA-123", "camera": 1})
+                        params={"camera": 1},
+                        headers={"X-Api-Key": "KUNCI-RAHASIA-123"})
         assert r.status_code == 200, r.text
         ad = r.json()["ad"]
         assert ad["position"] == "top"

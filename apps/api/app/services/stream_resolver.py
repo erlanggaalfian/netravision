@@ -2,7 +2,7 @@
 
 Menentukan URL main/sub stream sebuah kamera dari input apa pun yang tersedia
 (URL eksplisit, kredensial+host+brand, atau ONVIF). Hasilnya disimpan eksplisit
-di streams.main_url/sub_url — tidak di-derive ulang setiap request.
+di streams.main_url/sub_url, tidak di-derive ulang setiap request.
 """
 
 from __future__ import annotations
@@ -31,8 +31,8 @@ _GENERIC_PATTERNS: tuple[tuple[str, str], ...] = (
 
 def _camera_networks() -> list:
     """Jaringan kamera yang diizinkan di-probe (env CAMERA_NETWORKS,
-    CIDR dipisah koma). Kosong = tidak dibatasi (lihat
-    host_allowed_for_probe)."""
+    CIDR dipisah koma). Kosong = default ketat (lihat
+    host_allowed_for_probe): hanya IP privat yang diizinkan."""
     nets = []
     for part in (get_settings().camera_networks or "").split(","):
         part = part.strip()
@@ -45,6 +45,17 @@ def _camera_networks() -> list:
     return nets
 
 
+def _allow_public_probe() -> bool:
+    """Escape hatch eksplisit untuk deployment yang memang memindai
+    kamera publik (Settings.camera_probe_allow_public,
+    env CAMERA_PROBE_ALLOW_PUBLIC=true). Default: False.
+    Hanya berlaku bila CAMERA_NETWORKS kosong; bila CAMERA_NETWORKS
+    diisi, daftar itu yang menang (publik hanya bila CIDR-nya
+    terdaftar eksplisit di sana).
+    """
+    return bool(get_settings().camera_probe_allow_public)
+
+
 def host_allowed_for_probe(host: str) -> bool:
     """4.17: bolehkah host ini di-probe (DESCRIBE/ONVIF/TCP/ffprobe)?
 
@@ -54,10 +65,14 @@ def host_allowed_for_probe(host: str) -> bool:
     (tes/lab lokal saja). Target internal/metadata tidak boleh dijangkau
     lewat probe, walau pemanggilnya super_admin (akun super_admin yang
     dikompromikan tidak boleh mendapat pemindai internal gratis).
-    IP privat LAN diizinkan secara default (kamera memang di LAN);
-    bila CAMERA_NETWORKS diisi, hanya jaringan itu yang diizinkan dan
+    IP privat LAN diizinkan secara default; IP PUBLIK DITOLAK secara
+    default bila CAMERA_NETWORKS kosong (hanya IP privat yang lolos).
+    Bila CAMERA_NETWORKS diisi, hanya jaringan itu yang diizinkan dan
     SEMUA hasil DNS host harus masuk jaringan itu (satu hasil di luar
-    = tolak). Hostname yang gagal resolve = tolak. Fungsi ini
+    = tolak), CIDR publik yang terdaftar eksplisit di sana tetap
+    diizinkan (opt-in eksplisit). Escape hatch tanpa CIDR: env
+    CAMERA_PROBE_ALLOW_PUBLIC=true (lihat _allow_public_probe).
+    Hostname yang gagal resolve = tolak. Fungsi ini
     blocking (getaddrinfo): panggil lewat asyncio.to_thread.
     """
     if not host:
@@ -90,7 +105,15 @@ def host_allowed_for_probe(host: str) -> bool:
     allowed = _camera_networks()
     if allowed:
         return all(any(ip in net for net in allowed) for ip in ips)
-    return True
+    # CAMERA_NETWORKS kosong: default TOLAK IP publik. Hanya IP privat
+    # (LAN) yang diizinkan; loopback sudah digate flag di atas.
+    # Catatan: ip.is_private di Python 3.12 juga True untuk rentang
+    # dokumentasi (192.0.2.0/24, 2001:db8::/32), tidak bisa di-route
+    # ke mana pun, jadi risikonya nihil; CGNAT 100.64/10 ditolak di
+    # sini (daftarkan eksplisit di CAMERA_NETWORKS bila memang dipakai).
+    if _allow_public_probe():
+        return True
+    return all(ip.is_private for ip in ips)
 
 
 def derive_sub_url(rtsp_url: str) -> str | None:
@@ -181,7 +204,7 @@ async def resolve_stream(
         ValueError: bila input tidak cukup untuk menentukan stream.
     """
     brand_key = (brand or "").strip().lower() or "generic"
-    # A-1.27: "auto" berarti "tidak tahu brand-nya" — samakan dengan
+    # A-1.27: "auto" berarti "tidak tahu brand-nya", samakan dengan
     # template generik supaya host+force tidak jatuh ke ValueError
     # "Tidak cukup input" (400) di cabang (c)/(d) di bawah.
     if brand_key == "auto":

@@ -34,7 +34,13 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        /* Latar gelap (#0a0e13, sama dengan tema gelap web) sebagai
+           "splash" sebelum halaman web dimuat: tanpa ini latar WebView
+           default putih berkilat saat aplikasi dibuka, sebelum skrip
+           anti-FOUC tema web sempat jalan. */
+        getWindow().getDecorView().setBackgroundColor(0xFF0A0E13);
         webView = new WebView(this);
+        webView.setBackgroundColor(0xFF0A0E13);
         setContentView(webView);
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);

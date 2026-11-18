@@ -190,8 +190,9 @@ async def _authorize_media(
         try:
             payload = validate_media_token(token, get_settings())
         except ValueError as e:
+            # Pesan generik: detail validasi token tidak boleh bocor.
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e)
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="token media tidak valid"
             ) from e
         if payload.get("path") != path:
             raise HTTPException(
@@ -224,7 +225,7 @@ async def _authorize_media(
             await _validate_session_token(db, session or "", stream_id)
         except ValueError as e:
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e)
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="sesi embed tidak valid"
             ) from e
         stream = await db.get(Stream, stream_id)
         if stream is None or not stream.is_active:
@@ -345,7 +346,14 @@ def _passthrough_response(
     )
 
 
-@router.post("/media/whep/{path}/whep")
+@router.post(
+    "/media/whep/{path}/whep",
+    # 2026-11-18: proxy WHEP sebelumnya tanpa rate limit sama sekali
+    # (issue_media_token sudah 60/60). Sinyal WHEP jarang (sekali per
+    # sesi + ICE restart); 60/menit per IP cukup untuk grid belasan
+    # kamera di belakang satu IP, tapi menghentikan banjir sinyal.
+    dependencies=[Depends(rate_limited(60, 60))],
+)
 async def proxy_whep(
     path: str,
     request: Request,
@@ -362,6 +370,8 @@ async def proxy_whep(
 @router.api_route(
     "/media/whep/{path}/whep/{session_path:path}",
     methods=["PATCH", "DELETE"],
+    # 2026-11-18: sama seperti proxy_whep (lihat di atas).
+    dependencies=[Depends(rate_limited(60, 60))],
 )
 async def proxy_whep_session(
     path: str,
@@ -379,7 +389,15 @@ async def proxy_whep_session(
     return _passthrough_response(resp, resp.content, location_prefix="/whep")
 
 
-@router.get("/media/hls/{rest:path}")
+@router.get(
+    "/media/hls/{rest:path}",
+    # 2026-11-18: proxy HLS sebelumnya tanpa rate limit. Batasnya
+    # dibuat longgar (600/menit per IP) dengan sengaja: satu grid
+    # 16 tile di belakang satu IP/NAT meminta segmen ~1 detik per
+    # tile, jadi batas ketat akan memutus playback normal. Batas ini
+    # hanya menghentikan banjir, bukan pemakaian wajar.
+    dependencies=[Depends(rate_limited(600, 60))],
+)
 async def proxy_hls(
     rest: str,
     request: Request,

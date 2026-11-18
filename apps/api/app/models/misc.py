@@ -7,7 +7,7 @@ dibangun) dihapus migrasi 0029.
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, func
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -46,11 +46,16 @@ class SystemSetting(Base, TimestampMixin):
     __tablename__ = "system_settings"
 
     key: Mapped[str] = mapped_column(String(128), primary_key=True)
-    value: Mapped[str] = mapped_column(String(512), nullable=False)
+    # 0030: Text, bukan String(512), nilai terenkripsi Fernet saja
+    # sudah ~164 karakter, dan tabel generik ini tidak boleh gagal
+    # insert bila suatu saat menyimpan kredensial lain yang lebih
+    # panjang. Nilai disimpan TERENKRIPSI (Fernet, DRIVE_TOKEN_KEY)
+    # sejak migrasi 0030, lihat app/services/system_settings.py.
+    value: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class AuditLog(Base):
-    """Jejak audit aksi admin (wajib — temuan audit keamanan v2.0).
+    """Jejak audit aksi admin (wajib, temuan audit keamanan v2.0).
 
     2.12: dibaca lewat GET /admin/audit-logs (routers/admin_audit.py)
     dan di-retensi 90 hari oleh prune_audit_logs (core/audit.py).
@@ -61,6 +66,10 @@ class AuditLog(Base):
         # 2.12: filter yang dipakai retensi/pembacaan audit.
         Index("ix_audit_logs_actor_created", "actor_id", "created_at"),
         Index("ix_audit_logs_resource_created", "resource", "created_at"),
+        # 0030: indeks ini sudah ada di DB sejak 0001 tapi tidak
+        # dideklarasikan di model (drift), melayani prune retensi
+        # (DELETE WHERE created_at < cutoff).
+        Index("ix_audit_logs_created_at", "created_at"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

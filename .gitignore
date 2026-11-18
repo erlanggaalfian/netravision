@@ -15,7 +15,7 @@ out/
 *.tsbuildinfo
 
 # Alembic
-# (jangan ignore versions/ — migrasi harus ter-commit)
+# (jangan ignore versions/, migrasi harus ter-commit)
 
 # Docker
 .docker/
@@ -32,3 +32,11 @@ deploy/mediamtx.yml
 recordings/
 data/
 .repo-watch-sha
+
+# Secret & keystore (D-2026-11-18)
+# .env.* menutup varian .env lokal (.env.prod, .env.staging, dst);
+# !.env.example mengecualikan contoh agar tetap ter-commit.
+.env.*
+!.env.example
+*.keystore
+keystore.properties

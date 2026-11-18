@@ -178,7 +178,7 @@ async def test_ad_config_respects_api_key_show_ads(app_client):
         raw_yesads = r.json()["key"]
 
         # /external/stream kunci tanpa iklan -> ad null
-        r = await c.get("/api/external/stream", params={"key": raw_noads, "camera": 1})
+        r = await c.get("/api/external/stream", params={"camera": 1}, headers={"X-Api-Key": raw_noads})
         assert r.status_code == 200, r.text
         assert r.json()["ad"] is None
         tok_noads = parse_qs(urlparse(r.json()["url"]).query)["session"][0]
@@ -189,7 +189,7 @@ async def test_ad_config_respects_api_key_show_ads(app_client):
         assert r.json()["marquee_text"] == ""
 
         # /external/stream kunci dengan iklan -> ad tampil
-        r = await c.get("/api/external/stream", params={"key": raw_yesads, "camera": 1})
+        r = await c.get("/api/external/stream", params={"camera": 1}, headers={"X-Api-Key": raw_yesads})
         assert r.status_code == 200, r.text
         assert r.json()["ad"] is not None
         assert r.json()["ad"]["is_active"] is True

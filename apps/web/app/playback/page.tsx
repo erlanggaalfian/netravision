@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "../../components/AppShell";
-import { Button, Card, ErrorBox, GridIcon, Pagination, SectionTitle, Spinner } from "../../components/ui";
+import { Button, Card, ErrorBox, GridIcon, Pagination, PRIMARY_GRADIENT, SectionTitle, Spinner } from "../../components/ui";
 import { Dropdown } from "../../components/Dropdown";
 import { api, apiFetch, ApiError, usePosterUrl } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
@@ -224,8 +224,10 @@ function PlaybackPanel({
        Muat ulang saat sedang menonton tidak boleh menghilangkan video
        yang sedang diputar bila reload kemudian gagal. */
     try {
+      /* limit=500: backend kini default 50, satu hari penuh bisa
+         144 segmen, tanpa limit, linimasa terpotong di tengah hari. */
       const t = await api.get<TimelineData>(
-        `/recordings/${streamId}/timeline?date=${date}`,
+        `/recordings/${streamId}/timeline?date=${date}&limit=500`,
       );
       if (mySeq !== loadSeqRef.current) return;
       setTimeline(t);
@@ -606,7 +608,9 @@ function PlaybackPanel({
                   : undefined
               }
               aria-valuetext={
-                playheadMs !== null ? fmtClock(playheadMs) : undefined
+                playheadMs !== null
+                  ? `${fmtClock(playheadMs)}${active?.has_event ? ", ada event" : ""}`
+                  : undefined
               }
               tabIndex={0}
               onMouseMove={(e) => {
@@ -697,7 +701,14 @@ function PlaybackPanel({
                           : "bg-accent-600/60"
                     }`}
                     style={{ left: `${left}%`, width: `${width}%` }}
-                  />
+                  >
+                    {/* Penanda bentuk untuk segmen ber-event (bukan hanya
+                        warna, supaya terbaca pengguna buta warna): garis
+                        putih di atas segmen. */}
+                    {e.has_event && !isActive && (
+                      <span className="absolute inset-x-0 top-0 h-[3px] bg-white/90" />
+                    )}
+                  </span>
                 );
               })}
               {/* Playhead: garis posisi putar saat ini. */}
@@ -710,12 +721,14 @@ function PlaybackPanel({
                   }}
                 />
               )}
-              {/* Tooltip hover: jam:menit di posisi kursor. */}
+              {/* Tooltip hover: jam:menit di posisi kursor. Posisi di-clamp
+                  ke 8-92% supaya tidak terpotong overflow-hidden di ujung
+                  00.00 / 23.59. */}
               {hoverTime && (
                 <span
                   aria-hidden
                   className="pointer-events-none absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-md bg-ink-950 px-2 py-1 text-[11px] font-bold tabular-nums whitespace-nowrap text-white shadow-lg ring-1 ring-white/20"
-                  style={{ left: `${hoverTime.xPct}%` }}
+                  style={{ left: `${Math.min(92, Math.max(8, hoverTime.xPct))}%` }}
                 >
                   {hoverTime.label}
                 </span>
@@ -731,13 +744,18 @@ function PlaybackPanel({
               {[0, 3, 6, 9, 12, 15, 18, 21].map((h) => (
                 <span
                   key={h}
-                  className="absolute -translate-x-1/2 text-[10px] font-medium tabular-nums text-slate-400"
+                  className="absolute -translate-x-1/2 text-[11px] font-medium tabular-nums text-slate-400"
                   style={{ left: `${(h / 24) * 100}%` }}
                 >
                   {String(h).padStart(2, "0")}
                 </span>
               ))}
             </div>
+            {/* Legenda segmen: event dibedakan bentuk, bukan hanya warna. */}
+            <p className="mt-1.5 text-[11px] text-slate-400">
+              <span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-[2px] bg-warn-400/80 align-middle ring-1 ring-white/90" />
+              Segmen dengan event (garis putih di atas segmen)
+            </p>
           </div>
 
           {/* Pratinjau: jam berjalan mengikuti video yang diputar. */}
@@ -750,16 +768,12 @@ function PlaybackPanel({
                 </span>
               )}
             </div>
-            {/* Area video: klik atau fokus keyboard di sini menaikkan
-                sinyal klik iklan, klik tombol/segmen/unduh tidak. */}
+            {/* Area video: sinyal klik iklan HANYA dari klik eksplisit
+                pada area video (bukan dari fokus keyboard, pengguna
+                yang sekadar Tab ke sini bukan mengklik iklan). */}
             <div
               className="nv-stage"
               onClick={() => setAdClickTick((t) => t + 1)}
-              onFocus={(e) => {
-                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                  setAdClickTick((t) => t + 1);
-                }
-              }}
             >
               {videoError ? (
                 <div className="relative flex aspect-video flex-col items-center justify-center gap-2 overflow-hidden px-6 text-center">
@@ -851,7 +865,7 @@ function PlaybackPanel({
               <div className="flex items-center justify-between gap-2 border-t border-ink-800 px-4 py-3">
                 <span className="min-w-0 flex-1 truncate text-xs text-slate-400">
                   {active.has_event && (
-                    <span className="mr-2 rounded-full bg-warn-400/15 px-2 py-0.5 text-[10px] font-semibold text-warn-400">
+                    <span className="mr-2 rounded-full bg-warn-400/15 px-2 py-0.5 text-[11px] font-semibold text-warn-400">
                       Event
                     </span>
                   )}
@@ -963,7 +977,8 @@ export default function PlaybackPage() {
     setCamerasLoading(true);
     setCamerasError(null);
     api
-      .get<Stream[]>("/recordings/cameras")
+      /* limit=500: backend kini default 50 kamera. */
+      .get<Stream[]>("/recordings/cameras?limit=500")
       .then((s) => {
         setStreams(s);
         if (s.length > 0) {
@@ -1145,7 +1160,7 @@ export default function PlaybackPage() {
                           aria-pressed={on}
                           className={`flex h-11 min-w-0 items-center gap-2 rounded-full px-3.5 text-xs font-medium transition active:scale-95 ${
                             on
-                              ? "bg-gradient-to-r from-accent-600 to-accent-500 font-semibold text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
+                              ? PRIMARY_GRADIENT + " font-semibold"
                               : "bg-ink-800 text-slate-300 shadow-sm hover:bg-ink-700 hover:text-slate-200"
                           }`}
                         >
@@ -1191,7 +1206,7 @@ export default function PlaybackPage() {
                       onClick={() => setGridCols(g.cols)}
                       className={`flex h-11 min-w-[52px] items-center justify-center rounded-full px-3 text-xs font-bold transition-all duration-200 active:scale-95 ${
                         gridCols === g.cols
-                          ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
+                          ? PRIMARY_GRADIENT
                           : "text-slate-400 hover:bg-ink-700 hover:text-slate-200"
                       }`}
                     >
@@ -1214,7 +1229,7 @@ export default function PlaybackPage() {
               {camerasError}
             </p>
             <Button onClick={loadCameras} disabled={camerasLoading}>
-              {camerasLoading ? "Memuat…" : "Coba lagi"}
+              {camerasLoading ? "Memuat…" : "Muat ulang"}
             </Button>
           </div>
         ) : selectedStreams.length === 0 ? (

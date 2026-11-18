@@ -14,7 +14,7 @@ import time
 from collections import Counter
 from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse, StreamingResponse
 from starlette.background import BackgroundTask
 from sqlalchemy import func, select
@@ -100,6 +100,61 @@ class TrimFailedError(Exception):
     segmen utuh sebagai gantinya (A-1.8)."""
 
 
+# Unduhan Drive OAuth (2026-11-18, integrasi): segmen diunduh langsung
+# ke file via DriveUploader.download_drive_file_to (streaming per chunk
+# 1 MB, batas 2 GiB, semaphore 4 di dalam DriveUploader), bytes utuh
+# TIDAK PERNAH menumpuk di RAM. Catatan test 6.1
+# (test_playback_oauth_satu_unduhan): download_drive_file_to memakai
+# SATU get_media per segmen, bila googleapiclient tidak terinstal
+# (venv/CI saat ini) lewat fallback get_media().execute() sekali;
+# bila terinstal, lewat satu request MediaIoBaseDownload yang sama.
+async def _download_drive_file_to_file(
+    up, file_id: str, dest_path: str
+) -> int:
+    """Unduh satu file Drive OAuth langsung ke `dest_path`.
+
+    Return ukuran byte yang tertulis. `up` adalah DriveUploader
+    (punya download_drive_file_to); file sebagian dihapus bila gagal.
+    """
+    return await up.download_drive_file_to(file_id, dest_path)
+
+
+async def _kill_and_wait(proc: asyncio.subprocess.Process, timeout: float = 5.0) -> None:
+    """Matikan proses anak lalu tunggu sampai benar-benar mati.
+
+    Salinan pola app/services/gdrive_rclone.py::_kill_and_wait:
+    `proc.kill()` saja tanpa `wait()` meninggalkan zombie dan pipe
+    yang menggantung bila proses menulis banyak ke stderr.
+    """
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        return
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=timeout)
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        await proc.wait()
+
+
+async def _acleanup(path: str | None) -> None:
+    """Hapus file temp tanpa memblokir event loop (os.remove via thread)."""
+    if not path:
+        return
+    try:
+        await asyncio.to_thread(os.remove, path)
+    except OSError:
+        pass
+
+
+async def _acleanup_many(paths: list[str]) -> None:
+    for p in paths:
+        await _acleanup(p)
+
+
 # 6.6/6.13: cache daftar folder Drive (GoogleDriveFolder) in-process
 # TTL 60 dtk. Tabel ini jarang berubah tapi dibaca di tiap _all_segments
 # (tiap timeline/segments/dates/playback). Disimpan sebagai tuple polos
@@ -129,7 +184,11 @@ async def _drive_folders(
 
     try:
         rows = (
-            await db.execute(select(GoogleDriveFolder).order_by(GoogleDriveFolder.id))
+            await db.execute(
+                select(GoogleDriveFolder)
+                .order_by(GoogleDriveFolder.id)
+                .limit(1000)  # tabel konfigurasi admin; batas pengaman saja
+            )
         ).scalars().all()
     except Exception as e:  # noqa: BLE001
         log.warning("drive folder-link list gagal: %s", e)
@@ -160,7 +219,9 @@ async def _cheap_segment_dates(
     settings = get_settings()
     counts: Counter[str] = Counter()
     seen: set[str] = set()
-    for s in list_segments(stream.id, None, settings.recordings_dir, stream=stream):
+    for s in await asyncio.to_thread(
+        list_segments, stream.id, None, settings.recordings_dir, stream=stream
+    ):
         seen.add(s.name)
         counts[s.start.date().isoformat()] += 1
     needs_full = False
@@ -235,7 +296,7 @@ async def _folder_link_segments(
             continue
         d = os.path.join(base, f"stream_{stream.id}")
         try:
-            names = os.listdir(d)
+            names = await asyncio.to_thread(os.listdir, d)
         except OSError:
             continue
         for name in names:
@@ -246,7 +307,7 @@ async def _folder_link_segments(
                 continue
             path = os.path.join(d, name)
             try:
-                size = os.path.getsize(path)
+                size = await asyncio.to_thread(os.path.getsize, path)
             except OSError:
                 continue
             out.append(Segment(start=start, path=path, size=size, name=name))
@@ -369,10 +430,14 @@ async def _all_segments(
     # Rekaman multi-disk: list_segments harus diberi stream supaya
     # direktori record_disk kamera itu dipakai, bukan recordings_dir
     # default (tanpa ini rekaman kamera multi-disk tidak terlihat di
-    # Putar Ulang sama sekali).
-    segs = list_segments(stream.id, day, settings.recordings_dir, stream=stream)
+    # Putar Ulang sama sekali). list_segments sinkron (listdir/getsize/
+    # getmtime) jadi dijalankan via to_thread supaya tidak memblokir
+    # event loop.
+    segs = await asyncio.to_thread(
+        list_segments, stream.id, day, settings.recordings_dir, stream=stream
+    )
     if stream.storage_mode not in ("drive", "both"):
-        return _finish(segs)
+        return await asyncio.to_thread(_finish, segs)
     # Muat atribut yang dipakai sumber paralel sebelum gather.
     _preload = (stream.id, stream.name, stream.drive_folder_id)
     del _preload
@@ -435,7 +500,7 @@ async def _all_segments(
             if s.name not in names:
                 names.add(s.name)
                 segs.append(s)
-    return _finish(segs)
+    return await asyncio.to_thread(_finish, segs)
 
 
 def _finish(segs: list[Segment]) -> list[Segment]:
@@ -465,7 +530,7 @@ async def _segments_window(
             if s.name not in names:
                 names.add(s.name)
                 segs.append(s)
-    return _finish(segs)
+    return await asyncio.to_thread(_finish, segs)
 
 
 async def _containing(
@@ -552,7 +617,7 @@ async def _trimmed_segment_file(
     B-S3: kembalikan potongan yang diminta, bukan seluruh file segmen.
     Return path file temp, atau None bila TAK PERLU dipotong.
     A-1.8: bila potong DIPERLUKAN tapi gagal (ffmpeg tak ada / error /
-    sumber tak bisa diunduh), raise TrimFailedError — pemanggil tidak
+    sumber tak bisa diunduh), raise TrimFailedError, pemanggil tidak
     boleh lagi menyajikan segmen utuh diam-diam sebagai gantinya.
     """
     seg_end = seg.end or seg.start
@@ -569,7 +634,7 @@ async def _trimmed_segment_file(
     offset = max(0.0, (cut_start - seg.start).total_seconds())
     tmp_in = tmp_out = None
     try:
-        if seg.path and os.path.exists(seg.path):
+        if seg.path and await asyncio.to_thread(os.path.exists, seg.path):
             src = seg.path
         elif seg.rclone_remote and seg.rclone_path:
             # Segmen Drive rclone: unduh dulu ke temp, lalu potong.
@@ -584,7 +649,7 @@ async def _trimmed_segment_file(
                 )
             except Exception as e:  # noqa: BLE001
                 log.warning("rclone unduh segmen %s gagal: %s", seg.name, e)
-                _cleanup(tmp_in)
+                await _acleanup(tmp_in)
                 raise TrimFailedError(f"unduh segmen Drive gagal: {e}") from e
             src = tmp_in
         else:
@@ -602,15 +667,13 @@ async def _trimmed_segment_file(
                 raise TrimFailedError("segmen tidak ditemukan di Drive")
             fd, tmp_in = tempfile.mkstemp(suffix=".mp4")
             os.close(fd)
-            # 6.1: unduh SEKALI (download_drive_file), bukan satu
-            # get_media per potongan 1 MB seperti sebelumnya.
+            # Unduh Drive OAuth langsung ke file (streaming, tanpa
+            # bytes utuh di RAM).
             try:
-                data = await up.download_drive_file(file_id)
-                with open(tmp_in, "wb") as f:
-                    f.write(data)
+                await _download_drive_file_to_file(up, file_id, tmp_in)
             except Exception as e:  # noqa: BLE001
                 log.warning("Drive unduh segmen %s gagal: %s", seg.name, e)
-                _cleanup(tmp_in)
+                await _acleanup(tmp_in)
                 raise TrimFailedError(f"unduh segmen Drive gagal: {e}") from e
             src = tmp_in
         fd, tmp_out = tempfile.mkstemp(suffix=".mp4")
@@ -623,23 +686,47 @@ async def _trimmed_segment_file(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        _, err = await asyncio.wait_for(proc.communicate(), timeout=120)
+        try:
+            _, err = await asyncio.wait_for(proc.communicate(), timeout=120)
+        except asyncio.TimeoutError:
+            # P0: timeout tanpa kill meninggalkan ffmpeg yatim; matikan
+            # dan tunggu seperti pola gdrive_rclone._kill_and_wait.
+            await _kill_and_wait(proc)
+            await _acleanup(tmp_out)
+            raise TrimFailedError(
+                "ffmpeg timeout (120 detik) saat memotong segmen"
+            ) from None
+        except asyncio.CancelledError:
+            # Jalur pembatalan: kill + wait langsung (tanpa wait_for,
+            # yang bisa gagal di dalam handler CancelledError),
+            # lalu teruskan pembatalan. _cleanup sinkron di sini
+            # supaya tidak ada await yang bisa dibatalkan ulang.
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            try:
+                await proc.wait()
+            except asyncio.CancelledError:
+                pass
+            _cleanup(tmp_out)
+            raise
         if proc.returncode != 0:
             msg = err.decode(errors="replace").strip()[:200]
             log.warning("trim segmen %s gagal: %s", seg.name, msg)
-            _cleanup(tmp_out)
+            await _acleanup(tmp_out)
             raise TrimFailedError(f"ffmpeg gagal memotong segmen: {msg}")
         return tmp_out
     except TrimFailedError:
-        if tmp_out:
-            _cleanup(tmp_out)
+        await _acleanup(tmp_out)
         raise
     except Exception as e:  # noqa: BLE001
         log.warning("trim segmen %s gagal: %s", seg.name, e)
-        if tmp_out:
-            _cleanup(tmp_out)
+        await _acleanup(tmp_out)
         raise TrimFailedError(f"trim segmen gagal: {e}") from e
     finally:
+        # Sengaja sinkron: finally juga berjalan saat CancelledError,
+        # dan await di situ bisa dibatalkan ulang sebelum file terhapus.
         if tmp_in:
             _cleanup(tmp_in)
 
@@ -664,7 +751,7 @@ async def _segment_part_file(
         part_start <= seg.start
         and part_end >= seg_end
         and seg.path
-        and os.path.exists(seg.path)
+        and await asyncio.to_thread(os.path.exists, seg.path)
     ):
         return seg.path, False
     trimmed = await _trimmed_segment_file(stream, seg, part_start, part_end, db)
@@ -673,7 +760,7 @@ async def _segment_part_file(
     # _trimmed_segment_file mengembalikan None hanya bila tidak perlu
     # dipotong; bila potong gagal ia raise TrimFailedError yang merambat
     # ke download-range (500), bukan jatuh ke segmen utuh (A-1.8).
-    if seg.path and os.path.exists(seg.path):
+    if seg.path and await asyncio.to_thread(os.path.exists, seg.path):
         return seg.path, False
     # Segmen Drive tanpa potong: unduh utuh ke temp.
     if seg.rclone_remote and seg.rclone_path:
@@ -689,7 +776,7 @@ async def _segment_part_file(
             return tmp, True
         except Exception as e:  # noqa: BLE001
             log.warning("rclone unduh segmen %s gagal: %s", seg.name, e)
-            _cleanup(tmp)
+            await _acleanup(tmp)
             return None, False
     from app.services.drive_accounts import uploader_for_stream
 
@@ -709,15 +796,12 @@ async def _segment_part_file(
     fd, tmp = tempfile.mkstemp(suffix=".mp4")
     os.close(fd)
     try:
-        # 6.1: unduh SEKALI (download_drive_file), bukan satu get_media
-        # per potongan 1 MB seperti sebelumnya.
-        data = await up.download_drive_file(file_id)
-        with open(tmp, "wb") as f:
-            f.write(data)
+        # Unduh Drive OAuth langsung ke file (streaming).
+        await _download_drive_file_to_file(up, file_id, tmp)
         return tmp, True
     except Exception as e:  # noqa: BLE001
         log.warning("Drive unduh segmen %s gagal: %s", seg.name, e)
-        _cleanup(tmp)
+        await _acleanup(tmp)
         return None, False
 
 
@@ -746,7 +830,7 @@ async def _serve_segment(
             filename=seg.name if download else None,
             background=BackgroundTask(_cleanup, trimmed),
         )
-    if seg.path and os.path.exists(seg.path):
+    if seg.path and await asyncio.to_thread(os.path.exists, seg.path):
         if download:
             return FileResponse(
                 seg.path,
@@ -775,18 +859,18 @@ async def _serve_segment(
             # A-1.26: detail error (stderr rclone) hanya ke log server;
             # respons klien generik supaya path/kredensial internal
             # tidak bocor (konsisten dengan redact di reconnect_stream).
-            _cleanup(tmp)
+            await _acleanup(tmp)
             log.warning("rclone unduh segmen %s gagal: %s", seg.name, e)
             raise HTTPException(
                 status.HTTP_502_BAD_GATEWAY,
                 "Google Drive tidak terjangkau",
             ) from e
-        total = os.path.getsize(tmp)
+        total = await asyncio.to_thread(os.path.getsize, tmp)
         _range_header = request.headers.get("range") if request is not None else None
         if _range_unsatisfiable(_range_header, total):
             from fastapi.responses import Response
 
-            _cleanup(tmp)
+            await _acleanup(tmp)
             return Response(
                 status_code=416,
                 headers={
@@ -813,7 +897,9 @@ async def _serve_segment(
                 f.seek(r_start)
                 remaining = r_end - r_start + 1
                 while remaining > 0:
-                    chunk = f.read(min(CHUNK, remaining))
+                    chunk = await asyncio.to_thread(
+                        f.read, min(CHUNK, remaining)
+                    )
                     if not chunk:
                         break
                     remaining -= len(chunk)
@@ -856,22 +942,21 @@ async def _serve_segment(
     fd, tmp = tempfile.mkstemp(suffix=".mp4")
     os.close(fd)
     try:
-        data = await up.download_drive_file(file_id)
-        with open(tmp, "wb") as f:
-            f.write(data)
+        # Unduh Drive OAuth langsung ke file (streaming).
+        await _download_drive_file_to_file(up, file_id, tmp)
     except Exception as e:  # noqa: BLE001 - Drive API bisa HttpError/timeout -> 502, bukan 500
         # A-1.26: detail error hanya ke log server, respons generik.
-        _cleanup(tmp)
+        await _acleanup(tmp)
         log.warning("Drive unduh segmen %s gagal: %s", seg.name, e)
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY, "Google Drive tidak terjangkau"
         ) from e
-    total = os.path.getsize(tmp)
+    total = await asyncio.to_thread(os.path.getsize, tmp)
     _range_header = request.headers.get("range") if request is not None else None
     if _range_unsatisfiable(_range_header, total):
         from fastapi.responses import Response
 
-        _cleanup(tmp)
+        await _acleanup(tmp)
         return Response(
             status_code=416,
             headers={
@@ -896,7 +981,7 @@ async def _serve_segment(
             f.seek(r_start)
             remaining = r_end - r_start + 1
             while remaining > 0:
-                chunk = f.read(min(CHUNK, remaining))
+                chunk = await asyncio.to_thread(f.read, min(CHUNK, remaining))
                 if not chunk:
                     break
                 remaining -= len(chunk)
@@ -978,6 +1063,9 @@ async def _playback_allowed_ids(
     dependencies=[Depends(rate_limited(30, 60))],
 )
 async def recording_cameras(
+    response: Response,
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     user: User = Depends(user_or_above),
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -999,6 +1087,11 @@ async def recording_cameras(
     untuk menjawab "ada segmen atau tidak". Fallback ke _all_segments hanya
     bila drive_uploads kosong, supaya kamera yang segmennya hanya ada di
     folder OAuth / staging folder-link tetap ketemu.
+
+    Paginasi: limit default 50 (maks 500); total sebelum paginasi di
+    header X-Total-Count. Paginasi memotong hasil akhir, bukan kerja
+    pemindaian (seluruh kamera tetap dipindai untuk menentukan mana
+    yang punya rekaman).
     """
     from app.models.drive import DriveUpload
     from app.routers.streams import _visible_streams, stream_to_out
@@ -1009,6 +1102,7 @@ async def recording_cameras(
     allowed = await _playback_allowed_ids(user, db, streams)
     out: list[StreamOut] = []
     drive_fallback: list[Stream] = []
+    drive_candidates: list[Stream] = []
     for s in streams:
         # Pemilih Putar Ulang hanya menampilkan kamera yang playback-nya
         # diizinkan (bukan sekadar live): user dengan can_view tapi
@@ -1016,22 +1110,35 @@ async def recording_cameras(
         # ditolak 403 di timeline/segmen.
         if s.id not in allowed:
             continue
-        if list_segments(s.id, None, settings.recordings_dir, stream=s):
+        if await asyncio.to_thread(
+            list_segments, s.id, None, settings.recordings_dir, stream=s
+        ):
             out.append(stream_to_out(s, settings))
             continue
         if s.storage_mode in ("drive", "both"):
-            # Cek murah dulu: ada jejak upload rclone di drive_uploads?
-            # (indeks stream_id; tanpa panggilan Drive API sama sekali).
-            has_upload = (
-                await db.execute(
-                    select(DriveUpload.id)
-                    .where(DriveUpload.stream_id == s.id)
-                    .limit(1)
+            drive_candidates.append(s)
+    # N+1 diperbaiki: cek jejak upload Drive untuk SEMUA kandidat dalam
+    # SATU query agregat (GROUP BY stream_id), bukan satu query EXISTS
+    # per kamera. Semantik sama: kamera dianggap punya upload bila ada
+    # minimal satu baris DriveUpload untuk stream_id itu. Kamera tanpa
+    # jejak tetap masuk fallback mahal di bawah (folder OAuth / staging
+    # folder-link), seperti sebelumnya.
+    has_upload_ids: set[int] = set()
+    if drive_candidates:
+        rows = (
+            await db.execute(
+                select(DriveUpload.stream_id)
+                .where(
+                    DriveUpload.stream_id.in_([s.id for s in drive_candidates])
                 )
-            ).scalars().first() is not None
-            if has_upload:
-                out.append(stream_to_out(s, settings))
-                continue
+                .group_by(DriveUpload.stream_id)
+            )
+        ).all()
+        has_upload_ids = {r[0] for r in rows}
+    for s in drive_candidates:
+        if s.id in has_upload_ids:
+            out.append(stream_to_out(s, settings))
+        else:
             # Fallback mahal (hanya bila jejak upload kosong): segmen
             # bisa saja hanya ada di folder OAuth / staging folder-link.
             drive_fallback.append(s)
@@ -1091,7 +1198,8 @@ async def recording_cameras(
         # Fallback ditambahkan belakangan: kembalikan urutan id kamera
         # seperti sebelum perubahan (daftar diurutkan _visible_streams).
         out.sort(key=lambda o: o.id)
-    return out
+    response.headers["X-Total-Count"] = str(len(out))
+    return out[offset : offset + limit]
 
 
 @router.get(
@@ -1101,7 +1209,10 @@ async def recording_cameras(
 )
 async def timeline(
     stream_id: int,
+    response: Response,
     day: date | None = Query(None, alias="date"),
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     _user: User = Depends(user_or_above),
     _access: User = Depends(require_camera_playback_access()),
     db: AsyncSession = Depends(get_db),
@@ -1109,16 +1220,22 @@ async def timeline(
     stream = await _get_stream(stream_id, db)
     day = day or date.today()
     segs = await _all_segments(stream, day, db)
+    entries = [
+        {
+            "start": s.start.isoformat(),
+            "end": (s.end or s.start).isoformat(),
+            "has_event": False,
+        }
+        for s in segs
+    ]
+    # BREAKING (paginasi): sebelumnya seluruh entri satu hari
+    # dikembalikan; kini default 50 entri pertama, total di header
+    # X-Total-Count. Satu hari penuh maksimal 144 segmen (10 menit),
+    # jadi pemutar yang butuh sehari penuh harus minta ?limit=500.
+    response.headers["X-Total-Count"] = str(len(entries))
     return {
         "date": day.isoformat(),
-        "entries": [
-            {
-                "start": s.start.isoformat(),
-                "end": (s.end or s.start).isoformat(),
-                "has_event": False,
-            }
-            for s in segs
-        ],
+        "entries": entries[offset : offset + limit],
         "events": [],
     }
 
@@ -1130,8 +1247,11 @@ async def timeline(
 )
 async def segments(
     stream_id: int,
+    response: Response,
     day: date | None = Query(None, alias="date"),
     hour: int | None = Query(None, ge=0, le=23),
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     _user: User = Depends(user_or_above),
     _access: User = Depends(require_camera_playback_access()),
     db: AsyncSession = Depends(get_db),
@@ -1140,6 +1260,10 @@ async def segments(
     segs = await _all_segments(stream, day, db)
     if hour is not None:
         segs = [s for s in segs if s.start.hour == hour]
+    # BREAKING (paginasi): seperti timeline, default 50 entri pertama;
+    # total sebelum paginasi di header X-Total-Count.
+    response.headers["X-Total-Count"] = str(len(segs))
+    segs = segs[offset : offset + limit]
     return [
         SegmentOut(
             start=s.start.isoformat(),
@@ -1239,7 +1363,7 @@ async def download_file(
 
 
 MAX_DOWNLOAD_RANGE = timedelta(hours=2)
-# A-1.24: batas tambahan selain durasi — satu unduhan 2 jam dari banyak
+# A-1.24: batas tambahan selain durasi, satu unduhan 2 jam dari banyak
 # segmen Drive bisa memenuhi disk temp (tiap segmen diunduh utuh dulu).
 # Estimasi memakai ukuran segmen penuh (konservatif, sebelum dipotong).
 MAX_DOWNLOAD_RANGE_SEGMENTS = 64
@@ -1291,9 +1415,10 @@ async def download_range(
             if s.name not in _names:
                 _names.add(s.name)
                 _segs.append(s)
+    _finished = await asyncio.to_thread(_finish, _segs)
     segs = [
         s
-        for s in _finish(_segs)
+        for s in _finished
         if s.start < end and (s.end or s.start) > start
     ]
     if not segs:
@@ -1401,7 +1526,29 @@ async def download_range(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        _, err = await asyncio.wait_for(proc.communicate(), timeout=300)
+        try:
+            _, err = await asyncio.wait_for(proc.communicate(), timeout=300)
+        except asyncio.TimeoutError:
+            # P0: timeout tanpa kill meninggalkan ffmpeg yatim; matikan
+            # dan tunggu seperti pola gdrive_rclone._kill_and_wait.
+            await _kill_and_wait(proc)
+            raise HTTPException(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "gagal menggabung rekaman",
+            ) from None
+        except asyncio.CancelledError:
+            # Jalur pembatalan: kill + wait langsung (tanpa wait_for),
+            # hapus file temp, lalu teruskan pembatalan.
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            try:
+                await proc.wait()
+            except asyncio.CancelledError:
+                pass
+            _cleanup_many(temps)
+            raise
         if proc.returncode != 0:
             log.warning(
                 "download-range gabung gagal: %s",
@@ -1422,10 +1569,10 @@ async def download_range(
             background=BackgroundTask(_cleanup_many, temps),
         )
     except HTTPException:
-        _cleanup_many(temps)
+        await _acleanup_many(temps)
         raise
     except Exception as e:  # noqa: BLE001
-        _cleanup_many(temps)
+        await _acleanup_many(temps)
         log.warning("download-range gagal: %s", e)
         raise HTTPException(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1449,8 +1596,11 @@ async def _find_next_drive_aware(
     hasil tetap sama seperti sebelumnya.
     """
     after = _to_server_naive(after)
-    res = find_next_playable(
-        stream.id, after, get_settings().recordings_dir, stream=stream
+    # find_next_playable sinkron (memindai listdir sampai 8 hari),
+    # jalankan via to_thread supaya tidak memblokir event loop.
+    res = await asyncio.to_thread(
+        find_next_playable,
+        stream.id, after, get_settings().recordings_dir, stream=stream,
     )
     if res is not None:
         return res

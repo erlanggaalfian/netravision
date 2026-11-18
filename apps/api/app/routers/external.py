@@ -1,6 +1,13 @@
-"""Router embed pihak ketiga (MIGRATION-MAP §8 — KONTRAK FROZEN).
+"""Router embed pihak ketiga (MIGRATION-MAP §8, KONTRAK FROZEN).
 
-Tidak memakai login user; auth via API key di query string.
+Tidak memakai login user; auth via API key di HEADER.
+2026-11-18 (BREAKING CHANGE): kunci + password TIDAK LAGI diterima
+lewat query string (?key= / ?password= / ?pass=), kredensial di URL
+tercatat di access log Apache, history browser, dan header Referer.
+Kirim lewat header `X-Api-Key` (dan `X-Api-Key-Password` bila kunci
+berpassword), atau `Authorization: Bearer <kunci>`. Query string
+berkredensial ditolak 400. GET /external/playback/file HANYA menerima
+?session= (token sesi file); fallback legacy ?key=&pass= DIHAPUS.
 Bentuk response mengikuti packages/contracts/openapi.yaml; field v2.0
 ditambahkan SECARA ADITIF (tidak menghapus field v3.0 yang ada):
   - GET /api/external/cameras  -> [{id, name}] (+is_online aditif; ?camera= opsional)
@@ -8,7 +15,7 @@ ditambahkan SECARA ADITIF (tidak menghapus field v3.0 yang ada):
   - GET /api/external/playback -> v2.0: tanpa ?date=/?time= daftar tanggal;
                                   ?date=YYYY-MM-DD -> segmen + URL putar;
                                   ?time=ISO -> satu {url, expires_at}
-  - GET /api/external/playback/file -> berkas segmen (auth via ?key=)
+  - GET /api/external/playback/file -> berkas segmen (auth via ?session=)
 Kegagalan -> 403 (perilaku v2.0), tanpa membocorkan informasi.
 """
 
@@ -43,7 +50,7 @@ _DEFAULT_TTL_MNT = 60
 # saja tidak cukup karena penyerang bisa dari banyak IP; kunci per
 # key menutupnya. Sukses membersihkan hitungan.
 # 4.9: kunci per key saja bisa dipakai untuk DoS mitra (penyerang yang
-# tahu kunci embed — kunci itu tampil di halaman mitra — mematikan
+# tahu kunci embed, kunci itu tampil di halaman mitra, mematikan
 # playback mitra dengan 5 password salah). Dengan kunci gabungan
 # (key, IP), kegagalan dari satu IP hanya mengunci kombinasi itu;
 # mitra dari IP lain tetap bisa masuk.
@@ -78,6 +85,46 @@ def _now() -> datetime:
 
 def _key_hash(raw: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _api_key_credentials(request: Request) -> tuple[str | None, str | None]:
+    """Kunci + password embed dari header (didahulukan, satu-satunya
+    jalur yang sah sejak 2026-11-18).
+
+    Key: header `X-Api-Key`, atau `Authorization: Bearer <kunci>`.
+    Password: header `X-Api-Key-Password`.
+    Return (key, password); (None, None) bila tidak ada header.
+    Query string TIDAK PERNAH dibaca di sini.
+    """
+    key = request.headers.get("x-api-key", "").strip() or None
+    if not key:
+        auth = request.headers.get("authorization", "")
+        if auth.lower().startswith("bearer "):
+            key = auth[7:].strip() or None
+    password = request.headers.get("x-api-key-password", "").strip() or None
+    return key, password
+
+
+def _reject_query_credentials(request: Request) -> None:
+    """Tolak kredensial lewat query string dengan 400 yang jelas.
+
+    2026-11-18 (BREAKING CHANGE): ?key= / ?password= / ?pass= tidak
+    lagi diterima di endpoint embed mana pun. Parameter query lain
+    (camera, stream_id, date, time, session, start, end) tidak
+    terpengaruh.
+    """
+    qp = request.query_params
+    if (
+        qp.get("key") is not None
+        or qp.get("password") is not None
+        or qp.get("pass") is not None
+    ):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Kunci API tidak boleh dikirim lewat query string (?key=). "
+            "Kirim lewat header X-Api-Key "
+            "(dan X-Api-Key-Password bila ada password).",
+        )
 
 
 def _client_ip(request: Request) -> str:
@@ -463,16 +510,18 @@ async def _cached_ad_config(db: AsyncSession) -> dict | None:
 @router.get("/external/cameras", dependencies=[Depends(rate_limited(20, 60))])
 async def external_cameras(
     request: Request,
-    key: str = Query(...),
     camera: int | None = Query(None, description="nomor urut (1=utama); id juga diterima"),
     stream_id: int | None = Query(None, description="alias dari camera"),
-    password: str | None = Query(None),
-    pass_: str | None = Query(None, alias="pass"),
     db: AsyncSession = Depends(get_db),
 ):
-    """FROZEN — daftar kamera milik satu kunci API. ?camera= menyaring satu kamera."""
+    """FROZEN, daftar kamera milik satu kunci API. ?camera= menyaring satu kamera.
+
+    Auth: header X-Api-Key (+ X-Api-Key-Password). Query ?key= ditolak 400.
+    """
+    _reject_query_credentials(request)
+    raw_key, raw_password = _api_key_credentials(request)
     key_rec = await _validate_key(
-        db, request, key, password or pass_, "external.cameras"
+        db, request, raw_key or "", raw_password, "external.cameras"
     )
     ids = await _key_stream_ids(db, key_rec.id)
     if camera is not None or stream_id is not None:
@@ -511,22 +560,23 @@ async def external_cameras(
 @router.get("/external/stream", dependencies=[Depends(rate_limited(20, 60))])
 async def external_stream(
     request: Request,
-    key: str = Query(...),
     camera: int | None = Query(None, description="nomor urut (1=utama); id juga diterima"),
     stream_id: int | None = Query(None, description="alias dari camera"),
-    password: str | None = Query(None),
-    pass_: str | None = Query(None, alias="pass"),
     db: AsyncSession = Depends(get_db),
 ):
-    """FROZEN — URL WHEP embed + token sesi singkat.
+    """FROZEN, URL WHEP embed + token sesi singkat.
+
+    Auth: header X-Api-Key (+ X-Api-Key-Password). Query ?key= ditolak 400.
 
     Response {url, expires_at} + ADITIF v2.0: stream {id, name, webrtc_url,
     webrtc_url_sub, coordinates, embed_timeout_seconds, click_to_play}
     dan ad {konfigurasi iklan penuh, field AdConfigIn} (null bila iklan
     nonaktif).
     """
+    _reject_query_credentials(request)
+    raw_key, raw_password = _api_key_credentials(request)
     key_rec = await _validate_key(
-        db, request, key, password or pass_, "external.stream"
+        db, request, raw_key or "", raw_password, "external.stream"
     )
     ids = await _key_stream_ids(db, key_rec.id)
     target = _resolve_camera_ref(camera if camera is not None else stream_id, ids)
@@ -589,16 +639,15 @@ async def external_stream(
 @router.get("/external/playback", dependencies=[Depends(rate_limited(20, 60))])
 async def external_playback(
     request: Request,
-    key: str = Query(...),
     camera: int | None = Query(None),
     stream_id: int | None = Query(None, description="alias dari camera"),
     date: str | None = Query(None, description="YYYY-MM-DD (v2.0)"),
     time: str | None = Query(None, description="ISO datetime -> satu URL (v3.0)"),
-    password: str | None = Query(None),
-    pass_: str | None = Query(None, alias="pass"),
     db: AsyncSession = Depends(get_db),
 ):
-    """FROZEN — playback untuk klien kunci API (pola v2.0).
+    """FROZEN, playback untuk klien kunci API (pola v2.0).
+
+    Auth: header X-Api-Key (+ X-Api-Key-Password). Query ?key= ditolak 400.
 
     Tanpa ?date=/?time= -> {camera, camera_name, total_cameras, cameras, dates}.
     Dengan ?date=YYYY-MM-DD -> segmen tanggal itu + URL putar tiap segmen.
@@ -606,8 +655,10 @@ async def external_playback(
     """
     from app.routers.recordings import _all_segments
 
+    _reject_query_credentials(request)
+    raw_key, raw_password = _api_key_credentials(request)
     key_rec = await _validate_key(
-        db, request, key, password or pass_, "external.playback"
+        db, request, raw_key or "", raw_password, "external.playback"
     )
     ids = await _key_stream_ids(db, key_rec.id)
     target = _resolve_camera_ref(camera if camera is not None else stream_id, ids)
@@ -762,13 +813,10 @@ async def external_playback(
 @router.get("/external/playback/file", dependencies=[Depends(rate_limited(20, 60))])
 async def external_playback_file(
     request: Request,
-    key: str | None = Query(None),
     camera: int | None = Query(None),
     stream_id: int | None = Query(None, description="alias dari camera"),
     start: str = Query(...),
     end: str = Query(...),
-    password: str | None = Query(None),
-    pass_: str | None = Query(None, alias="pass"),
     session: str | None = Query(
         None,
         description="token sesi file dari GET /external/playback (4.4)",
@@ -777,58 +825,44 @@ async def external_playback_file(
 ):
     """Berkas segmen rekaman untuk klien kunci API.
 
-    Auth utama: ?session= (token sesi file terikat kamera + rentang,
-    TTL singkat, diterbitkan GET /external/playback). Auth lama
-    ?key=&pass= (pola v2.0) tetap diterima untuk URL yang sudah
-    terbit sebelum perbaikan 4.4; URL BARU tidak lagi memakai bentuk
-    itu, jadi kebocoran URL baru hanya hidup selama TTL sesi.
+    Auth HANYA: ?session= (token sesi file terikat kamera + rentang,
+    TTL singkat, diterbitkan GET /external/playback).
+    2026-11-18 (BREAKING CHANGE): fallback legacy ?key=&pass= (pola
+    v2.0) DIHAPUS. URL lama yang bocor tidak lagi berlaku selamanya;
+    klien wajib memakai URL baru dari GET /external/playback.
+    Kredensial di query (?key=/?password=/?pass=) ditolak 400.
     """
     from app.routers.recordings import _containing, _serve_segment
 
-    if session:
-        try:
-            key_id, token_stream_id = await _validate_file_session_token(
-                db, session, start, end
-            )
-        except ValueError:
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN, "Token sesi file tidak valid"
-            )
-        key_rec = await db.get(ApiKey, key_id)
-        if key_rec is None:
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN, "Kunci API tidak valid atau tidak aktif"
-            )
-        ids = await _key_stream_ids(db, key_rec.id)
-        target = _resolve_camera_ref(camera if camera is not None else stream_id, ids)
-        if target is None or target not in ids or target != token_stream_id:
-            await _log(
-                db, request, "external.playback.file.denied:bad_camera",
-                key_id=key_rec.id,
-            )
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN,
-                f"Nomor kamera tidak sah. Kunci ini punya {len(ids)} kamera.",
-            )
-    else:
-        if not key:
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN, "Kunci API tidak valid atau tidak aktif"
-            )
-        key_rec = await _validate_key(
-            db, request, key, password or pass_, "external.playback.file"
+    _reject_query_credentials(request)
+    if not session:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Token sesi file tidak valid"
         )
-        ids = await _key_stream_ids(db, key_rec.id)
-        target = _resolve_camera_ref(camera if camera is not None else stream_id, ids)
-        if target is None or target not in ids:
-            await _log(
-                db, request, "external.playback.file.denied:bad_camera",
-                key_id=key_rec.id,
-            )
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN,
-                f"Nomor kamera tidak sah. Kunci ini punya {len(ids)} kamera.",
-            )
+    try:
+        key_id, token_stream_id = await _validate_file_session_token(
+            db, session, start, end
+        )
+    except ValueError:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Token sesi file tidak valid"
+        )
+    key_rec = await db.get(ApiKey, key_id)
+    if key_rec is None:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Kunci API tidak valid atau tidak aktif"
+        )
+    ids = await _key_stream_ids(db, key_rec.id)
+    target = _resolve_camera_ref(camera if camera is not None else stream_id, ids)
+    if target is None or target not in ids or target != token_stream_id:
+        await _log(
+            db, request, "external.playback.file.denied:bad_camera",
+            key_id=key_rec.id,
+        )
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f"Nomor kamera tidak sah. Kunci ini punya {len(ids)} kamera.",
+        )
     result = await db.execute(select(Stream).where(Stream.id == target))
     stream = result.scalars().first()
     if stream is None or not stream.is_active:

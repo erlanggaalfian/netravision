@@ -25,7 +25,7 @@ IP yang gagal tahap 1 dicatat status 'unreachable', yang gagal tahap 2
 dicatat status BARU 'port_closed' (port RTSP tertutup). Keduanya tetap
 dikembalikan API (bukan disaring) supaya hitungan funnel tetap benar,
 tapi FRONTEND tidak menampilkan baris 'unreachable' (hanya noise saat
-scan /24) — jumlahnya tetap tampil di ringkasan sebagai "tidak
+scan /24), jumlahnya tetap tampil di ringkasan sebagai "tidak
 terjangkau (disembunyikan)". Frontend sudah punya fallback (status tak
 dikenal tampil "Gagal"), tapi label 'port_closed' ditambahkan di
 scanner/page.tsx supaya tampil "Port RTSP tertutup".
@@ -90,6 +90,10 @@ _HOST_TIMEOUT = 60.0  # detik maksimum discovery per host (tahap 3)
 # H1: batas waktu global seluruh scan, satu /24 tak boleh menggantung
 # sampai puluhan menit walau tiap host dibatasi 30 detik.
 _SCAN_GLOBAL_TIMEOUT = 300.0  # detik
+# Tenggang setelah timeout global sebelum job `running` dianggap mati
+# dan boleh di-prune (_prune_jobs_locked): tahap 1-2 di luar anggaran
+# tahap 3, jadi job sehat bisa hidup sedikit lebih lama dari 300 dtk.
+_SCAN_DEAD_GRACE = 120.0  # detik
 # Funnel tahap 1-2: probe singkat + konkurensi tinggi supaya /24 penuh
 # selesai dalam hitungan detik, bukan menit. Tahap 1: ping + 2 TCP
 # fallback jalan bersamaan (IP mati ~1 dtk, bukan ~3 dtk berurutan).
@@ -184,6 +188,12 @@ class _ScanJob:
     stage: str = "reachability"  # reachability | port_check | discovery | done
     reachable_count: int = 0
     port_open_count: int = 0
+    # Task asyncio _run_scan. BUKAN bagian respons API: status endpoint
+    # membangun SubnetScanJobStatus field demi field, jadi objek Task
+    # tidak pernah terserialisasi ke JSON. Dipakai cancel_scan_task /
+    # cancel_all_scan_tasks (shutdown) dan _prune_jobs_locked untuk
+    # mendeteksi job `running` yang task-nya sudah mati.
+    task: asyncio.Task | None = None
 
 
 # Job scan disimpan di memori proses saja (cukup untuk deployment
@@ -199,12 +209,19 @@ def _prune_jobs_locked() -> None:
     """Buang job selesai yang kedaluwarsa, lalu pangkas ke 10 job terakhir.
 
     Harus dipanggil sambil memegang _jobs_lock.
-    A-1.11: job yang masih running TIDAK PERNAH dihapus — sebelumnya
+    A-1.11: job yang masih running TIDAK PERNAH dihapus, sebelumnya
     bila semua job running, korban adalah job running tertua dan
     GET /admin/scan-subnet/{job_id} lalu 404 di tengah pemindaian
     yang sebenarnya masih jalan. Bila penuh dan semua running,
     _MAX_JOBS boleh terlampaui sementara; job baru ditolak 429 di
-    scan_subnet sampai ada yang selesai."""
+    scan_subnet sampai ada yang selesai.
+    Pengecualian: job `running` yang task-nya SUDAH selesai/dibatalkan
+    (status tak pernah difinalisasi, mis. loop ditutup paksa) atau
+    yang umurnya melewati timeout global + tenggang dianggap mati:
+    dihapus supaya tidak macet `running` selamanya dan slot
+    _MAX_JOBS bebas. Job mati yang task-nya entah bagaimana masih
+    hidup dibatalkan dulu (best-effort, tanpa await: prune sinkron).
+    """
     now = time.monotonic()
     for jid in [
         jid
@@ -214,6 +231,16 @@ def _prune_jobs_locked() -> None:
         and now - job.finished_at > _JOB_TTL
     ]:
         del _jobs[jid]
+    for jid, job in list(_jobs.items()):
+        if job.status != "running":
+            continue
+        task = job.task
+        if task is not None and task.done():
+            del _jobs[jid]
+        elif now - job.created_at > _SCAN_GLOBAL_TIMEOUT + _SCAN_DEAD_GRACE:
+            if task is not None and not task.done():
+                task.cancel()
+            del _jobs[jid]
     while len(_jobs) > _MAX_JOBS:
         finished = sorted(
             (j for j in _jobs.values() if j.status != "running"),
@@ -227,6 +254,40 @@ def _prune_jobs_locked() -> None:
 def _running_job_count_locked() -> int:
     """Jumlah job yang masih running (dipakai penolakan 429)."""
     return sum(1 for j in _jobs.values() if j.status == "running")
+
+
+async def cancel_scan_task(job_id: str) -> bool:
+    """Batalkan satu job scan yang masih berjalan.
+
+    Return True bila ada task yang dibatalkan. Task yang dibatalkan
+    menandai job-nya `error` di finally _run_scan, jadi job tidak
+    macet `running`."""
+    async with _jobs_lock:
+        job = _jobs.get(job_id)
+        task = job.task if job is not None else None
+    if task is None or task.done():
+        return False
+    task.cancel()
+    return True
+
+
+async def cancel_all_scan_tasks() -> int:
+    """Batalkan SEMUA job scan yang masih berjalan, lalu tunggu
+    finalisasinya (dipanggil lifespan saat shutdown, sebelum
+    dispose_engine, wiring-nya di app/main.py, bukan di sini).
+
+    Return jumlah task yang dibatalkan."""
+    async with _jobs_lock:
+        tasks = [
+            job.task
+            for job in _jobs.values()
+            if job.task is not None and not job.task.done()
+        ]
+    for t in tasks:
+        t.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    return len(tasks)
 
 
 def _host_status(disc: rtsp_discovery.DiscoveryResult) -> str:
@@ -457,7 +518,8 @@ async def _scan_host(
             )
         except Exception as e:  # noqa: BLE001 - A-R6: satu host error tak
             # boleh menggugurkan seluruh scan; laporkan sebagai error.
-            log.warning("scan host %s gagal: %s", host, e)
+            # Pesan discovery bisa memuat URL RTSP berkredensial.
+            log.warning("scan host %s gagal: %s", host, redact_url_credentials(str(e)))
             return _dead_host(
                 host, port, "error", known=known,
                 known_stream_id=known_stream_id,
@@ -515,6 +577,10 @@ async def _run_scan(
     known_online = known_online or {}
     known_info = known_info or {}
     recorded: set[str] = set()
+    # Task discovery tahap 3 (diisi di bawah): dibatalkan eksplisit di
+    # handler CancelledError supaya tidak ada discovery yang jalan
+    # terus setelah job dibatalkan (mis. shutdown).
+    stage3_tasks: list[asyncio.Task] = []
 
     def _known_fields(h: str) -> dict:
         """Field kamera terdaftar untuk satu host (kosong bila baru)."""
@@ -595,7 +661,7 @@ async def _run_scan(
 
         # ---- Tahap 3: discovery penuh (hanya yang lolos 1 dan 2) ----
         sem = asyncio.Semaphore(_HOST_CONCURRENCY)
-        tasks = [
+        stage3_tasks = [
             asyncio.create_task(
                 _scan_host(
                     h, port, username, password, sem,
@@ -612,7 +678,7 @@ async def _run_scan(
         )
         try:
             async def _collect() -> None:
-                for coro in asyncio.as_completed(tasks):
+                for coro in asyncio.as_completed(stage3_tasks):
                     await record(await coro)
 
             await asyncio.wait_for(_collect(), timeout=max(1.0, remaining))
@@ -621,7 +687,7 @@ async def _run_scan(
             # Host yang discovery-nya SUDAH selesai tapi belum sempat
             # dicatat _collect (as_completed dibatalkan di tengah) ikut
             # dicatat dari hasilnya, bukan hilang diam-diam.
-            for t in tasks:
+            for t in stage3_tasks:
                 if t.done() and not t.cancelled():
                     try:
                         done_res = t.result()
@@ -629,21 +695,43 @@ async def _run_scan(
                         continue
                     if done_res.host not in recorded:
                         await record(done_res)
-            for h, t in zip(port_open, tasks):
+            for h, t in zip(port_open, stage3_tasks):
                 if not t.done():
                     t.cancel()
                     await record(_dead_host(
                         h, port, "timeout", known=(h, port) in known_hosts,
                         **_known_fields(h),
                     ))
-            await asyncio.gather(*tasks, return_exceptions=True)
+            await asyncio.gather(*stage3_tasks, return_exceptions=True)
     except asyncio.CancelledError:
-        raise
-    except Exception as e:  # noqa: BLE001 - pengaman terakhir job
-        log.warning("scan-subnet job %s gagal: %s", job.job_id, e)
+        # Shutdown / pembatalan eksplisit (cancel_scan_task /
+        # cancel_all_scan_tasks): job WAJIB difinalisasi `error` di
+        # sini, sebelumnya CancelledError diteruskan begitu saja dan
+        # job macet `running` selamanya. Tandai dulu (supaya tetap
+        # tercatat walau gather di bawah ikut terinterupsi), lalu
+        # batalkan discovery tahap 3 yang masih jalan.
         async with _jobs_lock:
             job.status = "error"
-            job.error = str(e) or "Scan gagal"
+            job.error = "Scan dibatalkan"
+            job.finished_at = time.monotonic()
+        for t in stage3_tasks:
+            if not t.done():
+                t.cancel()
+        if stage3_tasks:
+            try:
+                await asyncio.gather(*stage3_tasks, return_exceptions=True)
+            except asyncio.CancelledError:
+                pass
+        raise
+    except Exception as e:  # noqa: BLE001 - pengaman terakhir job
+        # Pesan error bisa memuat URL RTSP berkredensial (discovery /
+        # MediaMTX): redaksi sebelum log DAN sebelum masuk field
+        # `error` yang dikembalikan GET status ke klien.
+        err = redact_url_credentials(str(e))
+        log.warning("scan-subnet job %s gagal: %s", job.job_id, err)
+        async with _jobs_lock:
+            job.status = "error"
+            job.error = err or "Scan gagal"
             job.finished_at = time.monotonic()
         return
     async with _jobs_lock:
@@ -729,12 +817,15 @@ async def scan_subnet(data: SubnetScanRequest, db: AsyncSession = Depends(get_db
                 ),
             )
         _jobs[job.job_id] = job
-    asyncio.create_task(
+    # Simpan task-nya di job (bukan fire-and-forget): bisa dibatalkan
+    # saat shutdown via cancel_scan_task/cancel_all_scan_tasks.
+    task = asyncio.create_task(
         _run_scan(
             job, hosts, data.port, data.username, data.password,
             known_hosts, known_online, known_info,
         )
     )
+    job.task = task
     log.info(
         "scan-subnet job %s dimulai: %s (%d host)",
         job.job_id, data.ip_range, len(hosts),
@@ -943,9 +1034,10 @@ async def complete_streams(
                 )
             mediamtx_updated = True
         except Exception as e:  # noqa: BLE001 - best-effort
+            # Pesan MediaMTX bisa memuat source URL berkredensial.
             log.warning(
                 "complete-streams: daftar ulang MediaMTX stream %s gagal: %s",
-                stream.id, e,
+                stream.id, redact_url_credentials(str(e)),
             )
     return CompleteStreamsResponse(
         stream_id=stream.id,

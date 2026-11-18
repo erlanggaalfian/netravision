@@ -1,15 +1,25 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { ApiError, api } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import { filterStreamsForRole } from "../../../lib/scope";
 import { useCameraStatus } from "../../../hooks/useCameraStatus";
 import type { AdConfig, Disk, DriveFolder, Group, ScanPath, ScanResult, Stream } from "../../../lib/types";
-import { ShareModal } from "../../../components/ShareModal";
-import { FocusModal } from "../../../components/FocusModal";
+/* P1 code-review 2026-11-18: FocusModal dan ShareModal hanya dibutuhkan
+   saat pengguna membuka popup, lazy-load supaya First Load JS halaman
+   admin/streams tidak membawa kode modal. */
+const ShareModal = dynamic(
+  () => import("../../../components/ShareModal").then((m) => m.ShareModal),
+  { ssr: false },
+);
+const FocusModal = dynamic(
+  () => import("../../../components/FocusModal").then((m) => m.FocusModal),
+  { ssr: false },
+);
 import { LocationInput } from "../../../components/LocationInput";
-import { ErrorBox, Modal, Pagination, Spinner, Switch } from "../../../components/ui";
+import { ErrorBox, Modal, Pagination, PRIMARY_GRADIENT, Spinner, Switch } from "../../../components/ui";
 import {
   NBAccordion,
   NBBadge,
@@ -237,7 +247,7 @@ function StreamRow({
           {s.recording_enabled ? (
             <NBBadge size="sm" tone="warn">Merekam</NBBadge>
           ) : (
-            <NBBadge size="sm" tone="muted">Stream saja</NBBadge>
+            <NBBadge size="sm" tone="muted">Kamera saja</NBBadge>
           )}
           {groups.map((g) => (
             <NBBadge key={g} tone="info">
@@ -347,14 +357,27 @@ export default function AdminStreamsPage() {
   /* Pagination */
   const [page, setPage] = useState(1);
 
-  const load = () =>
+  /* P0 code-review 2026-11-18: nomor urut load, supaya respons lama
+     yang datang belakangan tidak menimpa hasil load terbaru (klik
+     "Muat ulang" dua kali cepat). */
+  const loadSeqRef = useRef(0);
+
+  const load = () => {
+    const seq = ++loadSeqRef.current;
     api
-      .get<Stream[]>("/admin/streams")
-      .then(setStreams)
+      .get<Stream[]>("/admin/streams?limit=500")
+      .then((d) => {
+        if (seq === loadSeqRef.current) setStreams(d);
+      })
       .catch((e) => {
+        if (seq !== loadSeqRef.current) return;
         setError(e instanceof ApiError ? e.message : "Gagal memuat kamera");
-        setStreams([]);
+        /* JANGAN setStreams([]) saat error: null = gagal memuat (tampil
+           pesan + tombol coba lagi), [] = benar-benar kosong. Sebelumnya
+           catch menulis [] sehingga "Belum ada kamera" tampil padahal
+           server gagal. */
       });
+  };
 
   /* Grup untuk filter (dipakai ulang setelah set grup massal).
      Admin biasa TIDAK meminta camera-grants per grup: endpoint itu
@@ -387,14 +410,23 @@ export default function AdminStreamsPage() {
       .catch(() => {});
 
   useEffect(() => {
+    /* P0 code-review 2026-11-18: guard cancelled supaya setState
+       tidak jalan setelah pengguna pindah halaman sebelum respons tiba. */
+    let cancelled = false;
     load();
     /* Config iklan untuk popup live (FocusModal), sama seperti Live. */
-    api.get<AdConfig>("/ad-config").then(setAd).catch(() => {});
+    api.get<AdConfig>("/ad-config").then((d) => {
+      if (!cancelled) setAd(d);
+    }).catch(() => {});
     /* Akun Drive opsional, sembunyikan field bila gagal dimuat. */
-    api.get<{ folders: DriveFolder[] }>("/admin/storage/google-drive").then((d) => setDriveFolders(d.folders ?? [])).catch(() => {});
+    api.get<{ folders: DriveFolder[] }>("/admin/storage/google-drive").then((d) => {
+      if (!cancelled) setDriveFolders(d.folders ?? []);
+    }).catch(() => {});
     /* Daftar disk untuk pilihan Save to disk; diam bila gagal
        (mis. bukan superadmin, endpoint super_admin-only). */
-    api.get<Disk[]>("/admin/disks").then(setDisks).catch(() => setDisks([]));
+    api.get<Disk[]>("/admin/disks").then((d) => {
+      if (!cancelled) setDisks(d);
+    }).catch(() => setDisks([]));
     loadGroups();
     /* Admin biasa: muat grant can_reshare agar tombol Bagikan hanya
        tampil di kamera yang diizinkan superadmin untuk dibagikan,
@@ -409,6 +441,7 @@ export default function AdminStreamsPage() {
           }[];
         }>(`/admin/admins/${me.id}/camera-grants`)
         .then((d) => {
+          if (cancelled) return;
           const gs = d.grants ?? [];
           setReshareIds(
             new Set(
@@ -421,6 +454,9 @@ export default function AdminStreamsPage() {
         })
         .catch(() => {});
     }
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me?.id]);
 
@@ -664,7 +700,24 @@ export default function AdminStreamsPage() {
       )}
 
       {streams === null ? (
-        <Spinner />
+        error ? (
+          /* Pesan error sudah tampil di atas halaman (ErrorBox baris
+             ~591); di sini cukup tombol coba lagi, bukan ErrorBox kedua. */
+          <div className="flex flex-col items-center gap-4 px-6 py-16 text-center">
+            <p className="text-sm text-slate-400">
+              Daftar kamera tidak dapat dimuat.
+            </p>
+            <button
+              type="button"
+              onClick={load}
+              className="min-h-[48px] cursor-pointer rounded-xl bg-gradient-to-b from-accent-500 to-accent-600 px-5 text-sm font-semibold text-onaccent shadow-sm transition-all duration-150 hover:from-accent-400 hover:to-accent-500 active:scale-[0.98]"
+            >
+              Coba lagi
+            </button>
+          </div>
+        ) : (
+          <Spinner />
+        )
       ) : pageItems.length === 0 ? (
         <NBEmptyState
           icon={<CameraIcon className="h-8 w-8 text-slate-500" />}
@@ -1194,7 +1247,7 @@ function AddStreamModal({
               onClick={() => setUseRtsp(o.rtsp)}
               className={`min-h-[44px] rounded-full px-3 text-sm font-medium transition-colors ${
                 useRtsp === o.rtsp
-                  ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
+                  ? PRIMARY_GRADIENT
                   : "text-slate-400 hover:bg-ink-700 hover:text-slate-200"
               }`}
             >

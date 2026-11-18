@@ -71,7 +71,10 @@ async def test_upgrade_head_membuat_skema_area2(pg):
     """0027 naik: FK, unique, CHECK, indeks, kolom baru, rename."""
     r = _alembic("upgrade", "head")
     assert r.returncode == 0, r.stdout + r.stderr
-    assert await _scalar(pg, "SELECT version_num FROM alembic_version") == "0029"
+    # 0030: head kini 0030 (bukan 0029 lagi). Upgrade head di test ini
+    # butuh DRIVE_TOKEN_KEY di env (migrasi 0030 mengenkripsi
+    # mediamtx_api_password dan gagal keras tanpa kunci itu).
+    assert await _scalar(pg, "SELECT version_num FROM alembic_version") == "0030"
 
     assert await _scalar(
         pg,
@@ -242,7 +245,9 @@ async def test_downgrade_upgrade_roundtrip(pg):
     ) == 1
     r = _alembic("upgrade", "head")
     assert r.returncode == 0, r.stdout + r.stderr
-    assert await _scalar(pg, "SELECT version_num FROM alembic_version") == "0029"
+    # 0030: head kini 0030 (lihat komentar yang sama di
+    # test_upgrade_head_membuat_skema_area2).
+    assert await _scalar(pg, "SELECT version_num FROM alembic_version") == "0030"
 
 
 async def test_downgrade_0011_tidak_hapus_guest_asli(pg):

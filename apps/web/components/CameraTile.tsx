@@ -322,7 +322,7 @@ function CameraTileInner({ stream, onExpand, ad, adInFrame = false, fillCell = f
       stopHls(hlsRef.current);
       hlsRef.current = null;
     };
-  }, [mediaUrls, stream.is_online, stream.id, failed, disconnected, retryTick]);
+  }, [mediaUrls, stream.is_online, stream.id, stream.whep_main_url, stream.whep_sub_url, hasSub, failed, disconnected, retryTick]);
 
   const toggleControls = () => setShowControls((v) => !v);
 

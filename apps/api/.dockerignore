@@ -1,0 +1,13 @@
+# Build context apps/api: jangan kirim yang tidak dibutuhkan image.
+# Terutama: .env (secret!), tests/ (dependensi test ikut ke image bila
+# requirements.lock dipakai — lihat laporan code review §4.4), cache.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+tests/
+.git/

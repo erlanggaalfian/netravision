@@ -4,6 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -22,6 +23,15 @@ class ApiKey(Base, TimestampMixin):
     """Kunci API per integrasi. Yang disimpan hanya hash (SHA-256) kuncinya."""
 
     __tablename__ = "api_keys"
+    # 0030: session_ttl_mnt negatif/tidak bermakna (NULL = pakai
+    # default aplikasi).
+    __table_args__ = (
+        CheckConstraint(
+            "session_ttl_mnt IS NULL OR session_ttl_mnt > 0",
+            # Nama pendek, lihat komentar yang sama di models/users.py.
+            name="session_ttl_positive",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -74,6 +84,20 @@ class ApiAccessLog(Base):
         # 2.7: filter/ringkasan per stream_id (logs_summary GROUP BY
         # api_key_id ikut terbantu indeks key_created di atas).
         Index("ix_api_access_logs_stream_id", "stream_id"),
+        # 0030: indeks ini sudah ada di DB sejak 0001 tapi tidak
+        # dideklarasikan di model (drift), melayani prune retensi
+        # (DELETE WHERE created_at < cutoff) yang tidak dilayani
+        # indeks komposit (api_key_id, created_at).
+        Index("ix_api_access_logs_created_at", "created_at"),
+        # 0030: filter status=denied/hit (admin_keys.py), komentar
+        # lama yang mengklaimnya "terindeks lewat key_created" salah:
+        # indeks (api_key_id, created_at) tidak mengandung is_denied.
+        Index(
+            "ix_api_access_logs_key_denied_created",
+            "api_key_id",
+            "is_denied",
+            "created_at",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

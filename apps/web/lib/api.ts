@@ -342,6 +342,11 @@ export async function apiGetPage<T>(
    tile, revoke oleh satu tile akan merusak tile lain. Jumlah entri
    terbatas pada jumlah poster kamera, jadi kebocoran terkendali. */
 const posterCache = new Map<string, Promise<string | undefined>>();
+/* P0 code-review 2026-11-18: batas atas entri cache poster. Entri yang
+   dikeluarkan dari map TIDAK di-revoke (object URL masih dipakai tile
+   lain, lihat F5.8), yang hilang hanya dedup untuk URL itu, jadi
+   fetch berikutnya mengunduh ulang posternya. */
+const POSTER_CACHE_MAX_ENTRIES = 500;
 
 export async function fetchPosterObjectUrl(
   url: string | null | undefined,
@@ -353,6 +358,10 @@ export async function fetchPosterObjectUrl(
     if (!u) posterCache.delete(url);
     return u;
   });
+  if (posterCache.size >= POSTER_CACHE_MAX_ENTRIES) {
+    const oldest = posterCache.keys().next();
+    if (!oldest.done) posterCache.delete(oldest.value);
+  }
   posterCache.set(url, promise);
   return promise;
 }
@@ -361,7 +370,6 @@ async function fetchPosterObjectUrlUncached(
   url: string | null | undefined,
 ): Promise<string | undefined> {
   if (!url) return undefined;
-  let path: string;
   if (/^https?:\/\//i.test(url)) {
     // URL absolut: kredensial hanya untuk origin yang dipercaya
     // (halaman / API base); origin lain diambil tanpa kredensial
@@ -389,7 +397,7 @@ async function fetchPosterObjectUrlUncached(
     if (!res.ok) return undefined;
     return URL.createObjectURL(await res.blob());
   }
-  path = url.startsWith("/api/") ? url.slice(4) : url;
+  const path = url.startsWith("/api/") ? url.slice(4) : url;
   const res = await apiFetch(path);
   if (!res.ok) return undefined;
   return URL.createObjectURL(await res.blob());

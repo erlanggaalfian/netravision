@@ -1,13 +1,30 @@
 "use client";
 
 /* Primitif UI bahasa desain modern, KHUSUS halaman admin.
-   Selaras dengan components/ui.tsx: gradient buttons + glow, panel modern
-   (nv-panel-modern), heading besar/bold. Permukaan SOLID (tanpa blur),
-   memakai token tema (ink/accent/slate) sehingga mode gelap/terang benar. */
+   LAPISAN TIPIS di atas components/ui.tsx, jangan menambah primitif
+   baru di sini bila ui.tsx sudah punya padanannya. Pemetaan:
+   - NBTitle        -> SectionTitle (alias persis, rendering identik)
+   - NBButton       -> Button (primary/subtle/danger)
+   - NBConfirmModal -> ConfirmModal
+   - NBCard         -> permukaan nv-panel-modern (BEDA dari Card ui.tsx
+                       yang bg-ink-900 polos; sengaja dipertahankan)
+   - NBStat         -> Stat dengan permukaan nv-panel-modern (sengaja)
+   - NBField/NBInput/NBTextArea -> Field/TextInput/TextArea dengan
+                       padding/label admin (px-3.5, label semibold);
+                       beda tipis, sengaja dipertahankan
+   - NBTableWrap/NBTh/NBTd/NBTr/NBRowCard -> tidak ada padanan di ui.tsx
+   - NBSelect       -> adapter Dropdown (API <select> lama)
+   - NBAccordion/NBEmptyState/NBBadge -> varian panel-modern dari
+                       Accordion/EmptyState/Badge (sengaja)
+   Bila suatu saat permukaan admin disamakan dengan ui.tsx, hapus
+   varian di atas dan pakai ui.tsx langsung, import NB* di halaman
+   admin tidak perlu diubah selama nama ekspornya tetap ada. */
 
 import { useState, type ReactNode } from "react";
 import { Dropdown, selectChildrenToOptions } from "../../components/Dropdown";
-import { Button, ConfirmModal } from "../../components/ui";
+import { Button, ConfirmModal, SectionTitle } from "../../components/ui";
+
+export const NBTitle = SectionTitle;
 
 export function NBCard({
   children,
@@ -21,30 +38,6 @@ export function NBCard({
       className={`nv-panel-modern p-4 sm:p-5 ${className}`}
     >
       {children}
-    </div>
-  );
-}
-
-export function NBTitle({
-  title,
-  desc,
-  action,
-}: {
-  title: string;
-  desc?: string;
-  action?: ReactNode;
-}) {
-  return (
-    <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h1 className="text-[28px] font-extrabold tracking-tight text-slate-100">{title}</h1>
-        {desc && (
-          <p className="mt-1.5 max-w-2xl text-[15px] leading-relaxed text-slate-400">
-            {desc}
-          </p>
-        )}
-      </div>
-      {action}
     </div>
   );
 }
@@ -96,7 +89,7 @@ export function NBBadge({
     muted: "bg-ink-800 text-slate-400 ring-1 ring-slate-200/15",
   } as const;
   const sizes = {
-    sm: "px-2 py-0.5 text-[10px]",
+    sm: "px-2 py-0.5 text-[11px]",
     md: "px-2.5 py-1 text-[11px]",
   } as const;
   return (

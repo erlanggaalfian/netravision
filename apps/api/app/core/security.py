@@ -15,6 +15,7 @@
 
 import hashlib
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, urlunparse
 
@@ -111,10 +112,86 @@ def create_access_token(
         "username": username,
         "role": role,
         "type": "access",
+        # 2026-11-18: access token kini membawa jti, supaya bisa
+        # dicabut (denylist) sebelum kedaluwarsa. Token lama tanpa jti
+        # tetap diterima (jti None = tidak bisa dicabut individual,
+        # hanya lewat penonaktifan akun di rbac).
+        "jti": secrets.token_hex(16),
         "iat": _now(),
         "exp": _now() + timedelta(minutes=minutes),
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+# ── Denylist access token (sementara, in-memory) ─────────────────────
+# 2026-11-18 (code review): logout / ganti password / nonaktifkan
+# sebelumnya hanya mencabut refresh token; access token tetap sah
+# sampai kedaluwarsa (15 menit, guest 60 menit). Denylist ini menutup
+# celah itu untuk token yang jti-nya diketahui saat pencabutan.
+# BATASAN: in-memory per proses (hilang saat restart, tidak berlaku
+# antar-replica); TTL tiap entri = exp token. Langkah permanen:
+# pindah ke Redis/DB dengan TTL yang sama.
+_revoked_access_jti: dict[str, float] = {}
+_MAX_REVOKED_JTI = 10000
+
+
+def revoke_access_jti(jti: str | None, exp: datetime | None) -> None:
+    """Masukkan satu jti access token ke denylist sampai exp-nya."""
+    if not jti:
+        return
+    if exp is not None:
+        aware = exp if exp.tzinfo else exp.replace(tzinfo=timezone.utc)
+        until = aware.timestamp()
+    else:
+        until = time.time() + _MAX_ACCESS_MINUTES * 60
+    _revoked_access_jti[jti] = until
+    if len(_revoked_access_jti) > _MAX_REVOKED_JTI:
+        now = time.time()
+        for k in [k for k, v in _revoked_access_jti.items() if v <= now]:
+            del _revoked_access_jti[k]
+        # Bila masih penuh (denylist penuh token yang belum
+        # kedaluwarsa), buang yang paling cepat kedaluwarsa.
+        while len(_revoked_access_jti) > _MAX_REVOKED_JTI:
+            oldest = min(_revoked_access_jti, key=lambda k: _revoked_access_jti[k])
+            del _revoked_access_jti[oldest]
+
+
+def is_access_jti_revoked(jti: str | None) -> bool:
+    """Benar bila jti ada di denylist dan belum kedaluwarsa."""
+    if not jti:
+        return False
+    until = _revoked_access_jti.get(jti)
+    if until is None:
+        return False
+    if time.time() > until:
+        del _revoked_access_jti[jti]
+        return False
+    return True
+
+
+def revoke_access_token(token: str, settings: Settings) -> bool:
+    """Cabut access token yang dipresentasikan (logout / ganti
+    password sendiri). Return True bila token valid dan jti-nya masuk
+    denylist; False bila token tidak valid / bukan access token."""
+    try:
+        payload = decode_token(token, settings)
+    except ValueError:
+        return False
+    if payload.get("type") != "access":
+        return False
+    exp = payload.get("exp")
+    exp_dt: datetime | None = None
+    if isinstance(exp, (int, float)):
+        exp_dt = datetime.fromtimestamp(exp, tz=timezone.utc)
+    elif isinstance(exp, datetime):
+        exp_dt = exp
+    revoke_access_jti(payload.get("jti"), exp_dt)
+    return True
+
+
+def reset_revoked_access_jti() -> None:
+    """Kosongkan denylist (dipakai test agar antar-test terisolasi)."""
+    _revoked_access_jti.clear()
 
 
 def create_refresh_token(user_id: int, settings: Settings) -> tuple[str, str]:

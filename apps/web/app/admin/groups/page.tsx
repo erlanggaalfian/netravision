@@ -69,7 +69,7 @@ export default function AdminGroupsPage() {
        admin biasa memakainya hanya untuk menurunkan grup mana saja
        yang berisi kamera yang terlihat (visibleGroups di bawah),
        bukan untuk menampilkan kamera. */
-    api.get<Stream[]>("/admin/streams").then((d) => setStreams(d ?? [])).catch(() => {});
+    api.get<Stream[]>("/admin/streams?limit=500").then((d) => setStreams(d ?? [])).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

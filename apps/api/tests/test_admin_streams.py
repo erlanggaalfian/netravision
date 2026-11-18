@@ -367,15 +367,17 @@ async def test_sharing_cakupan_admin_grup(app_client):
 
     auth_as(app, admin_a)
     async with _client(app) as c:
+        # Berbagi ke luar cakupan ditolak 403 (bukan 400): sejak
+        # perbaikan 2026-11-18, penolakan cakupan grup memakai 403.
         # Ke diri sendiri ditolak.
         r = await c.post("/api/admin/streams/1/sharing", json={"user_ids": [admin_a.id]})
-        assert r.status_code == 400, r.text
+        assert r.status_code == 403, r.text
         # Ke user grup lain ditolak.
         r = await c.post("/api/admin/streams/1/sharing", json={"user_ids": [user_bdg.id]})
-        assert r.status_code == 400, r.text
+        assert r.status_code == 403, r.text
         # Ke admin lain (satu grup sekalipun) ditolak: admin dikelola superadmin.
         r = await c.post("/api/admin/streams/1/sharing", json={"user_ids": [admin_b.id]})
-        assert r.status_code == 400, r.text
+        assert r.status_code == 403, r.text
         # Ke user grup sendiri boleh.
         r = await c.post("/api/admin/streams/1/sharing", json={"user_ids": [user_jkt.id]})
         assert r.status_code == 200, r.text

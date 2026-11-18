@@ -10,6 +10,7 @@ terisi password yang sama, ditulis ulang dengan isi yang sama.
 
 import asyncio
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -37,6 +38,11 @@ async def _run(deploy_dir: Path) -> None:
     output_path.write_text(
         render_mediamtx_yml(template_text, password), encoding="utf-8"
     )
+    # 0030: mediamtx.yml berisi password control API MediaMTX dalam
+    # bentuk plaintext, sebelumnya ditulis dengan mode default (644,
+    # bisa dibaca semua user di server). Samakan dengan .env
+    # (install.sh: chmod 600).
+    os.chmod(output_path, 0o600)
     log.info("mediamtx.yml ditulis dari template (password dari database)")
 
 

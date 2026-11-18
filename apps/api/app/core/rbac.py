@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.security import ACCESS_COOKIE, decode_token
+from app.core.security import ACCESS_COOKIE, decode_token, is_access_jti_revoked
 from app.db.session import get_db
 from app.models.access import StreamAdminGrant, StreamPermission, UserStreamAccess
 from app.models.streams import Stream
@@ -44,9 +44,16 @@ async def _user_from_token(raw: str, db: AsyncSession) -> User:
     try:
         payload = decode_token(raw, get_settings())
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e)) from e
+        # Pesan generik: detail decode (mis. dari library JWT) tidak
+        # boleh bocor ke klien.
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token tidak valid") from e
     if payload.get("type") != "access":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token salah tipe")
+    # 2026-11-18: tolak access token yang jti-nya sudah dicabut
+    # (logout / ganti password / nonaktifkan). Token lama tanpa jti
+    # tetap diterima (tidak bisa dicabut individual).
+    if is_access_jti_revoked(payload.get("jti")):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token dicabut")
 
     # Guest: pakai baris user 'guest' dari DB bila ada (migrasi 0011),
     # agar show_ads-nya bisa diatur superadmin di menu Pengguna.
@@ -214,7 +221,7 @@ def require_camera_playback_access() -> Callable:
 
     Paritas v2.0 (boleh_playback): izin membuka rekaman dipisah dari izin
     menonton live. Catatan: app/routers/recordings.py belum memakai ini
-    (di luar cakupan file ini) — lihat app/models/_rbac_patch_notes.md.
+    (di luar cakupan file ini), lihat app/models/_rbac_patch_notes.md.
     """
 
     async def checker(

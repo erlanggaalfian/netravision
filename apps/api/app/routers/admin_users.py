@@ -1,6 +1,6 @@
 """Router admin: pengguna & hak akses (MIGRATION-MAP §4)."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.rate_limit import rate_limited
 from app.core.rbac import can_manage_user, is_super_admin, require_roles, require_reshare
 from app.core.security import hash_password, validate_password
-from app.routers.auth import revoke_refresh_sessions
+from app.routers.auth import _revoke_presented_access, revoke_refresh_sessions
 from app.db.session import get_db
 from app.models.access import StreamAdminGrant, UserStreamAccess
 from app.models.streams import Stream
@@ -180,6 +180,31 @@ async def _admin_reshare_scope(me: User, db: AsyncSession) -> set[int]:
     return set(rows.scalars().all())
 
 
+def _check_manage_scope(me: User, target: User) -> None:
+    """Syarat TAMBAHAN untuk PUT/DELETE user (2026-11-18, code review).
+
+    `can_manage_user()` saja (parent-based) tidak cukup: admin A yang
+    membuat user U tetap bisa PUT/DELETE U setelah super_admin
+    memindahkan U ke grup lain, termasuk ganti password U (= ambil
+    alih akun grup lain) dan memindahkan U kembali ke grup A lewat
+    PUT admin_group. Syarat ini menuntut grup target SAMA dengan grup
+    actor (untuk admin biasa; super_admin bebas, mengelola diri
+    sendiri selalu boleh). can_manage_user() sendiri TIDAK diubah
+    (dikunci test paritas RBAC); ini lapisan kedua di endpoint.
+    """
+    if is_super_admin(me):
+        return
+    if target.id == me.id:
+        return
+    if (getattr(me, "role", "") or "") != "admin":
+        raise HTTPException(403, "tidak boleh mengelola akun ini")
+    if (me.admin_group or "").strip() != (target.admin_group or "").strip():
+        raise HTTPException(
+            status_code=403,
+            detail="tidak boleh mengelola akun di luar grup Anda",
+        )
+
+
 def _admin_may_see_user(me: User, target: User) -> bool:
     """Satu aturan visibilitas admin atas akun lain (S-7), dipakai
     list_users dan akses kamera secara identik.
@@ -189,8 +214,8 @@ def _admin_may_see_user(me: User, target: User) -> bool:
     tetap terlihat, karena pengelolaannya memang cakupan grup).
     Sesama admin/super_admin tidak terlihat/dikelola admin biasa,
     dan user grup lain tidak terlihat walau parent-nya siapa pun.
-    Mutasi akun itu sendiri (PUT/DELETE user) tetap memakai
-    can_manage_user (parent-based, dikunci test paritas RBAC).
+    Mutasi akun itu sendiri (PUT/DELETE user) memakai can_manage_user
+    DITAMBAH _check_manage_scope (grup harus sama), lihat di atas.
     """
     if is_super_admin(me):
         return True
@@ -317,6 +342,7 @@ async def create_user(
 async def update_user(
     user_id: int,
     data: UserUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     me: User = Depends(admin_only),
 ):
@@ -332,6 +358,8 @@ async def update_user(
         raise HTTPException(400, "role guest tidak bisa diberikan manual")
     if not can_manage_user(me, user):
         raise HTTPException(403, "tidak boleh mengelola akun ini")
+    # 2026-11-18: parent saja tidak cukup (lihat _check_manage_scope).
+    _check_manage_scope(me, user)
     if data.username is not None and data.username != user.username:
         dupe = await db.execute(
             select(User.id).where(
@@ -354,6 +382,14 @@ async def update_user(
         # (oleh diri sendiri maupun admin): sesi curian tidak boleh
         # hidup selamanya walau password sudah diganti.
         revoke_refresh_sessions(user)
+        # 2026-11-18: ganti password SENDIRI juga mencabut access
+        # token yang sedang dipakai (jti masuk denylist). Ganti
+        # password akun ORANG LAIN tidak bisa mencabut access token
+        # orang itu (jti-nya tidak diketahui tanpa denylist di DB);
+        # mitigasinya: token itu mati saat akun dinonaktifkan, dan
+        # paling lama hidup 15 menit (guest 60 menit).
+        if me.id == user.id:
+            _revoke_presented_access(request)
     if data.role is not None:
         if data.role not in VALID_ROLES:
             raise HTTPException(400, "role tidak valid")
@@ -400,11 +436,22 @@ async def update_user(
         user.show_ads = data.show_ads
     if "admin_group" in data.model_fields_set:
         # Superadmin berdiri sendiri: tidak bisa dimasukkan ke grup.
+        old_group = user.admin_group
         user.admin_group = (
             None
             if user.role == "super_admin"
             else _tentukan_grup(me, data.admin_group)
         )
+        # 2026-11-18: super_admin memindahkan grup = memutus ikatan
+        # parent. Tanpa ini, admin pembuat lama tetap bisa mengelola
+        # akun itu lewat can_manage_user (parent-based) walau sudah
+        # pindah grup, celah yang ditutup _check_manage_scope di atas.
+        if (
+            is_super_admin(me)
+            and user.admin_group != old_group
+            and user.parent_admin_id is not None
+        ):
+            user.parent_admin_id = None
     # Invarian peran, berlaku walau admin_group tidak ikut dikirim:
     # super_admin selalu tanpa grup; admin baru (lewat ganti peran)
     # selalu punya grup, sama seperti saat dibuat di POST /admin/users.
@@ -442,6 +489,8 @@ async def delete_user(
         raise HTTPException(400, "tidak bisa menghapus super_admin terakhir")
     if not can_manage_user(me, user):
         raise HTTPException(403, "tidak boleh menghapus akun ini")
+    # 2026-11-18: parent saja tidak cukup (lihat _check_manage_scope).
+    _check_manage_scope(me, user)
     await db.delete(user)
     await db.commit()
     return {"ok": True}

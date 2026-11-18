@@ -17,9 +17,24 @@
 # Service aplikasi v2.0 (bila berupa unit systemd) bisa dioverride:
 # V2_APP_SERVICE=... ./deploy/rollback.sh
 #
+# Opsi:
+#   --force   lanjutkan ke langkah 2 (matikan stack v3.0) walau tidak ada
+#             backup vhost ditemukan. TANPA flag ini, skrip BERHENTI bila
+#             tidak ada backup vhost, sebelumnya hanya warn lalu tetap
+#             mematikan v3, sehingga server bisa berakhir: v3 mati,
+#             v2 tidak naik, vhost tidak berubah.
+#
 # Contoh: sudo ./deploy/rollback.sh   (dari root repo)
 
 set -euo pipefail
+
+FORCE=""
+for arg in "$@"; do
+    case "$arg" in
+        --force) FORCE="1" ;;
+        *) echo -e "\033[1;31m[ FAIL ]\033[0m Opsi tidak dikenal: $arg (pakai --force)." >&2; exit 1 ;;
+    esac
+done
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEPLOY_DIR="$REPO_ROOT/deploy"
@@ -71,7 +86,14 @@ if [ -n "$VHOST_BAK" ]; then
     systemctl reload apache2 || fail "Gagal reload apache2."
     ok "Vhost v2.0 ($V2_VHOST_NAME) aktif kembali."
 else
-    warn "Tidak ada backup vhost ditemukan ($VHOST_LIVE.bak-* / .bak.v2) - vhost TIDAK diubah. Periksa manual bila perlu."
+    # Fail-open DITUTUP (D2): tanpa backup vhost, mematikan stack v3 di
+    # langkah 2 akan membuat server tidak melayani apa-apa. Berhenti di
+    # sini, kecuali operator sadar dan memakai --force.
+    if [ -n "$FORCE" ]; then
+        warn "Tidak ada backup vhost ditemukan ($VHOST_LIVE.bak-* / .bak.v2) - lanjut karena --force. Vhost TIDAK diubah; periksa manual bila perlu."
+    else
+        fail "Tidak ada backup vhost ditemukan ($VHOST_LIVE.bak-* / .bak.v2). Rollback DIBATALKAN sebelum mematikan stack v3.0 (vhost tidak diubah, v3 tetap jalan). Bila memang ingin lanjut tanpa restore vhost, jalankan dengan --force."
+    fi
 fi
 
 # ------------------------------------------------- 2. matikan stack v3.0

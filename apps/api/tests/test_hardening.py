@@ -64,7 +64,11 @@ async def test_admin_mutation_writes_audit_log(app_client):
     app, _, db = app_client
     # Arahkan middleware audit ke DB test (bukan postgres produksi).
     app.state.audit_session_factory = _audit_factory_for(db)
-    admin = make_user()
+    # Admin id=100 (bukan default 1): user baru yang dibuat POST ini
+    # mendapat id auto 1, dan CHECK 0030 (parent_admin_id <> id)
+    # menolak bila parent_admin_id == id user baru. Admin yang tidak
+    # tersimpan di DB dengan id 1 akan bertabrakan dengan id itu.
+    admin = make_user(id=100)
     auth_as(app, admin)
     async with _client(app) as c:
         r = await c.post(
@@ -118,7 +122,7 @@ async def test_metrics_admin_only(app_client):
 
 
 async def test_scan_rate_limited(app_client):
-    """Scan dibatasi 10/menit — request ke-11 harus 429."""
+    """Scan dibatasi 10/menit, request ke-11 harus 429."""
     app, _, db = app_client
     # A-1.4: /admin/scan hanya super_admin; test ini menguji rate limit,
     # jadi pakai super_admin (bukan admin biasa yang akan 403).
@@ -173,7 +177,7 @@ async def test_audit_logs_real_actor(app_client):
     db.add(admin)
     await db.commit()
     tok = create_access_token(admin.id, admin.username, admin.role, get_settings())
-    # Tanpa auth_as — auth route memakai JWT asli end-to-end.
+    # Tanpa auth_as, auth route memakai JWT asli end-to-end.
     async with _client(app) as c:
         r = await c.post(
             "/api/admin/users",

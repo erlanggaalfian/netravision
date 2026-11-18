@@ -1,5 +1,7 @@
 """Fixture bersama test Fase 1: DB sqlite file + override dependency."""
 
+import os
+
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -79,8 +81,33 @@ async def db_session(tmp_path):
     await engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def _test_drive_token_key(monkeypatch):
+    """Kunci Fernet test-only untuk enkripsi token Drive di DB.
+
+    POST /admin/drive-remotes mengenkripsi token DULU dan menolak 400
+    bila DRIVE_TOKEN_KEY tidak ada (1.21). Tanpa kunci ini, test yang
+    membuat remote (test_rclone_remotes) gagal 400 padahal yang diuji
+    bukan enkripsinya. Kunci digenerate acak per test, hanya hidup di
+    proses pytest, dan tidak pernah dipakai produksi. Test yang sengaja
+    menguji ketiadaan kunci (1.21, test_drive_accounts, test_system_
+    settings) menimpa env ini dengan "" + cache_clear sendiri.
+    """
+    from cryptography.fernet import Fernet
+
+    from app.core.config import get_settings
+
+    if not os.environ.get("DRIVE_TOKEN_KEY"):
+        monkeypatch.setenv(
+            "DRIVE_TOKEN_KEY", Fernet.generate_key().decode()
+        )
+        get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
 @pytest_asyncio.fixture
-async def app_client(db_session):
+async def app_client(db_session, _test_drive_token_key):
     """(app, fake_mediamtx, db_session). Auth di-override per test."""
     app = create_app()
     fake_mtmx = FakeMediaMTX()

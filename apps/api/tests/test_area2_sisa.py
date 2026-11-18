@@ -382,8 +382,8 @@ def test_0029_revisi_dan_down_revision():
     assert mod.down_revision == "0028"
 
 
-def test_alembic_satu_head_0029():
-    """Rantai migrasi tetap satu head, kini 0029."""
+def test_alembic_satu_head_0030():
+    """Rantai migrasi tetap satu head, kini 0030."""
     r = subprocess.run(
         [sys.executable, "-m", "alembic", "heads"],
         cwd=API_DIR, capture_output=True, text=True, timeout=120,
@@ -392,7 +392,7 @@ def test_alembic_satu_head_0029():
     heads = [
         line.split()[0] for line in r.stdout.strip().splitlines() if line.strip()
     ]
-    assert heads == ["0029"], r.stdout
+    assert heads == ["0030"], r.stdout
 
 
 # ---------- Migrasi 0029 di PostgreSQL asli (gated) ----------

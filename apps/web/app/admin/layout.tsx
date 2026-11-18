@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
-import type { ReactNode } from "react";
 import { AdminGuard } from "../../components/AdminGuard";
 import { AppShell } from "../../components/AppShell";
+import { PRIMARY_GRADIENT } from "../../components/ui";
 import { useAuth } from "../../lib/auth";
 
 interface NavItem {
@@ -24,18 +24,6 @@ const NAV: NavItem[] = [
   { href: "/admin/keys", label: "API Key", icon: "M10 13.5a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM10 2.5v3M10 14.5v3M2.5 10h3M14.5 10h3", superAdminOnly: true },
   { href: "/admin/storage", label: "Penyimpanan", icon: "M4 7l8-4 8 4-8 4-8-4zM4 7v10l8 4 8-4V7M12 11v8", superAdminOnly: true },
 ];
-
-/* Pola persis Nexfiber Lainnya: grup + list divide-y, panel modern. */
-function Group({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="mb-4">
-      <h2 className="mb-1.5 px-1 text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">{title}</h2>
-      <ul className="nv-panel-modern divide-y divide-slate-200/10 overflow-hidden !p-0">{children}</ul>
-    </section>
-  );
-}
-
-const row = "flex min-h-[48px] items-center gap-3 px-4 text-[15px]";
 
 export default function AdminLayout({
   children,
@@ -68,9 +56,10 @@ export default function AdminLayout({
     <AdminGuard>
       <AppShell>
         <div className="mx-auto w-full max-w-6xl px-4 py-5 sm:py-8">
-          {/* Desktop dan tablet: tab horizontal, tampil mulai sm
-              supaya navigasi admin tetap ada di lebar 640-767px. */}
-          <nav aria-label="Navigasi admin" className="mb-5 hidden sm:mb-7 sm:block">
+          {/* Tab horizontal di SEMUA lebar (termasuk HP): bisa di-scroll
+              horizontal (nv-scroll-x) supaya pengguna HP di subhalaman
+              tetap bisa pindah bagian tanpa tombol back browser. */}
+          <nav aria-label="Navigasi admin" className="mb-5 sm:mb-7">
             <div className="nv-scroll-x -mx-4 flex gap-2 overflow-x-auto px-4 py-2">
               {visibleNav.map((n) => {
                 const cleanPath = (pathname ?? "").replace(/\/+$/, "") || "/";
@@ -82,7 +71,7 @@ export default function AdminLayout({
                     aria-current={active ? "page" : undefined}
                     className={`flex min-h-[44px] shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap rounded-full px-4 text-sm transition-all duration-150 active:scale-[0.97] ${
                       active
-                        ? "bg-gradient-to-r from-accent-600 to-accent-500 font-semibold text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
+                        ? PRIMARY_GRADIENT + " font-semibold"
                         : "bg-ink-800/60 font-medium text-slate-300 shadow-[0_1px_3px_rgba(0,0,0,0.2)] hover:bg-ink-800 hover:text-slate-200"
                     }`}
                   >
@@ -96,38 +85,7 @@ export default function AdminLayout({
             </div>
           </nav>
 
-          {/* Mobile: menu hanya di /admin, subhalaman langsung konten */}
-          {(() => {
-            const cleanPath = (pathname ?? "").replace(/\/+$/, "") || "/";
-            const isAdminIndex = cleanPath === "/admin";
-            return (
-              <>
-                {isAdminIndex && (
-                  <nav aria-label="Navigasi admin" className="mb-5 sm:hidden">
-                    <Group title="Admin">
-                      {visibleNav.map((n) => (
-                        <li key={n.href}>
-                          <Link href={n.href} className={`${row} text-slate-200 transition-colors hover:bg-ink-800/50 active:bg-ink-800/60`}>
-                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden className="shrink-0 text-slate-300">
-                              <path d={n.icon} stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                            <span className="flex-1">{n.label}</span>
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden className="shrink-0 text-slate-500">
-                              <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          </Link>
-                        </li>
-                      ))}
-                    </Group>
-                  </nav>
-                )}
-                {/* Desktop tetap tampil menu tab; mobile subhalaman: sembunyikan children di /admin */}
-                <div className={isAdminIndex ? "hidden md:block" : ""}>
-                  {children}
-                </div>
-              </>
-            );
-          })()}
+          {children}
         </div>
       </AppShell>
     </AdminGuard>

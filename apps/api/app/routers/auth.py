@@ -27,6 +27,7 @@ from app.core.security import (
     decode_token,
     hash_password,
     hash_token,
+    revoke_access_token,
     verify_password,
 )
 from app.db.session import get_db
@@ -42,7 +43,7 @@ log = logging.getLogger("netravision.auth")
 # dari nilai acak, jadi tidak pernah cocok dengan password nyata.
 _DUMMY_HASH = hash_password(secrets.token_hex(32))
 
-# Kunci login per (username, IP) — 4.9: kunci per username saja bisa
+# Kunci login per (username, IP), 4.9: kunci per username saja bisa
 # dipakai untuk DoS akun (penyerang yang tahu username super_admin
 # menguncinya berulang dari IP-nya sendiri). Dengan kunci gabungan,
 # kegagalan dari satu IP hanya mengunci kombinasi username+IP itu;
@@ -87,7 +88,15 @@ def reset_login_attempts() -> None:
 # pada navigasi top-level dan request same-site, tapi tidak pada request
 # cross-site biasa. Frontend adalah static export satu origin dengan API
 # (proxy /api/* yang sama), jadi cookie first-party ini selalu terkirim.
+# 2026-11-18: di prod Secure SELALU True. Sebelumnya Secure bergantung
+# pada request.url.scheme tanpa ProxyHeadersMiddleware, dan Apache
+# mem-proxy HTTP ke Uvicorn, scheme yang dilihat API adalah http,
+# sehingga cookie kemungkinan diterbitkan Secure=False di produksi.
+# Dengan ProxyHeadersMiddleware di main.py, X-Forwarded-Proto dari
+# Apache sudah dipercaya; penjaga prod di sini adalah lapis kedua.
 def _cookie_secure(request: Request) -> bool:
+    if get_settings().app_env == "prod":
+        return True
     return request.url.scheme == "https"
 
 
@@ -166,7 +175,7 @@ def _grace_clear(user_id: int) -> None:
 
 # 4.2: token yang SUDAH dirotasi keluar (hash -> batas ingat monotonic).
 # Dipakai deteksi pemakaian ulang: token yang dipresentasikan lagi
-# SETELAH grace window habis bukan retry, melainkan reuse — kemungkinan
+# SETELAH grace window habis bukan retry, melainkan reuse, kemungkinan
 # token curian yang dipakai penyerang setelah korban sempat me-rotasi.
 # Disimpan in-memory per proses (cukup untuk deployment single-replica);
 # restart proses menghapus ingatan ini, tapi hash aktif di DB tetap
@@ -230,6 +239,43 @@ async def _get_active_user(db: AsyncSession, username: str) -> User | None:
     return result.scalars().first()
 
 
+def _revoke_presented_access(request: Request) -> None:
+    """Cabut access token yang dipresentasikan request ini (logout /
+    ganti password sendiri). Token dibaca dari cookie HttpOnly dulu,
+    lalu header Authorization. Kegagalan decode diabaikan (token
+    sudah tidak valid = tidak perlu dicabut)."""
+    raw = request.cookies.get(ACCESS_COOKIE)
+    if not raw:
+        auth = request.headers.get("authorization", "")
+        if auth.lower().startswith("bearer "):
+            raw = auth[7:].strip() or None
+    if raw:
+        revoke_access_token(raw, get_settings())
+
+
+# 2026-11-18: mode cookie-only opt-in. Klien browser yang mengirim
+# header `X-Cookie-Only-Auth: 1` TIDAK menerima token di body respons
+# (hanya cookie HttpOnly yang diset), menutup celah token di body
+# yang bisa dicuri lewat XSS. Klien API tetap menerima token di body
+# secara default, karena banyak klien/test mengandalkannya; default
+# BELUM dibalik ke cookie-only (butuh perubahan frontend + klien API
+# lebih dulu). Bila header ini dikirim, access_token di body berupa
+# string kosong dan refresh_token None.
+_COOKIE_ONLY_HEADER = "x-cookie-only-auth"
+
+
+def _token_out_for_request(request: Request, pair: TokenOut) -> TokenOut:
+    if request.headers.get(_COOKIE_ONLY_HEADER, "").strip().lower() in (
+        "1", "true", "yes",
+    ):
+        return TokenOut(
+            access_token="",
+            refresh_token=None,
+            expires_in=pair.expires_in,
+        )
+    return pair
+
+
 def _token_pair(user: User) -> TokenOut:
     settings = get_settings()
     access = create_access_token(user.id, user.username, user.role, settings)
@@ -283,9 +329,11 @@ async def login(
     await db.commit()
     # T-2: token juga diterbitkan sebagai cookie HttpOnly; body TokenOut
     # dipertahankan supaya klien API (non-browser) tetap bisa memakai
-    # header Authorization seperti sebelumnya.
+    # header Authorization seperti sebelumnya. Klien browser yang
+    # mengirim X-Cookie-Only-Auth: 1 tidak menerima token di body
+    # (lihat _token_out_for_request).
     _set_auth_cookies(response, request, pair.access_token, pair.refresh_token, pair.expires_in)
-    return pair
+    return _token_out_for_request(request, pair)
 
 
 @router.post(
@@ -323,7 +371,8 @@ async def refresh(
     try:
         payload = decode_token(raw_token, settings)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e)) from e
+        # Pesan generik: detail decode tidak boleh bocor ke klien.
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="refresh ditolak") from e
     if payload.get("type") != "refresh":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token salah tipe")
 
@@ -390,15 +439,20 @@ async def refresh(
     _rotated_remember(user.id, old_hash)
     await db.commit()
     _set_auth_cookies(response, request, pair.access_token, pair.refresh_token, pair.expires_in)
-    return pair
+    return _token_out_for_request(request, pair)
 
 
-@router.post("/auth/logout")
+@router.post("/auth/logout", dependencies=[Depends(rate_limited(20, 60))])
 async def logout(
+    request: Request,
     response: Response,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    # 2026-11-18: cabut JUGA access token yang dipresentasikan (jti
+    # masuk denylist), bukan hanya refresh token. Sebelumnya access
+    # token tetap sah sampai kedaluwarsa setelah logout.
+    _revoke_presented_access(request)
     if user.id:  # guest ephemeral tidak punya baris DB
         result = await db.execute(select(User).where(User.id == user.id))
         db_user = result.scalars().first()
@@ -410,7 +464,7 @@ async def logout(
     return {"ok": True}
 
 
-@router.get("/auth/guest-enabled")
+@router.get("/auth/guest-enabled", dependencies=[Depends(rate_limited(30, 60))])
 async def guest_enabled(db: AsyncSession = Depends(get_db)) -> dict:
     """Apakah login guest sedang aktif (dipakai halaman login untuk
     menampilkan atau menyembunyikan tombol Guest)."""
@@ -441,7 +495,7 @@ async def guest(
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> TokenOut:
-    """Login tamu untuk semua pengunjung — tanpa password, tanpa
+    """Login tamu untuk semua pengunjung, tanpa password, tanpa
     autentikasi apapun (2026-11-06). Nonaktif bila baris guest di DB
     is_active False (diatur superadmin lewat web); bila baris belum
     ada, nonaktif bila GUEST_ENABLED false."""
@@ -455,10 +509,10 @@ async def guest(
     # T-2: access token tamu sebagai cookie HttpOnly; refresh tidak ada,
     # jadi cookie refresh basi ikut dihapus oleh _set_auth_cookies.
     _set_auth_cookies(response, request, access, None, 3600)
-    return out
+    return _token_out_for_request(request, out)
 
 
-@router.get("/auth/me")
+@router.get("/auth/me", dependencies=[Depends(rate_limited(60, 60))])
 async def me(user: User = Depends(get_current_user)) -> dict:
     """Profil user dari token saat ini (dipakai web saat boot)."""
     return {

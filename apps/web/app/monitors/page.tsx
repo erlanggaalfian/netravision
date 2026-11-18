@@ -14,6 +14,7 @@ import {
   Pagination,
   SectionTitle,
   Spinner,
+  PRIMARY_GRADIENT,
 } from "../../components/ui";
 import { api, ApiError, usePosterUrl } from "../../lib/api";
 import { isAdminRole, useAuth } from "../../lib/auth";
@@ -293,7 +294,7 @@ export default function MonitorsPage() {
     setFetching(true);
     setError(null);
     try {
-      const data = await api.get<Stream[]>("/streams");
+      const data = await api.get<Stream[]>("/streams?limit=500");
       setStreams(data);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Gagal memuat kamera");
@@ -957,7 +958,7 @@ export default function MonitorsPage() {
                 title={`${c} kolom`}
                 className={`flex h-11 min-w-[52px] items-center justify-center rounded-full text-sm font-semibold transition active:scale-95 ${
                   formCols === c
-                    ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
+                    ? PRIMARY_GRADIENT
                     : "bg-ink-800 text-neutral-300 shadow-sm hover:bg-ink-700"
                 }`}
               >

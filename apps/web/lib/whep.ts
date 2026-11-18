@@ -25,7 +25,13 @@ export async function playWhep(
   signal?: AbortSignal,
   onDisconnect?: () => void,
 ): Promise<RTCPeerConnection> {
-  const pc = new RTCPeerConnection();
+  /* P0 code-review 2026-11-18: STUN publik supaya WHEP tidak gagal di
+     NAT simetris / CGNAT (sebelumnya tanpa iceServers, kandidat
+     host-only sering gagal dan semua pengguna itu jatuh ke HLS ~10 dtk).
+     TURN belum tersedia; bila nanti ada server TURN, tambahkan di sini. */
+  const pc = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  });
   const abort = () => pc.close();
   signal?.addEventListener("abort", abort, { once: true });
   pc.addTransceiver("video", { direction: "recvonly" });
@@ -94,6 +100,11 @@ export async function playWhep(
     const onAbort = () => {
       clearTimeout(timer);
       pc.removeEventListener("connectionstatechange", onStateChange);
+      /* P0 code-review 2026-11-18: tutup koneksi seperti jalur timeout
+         di atas; sebelumnya abort saat connecting meninggalkan koneksi
+         ICE/DTLS zombie (tile keluar viewport / modal ditutup saat
+         negotiating). */
+      pc.close();
       reject(new WhepError("dibatalkan"));
     };
     const onStateChange = () => {

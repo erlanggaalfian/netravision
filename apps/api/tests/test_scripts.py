@@ -1,10 +1,9 @@
 """Test ringan untuk skrip cutover Fase 5 (scripts/ + deploy/seed_admin.py)."""
-# ruff: noqa: E501 — data fixture /proc/net/tcp memang berbaris panjang
+# ruff: noqa: E501, data fixture /proc/net/tcp memang berbaris panjang
 
 import sys
 from pathlib import Path
 
-import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[3] / "scripts"
@@ -58,9 +57,17 @@ def test_smoke_parse_args():
     assert args.password == "p"
 
 
-def test_smoke_parse_args_missing_password():
-    with pytest.raises(SystemExit):
-        smoke_test.parse_args(["--username", "admin"])
+def test_smoke_parse_args_missing_password(monkeypatch):
+    """Kredensial tidak lagi wajib di parse_args (2026-11-18): mode
+    --health-only / --check-mediamtx jalan tanpa kredensial, jadi
+    --password opsional saat parsing. Mode penuh tanpa kredensial
+    tetap gagal, di main(), dengan exit code 2 (bukan SystemExit
+    dari argparse)."""
+    args = smoke_test.parse_args(["--username", "admin"])
+    assert args.username == "admin"
+    assert args.password is None
+    monkeypatch.setattr(sys, "argv", ["smoke_test.py", "--username", "admin"])
+    assert smoke_test.main() == 2
 
 
 # --- seed_admin: idempoten ---

@@ -245,6 +245,37 @@ def _disk_usage_pct(path: str) -> float | None:
     return usage.used / usage.total * 100
 
 
+def _listdir_names(path: str) -> list[str]:
+    """os.listdir(path), [] bila direktori tak terbaca.
+
+    Helper sinkron untuk asyncio.to_thread (P1: pemindaian direktori
+    tidak boleh memblokir event loop); OSError ditelan seperti
+    perilaku lama pemanggil.
+    """
+    try:
+        return os.listdir(path)
+    except OSError:
+        return []
+
+
+async def _disk_usage_pct_async(path: str) -> float | None:
+    """_disk_usage_pct di thread (shutil.disk_usage memblokir, P1)."""
+    return await asyncio.to_thread(_disk_usage_pct, path)
+
+
+def _is_safe_rclone_delete_name(name: str) -> bool:
+    """True bila nama file dari lsjson aman ditulis ke --files-from.
+
+    Nama harus relatif (bukan absolut), tidak diawali '-' (supaya
+    tidak ditafsir sebagai flag rclone), dan tidak mengandung
+    komponen '..' atau komponen kosong (mis. 'a//b'). Nama yang
+    tidak lolos TIDAK dihapus (dilewati + dicatat di log).
+    """
+    if not name or name.startswith(("-", "/")):
+        return False
+    return all(p not in ("", "..") for p in name.split("/"))
+
+
 async def cleanup_full_disks(
     db: AsyncSession,
     recordings_dir: str | Path,
@@ -271,7 +302,7 @@ async def cleanup_full_disks(
     deleted_total = 0
     for disk, disk_streams in by_disk.items():
         probe = disk if disk else os.fspath(recordings_dir)
-        pct = _disk_usage_pct(probe)
+        pct = await _disk_usage_pct_async(probe)
         if pct is None:
             continue
         if pct < threshold_pct:
@@ -288,12 +319,12 @@ async def cleanup_full_disks(
             rec_dirs = camera_rec_dirs(stream, recordings_dir)
             local_names: list[str] = []
             for rec_dir in rec_dirs:
-                try:
-                    local_names.extend(
-                        n for n in os.listdir(rec_dir) if SEGMENT_RE.match(n)
-                    )
-                except OSError:
-                    continue
+                # P1: listdir di thread.
+                local_names.extend(
+                    n
+                    for n in await asyncio.to_thread(_listdir_names, rec_dir)
+                    if SEGMENT_RE.match(n)
+                )
             uploaded: set[str] | None = None
             if stream.storage_mode in ("drive", "both") and local_names:
                 # 2.3: cek jejak HANYA untuk segmen lokal yang ada
@@ -307,10 +338,7 @@ async def cleanup_full_disks(
                 )
                 uploaded = {r[0] for r in res.all()}
             for rec_dir in rec_dirs:
-                try:
-                    names = os.listdir(rec_dir)
-                except OSError:
-                    continue
+                names = await asyncio.to_thread(_listdir_names, rec_dir)
                 for name in names:
                     if not SEGMENT_RE.match(name):
                         continue
@@ -318,7 +346,8 @@ async def cleanup_full_disks(
                         continue
                     path = os.path.join(rec_dir, name)
                     try:
-                        mtime = os.path.getmtime(path)
+                        # P1: stat di thread.
+                        mtime = await asyncio.to_thread(os.path.getmtime, path)
                     except OSError:
                         continue
                     candidates.append((mtime, path))
@@ -327,19 +356,20 @@ async def cleanup_full_disks(
         removed = 0
         for _mtime, path in candidates:
             try:
-                os.remove(path)
+                # P1: hapus file di thread.
+                await asyncio.to_thread(os.remove, path)
             except OSError as e:
                 logger.warning("cleanup: gagal hapus segmen %s: %s", path, e)
                 continue
             removed += 1
             deleted_total += 1
             if removed % 10 == 0:
-                pct = _disk_usage_pct(probe)
+                pct = await _disk_usage_pct_async(probe)
                 if pct is None or pct < target_pct:
                     break
         if removed:
             logger.info("cleanup: %d segmen dihapus dari disk %s", removed, probe)
-        pct = _disk_usage_pct(probe)
+        pct = await _disk_usage_pct_async(probe)
         if pct is not None and pct >= threshold_pct:
             logger.warning(
                 "cleanup: disk %s tetap penuh %.1f%% setelah semua segmen "
@@ -384,10 +414,35 @@ async def _rclone_delete_batch(
     semuanya. Return jumlah yang dihapus (0 bila batch gagal; nama yang
     mengandung newline dilewati karena tidak aman di daftar
     --files-from).
+
+    P1: remote_name dan folder_id divalidasi (validate_remote_name /
+    _validate_rclone_path) sebelum jadi argv; nama file dari lsjson
+    diperiksa _is_safe_rclone_delete_name, nama yang tidak lolos
+    (komponen '..', absolut, diawali '-') TIDAK dihapus, hanya dicatat
+    di log dan dilewati.
     """
     import tempfile
 
-    safe = [n for n in names if n and "\n" not in n and "\r" not in n]
+    from app.services.gdrive_rclone import _validate_rclone_path
+    from app.services.gdrive_rclone import validate_remote_name
+
+    try:
+        remote_name = validate_remote_name(remote_name)
+        folder_id = _validate_rclone_path(folder_id)
+    except ValueError as e:
+        logger.warning("cleanup rclone: batch delete dibatalkan: %s", e)
+        return 0
+    safe: list[str] = []
+    for n in names:
+        if not n or "\n" in n or "\r" in n:
+            continue
+        if not _is_safe_rclone_delete_name(n):
+            logger.warning(
+                "cleanup rclone: nama file tidak aman, dilewati (tidak dihapus): %r",
+                n,
+            )
+            continue
+        safe.append(n)
     if not safe:
         return 0
     fd, list_path = tempfile.mkstemp(prefix="rclone-del-", suffix=".txt")
@@ -462,8 +517,13 @@ async def cleanup_rclone_remote(
     berjalan berjam-jam sambil menahan satu sesi DB). Sisa file
     dihapus putaran berikut.
     """
-    remote_name = (remote_name or "").strip()
-    if not remote_name:
+    from app.services.gdrive_rclone import _validate_rclone_path
+    from app.services.gdrive_rclone import validate_remote_name
+
+    try:
+        remote_name = validate_remote_name(remote_name)
+    except ValueError as e:
+        logger.warning("cleanup rclone: remote tidak valid: %s", e)
         return 0
     pct = await _rclone_usage_pct(remote_name)
     if pct is None:
@@ -495,6 +555,15 @@ async def cleanup_rclone_remote(
     for folder in folders:
         folder_id = (folder.folder_id or "").strip()
         if not folder_id:
+            continue
+        # P1: folder_id dari DB dipakai mentah sebagai path remote;
+        # validasi sebelum jadi argv rclone.
+        try:
+            folder_id = _validate_rclone_path(folder_id)
+        except ValueError as e:
+            logger.warning(
+                "cleanup rclone: folder_id tidak valid, dilewati: %s", e
+            )
             continue
         # Daftar file rekaman (rekursif, subfolder per kamera ikut).
         files: list[tuple[str, str]] = []  # (modtime/nama, path relatif)
@@ -646,6 +715,17 @@ async def cleanup_folder_retention(db: AsyncSession, max_files: int = 200) -> in
             continue
         folder_id = (folder.folder_id or "").strip()
         if not folder_id:
+            continue
+        # P1: folder_id dari DB dipakai mentah sebagai path remote;
+        # validasi sebelum jadi argv rclone.
+        try:
+            from app.services.gdrive_rclone import _validate_rclone_path
+
+            folder_id = _validate_rclone_path(folder_id)
+        except ValueError as e:
+            logger.warning(
+                "retensi folder: folder_id tidak valid, dilewati: %s", e
+            )
             continue
         cutoff = _time.time() - days * 86400
         try:

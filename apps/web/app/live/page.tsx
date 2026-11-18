@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { AppShell } from "../../components/AppShell";
 import { CameraTile } from "../../components/CameraTile";
-import { FocusModal } from "../../components/FocusModal";
-import { Button, GridIcon, Pagination, Spinner } from "../../components/ui";
+import { Button, GridIcon, Pagination, PRIMARY_GRADIENT, Spinner } from "../../components/ui";
 import { Dropdown } from "../../components/Dropdown";
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
@@ -73,6 +73,14 @@ function useIsDesktop() {
   }, []);
   return isDesktop;
 }
+
+/* P1 code-review 2026-11-18: FocusModal (714 baris) hanya dibutuhkan
+   saat pengguna membuka kamera, lazy-load supaya First Load JS /live
+   tidak membawa kode modal. Static export tetap mendukung lazy chunk. */
+const FocusModal = dynamic(
+  () => import("../../components/FocusModal").then((m) => m.FocusModal),
+  { ssr: false },
+);
 
 /* Skeleton mengikuti grid terpilih (kolom + jumlah), bukan selalu 4 kolom. */
 function SkeletonGrid({ cols, count }: { cols: number; count: number }) {
@@ -147,7 +155,7 @@ export default function LivePage() {
     setFetching(true);
     setError(null);
     try {
-      const data = await api.get<Stream[]>("/streams");
+      const data = await api.get<Stream[]>("/streams?limit=500");
       setStreams(data);
     } catch (e) {
       setError(
@@ -185,7 +193,12 @@ export default function LivePage() {
 
   /* F5.3: pertahankan identitas objek stream yang tidak berubah.
      Tanpa ini merged membuat objek baru untuk SEMUA kamera tiap pesan
-     status WS, dan memo CameraTile tidak pernah bisa skip render. */
+     status WS, dan memo CameraTile tidak pernah bisa skip render.
+     P0 code-review 2026-11-18: useMemo MURNI, tidak lagi menulis ref
+     di dalamnya (anti-pattern React: di StrictMode/concurrent rendering
+     useMemo bisa dievaluasi dua kali atau dibuang). Pembaruan
+     prevMergedRef dipindah ke useEffect di bawah, yang jalan sekali
+     per commit setelah merged berubah. */
   const prevMergedRef = useRef(new Map<number, Stream>());
   const merged = useMemo(() => {
     const prev = prevMergedRef.current;
@@ -207,22 +220,27 @@ export default function LivePage() {
       }
       return { ...s, is_online: online };
     });
-    prevMergedRef.current = new Map(next.map((s) => [s.id, s]));
     return next;
   }, [streams, status]);
 
-  /* FocusModal memakai data kamera terbaru, bukan salinan saat diklik:
-     perbarui salinan focus saat merged berubah (status/nama/URL). */
+  useEffect(() => {
+    prevMergedRef.current = new Map(merged.map((s) => [s.id, s]));
+  }, [merged]);
+
+  /* FocusModal memakai data kamera terbaru, bukan salinan saat diklik.
+     P0 code-review 2026-11-18: HANYA perbarui bila yang berubah adalah
+     hal yang memengaruhi pemutaran (id/URL WHEP/is_online). Sebelumnya
+     perubahan nama/poster_url ikut memicu setFocus(fresh) -> objek
+     stream baru -> FocusModal teardown total dan sambung ulang WHEP
+     dari nol, pengguna di modal mengalami freeze/reconnect. */
   useEffect(() => {
     if (!focus) return;
     const fresh = merged.find((s) => s.id === focus.id);
     if (
       fresh &&
       (fresh.is_online !== focus.is_online ||
-        fresh.name !== focus.name ||
         fresh.whep_main_url !== focus.whep_main_url ||
-        fresh.whep_sub_url !== focus.whep_sub_url ||
-        fresh.poster_url !== focus.poster_url)
+        fresh.whep_sub_url !== focus.whep_sub_url)
     ) {
       setFocus(fresh);
     }
@@ -451,7 +469,7 @@ export default function LivePage() {
                       onClick={() => setGridKey(g.key)}
                       className={`flex h-11 min-w-[52px] items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-xs font-bold transition-all duration-200 active:scale-95 max-md:flex-1 ${
                         activeOpt.key === g.key
-                          ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
+                          ? PRIMARY_GRADIENT
                           : "text-neutral-400 hover:bg-ink-700 hover:text-slate-200"
                       }`}
                     >
@@ -517,7 +535,7 @@ export default function LivePage() {
                     onClick={() => setFilter(f.id)}
                     className={`flex h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm font-semibold transition-all duration-200 active:scale-95 sm:px-5 lg:flex-none ${
                       filter === f.id
-                        ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
+                        ? PRIMARY_GRADIENT
                         : "text-neutral-400 hover:bg-ink-700 hover:text-slate-200"
                     }`}
                   >
@@ -597,7 +615,7 @@ export default function LivePage() {
               <p className="mt-1.5 text-sm text-neutral-400">{error}</p>
             </div>
             <Button onClick={load}>
-              Coba lagi
+              Muat ulang
             </Button>
           </div>
         ) : (
@@ -608,7 +626,7 @@ export default function LivePage() {
                   Gagal memuat ulang: {error}. Menampilkan data kamera terakhir.
                 </p>
                 <Button variant="subtle" onClick={load}>
-                  Coba lagi
+                  Muat ulang
                 </Button>
               </div>
             )}

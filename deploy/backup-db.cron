@@ -1,0 +1,21 @@
+# NetraVision v3.0 - backup database harian (cron)
+#
+# CARA PASANG: OTOMATIS oleh deploy/install.sh (langkah 7, idempoten).
+# install.sh menyalin file ini ke /etc/cron.d/netravision-backup dan
+# mengganti /opt/netravision di baris jadwal dengan path repo sebenarnya.
+# Pasang MANUAL hanya bila install.sh tidak dijalankan (server lama):
+#   1. Ganti /opt/netravision di baris jadwal di bawah dengan path repo
+#      di server ini (skrip menentukan lokasinya sendiri dari path itu).
+#   2. Salin file ini ke /etc/cron.d/netravision-backup:
+#        sudo cp deploy/backup-db.cron /etc/cron.d/netravision-backup
+#        sudo chmod 644 /etc/cron.d/netravision-backup
+#   3. Verifikasi: sudo grep -r netravision /var/log/cron* 2>/dev/null | tail
+#
+# JANGAN salin file ini apa adanya tanpa mengganti path repo — cron akan
+# gagal diam-diam (path tidak ditemukan).
+#
+# Jadwal: setiap hari 02:00 WIB. Backup disimpan di /backup dengan
+# retensi 7 hari (diatur deploy/backup-db.sh, RETENTION_DAYS).
+# UJI RESTORE BULANAN tetap wajib (lihat header deploy/backup-db.sh).
+
+0 2 * * * root /bin/bash /opt/netravision/deploy/backup-db.sh >> /var/log/netravision-backup.log 2>&1

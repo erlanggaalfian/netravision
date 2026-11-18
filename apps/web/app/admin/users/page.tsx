@@ -1,11 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { ApiError, api } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import type { Stream, User } from "../../../lib/types";
 import { ErrorBox, Modal, Pagination, Spinner, Switch } from "../../../components/ui";
+import {
+  AdminGrantModal,
+  type GrantFlags,
+} from "../../../components/admin/AdminGrantModal";
 import {
   NBAccordion,
   NBBadge,
@@ -534,18 +538,33 @@ export default function AdminUsersPage() {
     );
   }
 
-  const load = () =>
+  /* P0 code-review 2026-11-18: nomor urut load, supaya respons lama
+     yang datang belakangan tidak menimpa hasil load terbaru. */
+  const loadSeqRef = useRef(0);
+
+  const load = () => {
+    const seq = ++loadSeqRef.current;
     api
       .get<User[]>("/admin/users")
-      .then(setUsers)
+      .then((d) => {
+        if (seq === loadSeqRef.current) setUsers(d);
+      })
       .catch((e) => {
+        if (seq !== loadSeqRef.current) return;
         setError(e instanceof ApiError ? e.message : "Gagal memuat pengguna");
-        setUsers([]);
+        /* JANGAN setUsers([]) saat error: null = gagal memuat (tampil
+           pesan error di atas), [] = benar-benar kosong. */
       });
+  };
 
   useEffect(() => {
+    /* P0 code-review 2026-11-18: guard cancelled supaya setState
+       tidak jalan setelah pengguna pindah halaman sebelum respons tiba. */
+    let cancelled = false;
     load();
-    api.get<Stream[]>("/admin/streams").then((d) => setStreams(d ?? [])).catch(() => {});
+    api.get<Stream[]>("/admin/streams?limit=500").then((d) => {
+      if (!cancelled) setStreams(d ?? []);
+    }).catch(() => {});
     /* Admin biasa: muat grant can_reshare agar modal Akses Kamera
        hanya menampilkan kamera yang diizinkan superadmin untuk
        dibagikan. */
@@ -554,17 +573,21 @@ export default function AdminUsersPage() {
         .get<{ grants: { stream_id: number; can_reshare: boolean }[] }>(
           `/admin/admins/${me.id}/camera-grants`,
         )
-        .then((d) =>
+        .then((d) => {
+          if (cancelled) return;
           setReshareIds(
             new Set(
               (d.grants ?? [])
                 .filter((g) => g.can_reshare)
                 .map((g) => g.stream_id),
             ),
-          ),
-        )
+          );
+        })
         .catch(() => {});
     }
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me?.id]);
 
@@ -602,7 +625,24 @@ export default function AdminUsersPage() {
         </div>
       )}
       {users === null ? (
-        <Spinner />
+        error ? (
+          /* Pesan error sudah tampil di atas halaman; di sini cukup
+             tombol coba lagi, bukan spinner tanpa henti. */
+          <div className="flex flex-col items-center gap-4 px-6 py-16 text-center">
+            <p className="text-sm text-slate-400">
+              Daftar pengguna tidak dapat dimuat.
+            </p>
+            <button
+              type="button"
+              onClick={load}
+              className="min-h-[48px] cursor-pointer rounded-xl bg-gradient-to-b from-accent-500 to-accent-600 px-5 text-sm font-semibold text-onaccent shadow-sm transition-all duration-150 hover:from-accent-400 hover:to-accent-500 active:scale-[0.98]"
+            >
+              Coba lagi
+            </button>
+          </div>
+        ) : (
+          <Spinner />
+        )
       ) : users.length === 0 ? (
         <NBEmptyState icon={<UserIcon className="h-8 w-8 text-slate-500" />} text="Belum ada pengguna." />
       ) : (
@@ -1871,215 +1911,3 @@ function AccessModal({
   return <UserAccessModal user={user} streams={streams} onClose={onClose} />;
 }
 
-type GrantFlags = {
-  can_view: boolean;
-  can_playback: boolean;
-  can_reshare: boolean;
-};
-
-const EMPTY_GRANT: GrantFlags = {
-  can_view: false,
-  can_playback: false,
-  can_reshare: false,
-};
-
-/* ---------- Modal: grant admin per kamera (live/playback/bagikan) ---------- */
-
-function AdminGrantModal({
-  user,
-  streams,
-  onClose,
-}: {
-  user: User;
-  streams: Stream[];
-  onClose: () => void;
-}) {
-  const [grants, setGrants] = useState<Record<number, GrantFlags>>({});
-  const [loaded, setLoaded] = useState(false);
-  const [loadFailed, setLoadFailed] = useState(false);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  /* Muat ulang daftar saat gagal (pola yang sama di semua modal hak
-     akses): tombol "Coba lagi" memicu effect ini lagi. */
-  const [reloadKey, setReloadKey] = useState(0);
-
-  useEffect(() => {
-    setLoaded(false);
-    setLoadFailed(false);
-    setError("");
-    api
-      .get<{
-        grants: {
-          stream_id: number;
-          can_view: boolean;
-          can_playback: boolean;
-          can_reshare: boolean;
-        }[];
-      }>(`/admin/admins/${user.id}/camera-grants`)
-      .then((r) => {
-        const map: Record<number, GrantFlags> = {};
-        for (const g of r.grants ?? []) {
-          map[g.stream_id] = {
-            can_view: g.can_view,
-            can_playback: g.can_playback,
-            can_reshare: g.can_reshare,
-          };
-        }
-        setGrants(map);
-      })
-      .catch((e) => {
-        setLoadFailed(true);
-        setError(e instanceof ApiError ? e.message : "Gagal memuat hak akses");
-      })
-      .finally(() => setLoaded(true));
-  }, [user.id, reloadKey]);
-
-  function setFlag(
-    id: number,
-    key: "can_view" | "can_playback" | "can_reshare",
-    value: boolean,
-  ) {
-    setGrants((prev) => {
-      const cur = prev[id] ?? { ...EMPTY_GRANT };
-      const next = { ...cur, [key]: value };
-      /* E-S3: Playback dan Bagikan butuh Live; mematikan Live ikut
-         mematikan Playback dan Bagikan. */
-      if ((key === "can_playback" || key === "can_reshare") && value) {
-        next.can_view = true;
-      }
-      if (key === "can_view" && !value) {
-        next.can_playback = false;
-        next.can_reshare = false;
-      }
-      return { ...prev, [id]: next };
-    });
-  }
-
-  async function save() {
-    setError("");
-    setBusy(true);
-    try {
-      const list = Object.entries(grants)
-        .filter(([, g]) => g.can_view || g.can_playback)
-        .map(([sid, g]) => ({ stream_id: Number(sid), ...g }));
-      await api.post(`/admin/admins/${user.id}/camera-grants`, {
-        grants: list,
-      });
-      onClose();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Gagal menyimpan");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Modal title={`Akses kamera: ${user.username}`} onClose={onClose} wide>
-      {error && (
-        <div className="mb-4">
-          <ErrorBox message={error} />
-        </div>
-      )}
-      {loadFailed && (
-        <div className="mb-4">
-          <NBButton variant="secondary" onClick={() => setReloadKey((k) => k + 1)}>
-            Coba lagi
-          </NBButton>
-        </div>
-      )}
-      {!loaded ? (
-        <div className="flex justify-center py-8">
-          <Spinner />
-        </div>
-      ) : streams.length === 0 ? (
-        <NBEmptyState text="Belum ada kamera." />
-      ) : (
-        <div>
-          <div className="mb-2 flex items-center justify-between gap-2 px-1">
-            <p className="text-xs leading-relaxed text-slate-400">
-              Bagikan yang dicentang berarti admin ini bisa meneruskan kamera
-              ke user di grupnya.
-            </p>
-            <div className="flex shrink-0 gap-2">
-              <NBButton
-                variant="secondary"
-                onClick={() =>
-                  setGrants((prev) => {
-                    const next: Record<number, GrantFlags> = { ...prev };
-                    for (const s of streams) {
-                      next[s.id] = {
-                        ...(next[s.id] ?? { ...EMPTY_GRANT }),
-                        can_view: true,
-                      };
-                    }
-                    return next;
-                  })
-                }
-                className="px-3"
-              >
-                Pilih semua
-              </NBButton>
-              <NBButton
-                variant="secondary"
-                onClick={() => setGrants({})}
-                className="px-3"
-              >
-                Bersihkan
-              </NBButton>
-            </div>
-          </div>
-          <div className="mb-1 flex items-center gap-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-            <span className="min-w-0 flex-1">Kamera</span>
-            <span className="w-16 shrink-0 text-center">Live</span>
-            <span className="w-16 shrink-0 text-center">Playback</span>
-            <span className="w-16 shrink-0 text-center">Bagikan</span>
-          </div>
-          <div className="max-h-64 space-y-1 overflow-y-auto">
-            {streams.map((s) => {
-              const g = grants[s.id] ?? { ...EMPTY_GRANT };
-              return (
-                <div
-                  key={s.id}
-                  className="flex min-h-[48px] items-center gap-2 rounded-lg px-3 py-2 hover:bg-ink-800"
-                >
-                  <span className="min-w-0 flex-1 truncate text-sm text-slate-200">
-                    {s.name}
-                  </span>
-                  <span className="flex w-16 shrink-0 justify-center">
-                    <Switch
-                      checked={g.can_view}
-                      onChange={(v) => setFlag(s.id, "can_view", v)}
-                      label={`Live ${s.name}`}
-                    />
-                  </span>
-                  <span className="flex w-16 shrink-0 justify-center">
-                    <Switch
-                      checked={g.can_playback}
-                      onChange={(v) => setFlag(s.id, "can_playback", v)}
-                      label={`Playback ${s.name}`}
-                    />
-                  </span>
-                  <span className="flex w-16 shrink-0 justify-center">
-                    <Switch
-                      checked={g.can_reshare}
-                      onChange={(v) => setFlag(s.id, "can_reshare", v)}
-                      label={`Bagikan ${s.name}`}
-                    />
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-      <div className="mt-5 flex justify-end gap-2">
-        <NBButton variant="secondary" onClick={onClose}>
-          Batal
-        </NBButton>
-        <NBButton onClick={save} disabled={busy || !loaded || loadFailed}>
-          {busy ? "Menyimpan…" : "Simpan"}
-        </NBButton>
-      </div>
-    </Modal>
-  );
-}

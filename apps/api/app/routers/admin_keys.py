@@ -10,7 +10,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,10 +36,20 @@ class ApiKeyCreate(BaseModel):
     custom_camera_name: str | None = Field(default=None, max_length=128)
     include_playback: bool | None = None
     show_ads: bool | None = None
-    # 4.3: tanggal kedaluwarsa kunci (NULL = tidak pernah kedaluwarsa).
-    # Kolom expires_at sudah ada dan dicek _validate_key, tapi selama
-    # ini tidak pernah bisa diisi lewat API.
+    # 4.3: tanggal kedaluwarsa kunci. 2026-11-18: bila tidak diisi,
+    # default 1 tahun dari sekarang (lihat create_key); kunci lama
+    # yang sudah ada (expires_at NULL) TIDAK diubah.
     expires_at: datetime | None = None
+
+    @field_validator("password")
+    @classmethod
+    def _password_min_length(cls, v: str | None) -> str | None:
+        # 2026-11-18: password kunci boleh kosong (tanpa password),
+        # tapi bila diisi minimal 8 karakter, sebelumnya 1 karakter
+        # diizinkan.
+        if v is not None and v != "" and len(v) < 8:
+            raise ValueError("password kunci minimal 8 karakter")
+        return v
 
 
 class ApiKeyUpdate(BaseModel):
@@ -54,6 +64,25 @@ class ApiKeyUpdate(BaseModel):
     show_ads: bool | None = None
     # 4.3: null eksplisit = hapus kedaluwarsa (kunci berlaku selamanya).
     expires_at: datetime | None = None
+
+    @field_validator("password")
+    @classmethod
+    def _password_min_length(cls, v: str | None) -> str | None:
+        # 2026-11-18: sama seperti ApiKeyCreate (lihat di atas).
+        if v is not None and v != "" and len(v) < 8:
+            raise ValueError("password kunci minimal 8 karakter")
+        return v
+
+
+def _new_raw_key() -> str:
+    """Raw key baru dengan prefix nvk_ (2026-11-18).
+
+    Prefix membuat kunci langsung dikenali sebagai kunci NetraVision
+    (dan tidak tertukar dengan JWT), tanpa merusak validasi lama:
+    yang disimpan tetap sha256(raw) penuh, jadi kunci lama tanpa
+    prefix tetap valid.
+    """
+    return "nvk_" + secrets.token_urlsafe(32)
 
 
 def _key_to_out(key: ApiKey, stream_ids: list[int]) -> dict:
@@ -71,6 +100,10 @@ def _key_to_out(key: ApiKey, stream_ids: list[int]) -> dict:
         # 4.3: kedaluwarsa ditampilkan supaya admin bisa melihat dan
         # mengelolanya (sebelumnya nilai ini tidak pernah terisi).
         "expires_at": key.expires_at.isoformat() if key.expires_at else None,
+        # 2026-11-18: fingerprint (8 karakter pertama hash) supaya
+        # admin bisa mencocokkan kunci di log tanpa melihat raw key.
+        # Dihitung dari hash yang tersimpan, tanpa kolom DB baru.
+        "key_fingerprint": (key.key_hash or "")[:8] or None,
     }
 
 
@@ -146,7 +179,18 @@ async def list_keys(db: AsyncSession = Depends(get_db)):
 @router.post("/admin/api-keys", status_code=201)
 async def create_key(data: ApiKeyCreate, db: AsyncSession = Depends(get_db)):
     stream_ids = await _validate_stream_ids(db, data.stream_ids)
-    raw = secrets.token_urlsafe(32)
+    raw = _new_raw_key()
+    # 2026-11-18: expiry default maks 1 tahun. Bila expires_at tidak
+    # diisi -> 1 tahun dari sekarang; bila diisi lebih dari 1 tahun
+    # -> dipangkas ke 1 tahun. Kunci lama yang sudah ada (expires_at
+    # NULL) TIDAK diubah oleh perubahan ini.
+    now = datetime.now(timezone.utc)
+    max_expiry = now + timedelta(days=365)
+    expires_at = data.expires_at
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at is None or expires_at > max_expiry:
+        expires_at = max_expiry
     key = ApiKey(
         name=data.name,
         key_hash=hashlib.sha256(raw.encode()).hexdigest(),
@@ -157,8 +201,8 @@ async def create_key(data: ApiKeyCreate, db: AsyncSession = Depends(get_db)):
         custom_camera_name=(data.custom_camera_name or "").strip(),
         include_playback=data.include_playback if data.include_playback is not None else True,
         show_ads=data.show_ads if data.show_ads is not None else True,
-        # 4.3: simpan kedaluwarsa bila diisi.
-        expires_at=data.expires_at,
+        # 4.3: simpan kedaluwarsa (default 1 tahun, lihat di atas).
+        expires_at=expires_at,
     )
     db.add(key)
     await db.flush()
@@ -167,6 +211,26 @@ async def create_key(data: ApiKeyCreate, db: AsyncSession = Depends(get_db)):
     await db.refresh(key)
     out = _key_to_out(key, stream_ids)
     out["key"] = raw  # hanya tampil sekali
+    return out
+
+
+@router.post("/admin/api-keys/{key_id}/rotate", status_code=201)
+async def rotate_key(key_id: int, db: AsyncSession = Depends(get_db)):
+    """Rotasi kunci: terbitkan raw key baru, hash lama diganti.
+
+    2026-11-18: sebelumnya tidak ada cara mengganti kunci tanpa
+    menghapus + membuat baru (cakupan kamera, password, expiry harus
+    diisi ulang). Rotasi mempertahankan semua setelan lain (nama,
+    kamera, domain_lock, password, session_limit, expiry); raw key
+    baru hanya tampil sekali di respons ini.
+    """
+    key = await _get_key_or_404(db, key_id)
+    raw = _new_raw_key()
+    key.key_hash = hashlib.sha256(raw.encode()).hexdigest()
+    await db.commit()
+    await db.refresh(key)
+    out = _key_to_out(key, await _stream_ids_of(db, key_id))
+    out["key"] = raw
     return out
 
 

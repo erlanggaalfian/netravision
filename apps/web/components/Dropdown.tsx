@@ -22,6 +22,7 @@
    #16202c, accent #3b82f6/#2563eb). */
 
 import { createPortal } from "react-dom";
+import { PRIMARY_GRADIENT } from "./ui";
 import {
   isValidElement,
   useCallback,
@@ -247,7 +248,7 @@ export function Dropdown({
     variant === "pill"
       ? `flex h-11 w-full items-center justify-between gap-2 rounded-full pl-4 pr-3 text-sm font-semibold shadow-sm outline-none transition-all duration-200 focus:ring-2 focus:ring-accent-500/30 active:scale-[0.98] sm:w-auto sm:min-w-[190px] sm:max-w-[260px] ${
           pillSelected
-            ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
+            ? PRIMARY_GRADIENT
             : "bg-ink-800 text-slate-100"
         }`
       : "flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl bg-ink-800 px-3.5 py-2.5 text-[15px] text-slate-100 shadow-sm outline-none transition-all duration-150 focus:ring-2 focus:ring-accent-500/30";

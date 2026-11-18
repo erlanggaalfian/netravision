@@ -4,7 +4,26 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 
 /* Komponen UI bersama, "ruang kendali siaran": permukaan bertingkat,
-   hairline white/8, radius 12-16px, satu aksen biru. API tidak berubah. */
+   hairline white/8, radius 12-16px, satu aksen biru. API tidak berubah.
+
+   SKALA Z-INDEX (satu-satunya sumber kebenaran; JANGAN ubah nilai yang
+   sudah bekerja tanpa memeriksa semua pemakai di bawah):
+   - z-10  : overlay di dalam peta (legenda, kontrol zoom)
+   - z-30  : toast/keep-alive di dalam area video (embed)
+   - z-40  : tab bar bawah mobile (AppShell)
+   - z-50  : modal (Modal ui.tsx, FocusModal) + backdrop-nya
+   - z-[60]: backdrop Dropdown
+   - z-[70]: panel Dropdown, tile fullscreen (CameraTile fs)
+   - z-[80]: dialog peringatan idle-logout (AppShell)
+   Urutan ini disengaja: Dropdown di atas FocusModal, dialog idle di
+   atas semua. Komponen baru yang butuh lapisan baru harus memakai
+   nilai dari skala ini, bukan angka literal sembarangan. */
+
+/* Gradien primer, SATU definisi untuk semua pil/tab/tombol aktif.
+   Jangan menulis ulang string gradien ini di halaman/komponen lain;
+   impor PRIMARY_GRADIENT dari sini. */
+export const PRIMARY_GRADIENT =
+  "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]";
 
 function XIcon({ className = "" }: { className?: string }) {
   return (
@@ -129,8 +148,7 @@ export function Button({
   const base =
     "inline-flex min-h-[44px] cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]";
   const styles: Record<BtnVariant, string> = {
-    primary:
-      "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)] hover:shadow-[0_6px_20px_-4px_var(--nv-accent-600)]",
+    primary: `${PRIMARY_GRADIENT} hover:shadow-[0_6px_20px_-4px_var(--nv-accent-600)]`,
     ghost: "bg-transparent text-slate-200 hover:bg-ink-800",
     danger:
       "bg-bad-400/15 text-bad-400 hover:bg-bad-400/25 hover:shadow-[0_4px_16px_-6px_var(--nv-bad-400)]",
@@ -355,7 +373,7 @@ export function SegmentedControl<T extends string | number>({
               size === "sm" ? "min-h-[36px]" : "min-h-[44px]"
             } ${
               active
-                ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent shadow-[0_4px_16px_-4px_var(--nv-accent-600)]"
+                ? PRIMARY_GRADIENT
                 : "text-slate-400 hover:bg-ink-700 hover:text-slate-200"
             }`}
           >

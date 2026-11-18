@@ -13,7 +13,7 @@ from sqlalchemy import delete
 
 from app.core.config import get_settings
 from app.core.metrics import path_template_for_scope
-from app.core.security import decode_token
+from app.core.security import ACCESS_COOKIE, decode_token
 from app.db.session import get_session_factory
 from app.models.misc import AuditLog
 
@@ -45,15 +45,42 @@ def _client_ip(scope) -> str | None:
     return peer
 
 
-def _actor_from_scope(scope) -> tuple[int | None, str]:
-    """(actor_id, actor_name) dari JWT; ("anonymous") bila tidak ada/tidak valid."""
+def _token_from_scope(scope) -> str | None:
+    """Token dari header Authorization Bearer, atau cookie HttpOnly.
+
+    2026-11-18: sebelumnya hanya header Bearer yang dibaca, padahal
+    autentikasi utama browser adalah cookie nv_access, semua aksi
+    admin via browser tercatat actor "anonymous". Cookie dibaca dari
+    header `cookie` mentah di scope ASGI.
+    """
     headers = {k.decode("latin-1"): v.decode("latin-1") for k, v in scope.get("headers", [])}
     auth = headers.get("authorization", "")
-    if not auth.lower().startswith("bearer "):
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip() or None
+    cookie = headers.get("cookie", "")
+    for part in cookie.split(";"):
+        part = part.strip()
+        if part.startswith(ACCESS_COOKIE + "="):
+            return part[len(ACCESS_COOKIE) + 1:].strip() or None
+    return None
+
+
+def _actor_from_scope(scope) -> tuple[int | None, str]:
+    """(actor_id, actor_name) dari JWT; ("anonymous") bila tidak ada/tidak valid.
+
+    Hanya token type "access" yang diterima (token refresh / media /
+    sesi embed yang tersangkut di header tidak boleh menjadi aktor).
+    Token sesi embed (sub "key:N") memberi actor_id None dengan nama
+    "embed:...", tetap lebih baik daripada "anonymous".
+    """
+    raw = _token_from_scope(scope)
+    if not raw:
         return None, "anonymous"
     try:
-        payload = decode_token(auth[7:].strip(), get_settings())
+        payload = decode_token(raw, get_settings())
     except ValueError:
+        return None, "anonymous"
+    if payload.get("type") != "access":
         return None, "anonymous"
     sub = str(payload.get("sub") or "")
     actor_id = int(sub) if sub.isdigit() else None

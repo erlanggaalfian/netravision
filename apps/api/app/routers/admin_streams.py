@@ -13,8 +13,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel
-from sqlalchemy import delete, func, select
+from pydantic import BaseModel, Field
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -132,9 +132,13 @@ async def _register_paths(
         )
         return True, None
     except Exception as e:  # noqa: BLE001 - best-effort, jangan gagalkan tambah kamera
-        msg = f"MediaMTX tidak terjangkau (stream {stream_id}): {e}"
+        # Pesan MediaMTX bisa memuat source URL berkredensial (main/sub
+        # URL ikut di body request register_stream): redaksi sebelum
+        # log DAN sebelum dikembalikan sebagai mediamtx_error ke UI.
+        err = redact_url_credentials(str(e))
+        msg = f"MediaMTX tidak terjangkau (stream {stream_id}): {err}"
         log.warning(msg)
-        return False, str(e)
+        return False, err
 
 
 async def _refresh_stream_group_names(
@@ -145,19 +149,30 @@ async def _refresh_stream_group_names(
     Dipakai setelah keanggotaan grup berubah. group_name dipakai sebagai
     bagian path rekaman multi-disk (camera_rec_base), jadi harus selaras
     dengan tabel group_streams; None bila stream tidak punya grup.
+
+    SATU statement UPDATE dengan subquery korelasi MIN(nama grup),
+    bukan 2 query per stream (dulu: db.get + SELECT nama per stream =
+    N+1). MIN(string) = nama pertama alfabet di Postgres maupun
+    SQLite; stream tanpa grup mendapat NULL dari subquery. Tanpa
+    synchronize_session: pemanggil (upsert_group, set_group_grants)
+    tidak memegang objek Stream di session, jadi tidak ada state
+    ORM basi yang perlu disinkronkan.
     """
-    for sid in sorted(set(stream_ids)):
-        stream = await db.get(Stream, sid)
-        if stream is None:
-            continue
-        res = await db.execute(
-            select(StreamGroup.name)
-            .join(GroupStream, GroupStream.group_id == StreamGroup.id)
-            .where(GroupStream.stream_id == sid)
-            .order_by(StreamGroup.name)
-        )
-        names = res.scalars().all()
-        stream.group_name = names[0] if names else None
+    ids = sorted(set(stream_ids))
+    if not ids:
+        return
+    first_name = (
+        select(func.min(StreamGroup.name))
+        .join(GroupStream, GroupStream.group_id == StreamGroup.id)
+        .where(GroupStream.stream_id == Stream.id)
+        .scalar_subquery()
+    )
+    await db.execute(
+        update(Stream)
+        .where(Stream.id.in_(ids))
+        .values(group_name=first_name)
+        .execution_options(synchronize_session=False)
+    )
 
 
 async def _admin_visible_stream_ids(me: User, db: AsyncSession) -> set[int] | None:
@@ -171,13 +186,24 @@ async def _admin_visible_stream_ids(me: User, db: AsyncSession) -> set[int] | No
     """
     if is_super_admin(me):
         return None
-    allowed: set[int] = set()
-    rows = await db.execute(
-        select(Stream.id, Stream.created_by, Stream.owner_id)
+    # Visibilitas di SQL (bukan load SEMUA baris lalu filter di Python):
+    # milik (created_by/owner_id) ATAU grant apa pun atas kamera itu.
+    # Satu query milik + satu query grant (IN admin), bukan satu query
+    # per kamera.
+    allowed: set[int] = set(
+        (
+            await db.execute(
+                select(Stream.id).where(
+                    or_(
+                        Stream.created_by == me.id,
+                        Stream.owner_id == me.id,
+                    )
+                )
+            )
+        )
+        .scalars()
+        .all()
     )
-    for sid, created_by, owner_id in rows.all():
-        if created_by == me.id or owner_id == me.id:
-            allowed.add(sid)
     grant_rows = await db.execute(
         select(StreamAdminGrant.stream_id).where(
             StreamAdminGrant.admin_id == me.id
@@ -230,43 +256,50 @@ async def _mask_rtsp_urls(
 @router.get("/admin/streams", response_model=list[StreamOut])
 async def admin_list_streams(
     response: Response,
-    limit: int | None = Query(None, ge=1, le=500),
+    limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_user),
 ):
     """Daftar kamera (admin).
 
-    6.11: paginasi SQL opsional (?limit=&offset=, total di header
-    X-Total-Count seperti admin_keys). Tanpa limit, perilaku lama
-    (daftar penuh) dipertahankan. Untuk super_admin (tanpa filter
-    visibilitas) paginasi terjadi di SQL; untuk admin biasa filter
-    visibilitas tetap di Python (grant) lalu dipotong di Python,
-    supaya tidak ada kamera yang hilang dari halaman.
+    Paginasi wajib: limit default 50 (maks 500), total di header
+    X-Total-Count seperti admin_keys. Filter visibilitas admin biasa
+    (milik created_by/owner_id ATAU grant apa pun) di SQL, bukan load
+    semua baris lalu filter di Python, LIMIT/OFFSET + COUNT kini
+    benar-benar menghemat query DB dan tidak ada kamera yang hilang
+    dari halaman.
+    BREAKING: tanpa ?limit=, dulu mengembalikan daftar penuh; kini
+    dibatasi 50 pertama, kirim ?limit=500 (atau paginasi ?offset=)
+    untuk daftar besar.
     """
     settings = get_settings()
-    visible = await _admin_visible_stream_ids(admin, db)
-    if visible is None and limit is not None:
-        # super_admin: paginasi di SQL (tanpa muat seluruh tabel).
-        total = (
-            await db.execute(select(func.count()).select_from(Stream))
-        ).scalar() or 0
-        response.headers["X-Total-Count"] = str(total)
-        result = await db.execute(
-            select(Stream).order_by(Stream.id).limit(limit).offset(offset)
+    # Visibilitas di WHERE SQL (pola _visible_streams_query di
+    # streams.py). Grant di sini TANPA filter can_view seperti
+    # _admin_visible_stream_ids lama: grant apa pun membuat kamera
+    # terlihat di daftar; can_view hanya menggerbangi isi rtsp_url
+    # (lihat _mask_rtsp_urls).
+    q = select(Stream)
+    if not is_super_admin(admin):
+        q = q.where(
+            or_(
+                Stream.created_by == admin.id,
+                Stream.owner_id == admin.id,
+                Stream.id.in_(
+                    select(StreamAdminGrant.stream_id).where(
+                        StreamAdminGrant.admin_id == admin.id
+                    )
+                ),
+            )
         )
-        streams = result.scalars().all()
-    else:
-        result = await db.execute(select(Stream).order_by(Stream.id))
-        streams = result.scalars().all()
-        if visible is not None:
-            # Admin biasa: filter visibilitas (grant) di Python lalu
-            # potong di Python, supaya tidak ada kamera yang hilang
-            # dari halaman karena LIMIT diterapkan sebelum filter.
-            streams = [s for s in streams if s.id in visible]
-        if limit is not None:
-            response.headers["X-Total-Count"] = str(len(streams))
-            streams = streams[offset : offset + limit]
+    total = (
+        await db.execute(select(func.count()).select_from(q.subquery()))
+    ).scalar() or 0
+    response.headers["X-Total-Count"] = str(total)
+    result = await db.execute(
+        q.order_by(Stream.id).limit(limit).offset(offset)
+    )
+    streams = result.scalars().all()
     # A-1.12: mask RTSP diambil sekali (batch), bukan satu query
     # grant per kamera di loop.
     masked = await _mask_rtsp_urls(streams, admin, db)
@@ -506,7 +539,7 @@ async def admin_update_stream(
     # 2026-11-14). main_url kosong tidak diizinkan; sub_url kosong
     # berarti hapus substream (tanpa sub, frontend fallback ke main).
     # Aturan password (perintah user 2026-11-14): password TIDAK BOLEH
-    # berubah kecuali user eksplisit menggantinya — URL baru yang tak
+    # berubah kecuali user eksplisit menggantinya, URL baru yang tak
     # membawa password atau membawa mask **** memakai password
     # tersimpan (resolve_url_password, allow_change=True: password
     # baru yang benar-benar berbeda dan bukan mask saja yang dipakai).
@@ -692,8 +725,10 @@ async def set_sharing(
             manageable = set(result.scalars().all())
         for s in shares:
             if s.user_id not in manageable:
+                # Berbagi ke luar grup sendiri adalah operasi yang
+                # dilarang untuk admin biasa, bukan input tak valid.
                 raise HTTPException(
-                    status_code=400,
+                    status_code=403,
                     detail="hanya boleh membagikan ke user di grup Anda",
                 )
         # Hapus hanya baris yang boleh dikelola actor; baris superadmin,
@@ -752,7 +787,7 @@ class StreamGrantIn(BaseModel):
 
 
 class StreamGrantsIn(BaseModel):
-    grants: list[StreamGrantIn] = []
+    grants: list[StreamGrantIn] = Field(default=[], max_items=200)
 
 
 @router.post("/admin/streams/{stream_id}/grants", dependencies=[Depends(super_admin_only)])
@@ -1071,7 +1106,7 @@ async def disk_info(db: AsyncSession = Depends(get_db)):
             gdrive_entries.append({
                 "folder_id": fol.id,
                 "mount": gdrive_path,
-                "label": f"Google Drive — {fol.folder_name or fol.folder_id}",
+                "label": f"Google Drive, {fol.folder_name or fol.folder_id}",
                 "drive_folder_id": fol.folder_id,
                 "drive_folder_name": fol.folder_name or "",
                 "drive_folder_url": fol.folder_url or "",
@@ -1092,7 +1127,7 @@ async def disk_info(db: AsyncSession = Depends(get_db)):
             # A-1.10: os.walk sinkron dipindah ke thread.
             used = await asyncio.to_thread(_walk_used_bytes, gdrive_path)
             avail = max(total - used, 0)
-            label = f"Google Drive — {fol.folder_name or fol.folder_id}"
+            label = f"Google Drive, {fol.folder_name or fol.folder_id}"
             gdrive_entries.append({
                 "folder_id": fol.id,
                 "mount": gdrive_path,

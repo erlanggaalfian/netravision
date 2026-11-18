@@ -337,7 +337,15 @@ export function FocusModal({ stream, onClose, ad }: Props) {
       switchRef.current = null;
       urlsRef.current = null;
     };
-  }, [stream, want, retryTick]);
+    /* P0 code-review 2026-11-18: dependensi dibatasi ke hal yang
+       memengaruhi pemutaran (id/is_online/URL WHEP) + want/retryTick.
+       Sebelumnya objek `stream` utuh jadi dependensi, sehingga
+       perubahan nama/poster_url (yang tidak memengaruhi stream)
+       ikut teardown total dan sambung ulang WHEP dari nol. Objek
+       stream tetap dipakai di dalam effect, jadi disable exhaustive-deps
+       di sini disengaja dan terdokumentasi. */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stream?.id, stream?.is_online, stream?.whep_main_url, stream?.whep_sub_url, want, retryTick]);
 
   /* Ganti LQ/HQ manual (dipakai tombol di header DAN tombol di overlay
      panggung, supaya kualitas bisa diganti saat layar penuh, saat tombol

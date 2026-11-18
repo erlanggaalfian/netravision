@@ -9,7 +9,10 @@ import { Button } from "../../components/ui";
 import type { AdConfig } from "../../lib/types";
 
 /* Halaman embed PUBLIK (tanpa login) untuk pihak ketiga.
-   Kunci via ?key=, kamera tunggal opsional via ?camera=<id>. */
+   Kunci dibaca dari ?key= di URL halaman embed itu sendiri, tapi
+   TIDAK PERNAH dikirim lagi lewat query string ke API (2026-11-18:
+   ?key= ditolak 400): panggilan /external/* memakai header X-Api-Key.
+   Kamera tunggal opsional via ?camera=<id>. */
 
 type Phase = "loading" | "unavailable" | "error" | "ready";
 
@@ -39,9 +42,16 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
 
 /* Fetch publik tanpa kredensial (D-R8): semua panggilan /external/*
    memakai ini, bukan apiFetch. credentials: "omit" eksplisit, karena
-   default same-origin tetap mengirim cookie sesi login ke /api. */
-async function fetchExternal<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { credentials: "omit" });
+   default same-origin tetap mengirim cookie sesi login ke /api.
+   Kunci API dikirim lewat header X-Api-Key, bukan query string. */
+async function fetchExternal<T>(
+  path: string,
+  apiKey: string,
+): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: "omit",
+    headers: { "X-Api-Key": apiKey },
+  });
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
     try {
@@ -128,7 +138,8 @@ function EmbedPlayer({
     setFailed(null);
     try {
       const s = await fetchExternal<StreamSession>(
-        `/external/stream?key=${encodeURIComponent(apiKey)}&camera=${camera.id}`,
+        `/external/stream?camera=${camera.id}`,
+        apiKey,
       );
       /* camera.id sudah dicocokkan dari /external/cameras berdasarkan id
          (D-K1); jangan kirim nomor urut di sini. */
@@ -306,45 +317,46 @@ function EmbedPlayer({
           </div>
         )}
 
-        {/* Toast keep-alive: klik di sini bukan klik area video (D-R6). */}
-        {showKeepAlive && (
-          <div
-            role="status"
-            aria-live="polite"
-            onClick={(e) => e.stopPropagation()}
-            className="absolute left-3 top-3 z-30 flex max-w-[calc(100%-24px)] items-center gap-2.5 rounded-xl bg-ink-900/95 px-3.5 py-2.5"
-          >
-            <span className="min-w-0 truncate text-xs font-medium text-neutral-200">
-              Sesi berakhir dalam
-            </span>
-            <span className="shrink-0 text-xs font-bold text-warn-400">
-              {fmtCountdown(left)}
-            </span>
-            <Button
-              onClick={extend}
-              disabled={loadingSession}
-              className="h-11 shrink-0 px-3 text-xs"
-            >
-              {loadingSession ? "Memuat…" : "Perpanjang"}
-            </Button>
-            <button
-              type="button"
-              onClick={() => setToastDismissed(true)}
-              aria-label="Tutup pemberitahuan"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-ink-800 hover:text-white"
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-                <path
-                  d="M2 2l10 10M12 2L2 12"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
-          </div>
-        )}
       </div>
+
+      {/* Strip keep-alive DI BAWAH video (di luar .nv-stage), bukan toast
+          yang menutupi gambar: strip kecil di bawah area video. */}
+      {showKeepAlive && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center gap-2.5 border-b border-ink-800 bg-ink-900 px-4 py-2.5"
+        >
+          <span className="min-w-0 flex-1 truncate text-xs font-medium text-neutral-200">
+            Sesi berakhir dalam{" "}
+            <span className="font-bold text-warn-400">
+              {fmtCountdown(left ?? 0)}
+            </span>
+          </span>
+          <Button
+            onClick={extend}
+            disabled={loadingSession}
+            className="h-11 shrink-0 px-3 text-xs"
+          >
+            {loadingSession ? "Memuat…" : "Perpanjang"}
+          </Button>
+          <button
+            type="button"
+            onClick={() => setToastDismissed(true)}
+            aria-label="Tutup pemberitahuan"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-ink-800 hover:text-white"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+              <path
+                d="M2 2l10 10M12 2L2 12"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        </div>
+      )}
 
       {/* D-S3: kegagalan Perpanjang sesi terlihat walau video masih memutar. */}
       {playing && failed && (
@@ -451,6 +463,20 @@ function EmbedInner() {
   const params = useSearchParams();
   const key = params.get("key");
   const cameraParam = params.get("camera");
+  /* Hapus ?key= dari address bar begitu dibaca, supaya kunci tidak
+     tinggal di URL (dan tidak tercatat di access log Apache untuk
+     /embed/). Param lain (mis. ?camera=) dipertahankan. */
+  useEffect(() => {
+    if (!key) return;
+    try {
+      const url = new URL(window.location.href);
+      if (!url.searchParams.has("key")) return;
+      url.searchParams.delete("key");
+      window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    } catch {
+      /* abaikan: kunci tetap dipakai dari state, hanya URL yang tidak dibersihkan */
+    }
+  }, [key]);
   const [phase, setPhase] = useState<Phase>("loading");
   const [cameras, setCameras] = useState<EmbedCamera[]>([]);
   const [ad, setAd] = useState<AdConfig | null>(null);
@@ -470,7 +496,8 @@ function EmbedInner() {
     (async () => {
       try {
         const data = await fetchExternal<EmbedCamera[]>(
-          `/external/cameras?key=${encodeURIComponent(key)}`,
+          "/external/cameras",
+          key,
         );
         /* Banner iklan publik: fetch langsung TANPA kredensial (D-R8),
            sama seperti semua panggilan /external/* di halaman ini. */

@@ -75,7 +75,8 @@ class StreamPermission(Base, TimestampMixin):
         # warisan per-user, lolos CHECK karena CHECK benar untuk NULL).
         CheckConstraint(
             "role IN ('admin', 'user', 'guest')",
-            name="ck_stream_permissions_role",
+            # Nama pendek, lihat komentar yang sama di models/users.py.
+            name="role",
         ),
         # 2.8: baris per-user tanpa role adalah baris mati (tidak ada
         # pembaca yang menerima user_id terisi dan role NULL). Cegah
@@ -84,7 +85,8 @@ class StreamPermission(Base, TimestampMixin):
         # 2.5), hanya bentuk matinya yang ditolak.
         CheckConstraint(
             "user_id IS NULL OR role IS NOT NULL",
-            name="ck_stream_permissions_user_row_needs_role",
+            # Nama pendek, lihat komentar yang sama di models/users.py.
+            name="user_row_needs_role",
         ),
     )
 
@@ -142,7 +144,7 @@ class StreamAdminGrant(Base, TimestampMixin):
     can_reshare: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="1"
     )
-    # Admin yang memberikan grant ini (paritas v2.0: granted_by —
+    # Admin yang memberikan grant ini (paritas v2.0: granted_by -
     # admin hanya boleh menyentuh pemberian yang ia buat sendiri).
     granted_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, default=None

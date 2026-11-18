@@ -146,11 +146,13 @@ async def _visible_streams_paged(
 ) -> tuple[list[Stream], int]:
     """Kamera terlihat + total, paginasi di level SQL (6.11).
 
-    Tanpa ?page=/?limit= -> list penuh + total = len (perilaku
-    v3.0 sekarang). Dengan salah satunya -> LIMIT/OFFSET di SQL
-    dan COUNT terpisah, total dikirim pemanggil lewat header
-    X-Total-Count seperti admin_keys.list_logs. ?group= yang
-    tidak ada di DB -> ([], 0), sama seperti filter Python lama.
+    list_streams kini selalu memanggil dengan page/limit terisi
+    (default page=1, limit=50), jadi cabang tanpa paginasi di bawah
+    hanya dipakai pemanggil langsung lain. Dengan salah satunya ->
+    LIMIT/OFFSET di SQL dan COUNT terpisah, total dikirim pemanggil
+    lewat header X-Total-Count seperti admin_keys.list_logs.
+    ?group= yang tidak ada di DB -> ([], 0), sama seperti filter
+    Python lama.
     """
     group_id: int | None = None
     if group:
@@ -196,22 +198,24 @@ async def _get_stream_or_404(
 async def list_streams(
     user: User = Depends(require_roles("admin", "user", "guest")),
     db: AsyncSession = Depends(get_db),
-    page: int | None = Query(None, ge=1, description="v2.0: halaman"),
-    limit: int | None = Query(None, ge=1, le=500, description="v2.0: batas"),
+    page: int = Query(1, ge=1, description="v2.0: halaman"),
+    limit: int = Query(50, ge=1, le=500, description="v2.0: batas"),
     group: str | None = Query(None, description="v2.0: filter nama grup (persis)"),
     no_check: bool = Query(False, description="v2.0: lewati cek status"),
     response: Response = None,
 ):
     """Daftar stream yang terlihat user.
 
-    Tanpa ?page=/?limit= -> list penuh (perilaku v3.0 sekarang).
-    Dengan salah satunya -> paginasi (limit default 20 bila hanya page dipakai).
+    Paginasi wajib: limit default 50 (maks 500, halaman default 1).
     ?group= menyaring nama grup persis (v2.0). ?no_check= diterima untuk
     kompatibilitas v2.0; status online di v3.0 berasal dari poller latar.
     6.11: paginasi di level SQL (LIMIT/OFFSET + COUNT), total lewat
     header X-Total-Count seperti admin_keys.list_logs; sebelumnya
     _visible_streams memuat semua kamera lalu slice Python, jadi
     ?page=/?limit= tidak menghemat query DB sama sekali.
+    BREAKING: tanpa ?limit=, dulu mengembalikan daftar penuh; kini
+    dibatasi 50 pertama, kirim ?limit=500 (atau paginasi ?page=)
+    untuk daftar besar.
     """
     settings = get_settings()
     streams, total = await _visible_streams_paged(

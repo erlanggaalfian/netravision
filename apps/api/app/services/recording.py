@@ -23,6 +23,7 @@ retensi/playback memakai zona server secara implisit. Jangan ubah ke
 UTC tanpa mengubah penamaan segmen MediaMTX dan semua pemakaian.
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -238,11 +239,13 @@ async def apply_retention(db: AsyncSession, recordings_dir: str | None = None) -
     kept_unuploaded = 0
     for stream in result.scalars().all():
         cutoff = now - timedelta(days=stream.retention_days or 7)
-        expired = [
-            seg
-            for seg in list_segments(stream.id, None, root, stream=stream)
-            if seg.start < cutoff
-        ]
+        # list_segments sinkron (listdir/getsize/getmtime); fungsi ini
+        # async (dipanggil loop retensi di main.py), jadi pindai via
+        # to_thread supaya tidak memblokir event loop.
+        _segs = await asyncio.to_thread(
+            list_segments, stream.id, None, root, stream=stream
+        )
+        expired = [seg for seg in _segs if seg.start < cutoff]
         if not expired:
             continue
         uploaded: set[str] | None = None
@@ -262,7 +265,7 @@ async def apply_retention(db: AsyncSession, recordings_dir: str | None = None) -
                 kept_unuploaded += 1
                 continue
             try:
-                os.remove(seg.path)
+                await asyncio.to_thread(os.remove, seg.path)
                 deleted += 1
             except OSError as e:
                 log.warning("gagal hapus segmen %s: %s", seg.path, e)

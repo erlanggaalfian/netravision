@@ -156,7 +156,7 @@ export default function AdminKeysPage() {
   useEffect(() => {
     if (!isSuperAdmin) return;
     loadKeys();
-    api.get<Stream[]>("/admin/streams").then((d) => setStreams(d ?? [])).catch(() => {});
+    api.get<Stream[]>("/admin/streams?limit=500").then((d) => setStreams(d ?? [])).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSuperAdmin]);
 
@@ -723,9 +723,9 @@ function IntegrationGuideModal({
     },
     {
       id: "rest",
-      title: "Metode 2: URL REST API",
-      desc: "Ambil daftar kamera & URL stream sebagai JSON.",
-      code: `${origin}/api/external/cameras?key=${key}`,
+      title: "Metode 2: REST API (curl)",
+      desc: "Ambil daftar kamera & URL stream sebagai JSON. Kunci dikirim lewat header X-Api-Key, bukan query string (?key= ditolak 400).",
+      code: `curl -H "X-Api-Key: ${key}" ${origin}/api/external/cameras`,
     },
     {
       id: "player",

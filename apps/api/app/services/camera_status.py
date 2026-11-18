@@ -36,8 +36,17 @@ async def poll_once(db: AsyncSession, mediamtx: MediaMTXClient) -> list[dict]:
     # bisa melebihi interval broadcaster 10 detik sehingga status
     # selalu tertinggal. Satu kamera yang error tidak menggugurkan
     # yang lain (statusnya dipertahankan, bukan dianggap offline).
+    # Semaphore 8 (sama seperti sync loop) membatasi koneksi HTTP
+    # bersamaan ke control API MediaMTX; gather mempertahankan urutan
+    # hasil sesuai urutan streams.
+    sem = asyncio.Semaphore(8)
+
+    async def _ready(name: str) -> bool:
+        async with sem:
+            return await mediamtx.path_ready(name)
+
     results = await asyncio.gather(
-        *(mediamtx.path_ready(_path_name(s.id)) for s in streams),
+        *(_ready(_path_name(s.id)) for s in streams),
         return_exceptions=True,
     )
     for stream, online in zip(streams, results):

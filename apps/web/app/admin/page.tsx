@@ -9,6 +9,7 @@ import { useCameraStatus } from "../../hooks/useCameraStatus";
 import type { Stream, User } from "../../lib/types";
 import {
   EmptyState,
+  ErrorBox,
   Spinner,
   fmtBytes,
 } from "../../components/ui";
@@ -35,20 +36,54 @@ export default function AdminDashboard() {
   const [keys, setKeys] = useState<{ id: number }[] | null>(null);
   const [disk, setDisk] = useState<DiskRaw | null>(null);
   const [summary, setSummary] = useState<LogSummary | null>(null);
-  /* Gagal muat bukan loading selamanya: tandai selesai supaya spinner
-     diganti pesan gagal (sebelumnya disk/summary null = Spinner tanpa
-     henti bila endpoint gagal). */
+  /* P0 code-review 2026-11-18: bedakan "gagal memuat" dari "kosong".
+     Sebelumnya catch() menulis [] sehingga dasbor menampilkan "0 Kamera
+     / 0 Pengguna" seolah tidak ada data. Sekarang gagal = tetap null
+     + pesan error, kosong = [] dari server. */
+  const [streamsError, setStreamsError] = useState("");
+  const [usersError, setUsersError] = useState("");
+  const [keysError, setKeysError] = useState("");
   const [diskLoaded, setDiskLoaded] = useState(false);
   const [summaryLoaded, setSummaryLoaded] = useState(false);
 
   useEffect(() => {
-    api.get<Stream[]>("/admin/streams").then(setStreams).catch(() => setStreams([]));
-    api.get<User[]>("/admin/users").then(setUsers).catch(() => setUsers([]));
+    let cancelled = false;
+    api
+      .get<Stream[]>("/admin/streams?limit=500")
+      .then((d) => {
+        if (!cancelled) {
+          setStreams(d);
+          setStreamsError("");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setStreamsError("Gagal memuat daftar kamera");
+      });
+    api
+      .get<User[]>("/admin/users")
+      .then((d) => {
+        if (!cancelled) {
+          setUsers(d);
+          setUsersError("");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setUsersError("Gagal memuat daftar pengguna");
+      });
     api
       .get<DiskRaw>("/admin/disk-summary")
-      .then(setDisk)
-      .catch(() => setDisk(null))
-      .finally(() => setDiskLoaded(true));
+      .then((d) => {
+        if (!cancelled) setDisk(d);
+      })
+      .catch(() => {
+        if (!cancelled) setDisk(null);
+      })
+      .finally(() => {
+        if (!cancelled) setDiskLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   /* API key dan ringkasan akses embed adalah data superadmin saja
@@ -56,12 +91,32 @@ export default function AdminDashboard() {
      perlu memintanya, dan ubinnya disembunyikan di bawah. */
   useEffect(() => {
     if (!me || !isSuperAdmin) return;
-    api.get<{ id: number }[]>("/admin/api-keys").then(setKeys).catch(() => setKeys([]));
+    let cancelled = false;
+    api
+      .get<{ id: number }[]>("/admin/api-keys")
+      .then((d) => {
+        if (!cancelled) {
+          setKeys(d);
+          setKeysError("");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setKeysError("Gagal memuat API key");
+      });
     api
       .get<LogSummary>("/admin/api-access-logs/summary")
-      .then(setSummary)
-      .catch(() => setSummary(null))
-      .finally(() => setSummaryLoaded(true));
+      .then((d) => {
+        if (!cancelled) setSummary(d);
+      })
+      .catch(() => {
+        if (!cancelled) setSummary(null);
+      })
+      .finally(() => {
+        if (!cancelled) setSummaryLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [me, isSuperAdmin]);
 
   /* Jumlah kamera untuk admin biasa hanya yang terlihat (kamera
@@ -103,6 +158,21 @@ export default function AdminDashboard() {
         title="Dasbor"
         desc="Status kamera, penyimpanan, dan akses"
       />
+      {streamsError && (
+        <div className="mb-4">
+          <ErrorBox message={streamsError} />
+        </div>
+      )}
+      {usersError && (
+        <div className="mb-4">
+          <ErrorBox message={usersError} />
+        </div>
+      )}
+      {keysError && (
+        <div className="mb-4">
+          <ErrorBox message={keysError} />
+        </div>
+      )}
       {offlineCount !== null && offlineCount > 0 && (
         <p className="-mt-2 mb-4 text-sm text-warn-400">
           {offlineCount} kamera offline,{" "}

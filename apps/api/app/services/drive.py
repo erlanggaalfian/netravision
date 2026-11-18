@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -48,6 +49,45 @@ _DRIVE_API_TIMEOUT_SEC = 120.0
 # Area 5, temuan 5.10: cache folder kedaluwarsa (TTL 1 jam) dan dibatasi.
 _FOLDER_CACHE_TTL_SEC = 3600.0
 _FOLDER_CACHE_MAX = 512
+# P1 (code review 2026-11-18): batas unduh Drive + konkurensi unduhan.
+_MAX_DOWNLOAD_BYTES = 2 * 1024 * 1024 * 1024  # 2 GiB
+_DOWNLOAD_CONCURRENCY = 4
+# P1: ID Drive (file/folder) hanya karakter ini (dipakai validasi
+# sebelum ID masuk ke query Drive API atau argv).
+_DRIVE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _escape_drive_query_value(value: str) -> str:
+    """Escape nilai string untuk query Drive API (P1).
+
+    Sintaks query Drive: string diapit kutip tunggal; kutip tunggal
+    di-escape `\\'` dan backslash `\\\\`. Urutan penting: backslash
+    dulu, supaya backslash yang ditambahkan untuk kutip tidak ikut
+    di-escape. Tanpa ini, nama folder/file berisi `'` memutus query
+    (atau menyuntikkan kondisi tambahan).
+    """
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def _validate_drive_id(value: str) -> str:
+    """Validasi ID Drive (file/folder); raise ValueError bila tidak cocok
+    pola [A-Za-z0-9_-]+. Dipakai sebelum ID masuk ke query Drive API."""
+    v = (value or "").strip()
+    if not _DRIVE_ID_RE.match(v):
+        raise ValueError("ID Drive tidak valid")
+    return v
+
+
+def _listdir_sorted(path: str) -> list[str]:
+    """sorted(os.listdir(path)), [] bila direktori tak terbaca.
+
+    Helper sinkron untuk asyncio.to_thread (scan tidak boleh memblokir
+    event loop, P1); OSError ditelan di sini seperti perilaku lama.
+    """
+    try:
+        return sorted(os.listdir(path))
+    except OSError:
+        return []
 
 
 async def _drive_call(fn, *args, timeout: float = _DRIVE_API_TIMEOUT_SEC):
@@ -86,6 +126,7 @@ def _build_upload_request(svc, folder_id: str, name: str, local_path: str):
 
 def _drive_list_all(svc, folder_id: str, fields: str) -> list[dict]:
     """List semua file di folder (sync, panggil via to_thread)."""
+    folder_id = _validate_drive_id(folder_id)
     out, token = [], None
     while True:
         res = svc.files().list(
@@ -146,6 +187,8 @@ class DriveUploader:
         # Area 5, 5.2: scan yang belum selesai tidak boleh ditumpuk scan
         # berikutnya (satu putaran scan bisa lebih lama dari interval).
         self._scan_lock = asyncio.Lock()
+        # P1: batas unduhan Drive bersamaan (download_drive_file_to).
+        self._download_sem = asyncio.Semaphore(_DOWNLOAD_CONCURRENCY)
         # Temuan 3.12: lock per instance untuk pembangunan service
         # (refresh token ganda) dan find-or-create folder (duplikat).
         self._svc_lock = asyncio.Lock()
@@ -281,8 +324,15 @@ class DriveUploader:
             self._folder_cache.pop(f"name:{stream_name}", None)
 
     async def _ensure_child(self, svc, parent_id, name: str) -> str:
+        # P1: nama di-escape untuk query Drive API, parent_id divalidasi
+        # polanya sebelum masuk query (nama/body create tetap mentah:
+        # body JSON tidak butuh escape query).
+        if parent_id is not None:
+            parent_id = _validate_drive_id(parent_id)
+        name_q = _escape_drive_query_value(name)
+
         def _find():
-            q = f"name='{name}' and mimeType='{FOLDER_MIME}' and trashed=false"
+            q = f"name='{name_q}' and mimeType='{FOLDER_MIME}' and trashed=false"
             if parent_id:
                 q += f" and '{parent_id}' in parents"
             res = svc.files().list(q=q, fields="files(id)", pageSize=1).execute()
@@ -298,11 +348,14 @@ class DriveUploader:
         return await _drive_call(_find) or await _drive_call(_create)
 
     async def find_file(self, folder_id: str, name: str) -> str | None:
+        # P1: folder_id divalidasi polanya, nama di-escape untuk query.
+        folder_id = _validate_drive_id(folder_id)
+        name_q = _escape_drive_query_value(name)
         svc = await self._svc()
 
         def _find():
             res = svc.files().list(
-                q=f"'{folder_id}' in parents and name='{name}' and trashed=false",
+                q=f"'{folder_id}' in parents and name='{name_q}' and trashed=false",
                 fields="files(id)", pageSize=1,
             ).execute()
             files = res.get("files", [])
@@ -499,10 +552,9 @@ class DriveUploader:
         # (camera_rec_dir) untuk kamera yang record_disk-nya terisi
         # (segmennya tidak ada di recordings_dir).
         targets: list[tuple[int, str, str]] = []
-        try:
-            entries = sorted(os.listdir(s.recordings_dir))
-        except OSError:
-            entries = []
+        # P1: os.listdir di thread (direktori rekaman bisa berisi ribuan
+        # entri; pemindaian sinkron memblokir event loop).
+        entries = await asyncio.to_thread(_listdir_sorted, s.recordings_dir)
         for entry in entries:
             m = _re.match(r"^stream_(\d+)(?:_sub)?$", entry)
             if not m:
@@ -540,7 +592,7 @@ class DriveUploader:
         for sid, stream_name, d in targets:
             try:
                 folder_id = await self.ensure_folder(stream_name, sid)
-                files = sorted(os.listdir(d))
+                files = await asyncio.to_thread(_listdir_sorted, d)
             except Exception as e:  # noqa: BLE001
                 log.warning("drive scan %s gagal: %s", stream_name, e)
                 continue
@@ -614,6 +666,78 @@ class DriveUploader:
         self._list_cache[folder_id] = (now, [dict(f) for f in items])
         return items
 
+    async def download_drive_file_to(
+        self, file_id: str, dest_path: str,
+        max_bytes: int = _MAX_DOWNLOAD_BYTES,
+    ) -> int:
+        """Unduh satu file Drive langsung ke `dest_path` secara streaming.
+
+        P1: `download_drive_file` lama menampung seluruh file di RAM
+        (satu `get_media().execute()`). Di sini `MediaIoBaseDownload`
+        mengunduh per chunk (CHUNK, 1 MB), masing-masing lewat
+        `_drive_call` (timeout per chunk), jadi segmen besar tidak
+        pernah menumpuk di memori. Konkurensi dibatasi semaphore
+        (4 unduhan bersamaan). Bila file melebihi `max_bytes`
+        (default 2 GiB) unduhan dibatalkan dan file sebagian dihapus.
+        Bila googleapiclient tidak terinstal (mock di tes), fallback
+        ke `get_media().execute()` sekali, tetap dengan batas ukuran.
+        Return ukuran byte yang tertulis. Dipakai pemutar di
+        routers/recordings.py sebagai pengganti `download_drive_file`
+        bila RAM jadi soal; wrapper lama di bawah tetap ada.
+        """
+        file_id = _validate_drive_id(file_id)
+        if max_bytes <= 0:
+            raise ValueError("max_bytes harus > 0")
+        async with self._download_sem:
+            svc = await self._svc()
+            try:
+                from googleapiclient.http import MediaIoBaseDownload
+            except ImportError:
+                def _get():
+                    return svc.files().get_media(fileId=file_id).execute()
+
+                data = await _drive_call(_get)
+                data = data if isinstance(data, bytes) else bytes(data)
+                if len(data) > max_bytes:
+                    raise RuntimeError(
+                        f"file Drive {file_id} ({len(data)} byte) melebihi "
+                        f"batas unduh {max_bytes} byte"
+                    )
+
+                def _write():
+                    with open(dest_path, "wb") as f:
+                        f.write(data)
+
+                await asyncio.to_thread(_write)
+                return len(data)
+            fh = None
+            try:
+                fh = open(dest_path, "wb")
+                request = svc.files().get_media(fileId=file_id)
+                downloader = MediaIoBaseDownload(fh, request, chunksize=CHUNK)
+                done = False
+                while not done:
+                    status, done = await _drive_call(downloader.next_chunk)
+                    progress = getattr(status, "resumable_progress", None)
+                    if progress is not None and progress > max_bytes:
+                        raise RuntimeError(
+                            f"file Drive {file_id} melebihi batas unduh "
+                            f"{max_bytes} byte"
+                        )
+            except BaseException:
+                if fh is not None:
+                    try:
+                        fh.close()
+                    except OSError:
+                        pass
+                try:
+                    os.remove(dest_path)
+                except OSError:
+                    pass
+                raise
+            fh.close()
+            return await asyncio.to_thread(os.path.getsize, dest_path)
+
     async def download_drive_file(self, file_id: str) -> bytes:
         """Unduh utuh satu file Drive via SATU get_media (tanpa Range).
 
@@ -622,14 +746,30 @@ class DriveUploader:
         request + auth + seek per MB); segmen 20 MB berarti 20
         panggilan API berurutan. Kini unduh sekali, Range dilayani
         dari memori oleh pemanggil.
+
+        P1: kini diimplementasikan di atas `download_drive_file_to`
+        (streaming ke file temp lalu dibaca), jadi ada batas ukuran
+        2 GiB + semaphore konkurensi; pemanggil yang melayani
+        playback sebaiknya memakai `download_drive_file_to` langsung
+        supaya RAM tidak menampung segmen utuh.
         """
-        svc = await self._svc()
+        import tempfile
 
-        def _get():
-            return svc.files().get_media(fileId=file_id).execute()
+        fd, tmp = tempfile.mkstemp(prefix="drive-dl-")
+        os.close(fd)
+        try:
+            await self.download_drive_file_to(file_id, tmp)
 
-        data = await _drive_call(_get)
-        return data if isinstance(data, bytes) else bytes(data)
+            def _read():
+                with open(tmp, "rb") as f:
+                    return f.read()
+
+            return await asyncio.to_thread(_read)
+        finally:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
     async def stream_drive_file(self, file_id: str, start: int, end=None) -> bytes:
         svc = await self._svc()

@@ -8,6 +8,10 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+# ProxyHeadersMiddleware Starlette dihapus di Starlette 1.x; yang
+# tersedia adalah versi Uvicorn (uvicorn adalah dependensi runtime).
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app import __version__
 from app.core import audit, metrics, security_headers
@@ -384,6 +388,15 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        # Job scan yang masih berjalan dibatalkan dulu supaya menandai
+        # dirinya `error` di finally _run_scan (tidak macet `running`),
+        # sebelum task latar lain dibatalkan.
+        try:
+            from app.routers.admin_scan import cancel_all_scan_tasks  # noqa: PLC0415
+
+            await cancel_all_scan_tasks()
+        except Exception:  # noqa: BLE001 - shutdown tetap lanjut
+            log.warning("shutdown: batalkan job scan gagal", exc_info=True)
         # Area 5, 5.1: TUNGGU semua task latar selesai (batas 30 detik)
         # sebelum dispose engine, supaya upload/commit/hapus yang sedang
         # berjalan tidak terpotong di tengah jalan saat deploy/restart.
@@ -635,8 +648,24 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        # 2026-11-18: methods/headers dipangkas dari ["*"] ke daftar
+        # yang benar-benar dipakai API (klien memakai header
+        # Authorization, Content-Type, Accept, Origin, Referer, Range,
+        # dan header embed X-Api-Key / X-Api-Key-Password /
+        # X-Cookie-Only-Auth). allow_origins tetap dari settings
+        # (CORS_ORIGINS), lihat config.py.
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "Accept",
+            "Origin",
+            "Referer",
+            "Range",
+            "X-Api-Key",
+            "X-Api-Key-Password",
+            "X-Cookie-Only-Auth",
+        ],
     )
     # Hardening Fase 4: security_headers -> metrics -> audit (urutan eksekusi).
     # add_middleware yang dipanggil terakhir = paling luar = jalan duluan,
@@ -644,6 +673,34 @@ def create_app() -> FastAPI:
     app.add_middleware(audit.AuditMiddleware)
     app.add_middleware(metrics.MetricsMiddleware)
     app.add_middleware(security_headers.SecurityHeadersMiddleware)
+    # 2026-11-18: percayai X-Forwarded-Proto/For dari Apache (reverse
+    # proxy). Tanpa ini, Uvicorn melihat semua request sebagai http
+    # (Apache mem-proxy ke 127.0.0.1:8100), sehingga _cookie_secure
+    # dan pemetaan IP klien salah di produksi. trusted_hosts="*" aman
+    # di sini karena socket API hanya dipublikasikan di
+    # 127.0.0.1:8100, satu-satunya peer adalah proxy lokal.
+    # (uvicorn --proxy-headers tidak dipakai; Dockerfile CMD tanpa
+    # flag itu, jadi middleware ini adalah perbaikan di level kode.)
+    # Ditambah PALING AKHIR supaya menjadi middleware PALING LUAR:
+    # harus berjalan sebelum middleware lain yang membaca scheme/IP
+    # (audit, rate limit, _cookie_secure di handler).
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+
+    # 2026-11-18: exception handler global, exception tak terduga
+    # (bug, DB mati, dst) sebelumnya membocorkan detail internal
+    # lewat respons 500 default Starlette. Sekarang klien hanya
+    # mendapat envelope generik {code, message}; detail lengkap
+    # masuk log server (exc_info). HTTPException tidak terpengaruh
+    # (handler bawaannya tetap diutamakan).
+    @app.exception_handler(Exception)
+    async def _unhandled_exception_handler(request, exc: Exception):
+        logging.getLogger("netravision.unhandled").exception(
+            "unhandled exception %s %s", request.method, request.url.path
+        )
+        return JSONResponse(
+            status_code=500,
+            content={"code": "internal_error", "message": "terjadi kesalahan internal"},
+        )
     # Path /api/* dipertahankan persis seperti v2.0 (kontrak embed tidak rusak).
     app.include_router(system.router, prefix="/api")
     app.include_router(metrics.router, prefix="/api")

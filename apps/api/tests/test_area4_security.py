@@ -355,7 +355,7 @@ async def test_api_key_expires_at(app_client):
         assert r.status_code == 200, r.text
         assert r.json()["expires_at"] is None
         # Kunci masih hidup: external menerimanya.
-        r = await c.get("/api/external/cameras", params={"key": raw})
+        r = await c.get("/api/external/cameras", headers={"X-Api-Key": raw})
         assert r.status_code == 200, r.text
     # Lewatkan kedaluwarsa di DB -> external menolak 403.
     from app.models.keys import ApiKey
@@ -364,7 +364,7 @@ async def test_api_key_expires_at(app_client):
     key.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
     await db.commit()
     async with _client(app) as c:
-        r = await c.get("/api/external/cameras", params={"key": raw})
+        r = await c.get("/api/external/cameras", headers={"X-Api-Key": raw})
         assert r.status_code == 403, r.text
 
 
@@ -499,7 +499,8 @@ async def test_external_playback_file_url_uses_session(
     async with _client(app) as c:
         r = await c.get(
             "/api/external/playback",
-            params={"key": "KUNCI-RAHASIA-123", "camera": 1, "date": "2026-11-02"},
+            params={"camera": 1, "date": "2026-11-02"},
+            headers={"X-Api-Key": "KUNCI-RAHASIA-123"},
         )
         assert r.status_code == 200, r.text
         segs = r.json()["segments"]
@@ -514,7 +515,8 @@ async def test_external_playback_file_url_uses_session(
         # Token sesi terikat kamera 1: kamera lain ditolak.
         r = await c.get(url.replace("camera=1", "camera=2"))
         assert r.status_code == 403, r.text
-        # URL lama ?key=&pass= tetap diterima (kompatibilitas URL terbit).
+        # URL lama ?key=&pass= DITOLAK 400 (breaking change
+        # 2026-11-18: kredensial embed tidak lagi lewat query string).
         from urllib.parse import parse_qs, urlparse
 
         q = parse_qs(urlparse(url).query)
@@ -523,7 +525,7 @@ async def test_external_playback_file_url_uses_session(
             f"&start={q['start'][0]}&end={q['end'][0]}"
         )
         r = await c.get(legacy)
-        assert r.status_code == 200, r.text
+        assert r.status_code == 400, r.text
 
 
 # ---------- 4.6: redaksi password hasil scan + brankas vault ----------

@@ -1,0 +1,6 @@
+# Build context apps/web.
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+.git/

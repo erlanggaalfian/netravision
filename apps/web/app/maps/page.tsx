@@ -325,7 +325,7 @@ export default function MapsPage() {
     setFetching(true);
     setError(null);
     try {
-      const data = await api.get<Stream[]>("/streams");
+      const data = await api.get<Stream[]>("/streams?limit=500");
       setStreams(data);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Gagal memuat kamera");

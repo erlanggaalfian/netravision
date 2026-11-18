@@ -55,7 +55,7 @@ async def test_cameras_ok(app_client):
     app, _, db = app_client
     await _seed(db)
     async with _client(app) as c:
-        r = await c.get("/api/external/cameras", params={"key": "KUNCI-RAHASIA-123"})
+        r = await c.get("/api/external/cameras", headers={"X-Api-Key": "KUNCI-RAHASIA-123"})
         assert r.status_code == 200, r.text
         data = r.json()
         assert isinstance(data, list) and len(data) == 2
@@ -69,9 +69,9 @@ async def test_bad_key_ditolak(app_client):
     app, _, db = app_client
     await _seed(db)
     async with _client(app) as c:
-        r = await c.get("/api/external/cameras", params={"key": "SALAH"})
+        r = await c.get("/api/external/cameras", headers={"X-Api-Key": "SALAH"})
         assert r.status_code == 403
-        r = await c.get("/api/external/stream", params={"key": "SALAH", "camera": 1})
+        r = await c.get("/api/external/stream", params={"camera": 1}, headers={"X-Api-Key": "SALAH"})
         assert r.status_code == 403
     logs = await _logs(db)
     assert any("denied:bad_key" in log.action for log in logs)
@@ -84,7 +84,7 @@ async def test_expired_ditolak(app_client):
         expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
     )
     async with _client(app) as c:
-        r = await c.get("/api/external/cameras", params={"key": "KUNCI-RAHASIA-123"})
+        r = await c.get("/api/external/cameras", headers={"X-Api-Key": "KUNCI-RAHASIA-123"})
         assert r.status_code == 403
 
 
@@ -92,7 +92,7 @@ async def test_inactive_ditolak(app_client):
     app, _, db = app_client
     await _seed(db, is_active=False)
     async with _client(app) as c:
-        r = await c.get("/api/external/cameras", params={"key": "KUNCI-RAHASIA-123"})
+        r = await c.get("/api/external/cameras", headers={"X-Api-Key": "KUNCI-RAHASIA-123"})
         assert r.status_code == 403
 
 
@@ -102,18 +102,47 @@ async def test_password_wajib(app_client):
     app, _, db = app_client
     await _seed(db, password_hash=hash_password("sandi123"))
     async with _client(app) as c:
-        r = await c.get("/api/external/cameras", params={"key": "KUNCI-RAHASIA-123"})
+        r = await c.get(
+            "/api/external/cameras",
+            headers={"X-Api-Key": "KUNCI-RAHASIA-123"},
+        )
         assert r.status_code == 403  # tanpa password
         r = await c.get(
             "/api/external/cameras",
-            params={"key": "KUNCI-RAHASIA-123", "password": "keliru"},
+            headers={
+                "X-Api-Key": "KUNCI-RAHASIA-123",
+                "X-Api-Key-Password": "keliru",
+            },
         )
         assert r.status_code == 403  # password salah
         r = await c.get(
             "/api/external/cameras",
-            params={"key": "KUNCI-RAHASIA-123", "pass": "sandi123"},
+            headers={
+                "X-Api-Key": "KUNCI-RAHASIA-123",
+                "X-Api-Key-Password": "sandi123",
+            },
         )
-        assert r.status_code == 200  # alias pass juga diterima
+        assert r.status_code == 200  # password benar via header
+
+
+async def test_query_key_ditolak_400(app_client):
+    """2026-11-18 (BREAKING CHANGE): kredensial embed lewat query
+    string (?key=/?password=/?pass=) ditolak 400; jalur sah hanya header.
+    Header yang sama harus tetap diterima (200)."""
+    app, _, db = app_client
+    await _seed(db)
+    async with _client(app) as c:
+        r = await c.get("/api/external/cameras?key=KUNCI-RAHASIA-123")
+        assert r.status_code == 400, r.text
+        r = await c.get(
+            "/api/external/cameras?key=KUNCI-RAHASIA-123&pass=sandi123"
+        )
+        assert r.status_code == 400, r.text
+        r = await c.get(
+            "/api/external/cameras",
+            headers={"X-Api-Key": "KUNCI-RAHASIA-123"},
+        )
+        assert r.status_code == 200, r.text
 
 
 async def test_domain_lock(app_client):
@@ -121,20 +150,24 @@ async def test_domain_lock(app_client):
     await _seed(db, domain_lock="mitra.example.com")
     async with _client(app) as c:
         # tanpa referer/origin -> tolak
-        r = await c.get("/api/external/cameras", params={"key": "KUNCI-RAHASIA-123"})
+        r = await c.get("/api/external/cameras", headers={"X-Api-Key": "KUNCI-RAHASIA-123"})
         assert r.status_code == 403
         # referer cocok (termasuk subdomain)
         r = await c.get(
             "/api/external/cameras",
-            params={"key": "KUNCI-RAHASIA-123"},
-            headers={"referer": "https://app.mitra.example.com/embed"},
+            headers={
+                "X-Api-Key": "KUNCI-RAHASIA-123",
+                "referer": "https://app.mitra.example.com/embed",
+            },
         )
         assert r.status_code == 200
         # domain penyerang mirip -> tolak
         r = await c.get(
             "/api/external/cameras",
-            params={"key": "KUNCI-RAHASIA-123"},
-            headers={"origin": "https://notmitra.example.com"},
+            headers={
+                "X-Api-Key": "KUNCI-RAHASIA-123",
+                "origin": "https://notmitra.example.com",
+            },
         )
         assert r.status_code == 403
 
@@ -146,7 +179,8 @@ async def test_stream_ok_dan_kamera_salah(app_client):
         # camera=1 -> kamera pertama
         r = await c.get(
             "/api/external/stream",
-            params={"key": "KUNCI-RAHASIA-123", "camera": 1},
+            params={"camera": 1},
+            headers={"X-Api-Key": "KUNCI-RAHASIA-123"},
         )
         assert r.status_code == 200, r.text
         data = r.json()
@@ -156,7 +190,8 @@ async def test_stream_ok_dan_kamera_salah(app_client):
         # stream_id sebagai alias
         r = await c.get(
             "/api/external/stream",
-            params={"key": "KUNCI-RAHASIA-123", "stream_id": 2},
+            params={"stream_id": 2},
+            headers={"X-Api-Key": "KUNCI-RAHASIA-123"},
         )
         assert r.status_code == 200
         assert "/whep/stream_2/whep" in r.json()["url"]
@@ -164,7 +199,8 @@ async def test_stream_ok_dan_kamera_salah(app_client):
         # kamera di luar hak kunci -> 403
         r = await c.get(
             "/api/external/stream",
-            params={"key": "KUNCI-RAHASIA-123", "camera": 99},
+            params={"camera": 99},
+            headers={"X-Api-Key": "KUNCI-RAHASIA-123"},
         )
         assert r.status_code == 403
     logs = await _logs(db)
@@ -181,7 +217,8 @@ async def test_playback_tidak_lagi_503(app_client):
     async with _client(app) as c:
         r = await c.get(
             "/api/external/playback",
-            params={"key": "KUNCI-RAHASIA-123", "camera": 1},
+            params={"camera": 1},
+            headers={"X-Api-Key": "KUNCI-RAHASIA-123"},
         )
         assert r.status_code == 200, r.text
         data = r.json()

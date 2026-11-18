@@ -49,6 +49,9 @@ export async function getMediaUrls(
   sub: boolean,
 ): Promise<MediaUrls> {
   const key = `${streamId}:${sub ? "sub" : "main"}`;
+  /* P0 code-review 2026-11-18: hapus entri kedaluwarsa saat dibaca,
+     supaya cache tidak menumpuk sejumlah kamera x 2 selama tab hidup. */
+  pruneExpiredMediaTokens();
   const hit = cache.get(key);
   if (hit && hit.expiresAt - Date.now() > 60_000) return hit.urls;
   const running = inflight.get(key);
@@ -70,6 +73,13 @@ export async function getMediaUrls(
     return await p;
   } finally {
     if (inflight.get(key) === p) inflight.delete(key);
+  }
+}
+
+function pruneExpiredMediaTokens(): void {
+  const now = Date.now();
+  for (const [key, entry] of cache) {
+    if (entry.expiresAt - now <= 60_000) cache.delete(key);
   }
 }
 

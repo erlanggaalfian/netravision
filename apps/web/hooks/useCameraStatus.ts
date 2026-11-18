@@ -184,10 +184,12 @@ export function useCameraStatus() {
      WS mati tanpa pernah dimulai. */
   const { loading: authLoading, logout } = useAuth();
 
-  /* Simpan logout terbaru untuk endSharedSession di level modul. */
+  /* Simpan logout terbaru untuk endSharedSession di level modul.
+     P0 code-review 2026-11-18: dependency [logout], sebelumnya tanpa
+     array, effect berjalan di setiap render setiap komponen pemakai. */
   useEffect(() => {
     sharedLogout = logout;
-  });
+  }, [logout]);
 
   useEffect(() => {
     if (authLoading) return;

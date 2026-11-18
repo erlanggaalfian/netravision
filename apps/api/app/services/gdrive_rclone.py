@@ -672,6 +672,7 @@ async def ensure_netravision_folder(remote_name: str = REMOTE_NAME) -> dict:
     `rclone mkdir` idempotent (tidak gagal bila folder sudah ada). ID folder
     diambil dari `rclone lsjson` root (--dirs-only). Raise RuntimeError
     bila rclone gagal atau folder tidak ditemukan setelah dibuat."""
+    remote_name = validate_remote_name(remote_name)
     folder_name = "netravision"
     rc, _out, err = await _run_rclone(
         "mkdir", f"{remote_name}:{folder_name}", timeout=60
@@ -707,6 +708,8 @@ async def ensure_netravision_folder(remote_name: str = REMOTE_NAME) -> dict:
 
 async def check_folder_access(folder_id: str, remote_name: str = REMOTE_NAME) -> dict:
     """Pastikan folder bisa dibaca/ditulis akun terhubung. Return {name}."""
+    remote_name = validate_remote_name(remote_name)
+    folder_id = _validate_rclone_path(folder_id)
     rc, out, err = await _run_rclone(
         "lsd", f"{remote_name}:{folder_id}", "--max-depth", "0", timeout=30
     )

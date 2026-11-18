@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 StorageMode = Literal["local", "drive", "both"]
 
@@ -94,6 +94,17 @@ class StreamUpdate(BaseModel):
     main_url: str | None = Field(default=None, max_length=512)
     sub_url: str | None = Field(default=None, max_length=512)
 
+    @field_validator("main_url")
+    @classmethod
+    def _reject_blank_main_url(cls, v: str | None) -> str | None:
+        """main_url kosong/whitespace-only ditolak di skema (422),
+        bukan baru di router, kamera harus punya sumber main.
+        None (tidak dikirim) dan sub_url kosong tetap sah: sub kosong
+        berarti hapus substream."""
+        if v is not None and not v.strip():
+            raise ValueError("mainstream tidak boleh kosong")
+        return v
+
 
 class GroupCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
@@ -160,7 +171,7 @@ class ScanResult(BaseModel):
 
 
 class UserIdsIn(BaseModel):
-    user_ids: list[int] = []
+    user_ids: list[int] = Field(default=[], max_items=500)
 
 
 class ShareIn(BaseModel):
@@ -172,13 +183,13 @@ class ShareIn(BaseModel):
 
 class SharingIn(BaseModel):
     # Bentuk baru (dipakai ShareModal): daftar per user.
-    shares: list[ShareIn] = []
+    shares: list[ShareIn] = Field(default=[], max_items=200)
     # Bentuk lama (kompatibel): hanya user_ids, can_playback default True.
-    user_ids: list[int] = []
+    user_ids: list[int] = Field(default=[], max_items=500)
 
 
 class StreamIdsIn(BaseModel):
-    stream_ids: list[int]
+    stream_ids: list[int] = Field(max_items=500)
 
 
 class OwnerIn(BaseModel):

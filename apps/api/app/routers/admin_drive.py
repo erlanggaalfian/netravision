@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select, update
@@ -208,8 +208,21 @@ async def _get_or_404(db: AsyncSession, account_id: uuid.UUID) -> DriveAccount:
 
 
 @admin_router.get("/admin/drive-accounts")
-async def list_accounts(db: AsyncSession = Depends(get_db)):
-    accs = (await db.execute(select(DriveAccount).order_by(DriveAccount.name))).scalars().all()
+async def list_accounts(
+    response: Response,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    """Daftar akun Drive OAuth (paginasi: ?limit=&offset=, total di
+    header X-Total-Count; limit default 50)."""
+    total = (
+        await db.execute(select(func.count()).select_from(DriveAccount))
+    ).scalar() or 0
+    response.headers["X-Total-Count"] = str(total)
+    accs = (await db.execute(
+        select(DriveAccount).order_by(DriveAccount.name).limit(limit).offset(offset)
+    )).scalars().all()
     counts = await _camera_counts(db)
     return [_account_out(a, counts.get(str(a.id), 0)) for a in accs]
 
@@ -232,7 +245,7 @@ async def create_account(data: AccountCreate, db: AsyncSession = Depends(get_db)
     # tidak mengembalikan None dan Drive tidak diam-diam nonaktif.
     # A-1.19: dua POST bersamaan sama-sama membaca n_accounts == 0 dan
     # sama-sama is_default=True; indeks unik parsial di drive_accounts
-    # (is_default WHERE is_default, migrasi 0025) menolak yang kedua —
+    # (is_default WHERE is_default, migrasi 0025) menolak yang kedua -
     # tangkap dan ulangi sebagai bukan default.
     n_accounts = (await db.execute(
         select(func.count()).select_from(DriveAccount)
@@ -482,9 +495,24 @@ def _gdrive_folder_dict(row, remote_label: str | None = None) -> dict:
 
 
 @admin_router.get("/admin/storage/google-drive")
-async def list_gdrive_folders(db: AsyncSession = Depends(get_db)):
-    """Daftar tautan folder Google Drive (bisa banyak)."""
-    res = await db.execute(select(GoogleDriveFolder).order_by(GoogleDriveFolder.id))
+async def list_gdrive_folders(
+    response: Response,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    """Daftar tautan folder Google Drive (bisa banyak).
+
+    Paginasi: ?limit=&offset=, total di header X-Total-Count; limit
+    default 50. Bentuk body tetap {"folders": [...], ...}.
+    """
+    total = (
+        await db.execute(select(func.count()).select_from(GoogleDriveFolder))
+    ).scalar() or 0
+    response.headers["X-Total-Count"] = str(total)
+    res = await db.execute(
+        select(GoogleDriveFolder).order_by(GoogleDriveFolder.id).limit(limit).offset(offset)
+    )
     rows = res.scalars().all()
     settings = get_settings()
     # Label akun tiap remote, supaya pemilih folder bisa menampilkan
@@ -785,7 +813,10 @@ def _validate_remote_name_or_400(remote_name: str) -> str:
 
 @admin_router.get("/admin/drive-remotes")
 async def list_drive_remotes(
-    db: AsyncSession = Depends(get_db), status: str = "full"
+    response: Response,
+    db: AsyncSession = Depends(get_db), status: str = "full",
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
 ):
     """Daftar remote rclone dari tabel rclone_remotes + status koneksi
     tiap remote bila bisa dicek. Remote yang hanya ada di conf (tanpa
@@ -797,6 +828,11 @@ async def list_drive_remotes(
     (True bila remote ada di conf) dan kapasitas dibiarkan kosong.
     Frontend lalu melengkapi status tiap remote lewat
     GET /admin/drive-remotes/{name}/status di latar belakang.
+
+    Paginasi: ?limit=&offset=, total di header X-Total-Count; limit
+    default 50. Nama-nama remote digabung dulu (DB + conf-only) baru
+    dipotong halaman, supaya `rclone about` yang lambat hanya
+    dijalankan untuk halaman ini, bukan seluruh daftar.
     """
     from app.services import gdrive_rclone as gr
 
@@ -807,42 +843,41 @@ async def list_drive_remotes(
         conf_names = gr.list_remote_names()
     except Exception:  # noqa: BLE001 - conf rusak jangan gugurkan list
         conf_names = []
-    out = []
-    seen = set()
-    quick = status == "quick"
-    for row in rows:
-        seen.add(row.remote_name)
-        if quick:
-            st = {"connected": row.remote_name in conf_names, "error": ""}
-        else:
-            try:
-                st = await gr.remote_status(row.remote_name)
-            except Exception as e:  # noqa: BLE001
-                st = {"connected": False, "error": str(e)}
-        item = _remote_out(row, st)
-        item["in_conf"] = row.remote_name in conf_names
-        item["in_db"] = True
-        out.append(item)
+    by_name = {r.remote_name: r for r in rows}
+    ordered_names = [r.remote_name for r in rows]
     for name in conf_names:
-        if name in seen:
-            continue
+        if name not in by_name:
+            ordered_names.append(name)
+    response.headers["X-Total-Count"] = str(len(ordered_names))
+    page_names = ordered_names[offset : offset + limit]
+    conf_set = set(conf_names)
+    quick = status == "quick"
+    out = []
+    for name in page_names:
+        row = by_name.get(name)
         if quick:
-            st = {"connected": True, "error": ""}
+            st = {"connected": name in conf_set, "error": ""}
         else:
             try:
                 st = await gr.remote_status(name)
             except Exception as e:  # noqa: BLE001
                 st = {"connected": False, "error": str(e)}
-        out.append({
-            "id": None,
-            "remote_name": name,
-            "label": None,
-            "created_at": None,
-            "connected": bool(st.get("connected")),
-            "error": st.get("error", ""),
-            "in_conf": True,
-            "in_db": False,
-        })
+        if row is not None:
+            item = _remote_out(row, st)
+            item["in_conf"] = name in conf_set
+            item["in_db"] = True
+        else:
+            item = {
+                "id": None,
+                "remote_name": name,
+                "label": None,
+                "created_at": None,
+                "connected": bool(st.get("connected")),
+                "error": st.get("error", ""),
+                "in_conf": True,
+                "in_db": False,
+            }
+        out.append(item)
     return out
 
 
@@ -918,12 +953,30 @@ async def get_active_drive_authorize():
 @admin_router.get("/admin/drive-remotes/authorize/{job_id}")
 async def get_drive_authorize(job_id: str):
     """Status satu job authorize: waiting (auth_url bila sudah ada),
-    done (token bila sudah didapat), cancelled, atau error."""
+    done (token bila sudah didapat), cancelled, atau error.
+
+    P1 (parsial, code review 2026-11-18): token HANYA bisa diambil
+    SEKALI, job terminal dihapus dari registry begitu dibaca
+    (gdrive_rclone.authorize_job), jadi pengambilan kedua mengembalikan
+    404. Refresh token utuh masih dikirim ke browser karena frontend
+    (apps/web/app/admin/storage/page.tsx) masih POST token itu ke
+    POST /admin/drive-remotes; perbaikan penuh (token disimpan
+    server-side, frontend hanya menerima acuan sekali pakai) butuh
+    perubahan frontend dan BELUM dikerjakan. Pengembalian token dicatat
+    di log sebagai peringatan.
+    """
     from app.services import gdrive_rclone as gr
 
     job = gr.authorize_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job authorize tidak ditemukan.")
+    if job["status"] == "done" and job.get("token"):
+        log.warning(
+            "authorize %s: refresh token dikirim ke browser (sekali pakai; "
+            "job dihapus setelah dibaca, pengambilan kedua -> 404). "
+            "Perbaikan penuh butuh frontend memakai acuan server-side.",
+            job_id,
+        )
     return {
         "job_id": job["job_id"],
         "remote_name": job["remote_name"],
@@ -1044,7 +1097,7 @@ async def create_drive_remote(
     # A-1.21: parse + enkripsi token DULU (sebelum save_token menulis
     # conf). Bila token tidak bisa disimpan ke DB (mis. DRIVE_TOKEN_KEY
     # belum diset atau token bukan JSON object), gagalkan request
-    # dengan 400 — sebelumnya hanya warning lalu sukses, padahal conf
+    # dengan 400, sebelumnya hanya warning lalu sukses, padahal conf
     # sudah berisi token sementara baris DB tanpa token_encrypted,
     # sehingga restore_remotes_from_db saat start tidak bisa
     # memulihkan remote ini. save_token sendiri juga mem-parse token,
@@ -1178,6 +1231,20 @@ async def drive_remote_status(
 # ---------------------------------------------------------------------------
 
 
+def _listdir_or_empty(path: str) -> list[str]:
+    """os.listdir(path), [] bila direktori tak terbaca (untuk to_thread)."""
+    try:
+        return os.listdir(path)
+    except OSError:
+        return []
+
+
+def _stat_mtime_size(path: str) -> tuple[float, int]:
+    """(mtime, size) satu file (untuk to_thread)."""
+    st = os.stat(path)
+    return st.st_mtime, st.st_size
+
+
 @admin_router.get("/admin/drive/upload-queue")
 async def drive_upload_queue(db: AsyncSession = Depends(get_db)):
     """Antrean upload: segmen .mp4 stabil yang belum tercatat ter-upload.
@@ -1228,10 +1295,8 @@ async def drive_upload_queue(db: AsyncSession = Depends(get_db)):
         # nama segmen yang sama di kedua direktori hanya dihitung sekali.
         seen_names: set[str] = set()
         for rec_dir in camera_rec_dirs(s, settings.recordings_dir):
-            try:
-                names = os.listdir(rec_dir)
-            except OSError:
-                continue
+            # P1: pemindaian direktori di thread, bukan di event loop.
+            names = await asyncio.to_thread(_listdir_or_empty, rec_dir)
             for name in names:
                 if not name.endswith(".mp4"):
                     continue
@@ -1274,10 +1339,8 @@ async def drive_upload_queue(db: AsyncSession = Depends(get_db)):
             }
         seen_names = set()
         for rec_dir in camera_rec_dirs(s, settings.recordings_dir):
-            try:
-                names = os.listdir(rec_dir)
-            except OSError:
-                continue
+            # P1: pemindaian direktori + stat di thread.
+            names = await asyncio.to_thread(_listdir_or_empty, rec_dir)
             for name in names:
                 if not name.endswith(".mp4"):
                     continue
@@ -1290,9 +1353,10 @@ async def drive_upload_queue(db: AsyncSession = Depends(get_db)):
                 seen_names.add(name)
                 path = os.path.join(rec_dir, name)
                 try:
-                    if now - os.path.getmtime(path) < _STABLE_SEC:
+                    mtime, size = await asyncio.to_thread(_stat_mtime_size, path)
+                    if now - mtime < _STABLE_SEC:
                         continue
-                    if os.path.getsize(path) == 0:
+                    if size == 0:
                         continue
                 except OSError:
                     continue

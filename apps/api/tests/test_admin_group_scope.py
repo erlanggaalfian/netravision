@@ -319,11 +319,11 @@ async def test_external_kunci_password_5_salah(app_client):
         for _ in range(5):
             r = await c.get(
                 "/api/external/cameras",
-                params={"key": "KUNCI-1", "pass": "salah"},
+                headers={"X-Api-Key": "KUNCI-1", "X-Api-Key-Password": "salah"},
             )
             assert r.status_code == 403, r.text
         r = await c.get(
             "/api/external/cameras",
-            params={"key": "KUNCI-1", "pass": "salah"},
+            headers={"X-Api-Key": "KUNCI-1", "X-Api-Key-Password": "salah"},
         )
         assert r.status_code == 429, r.text

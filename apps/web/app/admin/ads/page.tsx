@@ -111,7 +111,7 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
         <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
           Live Preview (Pratinjau Langsung)
         </span>
-        <span className="rounded-md border border-accent-500/30 bg-accent-500/10 px-2.5 py-0.5 font-mono text-[10px] text-accent-300">
+        <span className="rounded-md border border-accent-500/30 bg-accent-500/10 px-2.5 py-0.5 font-mono text-[11px] text-accent-300">
           Widescreen Monitor (16:9)
         </span>
       </div>
@@ -140,12 +140,12 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
           <span className="text-xs font-medium">Pratinjau video</span>
         </div>
         {/* Label kamera kiri-atas */}
-        <div className="absolute left-3 top-3 flex select-none items-center gap-1.5 rounded-md border border-white/10 bg-black/70 px-2.5 py-1 font-mono text-[10px] text-white">
+        <div className="absolute left-3 top-3 flex select-none items-center gap-1.5 rounded-md border border-white/10 bg-black/70 px-2.5 py-1 font-mono text-[11px] text-white">
           <span className="h-2 w-2 animate-pulse rounded-full bg-ok-400" />
           <span className="font-bold tracking-wide">LOBBY UTAMA - LIVE</span>
         </div>
         {/* Indikator REC kanan-atas */}
-        <div className="absolute right-3 top-3 flex select-none items-center gap-1.5 rounded-md border border-white/10 bg-black/70 px-2.5 py-1 font-mono text-[10px] font-bold tracking-widest text-bad-400">
+        <div className="absolute right-3 top-3 flex select-none items-center gap-1.5 rounded-md border border-white/10 bg-black/70 px-2.5 py-1 font-mono text-[11px] font-bold tracking-widest text-bad-400">
           <span className="h-1.5 w-1.5 animate-ping rounded-full bg-bad-400" />
           <span>● REC</span>
         </div>
@@ -383,7 +383,7 @@ export default function AdminAdsPage() {
               <span className="block font-mono text-xs font-semibold uppercase tracking-wider text-white">
                 Status Penayangan Iklan
               </span>
-              <span className="font-mono text-[10px] text-slate-400">
+              <span className="font-mono text-[11px] text-slate-400">
                 Tampilkan space iklan ini di video stream guest
               </span>
             </div>
@@ -472,7 +472,7 @@ export default function AdminAdsPage() {
                       className="max-h-14 object-contain"
                     />
                   ) : (
-                    <span className="font-mono text-[10px] text-slate-400">
+                    <span className="font-mono text-[11px] text-slate-400">
                       Tidak ada gambar
                     </span>
                   )}

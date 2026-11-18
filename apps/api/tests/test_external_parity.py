@@ -50,7 +50,7 @@ async def test_playback_tidak_503(app_client):
     await _seed_key(db)
     async with _client(app) as c:
         r = await c.get(
-            "/api/external/playback", params={"key": "KUNCI-1", "camera": 1}
+            "/api/external/playback", params={"camera": 1}, headers={"X-Api-Key": "KUNCI-1"}
         )
         assert r.status_code == 200, r.text
         assert r.status_code != 503
@@ -65,7 +65,7 @@ async def test_playback_bad_camera_403(app_client):
     await _seed_key(db)
     async with _client(app) as c:
         r = await c.get(
-            "/api/external/playback", params={"key": "KUNCI-1", "camera": 9}
+            "/api/external/playback", params={"camera": 9}, headers={"X-Api-Key": "KUNCI-1"}
         )
         assert r.status_code == 403
 
@@ -82,7 +82,7 @@ async def test_stream_field_aditif(app_client):
     await db.commit()
     async with _client(app) as c:
         r = await c.get(
-            "/api/external/stream", params={"key": "KUNCI-1", "camera": 1}
+            "/api/external/stream", params={"camera": 1}, headers={"X-Api-Key": "KUNCI-1"}
         )
         assert r.status_code == 200, r.text
         data = r.json()
@@ -108,7 +108,7 @@ async def test_stream_tanpa_sub(app_client):
     await _seed_key(db)
     async with _client(app) as c:
         r = await c.get(
-            "/api/external/stream", params={"key": "KUNCI-1", "camera": 2}
+            "/api/external/stream", params={"camera": 2}, headers={"X-Api-Key": "KUNCI-1"}
         )
         assert r.status_code == 200, r.text
         data = r.json()
@@ -125,13 +125,13 @@ async def test_cameras_filter_satu_kamera(app_client):
     async with _client(app) as c:
         r = await c.get(
             "/api/external/cameras",
-            params={"key": "KUNCI-1", "camera": 2},
+            params={"camera": 2}, headers={"X-Api-Key": "KUNCI-1"},
         )
         assert r.status_code == 200, r.text
         data = r.json()
         assert len(data) == 1 and data[0]["id"] == 12
         # tanpa filter -> semua
-        r = await c.get("/api/external/cameras", params={"key": "KUNCI-1"})
+        r = await c.get("/api/external/cameras", headers={"X-Api-Key": "KUNCI-1"})
         assert len(r.json()) == 2
 
 

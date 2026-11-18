@@ -30,10 +30,27 @@ class Stream(Base, TimestampMixin):
         # recording_enabled) dipakai uploader/retensi/cleanup.
         Index("ix_streams_is_active", "is_active"),
         Index("ix_streams_storage_recording", "storage_mode", "recording_enabled"),
+        # 0030: indeks FK yang dipakai query panas (daftar kamera per
+        # admin, hapus akun/folder Drive), sebelumnya seq scan.
+        # ix_streams_group_name sengaja TIDAK dideklarasikan: kolom
+        # group_name tidak pernah difilter (hanya dibaca untuk
+        # tampilan/path); indeksnya di-drop migrasi 0030.
+        Index("ix_streams_owner_id", "owner_id"),
+        Index("ix_streams_created_by", "created_by"),
+        Index("ix_streams_drive_account_id", "drive_account_id"),
+        Index("ix_streams_drive_folder_id", "drive_folder_id"),
         # 2.15: storage_mode hanya boleh salah satu dari tiga nilai ini.
         CheckConstraint(
             "storage_mode IN ('local', 'drive', 'both')",
-            name="ck_streams_storage_mode",
+            # Nama pendek, lihat komentar yang sama di models/users.py
+            # (naming convention Base merender ck_streams_storage_mode).
+            name="storage_mode",
+        ),
+        # 0030: retensi negatif membuat cutoff di masa depan dan bisa
+        # menghapus segmen yang baru dibuat.
+        CheckConstraint(
+            "retention_days >= 0",
+            name="retention_days_nonnegative",
         ),
     )
 
@@ -77,7 +94,7 @@ class Stream(Base, TimestampMixin):
 
     # Akun Google Drive untuk kamera ini (NULL = akun default).
     # Backward compat: instalasi satu-akun lama (token.json) tetap jalan
-    # tanpa baris drive_accounts — lihat app/services/drive.py.
+    # tanpa baris drive_accounts, lihat app/services/drive.py.
     drive_account_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("drive_accounts.id", ondelete="SET NULL"), nullable=True
     )

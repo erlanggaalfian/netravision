@@ -21,6 +21,18 @@ Cek:
   8. DRIVE_TOKEN_KEY: GAGAL bila DRIVE_ENABLED=true di deploy/.env tapi
      kunci kosong/placeholder/tidak valid (aktivasi Drive akan crash
      RuntimeError tanpa kunci Fernet yang sah)
+  9. WEBRTC_ADDITIONAL_HOST (D1): GAGAL bila deploy/.env ada tapi variabel
+     ini kosong/placeholder, docker-compose memakai ${...:?} dan akan
+     gagal di `docker compose up`. Bila .env belum ada (install.sh
+     membuatnya di langkah 2), cek dilewati di sini dan install.sh
+     yang mengisinya dari DOMAIN.
+ 10. APP_ENV / JWT_SECRET (K1): GAGAL bila APP_ENV=prod tapi JWT_SECRET
+     masih placeholder/pendek (<32 karakter); PERINGATAN bila APP_ENV
+     bukan prod (guard secret default tidak aktif di server publik).
+ 11. Sertifikat TLS: GAGAL bila sertifikat Let's Encrypt sudah kedaluwarsa;
+     PERINGATAN bila <30 hari lagi. Pengecekan via openssl (cepat).
+     `certbot renew --dry-run` hanya dijalankan bila
+     PREFLIGHT_CERTBOT_DRY_RUN=1 (lambat + butuh jaringan).
 """
 
 from __future__ import annotations
@@ -304,6 +316,121 @@ def check_drive_token_key() -> None:
         report("DRIVE_TOKEN_KEY (bila Drive aktif)", "OK")
 
 
+def check_webrtc_host() -> None:
+    env = _read_deploy_env()
+    if not env:
+        # .env belum dibuat (install.sh membuatnya di langkah 2 dan
+        # mengisinya dari DOMAIN) - lewati di sini.
+        report("WEBRTC_ADDITIONAL_HOST terisi", "OK", "deploy/.env belum ada - diisi install.sh dari DOMAIN")
+        return
+    val = env.get("WEBRTC_ADDITIONAL_HOST", "").strip()
+    val = val.removeprefix("https://").removeprefix("http://").rstrip("/")
+    if not val or val == "CHANGE_ME_GENERATED_BY_INSTALL_SH":
+        report(
+            "WEBRTC_ADDITIONAL_HOST terisi",
+            "GAGAL",
+            "kosong di deploy/.env - docker-compose memakai ${WEBRTC_ADDITIONAL_HOST:?} "
+            "dan `docker compose up` akan gagal. Isi IP/domain publik server "
+            "(atau jalankan install.sh: ia mengisinya dari DOMAIN).",
+        )
+    elif any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-:" for c in val):
+        report(
+            "WEBRTC_ADDITIONAL_HOST terisi",
+            "GAGAL",
+            f"nilai tidak valid: '{val}' (isi IP/domain publik tanpa skema, contoh: netra.mamura.net.id).",
+        )
+    else:
+        report("WEBRTC_ADDITIONAL_HOST terisi", "OK", val)
+
+
+def check_app_env_jwt() -> None:
+    env = _read_deploy_env()
+    if not env:
+        report("APP_ENV/JWT_SECRET", "OK", "deploy/.env belum ada - dicek lagi setelah install.sh membuatnya")
+        return
+    app_env = env.get("APP_ENV", "").strip() or "dev"
+    secret = env.get("JWT_SECRET", "").strip()
+    if app_env == "prod":
+        if not secret or secret == "CHANGE_ME_GENERATED_BY_INSTALL_SH" or len(secret) < 32:
+            report(
+                "APP_ENV/JWT_SECRET",
+                "GAGAL",
+                "APP_ENV=prod tapi JWT_SECRET masih placeholder/pendek (<32 karakter) - "
+                "secret default yang diketahui publik akan dipakai. Isi JWT_SECRET acak.",
+            )
+        else:
+            report("APP_ENV/JWT_SECRET", "OK", "APP_ENV=prod, JWT_SECRET terisi (>=32 karakter)")
+    else:
+        report(
+            "APP_ENV/JWT_SECRET",
+            "PERINGATAN",
+            f"APP_ENV={app_env} (bukan prod) - guard JWT_SECRET tidak aktif; "
+            "jangan pakai setting ini di server publik.",
+        )
+
+
+def check_cert_expiry() -> None:
+    """Sertifikat Let's Encrypt: gagal bila kedaluwarsa, warning bila <30 hari."""
+    import datetime
+
+    live_dir = "/etc/letsencrypt/live"
+    try:
+        domains = sorted(
+            d for d in os.listdir(live_dir)
+            if os.path.isfile(os.path.join(live_dir, d, "fullchain.pem"))
+        )
+    except OSError:
+        domains = []
+    if not domains:
+        report(
+            "sertifikat TLS belum kedaluwarsa",
+            "PERINGATAN",
+            "tidak ada sertifikat di /etc/letsencrypt/live - install.sh akan gagal "
+            "dengan pesan jelas bila sertifikat domain belum dibuat (certbot).",
+        )
+        return
+    now = datetime.datetime.now(datetime.timezone.utc)
+    worst = None
+    for domain in domains:
+        cert = os.path.join(live_dir, domain, "fullchain.pem")
+        try:
+            out = subprocess.run(
+                ["openssl", "x509", "-in", cert, "-noout", "-enddate"],
+                capture_output=True, text=True, timeout=10,
+            ).stdout.strip()
+            # Format: notAfter=Nov 18 12:00:00 2026 GMT
+            end = datetime.datetime.strptime(
+                out.split("=", 1)[1].strip(), "%b %d %H:%M:%S %Y %Z"
+            ).replace(tzinfo=datetime.timezone.utc)
+        except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+            report("sertifikat TLS belum kedaluwarsa", "PERINGATAN",
+                   f"tidak bisa membaca masa berlaku {cert} (openssl).")
+            return
+        days = (end - now).days
+        if worst is None or days < worst[1]:
+            worst = (domain, days)
+    domain, days = worst
+    if days < 0:
+        report("sertifikat TLS belum kedaluwarsa", "GAGAL",
+               f"sertifikat {domain} SUDAH kedaluwarsa ({-days} hari lalu) - perbarui: certbot renew.")
+    elif days < 30:
+        report("sertifikat TLS belum kedaluwarsa", "PERINGATAN",
+               f"sertifikat {domain} kedaluwarsa dalam {days} hari - jalankan: certbot renew.")
+    else:
+        report("sertifikat TLS belum kedaluwarsa", "OK", f"{domain}: {days} hari lagi")
+    # Dry-run certbot hanya bila diminta eksplisit (lambat + butuh jaringan).
+    if os.environ.get("PREFLIGHT_CERTBOT_DRY_RUN") == "1" and shutil.which("certbot"):
+        try:
+            r = subprocess.run(
+                ["certbot", "renew", "--dry-run"],
+                capture_output=True, text=True, timeout=300,
+            )
+            report("certbot renew --dry-run", "OK" if r.returncode == 0 else "PERINGATAN",
+                   "lolos" if r.returncode == 0 else "gagal - periksa output certbot manual.")
+        except (OSError, subprocess.SubprocessError) as e:
+            report("certbot renew --dry-run", "PERINGATAN", str(e))
+
+
 def main() -> int:
     print("NetraVision v3.0 - preflight check\n")
     check_docker()
@@ -314,6 +441,9 @@ def main() -> int:
     check_python()
     check_udp_webrtc()
     check_drive_token_key()
+    check_webrtc_host()
+    check_app_env_jwt()
+    check_cert_expiry()
 
     gagal = sum(1 for _, st, _ in results if st == "GAGAL")
     print()

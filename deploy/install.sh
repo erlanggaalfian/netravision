@@ -17,6 +17,10 @@
 #      Pergantian vhost (a2ensite v3 + a2dissite v2 + reload) dilakukan di
 #      CUTOVER Fase F (maintenance window); v2.0 tetap melayani sampai sana.
 #   6. Health check GET /api/health
+#   7. Pasang cron backup harian (deploy/backup-db.cron ->
+#      /etc/cron.d/netravision-backup), idempoten: hanya disalin bila
+#      belum ada atau isinya berbeda; path repo di jadwal disesuaikan
+#      dengan lokasi repo ini (D4).
 #
 # API_PORT dibaca dari env shell, lalu deploy/.env, lalu default 8100 -
 # harus sama dengan nilai yang dipakai docker-compose.yml
@@ -140,6 +144,61 @@ if [ -z "$API_PORT" ]; then
     API_PORT="${API_PORT:-8100}"
 fi
 
+# WEBRTC_ADDITIONAL_HOST (wajib, D1): IP/domain publik server untuk
+# kandidat ICE WebRTC. docker-compose.yml memakai ${WEBRTC_ADDITIONAL_HOST:?}
+# dan compose GAGAL bila kosong, gagalkan di sini dengan pesan yang jelas,
+# jangan biarkan gagal di `docker compose up`.
+# Prioritas: env shell WEBRTC_ADDITIONAL_HOST > nilai di .env > DOMAIN.
+# DOMAIN adalah domain publik server ini, jadi default yang masuk akal.
+ensure_webrtc_host() {
+    local val="${WEBRTC_ADDITIONAL_HOST:-}"
+    if [ -z "$val" ]; then
+        val="$(grep -E '^WEBRTC_ADDITIONAL_HOST=' "$ENV_FILE" | cut -d= -f2- || true)"
+    fi
+    # Bersihkan bila operator menempel URL lengkap (https://domain/).
+    val="${val#https://}"; val="${val#http://}"; val="${val%%/*}"
+    if [ -z "$val" ] || [ "$val" = "CHANGE_ME_GENERATED_BY_INSTALL_SH" ]; then
+        val="$DOMAIN"
+        ok "WEBRTC_ADDITIONAL_HOST kosong - diisi default dari DOMAIN ($DOMAIN)."
+    fi
+    case "$val" in
+        *[!A-Za-z0-9._:-]*) fail "WEBRTC_ADDITIONAL_HOST tidak valid: '$val' (isi IP/domain publik tanpa skema, contoh: $DOMAIN)." ;;
+    esac
+    if grep -qE '^WEBRTC_ADDITIONAL_HOST=' "$ENV_FILE"; then
+        sed -i -E "s|^WEBRTC_ADDITIONAL_HOST=.*|WEBRTC_ADDITIONAL_HOST=${val}|" "$ENV_FILE"
+    else
+        printf '%s=%s\n' "WEBRTC_ADDITIONAL_HOST" "$val" >> "$ENV_FILE"
+    fi
+    ok "WEBRTC_ADDITIONAL_HOST=$val"
+}
+ensure_webrtc_host
+
+# APP_ENV (K1): guard JWT_SECRET di app menolak secret default/pendek
+# SELALU (bukan hanya bila APP_ENV=prod). Pastikan variabel ini ada di
+# .env (default prod) dan gagalkan bila memakai secret placeholder/pendek.
+if ! grep -qE '^APP_ENV=' "$ENV_FILE"; then
+    printf '%s=%s\n' "APP_ENV" "prod" >> "$ENV_FILE"
+    ok "APP_ENV tidak ada - diisi prod (default aman)."
+fi
+APP_ENV_VAL="$(grep -E '^APP_ENV=' "$ENV_FILE" | cut -d= -f2-)"
+JWT_VAL="$(grep -E '^JWT_SECRET=' "$ENV_FILE" | cut -d= -f2-)"
+if [ "$JWT_VAL" = "CHANGE_ME_GENERATED_BY_INSTALL_SH" ] || [ "${#JWT_VAL}" -lt 32 ]; then
+    fail "JWT_SECRET masih placeholder/pendek (<32 karakter). Isi JWT_SECRET acak di deploy/.env lalu jalankan ulang."
+fi
+[ "$APP_ENV_VAL" = "prod" ] || warn "APP_ENV=$APP_ENV_VAL (bukan prod) - JANGAN pakai setting ini di server publik."
+
+# mediamtx.yml harus sudah ada sebagai FILE sebelum `docker compose up`:
+# service `migrate` me-mount ./mediamtx.yml sebagai file; bila belum ada,
+# Docker membuatnya sebagai DIREKTORI dan setup_mediamtx gagal.
+# write_text() mempertahankan mode file yang sudah ada, jadi 600 di sini
+# membuat file hasil generate tetap hanya bisa dibaca owner (berisi
+# password control API MediaMTX).
+if [ ! -f "$DEPLOY_DIR/mediamtx.yml" ]; then
+    touch "$DEPLOY_DIR/mediamtx.yml"
+    ok "deploy/mediamtx.yml dibuat (kosong, akan diisi service migrate)."
+fi
+chmod 600 "$DEPLOY_DIR/mediamtx.yml" 2>/dev/null || warn "Gagal chmod 600 deploy/mediamtx.yml - periksa manual."
+
 # ------------------------------------------------- 3. docker compose up
 # Mediamtx v2.0 masih memegang UDP 8189 -> `compose up` pasti gagal
 # (port already allocated). Hentikan dulu; preflight sudah GAGAL bila
@@ -162,6 +221,17 @@ step "3/6 - Menjalankan service (docker compose up -d)"
 cd "$REPO_ROOT"
 docker compose -f "$COMPOSE_FILE" up -d
 ok "Container berjalan."
+
+# API berjalan non-root (uid 10001, lihat Dockerfile + compose); volume
+# recordings/apidata/gdrive_staging harus dimiliki uid itu, kalau tidak
+# API gagal menulis rekaman/upload. Perbaiki kepemilikan sekali di sini
+# (idempoten; gagal = peringatan, jalankan manual bila perlu).
+if [ -x "$DEPLOY_DIR/fix-volume-perms.sh" ]; then
+    "$DEPLOY_DIR/fix-volume-perms.sh" \
+        || warn "fix-volume-perms.sh gagal - jalankan manual: sudo ./deploy/fix-volume-perms.sh"
+else
+    warn "deploy/fix-volume-perms.sh tidak ditemukan - lewati perbaikan izin volume."
+fi
 
 step "Menunggu PostgreSQL sehat (maks 90 dtk)..."
 for i in $(seq 1 90); do
@@ -245,6 +315,33 @@ if curl -sf -o /dev/null --max-time 10 "http://127.0.0.1:${API_PORT}/api/health"
     ok "GET /api/health -> OK"
 else
     fail "Health check GAGAL. Cek: docker compose -f $COMPOSE_FILE logs api"
+fi
+
+# ------------------------------------------------- 7. cron backup harian
+step "7/6 - Pasang cron backup harian (idempoten)"
+# D4: backup-db.cron sebelumnya tidak pernah terpasang otomatis.
+# Pasang dari sini (install.sh dijalankan sekali saat setup awal dan
+# idempoten). Jadwal di backup-db.cron memakai path contoh
+# /opt/netravision; ganti hanya path skripnya dengan REPO_ROOT repo ini
+# supaya cron benar-benar jalan di server ini (baris komentar manual di
+# file itu tidak ikut berubah). Bila file tujuan sudah ada dan isinya
+# sama, tidak disalin ulang (tanpa duplikasi).
+CRON_SRC="$DEPLOY_DIR/backup-db.cron"
+CRON_DST="/etc/cron.d/netravision-backup"
+if [ -f "$CRON_SRC" ]; then
+    TMP_CRON="$(mktemp)"
+    sed "s|/opt/netravision/deploy/backup-db.sh|$REPO_ROOT/deploy/backup-db.sh|" "$CRON_SRC" > "$TMP_CRON"
+    if [ -f "$CRON_DST" ] && cmp -s "$TMP_CRON" "$CRON_DST"; then
+        ok "Cron backup harian sudah terpasang dan sama - tidak diubah."
+    elif cp "$TMP_CRON" "$CRON_DST"; then
+        chmod 644 "$CRON_DST" || warn "Gagal chmod 644 $CRON_DST - periksa manual."
+        ok "Cron backup harian dipasang: $CRON_DST (setiap hari 02:00 WIB)."
+    else
+        warn "Gagal memasang $CRON_DST - pasang manual: sudo cp $CRON_SRC $CRON_DST && sudo chmod 644 $CRON_DST (sesuaikan path repo di jadwal)."
+    fi
+    rm -f "$TMP_CRON"
+else
+    warn "deploy/backup-db.cron tidak ditemukan - lewati pemasangan cron backup."
 fi
 
 echo -e "\n\033[1;32m==============================================\033[0m"

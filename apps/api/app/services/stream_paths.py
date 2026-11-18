@@ -46,6 +46,10 @@ Pemakaian (frontend):
 
 from __future__ import annotations
 
+import logging
+
+log = logging.getLogger("netravision.stream_paths")
+
 
 def main_path(stream_id: int) -> str:
     return f"stream_{stream_id}"
@@ -129,6 +133,9 @@ async def register_stream(mediamtx, stream_id: int, source: str,
     dan sub yang record=True. Segmen lama di stream_{id}/ tetap ada
     di disk dan tetap bisa diputar (pembaca segmen membaca kedua
     direktori); peralihan tidak menghapus rekaman lama.
+
+    Mutasi path (ensure_path/delete_path) sudah ter-serialisasi oleh
+    MEDIA_PATH_LOCK di MediaMTXClient, jangan tambah lock kedua di sini.
     """
     has_sub = bool(sub_source)
     await mediamtx.ensure_path(
@@ -148,8 +155,13 @@ async def register_stream(mediamtx, stream_id: int, source: str,
         # yang sudah tidak berlaku). delete_path menoleransi 404.
         try:
             await mediamtx.delete_path(sub_path(stream_id))
-        except Exception:  # noqa: BLE001 - hapus best-effort
-            pass
+        except Exception as exc:  # noqa: BLE001 - hapus best-effort
+            log.warning(
+                "register_stream: gagal menghapus path sub lama %s "
+                "(best-effort, diabaikan): %s",
+                sub_path(stream_id),
+                exc,
+            )
 
 
 def _selftest() -> None:

@@ -32,9 +32,25 @@ export function AdBanner({
   className = "",
   hovered = false,
   clickTick = 0,
-  placement = "overlay",
+  /* Default "below": banner tidak menutupi video maupun kontrolnya.
+     "overlay" hanya dipakai sengaja (mis. di dalam frame tile
+     fullscreen Monitor) dan selalu bisa ditutup pengguna. */
+  placement = "below",
 }: Props) {
   const [visible, setVisible] = useState(true);
+  /* Overlay yang ditutup pengguna tetap tertutup sampai iklan berganti. */
+  const [dismissed, setDismissed] = useState(false);
+  useEffect(() => {
+    setDismissed(false);
+  }, [config.marquee_text, config.image_url, config.click_url]);
+  /* prefers-reduced-motion: marquee dimatikan. Aturan global di
+     globals.css (animation: none !important) sudah mematikannya juga,
+     ini supaya animasi tidak pernah disetel sejak awal. */
+  const [reduceMotion] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  );
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const isPeriodic = config.display_mode === "periodic";
@@ -138,6 +154,7 @@ export function AdBanner({
   useEffect(() => clearTimers, []);
 
   if (!config.is_active) return null;
+  if (dismissed) return null;
   if (!config.marquee_text?.trim() && !config.image_url?.trim()) return null;
 
   const bgAlpha = Math.min(1, Math.max(0, config.bg_opacity));
@@ -201,10 +218,14 @@ export function AdBanner({
       )}
       {config.marquee_text && (
         <div className="min-w-0 flex-1 overflow-hidden">
-          {/* Teks SELALU berjalan, di semua mode dan perilaku. */}
+          {/* Teks berjalan, kecuali pengguna memakai reduced-motion. */}
           <div
             className="flex w-max whitespace-nowrap"
-            style={{ animation: `nv-marquee ${duration}s linear infinite` }}
+            style={
+              reduceMotion
+                ? undefined
+                : { animation: `nv-marquee ${duration}s linear infinite` }
+            }
           >
             {[0, 1, 2, 3].map((i) => (
               <span
@@ -235,6 +256,28 @@ export function AdBanner({
 
   return (
     <div className={wrapCls}>
+      {/* Tombol tutup untuk overlay: banner menutupi video, pengguna
+          harus bisa menutupnya tanpa menunggu siklus berkala. */}
+      {placement === "overlay" && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setDismissed(true);
+          }}
+          aria-label="Tutup iklan"
+          className="absolute right-1.5 top-1/2 z-30 flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 active:scale-95"
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+            <path
+              d="M2 2l10 10M12 2L2 12"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+      )}
       {/* click_url hanya jadi tautan bila http(s): skema lain (mis.
           javascript:) tidak boleh dieksekusi dari klik banner. */}
       {/^https?:\/\//i.test(config.click_url?.trim() ?? "") ? (

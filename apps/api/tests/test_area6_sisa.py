@@ -386,9 +386,9 @@ async def test_external_satu_insert_per_request_dan_last_used_at(app_client):
     key = await _seed_key(db)
     assert key.last_used_at is None
     async with _client(app) as c:
-        r = await c.get("/api/external/cameras", params={"key": "KUNCI-RAHASIA-123"})
+        r = await c.get("/api/external/cameras", headers={"X-Api-Key": "KUNCI-RAHASIA-123"})
         assert r.status_code == 200, r.text
-        r = await c.get("/api/external/cameras", params={"key": "KUNCI-RAHASIA-123"})
+        r = await c.get("/api/external/cameras", headers={"X-Api-Key": "KUNCI-RAHASIA-123"})
         assert r.status_code == 200, r.text
     logs = await _logs(db)
     assert len(logs) == 2, [log.action for log in logs]
@@ -405,7 +405,7 @@ async def test_external_ditolak_satu_insert_tanpa_last_used_at(app_client):
     app, _, db = app_client
     key = await _seed_key(db)
     async with _client(app) as c:
-        r = await c.get("/api/external/cameras", params={"key": "SALAH"})
+        r = await c.get("/api/external/cameras", headers={"X-Api-Key": "SALAH"})
         assert r.status_code == 403
     logs = await _logs(db)
     assert len(logs) == 1
