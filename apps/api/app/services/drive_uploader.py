@@ -346,6 +346,15 @@ async def _sweep_staging() -> int:
         pending: dict[str, str] = {}
         for seg_name, seg_path in await asyncio.to_thread(_stable_segments, sdir):
             pending[seg_name] = seg_path
+        # Log diagnostik (2026-11-18): berapa segmen stabil yang
+        # ditemukan per kamera, termasuk bila 0, supaya terlihat bila
+        # satu kamera tidak pernah tersapu.
+        log.info(
+            "staging sweep: %s (stream_%d): %d stabil ditemukan",
+            cam_name,
+            sid,
+            len(pending),
+        )
         if not pending:
             continue
         try:
