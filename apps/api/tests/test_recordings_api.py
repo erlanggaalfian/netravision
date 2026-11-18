@@ -70,6 +70,32 @@ async def test_cameras_timeline_segments_dates(app_client, monkeypatch, tmp_path
         assert r.json() == {"dates": ["2026-11-02"]}
 
 
+async def test_timeline_segmen_terakhir_mtime_lama_tidak_nol(app_client, monkeypatch, tmp_path):
+    """Timeline: segmen terakhir dengan mtime lebih lama dari start
+    tetap punya durasi, bukan end=start.
+
+    Segmen 356 2026-11-18 14:39 punya mtime file 07:48 (salinan/mount
+    rclone), sehingga end=max(start, mtime)=start dan unduhan
+    /file?start=X&end=X ditolak 400 ("end harus setelah start").
+    """
+    from datetime import datetime
+
+    app, _, db = app_client
+    s = await _seed(app, db, monkeypatch, tmp_path)
+    p = _seg(str(tmp_path), s.id, "2026-11-02_10-00-00-000000.mp4")
+    # mtime 07:00, jauh sebelum start segmen 10:00.
+    old = datetime(2026, 11, 2, 7, 0, 0).timestamp()
+    os.utime(p, (old, old))
+
+    async with _client(app) as c:
+        r = await c.get(f"/api/recordings/{s.id}/timeline", params={"date": "2026-11-02"})
+        assert r.status_code == 200, r.text
+        entries = r.json()["entries"]
+        assert len(entries) == 1
+        assert entries[0]["start"] == "2026-11-02T10:00:00"
+        assert entries[0]["end"] > entries[0]["start"]
+
+
 async def test_cameras_drive_tanpa_lsjson(app_client, monkeypatch, tmp_path):
     """GET /recordings/cameras: kamera Drive dikenali lewat drive_uploads.
 

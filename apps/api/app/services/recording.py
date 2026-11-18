@@ -121,7 +121,15 @@ def _assign_ends(segments: list[Segment]) -> None:
                 # end=start (durasi 0, tak bisa diputar). Pakai durasi segmen
                 # yang wajar (recordSegmentDuration MediaMTX).
                 mtime = seg.start + timedelta(seconds=SEGMENT_FALLBACK_SEC)
-            seg.end = max(seg.start, mtime)
+            # mtime bisa lebih lama dari start (mis. file salinan/mount
+            # rclone dengan mtime lama): segmen 356 2026-11-18 14:39
+            # punya mtime 07:48, sehingga end=max(start, mtime)=start
+            # dan unduhan /file?start=X&end=X ditolak 400 ("end harus
+            # setelah start"). Tetap pakai durasi wajar bila mtime
+            # tidak lebih dari start.
+            if mtime <= seg.start:
+                mtime = seg.start + timedelta(seconds=SEGMENT_FALLBACK_SEC)
+            seg.end = mtime
 
 
 def list_segments(
