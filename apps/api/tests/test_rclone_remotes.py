@@ -109,6 +109,91 @@ async def test_upload_segment_uses_given_remote(tmp_path, monkeypatch):
     assert seen[1][2] == "gdrive:folder1/CamA/2026-11-12_10-00-00-000000.mp4"
 
 
+async def test_upload_segment_rate_limit_flags_and_timeout(tmp_path, monkeypatch):
+    """upload_segment meneruskan flag pacer/TPS dan timeout 600 ke rclone."""
+    monkeypatch.setenv("RCLONE_DATA_DIR", str(tmp_path))
+    seen = []
+
+    async def _cap(*args, timeout=60):
+        seen.append((args, timeout))
+        return 0, "", ""
+
+    monkeypatch.setattr(gr, "_run_rclone", _cap)
+    p = tmp_path / "seg.mp4"
+    p.write_bytes(b"v")
+    await gr.upload_segment(str(p), "folder1", "gdrive")
+    args, timeout = seen[0]
+    assert args[0] == "copyto"
+    assert "--transfers" in args and args[args.index("--transfers") + 1] == "1"
+    assert "--drive-pacer-min-sleep" in args
+    assert args[args.index("--drive-pacer-min-sleep") + 1] == "100ms"
+    assert "--tpslimit" in args
+    assert args[args.index("--tpslimit") + 1] == "10"
+    assert timeout == 600
+
+
+def test_upload_segment_rate_limit_retry_delays():
+    """Jeda retry rate limit adalah 10 detik lalu 30 detik."""
+    assert gr._RATE_LIMIT_RETRY_DELAYS_SEC == (10.0, 30.0)
+
+
+async def test_upload_segment_retries_rate_limit_then_succeeds(
+    tmp_path, monkeypatch
+):
+    """Gagal 2x rateLimitExceeded lalu sukses: 3 panggilan, upload sukses."""
+    monkeypatch.setenv("RCLONE_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(gr, "_RATE_LIMIT_RETRY_DELAYS_SEC", (0.0, 0.0))
+    calls = []
+
+    async def _flaky(*args, timeout=60):
+        calls.append(args)
+        if len(calls) < 3:
+            return 1, "", "Error 403: rateLimitExceeded, please try again"
+        return 0, "", ""
+
+    monkeypatch.setattr(gr, "_run_rclone", _flaky)
+    p = tmp_path / "seg.mp4"
+    p.write_bytes(b"v")
+    await gr.upload_segment(str(p), "folder1", "gdrive")
+    assert len(calls) == 3
+
+
+async def test_upload_segment_no_retry_for_other_errors(tmp_path, monkeypatch):
+    """Error bukan rate limit: 1 panggilan saja, error langsung dilempar."""
+    monkeypatch.setenv("RCLONE_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(gr, "_RATE_LIMIT_RETRY_DELAYS_SEC", (0.0, 0.0))
+    calls = []
+
+    async def _fail(*args, timeout=60):
+        calls.append(args)
+        return 1, "", "file not found"
+
+    monkeypatch.setattr(gr, "_run_rclone", _fail)
+    p = tmp_path / "seg.mp4"
+    p.write_bytes(b"v")
+    with pytest.raises(RuntimeError, match="upload gagal"):
+        await gr.upload_segment(str(p), "folder1", "gdrive")
+    assert len(calls) == 1
+
+
+async def test_upload_segment_rate_limit_all_attempts_fail(tmp_path, monkeypatch):
+    """Rate limit di semua 3 percobaan: error terakhir dilempar."""
+    monkeypatch.setenv("RCLONE_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(gr, "_RATE_LIMIT_RETRY_DELAYS_SEC", (0.0, 0.0))
+    calls = []
+
+    async def _fail(*args, timeout=60):
+        calls.append(args)
+        return 1, "", f"429 Too Many Requests (percobaan {len(calls)})"
+
+    monkeypatch.setattr(gr, "_run_rclone", _fail)
+    p = tmp_path / "seg.mp4"
+    p.write_bytes(b"v")
+    with pytest.raises(RuntimeError, match="upload gagal"):
+        await gr.upload_segment(str(p), "folder1", "gdrive")
+    assert len(calls) == 3
+
+
 async def test_remote_status_no_rclone(tmp_path, monkeypatch):
     monkeypatch.setenv("RCLONE_DATA_DIR", str(tmp_path))
     _write_conf(tmp_path, "[gdrive]\ntype = drive\ntoken = {}\n")

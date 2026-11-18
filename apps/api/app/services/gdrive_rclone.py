@@ -727,11 +727,28 @@ async def check_folder_access(folder_id: str, remote_name: str = REMOTE_NAME) ->
     return {"name": out2.strip() if rc2 == 0 and out2.strip() else ""}
 
 
+# Retry upload_segment khusus rate limit: jeda antar percobaan ulang,
+# dalam detik. Percobaan pertama gagal lalu jeda 10 detik, percobaan
+# kedua gagal lalu jeda 30 detik, percobaan ketiga adalah yang terakhir.
+_RATE_LIMIT_RETRY_DELAYS_SEC = (10.0, 30.0)
+
+
+def _is_rate_limit_error(text: str) -> bool:
+    """True bila teks error rclone menandakan rate limit Drive."""
+    lowered = (text or "").lower()
+    return (
+        "ratelimitexceeded" in lowered
+        or "429" in lowered
+        or "rate limit" in lowered
+    )
+
+
 async def upload_segment(
     local_path: str,
     folder_id: str,
     remote_name: str = REMOTE_NAME,
     dest_name: str | None = None,
+    timeout: int = 600,
 ) -> None:
     """Upload satu file segmen ke folder Drive di remote yang diminta.
 
@@ -755,14 +772,63 @@ async def upload_segment(
     else:
         remote = validate_remote_name(remote_name)
         dest = os.path.basename(local_path)
-    rc, out, err = await _run_rclone(
-        "copyto", local_path, f"{remote}:{folder_id}/{dest}",
-        "--transfers", "1",
-        timeout=300,
-    )
-    if rc != 0:
+    # Flag ramah rate limit (lihat konteks: Drive menolak API call saat
+    # burst, rclone lalu retry internal dengan backoff sampai timeout):
+    # --drive-pacer-min-sleep 100ms adalah lantai jeda antar API call
+    # (nilai default rclone, ditulis eksplisit supaya niatnya jelas;
+    # pacer menaikkan jeda sendiri bila kena 403), --tpslimit 10
+    # membatasi transaksi API maks 10/detik sebagai pengaman burst.
+    # Upload sekuensial file kecil secara alami jauh di bawah 10 TPS,
+    # jadi flag ini tidak memperlambat jalur normal.
+    # Timeout 600 detik (bukan 300) memberi waktu bagi retry internal
+    # rclone menyelesaikan backoff saat rate limit, karena file kecil
+    # sekalipun bisa butuh lebih dari 300 detik bila API diperlambat.
+    # Trade-off: satu upload yang lambat bisa memakan satu putaran
+    # sweep sampai 600 detik, tapi itu kejadian langka dan rotasi
+    # target tiap putaran tetap memastikan semua kamera mendapat giliran.
+    last_error: RuntimeError | None = None
+    for attempt in range(1, 4):
+        try:
+            rc, out, err = await _run_rclone(
+                "copyto", local_path, f"{remote}:{folder_id}/{dest}",
+                "--transfers", "1",
+                "--drive-pacer-min-sleep", "100ms",
+                "--tpslimit", "10",
+                timeout=timeout,
+            )
+        except RuntimeError as exc:
+            # Timeout rclone ("rclone timeout") tidak mengandung penanda
+            # rate limit, jadi tidak di-retry di sini; timeout 600 detik
+            # dan flag pacer di atas yang menanganinya.
+            if _is_rate_limit_error(str(exc)) and attempt < 3:
+                delay = _RATE_LIMIT_RETRY_DELAYS_SEC[attempt - 1]
+                log.warning(
+                    "upload rate limit, coba ulang %d/3 setelah %.0f detik: %s",
+                    attempt + 1, delay, local_path,
+                )
+                await asyncio.sleep(delay)
+                continue
+            raise
+        if rc == 0:
+            break
         detail = (err or out).strip().split("\n")[-1][:200]
-        raise RuntimeError(f"upload gagal: {detail}")
+        last_error = RuntimeError(f"upload gagal: {detail}")
+        # Retry HANYA untuk error rate limit; error lain langsung gagal
+        # supaya kegagalan nyata (mis. file tidak ada) tidak disamarkan
+        # oleh percobaan ulang yang sia-sia.
+        if not _is_rate_limit_error(err or out) or attempt >= 3:
+            raise last_error
+        delay = _RATE_LIMIT_RETRY_DELAYS_SEC[attempt - 1]
+        log.warning(
+            "upload rate limit, coba ulang %d/3 setelah %.0f detik: %s",
+            attempt + 1, delay, local_path,
+        )
+        await asyncio.sleep(delay)
+    else:
+        # Tidak tercapai dalam praktik (loop selalu break atau raise),
+        # tapi jaga supaya error terakhir tetap dilempar bila terjadi.
+        if last_error is not None:
+            raise last_error
     # 6.4: file baru di Drive, buang cache lsjson remote itu supaya
     # segmen langsung terlihat di Putar Ulang (bukan setelah TTL 120 dtk).
     invalidate_lsjson_cache(remote)
