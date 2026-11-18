@@ -350,10 +350,14 @@ async def _sweep_staging() -> int:
         # ditemukan per kamera, termasuk bila 0, supaya terlihat bila
         # satu kamera tidak pernah tersapu.
         log.info(
-            "staging sweep: %s (stream_%d): %d stabil ditemukan",
+            "staging sweep: %s (stream_%d): %d stabil ditemukan "
+            "(sdir=%s isdir=%s seen=%d)",
             cam_name,
             sid,
             len(pending),
+            sdir,
+            os.path.isdir(sdir),
+            len(_SEEN_STABLE),
         )
         if not pending:
             continue
