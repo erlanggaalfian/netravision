@@ -355,6 +355,18 @@ async def _sweep_staging() -> int:
             continue
         for seg_name in done:
             pending.pop(seg_name, None)
+        # Log diagnostik per kamera (2026-11-18): berapa segmen stabil
+        # yang ditemukan dan berapa yang masih tertunda, supaya
+        # terlihat bila satu kamera tidak pernah tersapu.
+        log.info(
+            "staging sweep: %s (stream_%d): %d stabil, %d sudah di Drive, "
+            "%d tertunda",
+            cam_name,
+            sid,
+            len(pending) + len(done),
+            len(done),
+            len(pending),
+        )
         for seg_name, seg_path in pending.items():
             if attempted >= _STAGING_PER_ROUND:
                 break
