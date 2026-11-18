@@ -1035,6 +1035,30 @@ async def recording_cameras(
             # Fallback mahal (hanya bila jejak upload kosong): segmen
             # bisa saja hanya ada di folder OAuth / staging folder-link.
             drive_fallback.append(s)
+    async def _fallback_has_segments(s: Stream, sdb: AsyncSession) -> bool:
+        """Apakah kamera fallback punya segmen, tanpa panggilan Drive lambat
+        bila tidak perlu.
+
+        Cek murah dulu staging folder-link (listdir lokal, ~0,01 detik).
+        Bila ada, kamera punya rekaman, tidak perlu _all_segments. Bila
+        tidak ada dan kamera tidak punya folder Drive, berhenti: sumber
+        rclone/OAuth tidak punya folder untuk diperiksa, dan
+        _rclone_segments menebak folder default + nama kamera yang
+        tidak ada lalu menggantung sampai timeout 60 detik per kamera
+        (9 kamera baru MIM Gudang tanpa folder: endpoint 120 detik,
+        pemilih kamera Putar Ulang macet di "Memuat kamera...").
+        Hanya bila ada folder Drive, jalankan _all_segments penuh.
+        """
+        try:
+            if await _folder_link_segments(s, None, sdb):
+                return True
+        except Exception:  # noqa: BLE001 - staging opsional
+            pass
+        if not s.drive_folder_id:
+            return False
+        segs = await _all_segments(s, None, sdb)
+        return bool(segs)
+
     if drive_fallback:
         # A-1.13: fallback Drive per kamera jalan bersamaan (batas 4),
         # bukan berurutan. Satu AsyncSession tidak aman dipakai
@@ -1046,11 +1070,11 @@ async def recording_cameras(
         ) -> tuple[Stream, bool]:
             async with sem:
                 if factory is None:
-                    segs = await _all_segments(s, None, db)
+                    has = await _fallback_has_segments(s, db)
                 else:
                     async with factory() as sdb:
-                        segs = await _all_segments(s, None, sdb)
-            return s, bool(segs)
+                        has = await _fallback_has_segments(s, sdb)
+            return s, has
 
         factory = None
         if db.bind is not None:

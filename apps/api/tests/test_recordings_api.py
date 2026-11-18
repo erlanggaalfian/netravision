@@ -120,6 +120,48 @@ async def test_cameras_drive_tanpa_lsjson(app_client, monkeypatch, tmp_path):
         assert s.id in ids
 
 
+async def test_cameras_drive_tanpa_folder_tidak_panggil_all_segments(app_client, monkeypatch, tmp_path):
+    """GET /recordings/cameras: kamera Drive tanpa folder tidak memicu fallback.
+
+    Kamera mode Drive tanpa drive_folder_id, tanpa segmen lokal, dan
+    tanpa jejak upload tidak punya rekaman yang bisa diputar. Fallback
+    _all_segments untuk kamera seperti ini menebak folder default +
+    nama kamera yang tidak ada, dan rclone lsjson menggantung sampai
+    timeout 60 detik per kamera (9 kamera baru MIM Gudang: endpoint
+    120 detik, pemilih kamera Putar Ulang macet di "Memuat kamera...").
+    """
+    app, _, db = app_client
+    admin = make_user()
+    db.add(admin)
+    s = Stream(
+        name="Cam Drive Tanpa Folder",
+        rtsp_url="rtsp://x/9",
+        main_url="rtsp://x/9",
+        is_active=True,
+        recording_enabled=False,
+        storage_mode="drive",
+        drive_folder_id=None,
+        created_by=admin.id,
+    )
+    db.add(s)
+    await db.commit()
+    auth_as(app, admin)
+    monkeypatch.setattr(get_settings(), "recordings_dir", str(tmp_path))
+
+    import app.routers.recordings as rec
+
+    async def _boom(*args, **kwargs):
+        raise AssertionError("_all_segments tidak boleh dipanggil")
+
+    monkeypatch.setattr(rec, "_all_segments", _boom)
+
+    async with _client(app) as cl:
+        r = await cl.get("/api/recordings/cameras")
+        assert r.status_code == 200, r.text
+        ids = {k["id"] for k in r.json()}
+        assert s.id not in ids
+
+
 async def test_cameras_hanya_yang_punya_segmen(app_client, monkeypatch, tmp_path):
     """GET /recordings/cameras hanya kembalikan kamera yang punya segmen.
 
