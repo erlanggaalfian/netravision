@@ -245,6 +245,43 @@ async def test_upload_once_runs_staging_when_connected(
     assert await du._uploaded_names(stream.id, "netravision", [SEG]) == {SEG}
 
 
+async def test_staging_sweep_uploads_orphaned_camera(
+    _uploader_db, tmp_path, monkeypatch
+):
+    """Kamera yang rekamannya sudah dimatikan (recording_enabled=False)
+    tapi storage_mode masih drive: file staging-nya tetap ter-upload,
+    karena itu rekaman lama yang memang tujuan Drive (kasus stream_361
+    MIM MRI 7 di produksi: 7.193 file nyangkut setelah rekaman
+    dimatikan)."""
+    from app.services import drive_uploader as du
+
+    db = _uploader_db
+    staging = tmp_path / "staging"
+    folder = _mk_folder(db, str(staging))
+    await db.flush()
+    stream = _mk_stream(
+        db,
+        recording_enabled=False,
+        storage_mode="drive",
+        drive_folder_id=folder.id,
+    )
+    await db.commit()
+    p = _mk_staging_file(staging, stream.id, SEG)
+    _make_stable(p)
+    calls = []
+
+    async def fake_upload(local_path, folder_name, remote):
+        calls.append((local_path, folder_name, remote))
+
+    monkeypatch.setattr(du.gr, "upload_segment", fake_upload)
+    failures = await du._sweep_staging()
+    assert failures == 0
+    assert len(calls) == 1
+    assert calls[0][2] == f"Cam/{SEG}"
+    assert not os.path.exists(p)
+    assert await du._uploaded_names(stream.id, "netravision", [SEG]) == {SEG}
+
+
 async def test_staging_sweep_ignores_camera_without_staging(
     _uploader_db, tmp_path, monkeypatch
 ):

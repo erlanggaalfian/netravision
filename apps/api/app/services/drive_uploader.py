@@ -235,12 +235,17 @@ async def _staging_targets() -> list[tuple[int, str, str, str]]:
     """(stream_id, nama_kamera, folder_drive_nama, staging_dir) untuk
     kamera mode drive/both. staging_dir = {basis staging}/stream_{id}.
 
-    Pemetaan kamera dan folder sama seperti _camera_targets
-    (recording_enabled + storage_mode drive/both, folder dari
-    GoogleDriveFolder atau folder pertama). Basis staging diambil
-    seperti mirror (_folders di drive_mirror.py): local_path folder
-    itu, atau settings.gdrive_record_path. Bila tidak ada basis
-    staging sama sekali (staging nonaktif), kembalikan [].
+    Pemetaan folder sama seperti _camera_targets (folder dari
+    GoogleDriveFolder atau folder pertama). Berbeda dengan
+    _camera_targets, filter recording_enabled SENGAJA tidak dipakai:
+    staging berisi rekaman yang SUDAH dibuat dan disalin mirror saat
+    rekaman masih aktif; bila rekaman lalu dimatikan (mis. stream_361
+    MIM MRI 7), file staging itu tetap milik Drive dan harus
+    ter-upload. Yang dipakai hanya storage_mode drive/both, karena
+    itu yang menandakan rekaman kamera ini memang tujuan Drive.
+    Kamera yang tidak pernah mode drive/both tidak punya staging.
+    Bila tidak ada basis staging sama sekali (staging nonaktif),
+    kembalikan [].
     """
     settings = get_settings()
     base = (settings.gdrive_record_path or "").rstrip("/")
@@ -263,7 +268,6 @@ async def _staging_targets() -> list[tuple[int, str, str, str]]:
         default_base = by_id[folders[0].id][1]
         res = await db.execute(
             select(Stream).where(
-                Stream.recording_enabled.is_(True),
                 Stream.storage_mode.in_(["both", "drive"]),
             )
         )
