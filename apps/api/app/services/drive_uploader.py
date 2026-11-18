@@ -7,6 +7,15 @@ drive_uploads di-upload ke folder Drive kamera
 
 Berjalan berdampingan dengan drive_mirror (jalur rclone mount): bila
 kamera sudah ter-upload via API, mirror melewatinya agar tidak dobel.
+
+Sejak 2026-11-18, _upload_once juga menyapu staging mirror
+(settings.gdrive_record_path, mis. /mnt/gdrive): mirror menyalin
+segmen lokal ke staging lalu menghapus sumber lokal, dengan asumsi
+staging adalah rclone mount yang meng-upload sendiri. Bila staging
+ternyata volume biasa (bukan mount), segmen nyangkut di sana dan
+tidak pernah sampai ke Drive; staging sweep meng-uploadnya langsung
+via rclone begitu koneksi Drive pulih, lalu menghapus file staging
+hanya setelah upload terkonfirmasi dan tercatat.
 """
 
 import asyncio
@@ -31,6 +40,16 @@ _STABLE_SEC = 20
 _INTERVAL_SEC = 60
 # Backoff antar percobaan saat Drive mati: membesar 5s, 15s, 30s, maks 60s.
 _BACKOFF_SEC = (5, 15, 30, 60)
+
+# Staging sweep (2026-11-18): batas per putaran supaya loop tetap
+# responsif untuk upload lokal. 50 segmen/putaran: tiap segmen kecil
+# (rata-rata ~1,5 MB di backlog) dan rclone copyto butuh ~2-5 dtk,
+# jadi satu putaran staging makan ~2-4 menit; upload lokal jalan
+# dulu di _upload_once sehingga rekaman baru tidak tertunda.
+# _STAGING_BUDGET_SEC memotong putaran yang terlalu lama (mis. file
+# besar / jaringan lambat) supaya loop tidak macet berjam-jam.
+_STAGING_PER_ROUND = 50
+_STAGING_BUDGET_SEC = 240.0
 
 # Temuan 3.16: kestabilan segmen tidak cukup dari mtime saja. Catat
 # (mtime, size) saat pertama terlihat; segmen baru dianggap stabil bila
@@ -212,6 +231,60 @@ async def _camera_targets() -> list[tuple[int, str, str, list[str]]]:
         return out
 
 
+async def _staging_targets() -> list[tuple[int, str, str, str]]:
+    """(stream_id, nama_kamera, folder_drive_nama, staging_dir) untuk
+    kamera mode drive/both. staging_dir = {basis staging}/stream_{id}.
+
+    Pemetaan kamera dan folder sama seperti _camera_targets
+    (recording_enabled + storage_mode drive/both, folder dari
+    GoogleDriveFolder atau folder pertama). Basis staging diambil
+    seperti mirror (_folders di drive_mirror.py): local_path folder
+    itu, atau settings.gdrive_record_path. Bila tidak ada basis
+    staging sama sekali (staging nonaktif), kembalikan [].
+    """
+    settings = get_settings()
+    base = (settings.gdrive_record_path or "").rstrip("/")
+    async with get_session_factory()() as db:
+        folders = (
+            (await db.execute(select(GoogleDriveFolder).order_by(GoogleDriveFolder.id)))
+            .scalars()
+            .all()
+        )
+        if not folders:
+            return []
+        by_id = {
+            f.id: (
+                (f.folder_name or ""),
+                ((f.local_path or "").rstrip("/") or base),
+            )
+            for f in folders
+        }
+        default_name = folders[0].folder_name or ""
+        default_base = by_id[folders[0].id][1]
+        res = await db.execute(
+            select(Stream).where(
+                Stream.recording_enabled.is_(True),
+                Stream.storage_mode.in_(["both", "drive"]),
+            )
+        )
+        out = []
+        for s in res.scalars().all():
+            entry = by_id.get(s.drive_folder_id) if s.drive_folder_id else None
+            drive_name = (entry[0] if entry else None) or default_name
+            staging_base = (entry[1] if entry else None) or default_base
+            if not drive_name or not staging_base:
+                continue
+            out.append(
+                (
+                    s.id,
+                    s.name or f"Kamera {s.id}",
+                    drive_name,
+                    os.path.join(staging_base, f"stream_{s.id}"),
+                )
+            )
+        return out
+
+
 def _stable_segments(sdir: str) -> list[tuple[str, str]]:
     """[(nama_file, path)] segmen stabil di direktori segmen kamera.
 
@@ -234,6 +307,87 @@ def _stable_segments(sdir: str) -> list[tuple[str, str]]:
             continue
         out.append((name, path))
     return out
+
+
+async def _sweep_staging() -> int:
+    """Satu putaran upload segmen yang nyangkut di staging mirror.
+
+    Mirror menyalin segmen lokal ke staging (settings.gdrive_record_path)
+    lalu menghapus sumber lokal, dengan asumsi staging adalah rclone
+    mount yang meng-upload sendiri ke Drive. Bila staging ternyata
+    volume biasa (bukan mount), segmen nyangkut di sana dan tidak
+    pernah sampai ke Drive. Sweep ini meng-uploadnya langsung via
+    rclone begitu koneksi Drive pulih, memakai klaim, jejak, dan
+    kestabilan yang sama seperti uploader lokal. Return jumlah segmen
+    yang gagal di-upload.
+
+    Batas per putaran (_STAGING_PER_ROUND / _STAGING_BUDGET_SEC)
+    supaya loop tetap responsif: upload lokal jalan dulu di
+    _upload_once, staging hanya mengisi sisa waktu putaran. File
+    staging HANYA dihapus setelah upload terkonfirmasi dan tercatat
+    di drive_uploads; gagal hapus hanya dicatat, bukan kegagalan.
+    """
+    from app.services.upload_claims import is_claimed, release_claim, try_claim
+
+    failures = 0
+    attempted = 0
+    started = time.monotonic()
+    for sid, cam_name, folder_name, sdir in await _staging_targets():
+        if attempted >= _STAGING_PER_ROUND:
+            break
+        if time.monotonic() - started >= _STAGING_BUDGET_SEC:
+            break
+        if not os.path.isdir(sdir):
+            continue
+        pending: dict[str, str] = {}
+        for seg_name, seg_path in await asyncio.to_thread(_stable_segments, sdir):
+            pending[seg_name] = seg_path
+        if not pending:
+            continue
+        try:
+            done = await _uploaded_names(sid, folder_name, list(pending))
+        except Exception as e:  # noqa: BLE001
+            log.warning("staging sweep: baca drive_uploads gagal: %s", e)
+            continue
+        for seg_name in done:
+            pending.pop(seg_name, None)
+        for seg_name, seg_path in pending.items():
+            if attempted >= _STAGING_PER_ROUND:
+                break
+            if time.monotonic() - started >= _STAGING_BUDGET_SEC:
+                break
+            # Segmen yang sedang diproses jalur mirror / OAuth dilewati.
+            if is_claimed(sid, seg_name):
+                continue
+            remote = f"{cam_name}/{seg_name}"
+            if not try_claim(sid, seg_name, "uploader"):
+                continue
+            attempted += 1
+            try:
+                await gr.upload_segment(seg_path, folder_name, remote)
+                await _mark_uploaded(sid, seg_name, folder_name)
+                log.info("staging sweep: %s -> drive (%s)", seg_name, cam_name)
+            except Exception as e:  # noqa: BLE001
+                log.warning("staging sweep: gagal %s: %s", seg_name, e)
+                failures += 1
+                continue
+            finally:
+                release_claim(sid, seg_name, "uploader")
+            # Hapus staging HANYA setelah upload terkonfirmasi dan
+            # tercatat di drive_uploads. Gagal hapus hanya dicatat.
+            try:
+                if os.path.isfile(seg_path):
+                    os.remove(seg_path)
+                    log.info("staging sweep: staging dihapus %s", seg_path)
+            except OSError as e:  # noqa: BLE001
+                log.warning(
+                    "staging sweep: gagal hapus staging %s: %s", seg_path, e
+                )
+    if attempted:
+        log.info(
+            "staging sweep: %d segmen diproses (%d gagal)", attempted, failures
+        )
+    return failures
 
 
 async def _upload_once() -> int:
@@ -308,6 +462,12 @@ async def _upload_once() -> int:
                         log.info("uploader: lokal dihapus %s", p)
                 except OSError as e:  # noqa: BLE001
                     log.warning("uploader: gagal hapus lokal %s: %s", p, e)
+    # Staging sweep: segmen yang nyangkut di staging mirror ikut
+    # ter-upload begitu Drive konek (lihat _sweep_staging). Jalan
+    # setelah upload lokal supaya rekaman baru tidak tertunda.
+    # connection_status() sudah dicek di awal fungsi, jadi sweep ini
+    # tidak jalan bila Drive sedang putus.
+    failures += await _sweep_staging()
     return failures
 
 
