@@ -313,6 +313,14 @@ def _stable_segments(sdir: str) -> list[tuple[str, str]]:
     return out
 
 
+# Rotasi urutan target staging tiap putaran (2026-11-18): tanpa rotasi,
+# kamera yang terakhir di daftar (mis. stream_361, backlog 7.193)
+# tidak pernah tersapu bila putaran habis di kamera sebelumnya karena
+# upload lambat (rate limit Google) menghabiskan budget 240 detik.
+# Dengan rotasi, tiap kamera berkesempatan jadi yang pertama.
+_STAGING_ROTATION = 0
+
+
 async def _sweep_staging() -> int:
     """Satu putaran upload segmen yang nyangkut di staging mirror.
 
@@ -333,10 +341,16 @@ async def _sweep_staging() -> int:
     """
     from app.services.upload_claims import is_claimed, release_claim, try_claim
 
+    global _STAGING_ROTATION
     failures = 0
     attempted = 0
     started = time.monotonic()
-    for sid, cam_name, folder_name, sdir in await _staging_targets():
+    targets = await _staging_targets()
+    if targets:
+        rot = _STAGING_ROTATION % len(targets)
+        _STAGING_ROTATION += 1
+        targets = targets[rot:] + targets[:rot]
+    for sid, cam_name, folder_name, sdir in targets:
         if attempted >= _STAGING_PER_ROUND:
             break
         if time.monotonic() - started >= _STAGING_BUDGET_SEC:
