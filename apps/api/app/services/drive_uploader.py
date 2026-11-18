@@ -83,6 +83,13 @@ def _is_stable(path: str, now: float) -> bool:
                 if v[2] < cutoff:
                     del _SEEN_STABLE[k]
         return False
+    # Perbaikan 2026-11-18: perbarui timestamp (v[2]) walau file
+    # stabil, supaya entri tidak kedaluwarsa lalu ter-prune padahal
+    # file masih dipindai tiap putaran. Tanpa ini, entri file yang
+    # stabil tidak pernah diperbarui, setelah 1 jam ter-prune, lalu
+    # file kembali dianggap baru (0 stabil) di putaran berikut.
+    # Kasus stream_361: 7.193 file selalu 0 stabil.
+    _SEEN_STABLE[path] = (st.st_mtime, st.st_size, now)
     return True
 
 
