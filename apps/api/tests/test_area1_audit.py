@@ -133,7 +133,7 @@ async def test_1_2_range_end_lt_start_dilayani_200_utuh(
     s.drive_folder_id = folder.id
     await db.commit()
 
-    async def _fake_list(remote_name, path):
+    async def _fake_list(remote_name, path, timeout=60):
         return [{"name": "2026-11-02_10-00-00-000000.mp4", "size": 5000, "id": "f1"}]
 
     async def _fake_download(remote_name, path, dest_path):
@@ -1027,7 +1027,7 @@ async def test_1_26_error_drive_tidak_bocor_detail(
     s.drive_folder_id = folder.id
     await db.commit()
 
-    async def _fake_list(remote_name, path):
+    async def _fake_list(remote_name, path, timeout=60):
         return [{"name": "2026-11-02_10-00-00-000000.mp4", "size": 1000,
                  "id": "f1"}]
 

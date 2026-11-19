@@ -264,7 +264,9 @@ async def download_rclone_file_to(
     return written
 
 
-async def list_rclone_files(remote_name: str, path: str) -> list[dict]:
+async def list_rclone_files(
+    remote_name: str, path: str, timeout: int = 60
+) -> list[dict]:
     """Daftar file di `{remote}:{path}` via `rclone lsjson --files-only`.
 
     Return list dict {name, size, id}. Raise RuntimeError bila gagal.
@@ -275,6 +277,10 @@ async def list_rclone_files(remote_name: str, path: str) -> list[dict]:
     padahal pemanggil hanya butuh name/size/id. Cache 120 detik supaya
     linimasa + playback-url + file (3 panggilan per sekali putar) tidak
     mengulang lsjson.
+
+    timeout: batas detik untuk panggilan rclone. Pemanggil yang interaktif
+    (linimasa Putar Ulang, timeout frontend 15 detik) memakai nilai kecil
+    supaya gagal cepat saat Google lambat, bukan menunggu 60 detik.
     """
     remote_name = validate_remote_name(remote_name)
     path = _validate_rclone_path(path)
@@ -286,7 +292,7 @@ async def list_rclone_files(remote_name: str, path: str) -> list[dict]:
         return [dict(f) for f in hit[1]]
     rc, out, err = await _run_rclone(
         "lsjson", f"{remote_name}:{path}", "--files-only", "--no-mimetype",
-        timeout=60,
+        timeout=timeout,
     )
     if rc != 0:
         detail = (err or out).strip().split("\n")[-1][:200]

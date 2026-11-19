@@ -342,7 +342,7 @@ async def test_playback_baca_drive_rclone(app_client, monkeypatch, tmp_path):
     s.drive_folder_id = folder.id
     await db.commit()
 
-    async def _fake_list(remote_name, path):
+    async def _fake_list(remote_name, path, timeout=60):
         assert remote_name == "gdrive"
         # Jalur rclone memakai NAMA folder (netravision), bukan ID Drive:
         # ID yang dipakai sebagai jalur membuat rclone membuat folder baru
@@ -422,7 +422,7 @@ async def test_playback_rclone_satu_unduhan_untuk_file_besar(
 
     calls = {"n": 0}
 
-    async def _fake_list(remote_name, path):
+    async def _fake_list(remote_name, path, timeout=60):
         return [
             {"name": "2026-11-02_10-00-00-000000.mp4", "size": 3 * 1024 * 1024, "id": "f1"},
         ]
@@ -469,7 +469,7 @@ async def test_playback_both_utamakan_lokal(app_client, monkeypatch, tmp_path):
     # Lokal punya segmen 10:00, Drive punya 10:00 + 10:10.
     _seg(str(tmp_path), s.id, "2026-11-02_10-00-00-000000.mp4", size=2048)
 
-    async def _fake_list(remote_name, path):
+    async def _fake_list(remote_name, path, timeout=60):
         return [
             {"name": "2026-11-02_10-00-00-000000.mp4", "size": 5000, "id": "f1"},
             {"name": "2026-11-02_10-10-00-000000.mp4", "size": 6000, "id": "f2"},

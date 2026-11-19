@@ -351,7 +351,14 @@ async def _rclone_segments(
     cam_name = stream.name or f"Kamera {stream.id}"
     base = f"{row[2]}/{cam_name}"
     try:
-        items = await gr.list_rclone_files(remote_name, base)
+        # Timeout pendek (8 detik, normal lsjson ~2 detik): saat Google
+        # melambat/rate-limit, lsjson bisa menggantung sampai 60 detik
+        # dan membuat linimasa melewati timeout frontend 15 detik
+        # ("Server tidak merespons"). Gagal cepat di sini, _run_source
+        # menangkapnya dan linimasa tetap mengembalikan segmen lokal +
+        # folder-link; segmen Drive muncul lagi saat Google pulih
+        # (cache lsjson 120 detik).
+        items = await gr.list_rclone_files(remote_name, base, timeout=8)
     except Exception as e:  # noqa: BLE001 - Drive opsional, jangan gagalkan timeline
         log.warning("rclone list %s gagal: %s", stream.name, e)
         return out
