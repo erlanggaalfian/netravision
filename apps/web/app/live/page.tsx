@@ -365,12 +365,11 @@ export default function LivePage() {
             </span>
           </div>
 
-          {/* Kontrol: pencarian selalu tampil; grid + refresh + status +
-              grup bertumpuk rapi (flex-wrap, tidak pernah nowrap supaya
-              tidak meluber/terpotong); dilipat di HP */}
+          {/* Baris 1: pencarian + Muat ulang, selebar penuh dan rata
+              kanan-kiri (pencarian mengembang, Muat ulang di kanan). */}
           <div className="mt-4 flex flex-col gap-4 border-t border-ink-800 pt-4">
             <div className="flex items-center gap-2">
-              <div className="relative min-w-0 flex-1 md:max-w-sm">
+              <div className="relative min-w-0 flex-1">
               <svg
                 width="17"
                 height="17"
@@ -395,6 +394,31 @@ export default function LivePage() {
                 className="h-11 w-full rounded-full bg-ink-800 pl-10 pr-4 text-base text-white shadow-sm placeholder:text-neutral-400 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-accent-500/30"
               />
             </div>
+            <Button
+              variant="subtle"
+              onClick={load}
+              disabled={fetching}
+              aria-label="Muat ulang"
+              className="h-11 shrink-0 rounded-full"
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 16 16"
+                fill="none"
+                className={fetching ? "animate-spin motion-reduce:animate-none" : ""}
+                aria-hidden
+              >
+                <path
+                  d="M13.5 8a5.5 5.5 0 11-1.6-3.9M13.5 1.5v3h-3"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              <span>Muat ulang</span>
+            </Button>
             <button
               onClick={() => setFilterOpen((v) => !v)}
               aria-expanded={filterOpen}
@@ -427,13 +451,14 @@ export default function LivePage() {
             </button>
           </div>
 
-          {/* Kontrol grid + refresh + status + grup: dilipat di HP, tampil
-              di desktop. Baris boleh melipat (flex-wrap) di lebar sedang
-              supaya tidak ada yang terpotong. */}
+          {/* Kontrol grid + status + grup: dilipat di HP, tampil
+              di desktop. Baris rata kanan-kiri (justify-between),
+              boleh melipat (flex-wrap) di lebar sedang supaya tidak
+              ada yang terpotong. */}
           <div
             className={`${filterOpen ? "nv-pop block" : "hidden"} md:block`}
           >
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               {/* Grid selebar penuh di HP: 4 tombol (2/4/6/9) butuh
                   ~228px minimum; bila dipaksa sebaris dengan Muat ulang
                   di layar sempit, tombol terakhir terpotong. */}
@@ -498,31 +523,6 @@ export default function LivePage() {
                   ))}
                 </div>
               </div>
-              <Button
-                variant="subtle"
-                onClick={load}
-                disabled={fetching}
-                aria-label="Muat ulang"
-                className="rounded-full"
-              >
-                <svg
-                  width="15"
-                  height="15"
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  className={fetching ? "animate-spin motion-reduce:animate-none" : ""}
-                  aria-hidden
-                >
-                  <path
-                    d="M13.5 8a5.5 5.5 0 11-1.6-3.9M13.5 1.5v3h-3"
-                    stroke="currentColor"
-                    strokeWidth="1.6"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-                <span>Muat ulang</span>
-              </Button>
               <div
                 className="nv-scroll-x flex w-full items-center gap-1 overflow-x-auto rounded-full bg-ink-800 p-1 shadow-sm sm:w-auto"
                 aria-label="Filter status kamera"
