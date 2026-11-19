@@ -745,9 +745,10 @@ function PlaybackPanel({
             </div>
             {/* Area video: sinyal klik iklan HANYA dari klik eksplisit
                 pada area video (bukan dari fokus keyboard, pengguna
-                yang sekadar Tab ke sini bukan mengklik iklan). */}
+                yang sekadar Tab ke sini bukan mengklik iklan).
+                relative: jangkar posisi untuk AdBanner overlay. */}
             <div
-              className="nv-stage"
+              className="nv-stage relative"
               onClick={() => setAdClickTick((t) => t + 1)}
             >
               {videoError ? (
@@ -835,6 +836,17 @@ function PlaybackPanel({
                   </div>
                 </div>
               )}
+              {/* Iklan menempel di atas video (overlay), mengikuti
+                  config.position (atas/bawah); tombol tutup tersedia
+                  karena banner menutupi video. */}
+              {ad?.is_active && (
+                <AdBanner
+                  config={ad}
+                  hovered={panelHovered}
+                  clickTick={adClickTick}
+                  placement="overlay"
+                />
+              )}
             </div>
             {active && (
               <div className="flex items-center gap-2 border-t border-ink-800 px-4 py-3">
@@ -847,15 +859,6 @@ function PlaybackPanel({
                   {videoError ? "Rekaman gagal diputar" : "Rekaman siap diputar"}
                 </span>
               </div>
-            )}
-            {/* Iklan tepat di bawah video, sebelum bagian unduh. */}
-            {ad?.is_active && (
-              <AdBanner
-                config={ad}
-                hovered={panelHovered}
-                clickTick={adClickTick}
-                placement="below"
-              />
             )}
             {/* Unduh rentang: dari jam sekian ke jam sekian, digabung jadi
                 satu file MP4. */}
