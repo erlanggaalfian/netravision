@@ -122,6 +122,11 @@ export interface RefreshResult {
 /* Single-flight: refresh yang sedang berjalan dipakai bersama agar
    dua request 401 bersamaan tidak saling menginvalidasi token. */
 let refreshPromise: Promise<RefreshResult> | null = null;
+/* Backoff refresh saat kena 429: jangan tembak /auth/refresh lagi
+   sampai waktu ini lewat, supaya 401 beruntun tidak membuat loop
+   yang menembak refresh berkali-kali per menit dan mempertahankan
+   429. Diisi dari header Retry-After (default 30 detik bila kosong). */
+let refreshBackoffUntil = 0;
 /* Hasil kegagalan refresh terakhir, dipertahankan untuk kompatibilitas
    pembaca lama (getLastRefreshFailure). Nilai ini DITULIS oleh
    tryRefresh dan DIRESET di awal tiap apiFetch (F3.12), supaya jalur
@@ -136,6 +141,10 @@ export function getLastRefreshFailure(): RefreshFailure {
 
 export async function tryRefresh(): Promise<RefreshResult> {
   if (refreshPromise) return refreshPromise;
+  /* Masih dalam masa backoff 429: kembalikan kegagalan tanpa request. */
+  if (Date.now() < refreshBackoffUntil) {
+    return { ok: false, failure: 429 };
+  }
   refreshPromise = (async (): Promise<RefreshResult> => {
     try {
       // T-2: refresh token dibaca server dari cookie HttpOnly, jadi
@@ -152,11 +161,21 @@ export async function tryRefresh(): Promise<RefreshResult> {
       );
       if (!res.ok) {
         lastRefreshFailure = res.status;
+        // Kena rate limit: set backoff dari Retry-After supaya
+        // percobaan berikutnya menunggu, bukan menembak lagi.
+        if (res.status === 429) {
+          const waitSecs = parseRetryAfter(res) ?? 30;
+          refreshBackoffUntil = Date.now() + waitSecs * 1000;
+        }
         // Refresh token mati/kedaluwarsa: sesi berakhir, hapus penanda.
-        if (res.status === 401) clearSession();
+        if (res.status === 401) {
+          refreshBackoffUntil = 0;
+          clearSession();
+        }
         return { ok: false, failure: res.status };
       }
       lastRefreshFailure = null;
+      refreshBackoffUntil = 0;
       return { ok: true, failure: null };
     } catch (e) {
       const failure: RefreshFailure =
