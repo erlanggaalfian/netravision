@@ -458,7 +458,7 @@ export default function LivePage() {
           <div
             className={`${filterOpen ? "nv-pop block" : "hidden"} md:block`}
           >
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center justify-start gap-3">
               {/* Grid selebar penuh di HP: 4 tombol (2/4/6/9) butuh
                   ~228px minimum; bila dipaksa sebaris dengan Muat ulang
                   di layar sempit, tombol terakhir terpotong. */}
