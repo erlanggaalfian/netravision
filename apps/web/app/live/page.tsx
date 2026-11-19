@@ -523,6 +523,32 @@ export default function LivePage() {
                   ))}
                 </div>
               </div>
+              {/* Filter grup: dropdown custom BERSAMA
+                  (components/Dropdown.tsx, variant pill). Daftar grup
+                  tetap diturunkan dari data kamera; opsi terpilih
+                  gradient accent solid + teks putih seperti tab status. */}
+              <div className="flex min-w-0 items-center gap-2 max-sm:w-full">
+                <span className="hidden shrink-0 text-xs font-semibold text-slate-400 sm:block">
+                  Grup:
+                </span>
+                <div className="min-w-0 max-sm:flex-1">
+                  <Dropdown
+                    variant="pill"
+                    options={groupOptions.map((g) => ({
+                      value: g,
+                      label: g === "Semua" ? "Semua grup" : g,
+                      badge: groupCounts[g] ?? 0,
+                    }))}
+                    value={groupFilter}
+                    onChange={setGroupFilter}
+                    ariaLabel={`Filter grup kamera: ${
+                      groupFilter === "Semua"
+                        ? `Semua grup, ${groupCounts["Semua"] ?? 0} kamera`
+                        : `${groupFilter}, ${groupCounts[groupFilter] ?? 0} kamera`
+                    }`}
+                  />
+                </div>
+              </div>
               <div
                 className="nv-scroll-x flex w-full min-w-0 items-center gap-1 overflow-x-auto rounded-full bg-ink-800 p-1 shadow-sm sm:w-auto"
                 aria-label="Filter status kamera"
@@ -551,32 +577,6 @@ export default function LivePage() {
                     </span>
                   </button>
                 ))}
-              </div>
-              {/* Filter grup: dropdown custom BERSAMA
-                  (components/Dropdown.tsx, variant pill). Daftar grup
-                  tetap diturunkan dari data kamera; opsi terpilih
-                  gradient accent solid + teks putih seperti tab status. */}
-              <div className="flex min-w-0 items-center gap-2 max-sm:w-full">
-                <span className="hidden shrink-0 text-xs font-semibold text-slate-400 sm:block">
-                  Grup:
-                </span>
-                <div className="min-w-0 max-sm:flex-1">
-                  <Dropdown
-                    variant="pill"
-                    options={groupOptions.map((g) => ({
-                      value: g,
-                      label: g === "Semua" ? "Semua grup" : g,
-                      badge: groupCounts[g] ?? 0,
-                    }))}
-                    value={groupFilter}
-                    onChange={setGroupFilter}
-                    ariaLabel={`Filter grup kamera: ${
-                      groupFilter === "Semua"
-                        ? `Semua grup, ${groupCounts["Semua"] ?? 0} kamera`
-                        : `${groupFilter}, ${groupCounts[groupFilter] ?? 0} kamera`
-                    }`}
-                  />
-                </div>
               </div>
             </div>
           </div>
