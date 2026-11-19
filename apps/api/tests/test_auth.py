@@ -204,3 +204,21 @@ async def test_guest_enabled_endpoint(app):
         r = await c2.get("/api/auth/guest-enabled")
     assert r.status_code == 200
     assert r.json() == {"enabled": True}
+
+
+async def test_refresh_rate_limit_120_per_menit(app):
+    """Refresh dibatasi 120/menit per IP (dulu 20): refresh dipanggil
+    tiap tab, tiap reconnect WebSocket, dan tiap 401, jadi batas 20
+    kena 429 di pemakaian normal. 120 request pertama lolos dari
+    limiter (401 karena token tidak valid, bukan 429) dan request
+    ke-121 kena 429 + Retry-After."""
+    c, _ = _client(app)
+    async with c:
+        statuses = []
+        for _ in range(120):
+            r = await c.post("/api/auth/refresh", json={})
+            statuses.append(r.status_code)
+        assert statuses == [401] * 120, statuses
+        r = await c.post("/api/auth/refresh", json={})
+        assert r.status_code == 429, r.text
+        assert "retry-after" in {k.lower() for k in r.headers}

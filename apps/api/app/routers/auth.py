@@ -339,7 +339,13 @@ async def login(
 @router.post(
     "/auth/refresh",
     response_model=TokenOut,
-    dependencies=[Depends(rate_limited(20, 60))],
+    # 20 -> 120/menit (perintah user 2026-11-20): refresh dipanggil
+    # tiap tab, tiap reconnect WebSocket, dan tiap 401; batas 20/menit
+    # per IP kena 429 di pemakaian normal (banyak tab / reconnect).
+    # Refresh token acak panjang, bukan target brute-force seperti
+    # login (tetap 5/menit), jadi batas longgar aman. Frontend tetap
+    # punya backoff saat 429 (tryRefresh di lib/api.ts).
+    dependencies=[Depends(rate_limited(120, 60))],
 )
 async def refresh(
     request: Request,
