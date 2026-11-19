@@ -40,9 +40,12 @@ log = logging.getLogger("netravision.admin_drive")
 router = APIRouter(tags=["admin-drive"])  # callback OAuth: publik (dipanggil Google)
 admin_router = APIRouter(
     # E-K1 (backend): Penyimpanan/Drive hanya super_admin, bukan admin biasa.
-    # S-1: dibatasi 20/menit per IP. Callback OAuth ada di router publik
-    # terpisah dan tidak ikut dibatasi.
-    tags=["admin-drive"], dependencies=[Depends(require_roles("super_admin")), Depends(rate_limited(20, 60))]
+    # S-1: dibatasi 60/menit per IP (1/detik). Halaman Penyimpanan yang
+    # sudah login super_admin memuat ~6 request per muat, jadi 60/menit
+    # memberi ruang ~10 kali muat per menit, tetap membatasi
+    # penyalahgunaan. Callback OAuth ada di router publik terpisah dan
+    # tidak ikut dibatasi.
+    tags=["admin-drive"], dependencies=[Depends(require_roles("super_admin")), Depends(rate_limited(60, 60))]
 )
 
 _GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"

@@ -288,3 +288,22 @@ async def test_update_stream_drive_account(app_client, db_session):
         r = await c.put(f"/api/admin/streams/{s.id}",
                         json={"drive_account_id": str(uuid.uuid4())})
         assert r.status_code == 404
+
+
+# ---------- rate limit admin-drive (S-1) ----------
+
+async def test_admin_drive_rate_limit_60_per_menit(app_client):
+    """admin-drive dibatasi 60/menit per IP: halaman Penyimpanan yang
+    sudah login super_admin memuat ~6 request per muat, jadi 60 request
+    pertama lolos dan request ke-61 kena 429."""
+    app, _, _ = app_client
+    auth_as(app, make_user(role="super_admin"))
+    async with _client(app) as c:
+        statuses = []
+        for _ in range(60):
+            r = await c.get("/api/admin/drive-accounts")
+            statuses.append(r.status_code)
+        assert statuses == [200] * 60, statuses
+        r = await c.get("/api/admin/drive-accounts")
+        assert r.status_code == 429, r.text
+        assert "retry-after" in {k.lower() for k in r.headers}

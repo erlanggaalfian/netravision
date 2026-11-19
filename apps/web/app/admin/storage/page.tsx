@@ -114,6 +114,29 @@ export default function AdminStoragePage() {
   const [queue, setQueue] = useState<UploadQueue | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  /* Rate limit 429: backend menolak karena terlalu banyak permintaan.
+     Bukan data kosong, jadi jangan timpa data yang sudah dimuat dan
+     jangan tampilkan empty state. retryAfterSecs null berarti header
+     Retry-After tidak ada, pesannya pakai "beberapa detik lagi". */
+  const [rateLimited, setRateLimited] = useState(false);
+  const [retryAfterSecs, setRetryAfterSecs] = useState<number | null>(null);
+
+  /* Kembalikan true bila error adalah 429, sekaligus pasang penanda
+     rate limit. Error lain kembalikan false supaya pemanggil memakai
+     penanganan error biasa. */
+  function markRateLimited(e: unknown): boolean {
+    if (e instanceof ApiError && e.status === 429) {
+      setRateLimited(true);
+      setRetryAfterSecs(e.retryAfter);
+      return true;
+    }
+    return false;
+  }
+
+  function clearRateLimited() {
+    setRateLimited(false);
+    setRetryAfterSecs(null);
+  }
 
   // Tambah folder
   const [folderUrl, setFolderUrl] = useState("");
@@ -223,8 +246,9 @@ export default function AdminStoragePage() {
             setAccountToken("");
             setAuthJob(null);
             setShowAddAccount(false);
-            await loadRemotes();
-            await loadQueue();
+            const okRemotes = await loadRemotes();
+            const okQueue = await loadQueue();
+            if (okRemotes && okQueue) clearRateLimited();
           } catch (e) {
             setAccountError(
               e instanceof ApiError ? e.message : "Gagal menyimpan akun",
@@ -247,16 +271,23 @@ export default function AdminStoragePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authJob?.job_id, authJob?.status]);
 
-  async function load() {
+  /* Tiap loader kembalikan true bila berhasil. Kena 429: data lama
+     dipertahankan (tidak ditimpa kosong/null) dan penanda rate limit
+     dipasang, supaya halaman menampilkan pesan tunggu, bukan empty
+     state yang menyesatkan. */
+  async function load(): Promise<boolean> {
     try {
       const res = await api.get<GDriveList>("/admin/storage/google-drive");
       setData(res);
+      return true;
     } catch (e) {
+      if (markRateLimited(e)) return false;
       setError(e instanceof ApiError ? e.message : "Gagal memuat daftar folder");
+      return false;
     }
   }
 
-  async function loadRemotes() {
+  async function loadRemotes(): Promise<boolean> {
     try {
       // Daftar cepat dulu (tanpa rclone about yang lambat) supaya kartu
       // akun langsung tampil; status + kapasitas dilengkapkan di latar
@@ -289,31 +320,47 @@ export default function AdminStoragePage() {
         })
       );
       setRemotes(withStatus);
-    } catch {
+      return true;
+    } catch (e) {
+      /* Kena 429: daftar akun lama dipertahankan, jangan setRemotes([])
+         yang membuat halaman mengira belum ada akun Google terhubung. */
+      if (markRateLimited(e)) return false;
       setRemotes([]);
       setRemotesLoaded(true);
+      return false;
     }
   }
 
-  async function loadQueue() {
+  async function loadQueue(): Promise<boolean> {
     try {
       setQueue(await api.get<UploadQueue>("/admin/drive/upload-queue"));
-    } catch {
+      return true;
+    } catch (e) {
+      /* Kena 429: antrean lama dipertahankan, jangan setQueue(null). */
+      if (markRateLimited(e)) return false;
       setQueue(null);
+      return false;
     }
   }
 
-  async function loadConn() {
+  async function loadConn(): Promise<boolean> {
     try {
       setConn(await api.get<GDriveConn>("/admin/storage/google-drive/connection"));
-    } catch {
+      return true;
+    } catch (e) {
+      /* Kena 429: status koneksi lama dipertahankan, jangan setConn(null). */
+      if (markRateLimited(e)) return false;
       setConn(null);
+      return false;
     }
   }
 
   async function refreshAll() {
     if (refreshing) return;
     setRefreshing(true);
+    /* Muat ulang baru: anggap rate limit sebelumnya sudah lewat.
+       Loader yang kena 429 memasang lagi penandanya. */
+    clearRateLimited();
     try {
       await Promise.all([load(), loadRemotes(), loadQueue(), loadConn()]);
     } finally {
@@ -387,8 +434,9 @@ export default function AdminStoragePage() {
       setAccountToken("");
       setShowAddAccount(false);
       setNotice("Akun Google berhasil ditambahkan.");
-      await loadRemotes();
-      await loadQueue();
+      const okRemotes = await loadRemotes();
+      const okQueue = await loadQueue();
+      if (okRemotes && okQueue) clearRateLimited();
     } catch (e) {
       setAccountError(e instanceof ApiError ? e.message : "Gagal menambah akun");
     } finally {
@@ -403,8 +451,9 @@ export default function AdminStoragePage() {
     try {
       await api.del(`/admin/drive-remotes/${deletingRemote.remote_name}`);
       setDeletingRemote(null);
-      await loadRemotes();
-      await loadQueue();
+      const okRemotes = await loadRemotes();
+      const okQueue = await loadQueue();
+      if (okRemotes && okQueue) clearRateLimited();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Gagal menghapus akun");
     } finally {
@@ -433,7 +482,7 @@ export default function AdminStoragePage() {
       setNewRetention(30);
       setShowAdvanced(false);
       setNotice("Folder berhasil ditambahkan.");
-      await load();
+      if (await load()) clearRateLimited();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Gagal menambah folder");
     } finally {
@@ -448,7 +497,7 @@ export default function AdminStoragePage() {
     try {
       await api.del(`/admin/storage/google-drive/${deleting.id}`);
       setDeleting(null);
-      await load();
+      if (await load()) clearRateLimited();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Gagal menghapus folder");
     } finally {
@@ -467,7 +516,7 @@ export default function AdminStoragePage() {
         local_path: f.local_path,
         retention_days: days,
       });
-      await load();
+      if (await load()) clearRateLimited();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Gagal menyimpan lama simpan");
     } finally {
@@ -475,7 +524,9 @@ export default function AdminStoragePage() {
     }
   }
 
-  if (data === null && !error) return <Spinner />;
+  /* Kena 429 di muat pertama: jangan spinner selamanya, tampilkan
+     halaman dengan banner tunggu + tombol muat ulang. */
+  if (data === null && !error && !rateLimited) return <Spinner />;
 
   const connectedCount = remotes.filter((r) => r.connected).length;
   // Folder "netravision" milik akun disembunyikan: rekaman langsung masuk
@@ -502,6 +553,18 @@ export default function AdminStoragePage() {
         title="Penyimpanan Google Drive"
         desc="Simpan rekaman CCTV ke Google Drive secara otomatis. Hubungkan akun Google, lalu tempel tautan folder."
       />
+      {rateLimited && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-warn-400/15 px-4 py-3 text-sm font-medium text-warn-400 ring-1 ring-warn-400/30">
+          <span className="flex-1">
+            {retryAfterSecs !== null
+              ? `Terlalu banyak permintaan, coba lagi dalam ${retryAfterSecs} detik.`
+              : "Terlalu banyak permintaan, coba lagi beberapa detik lagi."}
+          </span>
+          <NBButton variant="secondary" onClick={refreshAll} disabled={refreshing} className="px-3">
+            {refreshing ? "Memuat…" : "Muat ulang"}
+          </NBButton>
+        </div>
+      )}
       {error && (
         <div className="mb-4">
           <ErrorBox message={error} />
@@ -526,22 +589,28 @@ export default function AdminStoragePage() {
               className={`h-2.5 w-2.5 rounded-full ${connectedCount > 0 ? "bg-ok-400" : "bg-bad-400"}`}
             />
             <span className="font-semibold text-slate-100">
-              {!remotesLoaded
-                ? "Memuat akun Google…"
-                : connectedCount > 0
-                  ? `${connectedCount} akun Google terhubung`
-                  : "Belum ada akun Google terhubung"}
+              {rateLimited && !remotesLoaded
+                ? "Akun Google belum dimuat"
+                : !remotesLoaded
+                  ? "Memuat akun Google…"
+                  : connectedCount > 0
+                    ? `${connectedCount} akun Google terhubung`
+                    : "Belum ada akun Google terhubung"}
             </span>
           </span>
           <span className="text-slate-400">
-            {folderCount} folder
+            {rateLimited && data === null
+              ? "Folder belum dimuat"
+              : `${folderCount} folder`}
           </span>
           <span className="text-slate-400">
-            {queue === null
-              ? "Status upload belum bisa dimuat."
-              : queue.pending > 0
-                ? `${queue.pending} rekaman menunggu upload`
-                : "Tidak ada rekaman menunggu upload"}
+            {rateLimited && queue === null
+              ? "Status upload belum dimuat"
+              : queue === null
+                ? "Status upload belum bisa dimuat."
+                : queue.pending > 0
+                  ? `${queue.pending} rekaman menunggu upload`
+                  : "Tidak ada rekaman menunggu upload"}
           </span>
           <span className="ml-auto">
             <NBButton variant="secondary" onClick={refreshAll} disabled={refreshing} className="px-3">
@@ -557,9 +626,17 @@ export default function AdminStoragePage() {
           Akun Google
         </h2>
         {!remotesLoaded ? (
-          <NBCard className="!p-4">
-            <p className="text-sm text-slate-400">Memuat akun Google…</p>
-          </NBCard>
+          rateLimited ? (
+            <NBCard className="!p-4">
+              <p className="text-sm text-slate-400">
+                Akun Google belum dimuat, coba lagi beberapa detik lagi.
+              </p>
+            </NBCard>
+          ) : (
+            <NBCard className="!p-4">
+              <p className="text-sm text-slate-400">Memuat akun Google…</p>
+            </NBCard>
+          )
         ) : remotes.length === 0 ? (
           <NBEmptyState text="Belum ada akun Google. Tambahkan akun di bawah supaya rekaman bisa di-upload." />
         ) : (
@@ -796,7 +873,13 @@ export default function AdminStoragePage() {
         <h2 className="mb-1.5 px-1 text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
           Folder Google Drive{data ? ` (${folderCount})` : ""}
         </h2>
-        {data && folderCount === 0 ? (
+        {rateLimited && data === null ? (
+          <NBCard className="!p-4">
+            <p className="text-sm text-slate-400">
+              Daftar folder belum dimuat, coba lagi beberapa detik lagi.
+            </p>
+          </NBCard>
+        ) : data && folderCount === 0 ? (
           <NBEmptyState text="Belum ada folder. Tempel tautan folder Google Drive di bawah." />
         ) : (
           <div className="space-y-3">
