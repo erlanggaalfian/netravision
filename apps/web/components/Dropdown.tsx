@@ -246,7 +246,7 @@ export function Dropdown({
 
   const triggerCls =
     variant === "pill"
-      ? `flex h-11 w-full items-center justify-between gap-2 rounded-full pl-4 pr-3 text-sm font-semibold shadow-sm outline-none transition-all duration-200 focus:ring-2 focus:ring-accent-500/30 active:scale-[0.98] sm:w-auto sm:min-w-[190px] sm:max-w-[260px] ${
+      ? `flex h-11 w-full items-center justify-between gap-2 rounded-full pl-4 pr-3 text-sm font-semibold shadow-sm outline-none transition-all duration-200 focus:ring-2 focus:ring-accent-500/30 active:scale-[0.98] sm:w-auto sm:min-w-[260px] sm:max-w-[320px] ${
           pillSelected
             ? PRIMARY_GRADIENT
             : "bg-ink-800 text-slate-100"
