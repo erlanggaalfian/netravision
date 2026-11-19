@@ -533,7 +533,7 @@ export default function LivePage() {
                     type="button"
                     aria-pressed={filter === f.id}
                     onClick={() => setFilter(f.id)}
-                    className={`flex h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm font-semibold transition-all duration-200 active:scale-95 sm:px-5 lg:flex-none ${
+                    className={`flex h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm font-semibold transition-all duration-200 active:scale-95 sm:px-5 lg:max-w-[200px] ${
                       filter === f.id
                         ? PRIMARY_GRADIENT
                         : "text-neutral-400 hover:bg-ink-700 hover:text-slate-200"
