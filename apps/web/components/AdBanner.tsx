@@ -209,7 +209,11 @@ export function AdBanner({
           src={normalizeUploadUrl(config.image_url)}
           alt=""
           aria-hidden
-          className="max-h-full shrink-0 rounded object-contain"
+          /* Tanpa `rounded`: logo Mamura menyentuh tepi kanvasnya
+             (tanpa padding), jadi border-radius memotong keempat
+             pojok logo. Gambar dibiarkan kotak tajam supaya logo
+             tampil utuh. */
+          className="max-h-full shrink-0 object-contain"
           style={{
             height: imgH,
             opacity: imgAlpha,
