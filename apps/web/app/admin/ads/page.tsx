@@ -111,7 +111,7 @@ function AdPreview({ cfg }: { cfg: AdConfig }) {
         <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
           Live Preview (Pratinjau Langsung)
         </span>
-        <span className="rounded-md border border-accent-500/30 bg-accent-500/10 px-2.5 py-0.5 font-mono text-[11px] text-accent-300">
+        <span className="rounded-md border border-accent-500/30 bg-accent-500/10 px-2.5 py-0.5 font-mono text-[11px] text-accent-text">
           Widescreen Monitor (16:9)
         </span>
       </div>
@@ -232,7 +232,7 @@ function RangeRow({
           onChange={(e) => onChange(Number(e.target.value))}
           className="h-1.5 flex-1 cursor-pointer appearance-none rounded-lg bg-ink-600 accent-accent-500"
         />
-        <span className="w-12 text-right font-mono text-xs font-bold text-accent-400">
+        <span className="w-12 text-right font-mono text-xs font-bold text-accent-text">
           {display}
         </span>
       </div>
@@ -398,7 +398,7 @@ export default function AdminAdsPage() {
             {/* Seksi 1: Tata Letak & Latar */}
             <div className="nv-panel-modern space-y-4 p-4">
               <div className="border-b border-ink-800 pb-2">
-                <span className="font-mono text-xs font-semibold uppercase text-accent-400">
+                <span className="font-mono text-xs font-semibold uppercase text-accent-text">
                   1. Tata Letak &amp; Latar
                 </span>
               </div>
@@ -455,7 +455,7 @@ export default function AdminAdsPage() {
             {/* Seksi 2: Logo Sponsor & Media */}
             <div className="nv-panel-modern space-y-4 p-4">
               <div className="border-b border-ink-800 pb-2">
-                <span className="font-mono text-xs font-semibold uppercase text-accent-400">
+                <span className="font-mono text-xs font-semibold uppercase text-accent-text">
                   2. Logo Sponsor &amp; Media
                 </span>
               </div>
@@ -463,7 +463,7 @@ export default function AdminAdsPage() {
                 <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                   Gambar Sponsor (Kiri Iklan)
                 </span>
-                <div className="flex h-16 w-full items-center justify-center overflow-hidden rounded-xl bg-black/40">
+                <div className="flex h-16 w-full items-center justify-center overflow-hidden rounded-xl bg-ink-800">
                   {cfg.image_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -538,7 +538,7 @@ export default function AdminAdsPage() {
             {/* Seksi 3: Teks Bergulir & Font */}
             <div className="nv-panel-modern space-y-4 p-4">
               <div className="border-b border-ink-800 pb-2">
-                <span className="font-mono text-xs font-semibold uppercase text-accent-400">
+                <span className="font-mono text-xs font-semibold uppercase text-accent-text">
                   3. Teks Bergulir (Marquee)
                 </span>
               </div>
@@ -601,7 +601,7 @@ export default function AdminAdsPage() {
             {/* Seksi 4: Jenis Tampilan */}
             <div className="nv-panel-modern space-y-4 p-4">
               <div className="border-b border-ink-800 pb-2">
-                <span className="font-mono text-xs font-semibold uppercase text-accent-400">
+                <span className="font-mono text-xs font-semibold uppercase text-accent-text">
                   4. Jenis Tampilan
                 </span>
               </div>
@@ -700,7 +700,7 @@ export default function AdminAdsPage() {
               {busy ? "Menyimpan…" : "Simpan Konfigurasi Iklan"}
             </NBButton>
             {saved && (
-              <p className="mt-3 flex items-center justify-center gap-1.5 text-sm text-ok-400">
+              <p className="mt-3 flex items-center justify-center gap-1.5 text-sm text-ok-text">
                 <svg
                   width="16"
                   height="16"

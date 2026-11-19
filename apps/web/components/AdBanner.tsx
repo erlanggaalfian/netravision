@@ -189,7 +189,7 @@ export function AdBanner({
 
   const inner = (
     <div
-      className={`flex items-center gap-2.5 overflow-hidden border-white/10 px-3 py-1.5 ${borderSide} ${align}`}
+      className={`flex items-center gap-2.5 overflow-hidden border-black/10 px-3 py-1.5 ${borderSide} ${align}`}
       style={{
         width: `${Math.min(100, Math.max(10, config.box_width))}%`,
         margin:
@@ -266,7 +266,7 @@ export function AdBanner({
             setDismissed(true);
           }}
           aria-label="Tutup iklan"
-          className="absolute right-1.5 top-1/2 z-30 flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 active:scale-95"
+          className="absolute right-1.5 top-1/2 z-30 flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-black/60 text-onaccent transition hover:bg-black/80 active:scale-95"
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
             <path

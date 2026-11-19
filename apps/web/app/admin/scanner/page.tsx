@@ -849,7 +849,7 @@ export default function AdminScannerPage() {
             </p>
           )}
           {compare && (
-            <p className="mt-0.5 text-xs leading-relaxed text-warn-300">
+            <p className="mt-0.5 text-xs leading-relaxed text-warn-text">
               {compare}
             </p>
           )}
@@ -902,13 +902,13 @@ export default function AdminScannerPage() {
                 </span>
               )}
               {compare && (
-                <span className="block text-warn-300">{compare}</span>
+                <span className="block text-warn-text">{compare}</span>
               )}
             </span>
           )}
         </NBTd>
         <NBTd>
-          {h.known ? <KnownHostActions h={h} /> : <span className="text-slate-600">-</span>}
+          {h.known ? <KnownHostActions h={h} /> : <span className="text-slate-400">-</span>}
         </NBTd>
       </NBTr>
     );
@@ -1085,15 +1085,15 @@ export default function AdminScannerPage() {
             </p>
           )}
           {added > 0 && (
-            <p className="mb-3 text-sm text-ok-400">
+            <p className="mb-3 text-sm text-ok-text">
               {added} kamera berhasil ditambahkan. Lihat di tab Kamera.
             </p>
           )}
           {completedMsg && (
-            <p className="mb-3 text-sm text-ok-400">{completedMsg}</p>
+            <p className="mb-3 text-sm text-ok-text">{completedMsg}</p>
           )}
           {adjustMsg && (
-            <p className="mb-3 text-sm text-ok-400">{adjustMsg}</p>
+            <p className="mb-3 text-sm text-ok-text">{adjustMsg}</p>
           )}
           {visibleHosts.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-400">

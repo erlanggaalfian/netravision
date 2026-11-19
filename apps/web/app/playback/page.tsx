@@ -706,7 +706,7 @@ function PlaybackPanel({
                         warna, supaya terbaca pengguna buta warna): garis
                         putih di atas segmen. */}
                     {e.has_event && !isActive && (
-                      <span className="absolute inset-x-0 top-0 h-[3px] bg-white/90" />
+                      <span className="absolute inset-x-0 top-0 h-[3px] bg-[#ffffff] ring-1 ring-black/60" />
                     )}
                   </span>
                 );
@@ -753,7 +753,7 @@ function PlaybackPanel({
             </div>
             {/* Legenda segmen: event dibedakan bentuk, bukan hanya warna. */}
             <p className="mt-1.5 text-[11px] text-slate-400">
-              <span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-[2px] bg-warn-400/80 align-middle ring-1 ring-white/90" />
+              <span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-[2px] bg-warn-400/80 align-middle ring-1 ring-black/60" />
               Segmen dengan event (garis putih di atas segmen)
             </p>
           </div>
@@ -905,7 +905,7 @@ function PlaybackPanel({
                     type="datetime-local"
                     value={rangeStart}
                     onChange={(e) => setRangeStart(e.target.value)}
-                    className="h-11 min-w-0 rounded-xl border border-ink-700 bg-ink-800 px-3 text-sm text-slate-100"
+                    className="h-11 min-w-0 rounded-xl border border-ink-700 bg-ink-800 px-3 text-base text-slate-100"
                   />
                 </label>
                 <label className="flex min-w-0 flex-1 flex-col gap-1">
@@ -916,7 +916,7 @@ function PlaybackPanel({
                     type="datetime-local"
                     value={rangeEnd}
                     onChange={(e) => setRangeEnd(e.target.value)}
-                    className="h-11 min-w-0 rounded-xl border border-ink-700 bg-ink-800 px-3 text-sm text-slate-100"
+                    className="h-11 min-w-0 rounded-xl border border-ink-700 bg-ink-800 px-3 text-base text-slate-100"
                   />
                 </label>
                 <Button
@@ -1161,7 +1161,7 @@ export default function PlaybackPage() {
                           className={`flex h-11 min-w-0 items-center gap-2 rounded-full px-3.5 text-xs font-medium transition active:scale-95 ${
                             on
                               ? PRIMARY_GRADIENT + " font-semibold"
-                              : "bg-ink-800 text-slate-300 shadow-sm hover:bg-ink-700 hover:text-slate-200"
+                              : "bg-ink-900 text-slate-300 shadow-sm hover:bg-ink-700 hover:text-slate-200"
                           }`}
                         >
                           <span

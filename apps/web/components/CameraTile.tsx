@@ -479,7 +479,7 @@ function CameraTileInner({ stream, onExpand, ad, adInFrame = false, fillCell = f
                 setFailMsg(null);
                 setRetryTick((t) => t + 1);
               }}
-              className="relative mt-1 flex h-11 items-center rounded-xl bg-white/10 px-4 text-xs font-bold text-white transition hover:bg-white/25 active:scale-95"
+              className="relative mt-1 flex h-11 items-center rounded-xl bg-ink-800 px-4 text-xs font-bold text-slate-100 transition hover:bg-ink-700 active:scale-95"
             >
               Coba lagi
             </button>

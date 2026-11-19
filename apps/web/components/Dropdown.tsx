@@ -251,7 +251,7 @@ export function Dropdown({
             ? PRIMARY_GRADIENT
             : "bg-ink-800 text-slate-100"
         }`
-      : "flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl bg-ink-800 px-3.5 py-2.5 text-[15px] text-slate-100 shadow-sm outline-none transition-all duration-150 focus:ring-2 focus:ring-accent-500/30";
+      : "flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl bg-ink-800 px-3.5 py-2.5 text-base text-slate-100 shadow-sm outline-none transition-all duration-150 focus:ring-2 focus:ring-accent-500/30";
 
   return (
     <>
@@ -337,7 +337,7 @@ export function Dropdown({
                         o.disabled
                           ? "cursor-not-allowed opacity-50"
                           : isSelected
-                            ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent"
+                            ? PRIMARY_GRADIENT
                             : isActive
                               ? "bg-ink-800 text-slate-100"
                               : "text-slate-200 hover:bg-ink-800"

@@ -151,7 +151,7 @@ export function Button({
     primary: `${PRIMARY_GRADIENT} hover:shadow-[0_6px_20px_-4px_var(--nv-accent-600)]`,
     ghost: "bg-transparent text-slate-200 hover:bg-ink-800",
     danger:
-      "bg-bad-400/15 text-bad-400 hover:bg-bad-400/25 hover:shadow-[0_4px_16px_-6px_var(--nv-bad-400)]",
+      "bg-bad-400/15 text-bad-text hover:bg-bad-400/25 hover:shadow-[0_4px_16px_-6px_var(--nv-bad-400)]",
     subtle: "bg-ink-800 text-slate-200 hover:bg-ink-700",
   };
   return (
@@ -265,7 +265,7 @@ export function Field({
 }
 
 const inputCls =
-  "w-full rounded-xl bg-ink-800 px-4 py-2.5 text-[15px] text-slate-100 placeholder:text-slate-400 shadow-sm outline-none transition-all duration-150 ease-out focus:ring-2 focus:ring-accent-500/30";
+  "w-full rounded-xl bg-ink-800 px-4 py-2.5 text-base text-slate-100 placeholder:text-slate-400 shadow-sm outline-none ring-1 ring-ink-700 transition-all duration-150 ease-out focus:ring-2 focus:ring-accent-500/30";
 
 export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`${inputCls} ${props.className ?? ""}`} />;
@@ -281,7 +281,14 @@ export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
 }
 
 /* Toggle switch bersama (dipindah dari app/admin/ads/page.tsx).
-   Warna track memakai token ok-400 agar adaptif di kedua tema. */
+   Warna track memakai token ok-400 agar adaptif di kedua tema.
+   Track mati bg-ink-500 (bukan ink-600): kontras terhadap latar
+   modal/kartu (ink-900) terukur 2,11:1 di tema gelap dan 4,76:1 di
+   tema terang, lebih baik dari ink-600 (1,60:1 / 2,56:1). Di tema
+   gelap masih di bawah 3:1 untuk komponen UI; skala token tidak
+   punya ink yang lebih terang dari ink-500, jadi menaikkan lagi
+   butuh token baru (keputusan desain, bukan perbaikan diam-diam).
+   Kenop putih (onaccent) tetap terbaca jelas di kedua track. */
 export function Switch({
   checked,
   onChange,
@@ -300,7 +307,7 @@ export function Switch({
       onClick={() => onChange(!checked)}
       /* Perluas area sentuh ke ~48px tanpa mengubah visual track 24px. */
       className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-150 after:absolute after:-inset-3 after:rounded-full after:content-[''] ${
-        checked ? "bg-ok-400" : "bg-ink-600"
+        checked ? "bg-ok-400" : "bg-ink-500"
       }`}
     >
       <span
@@ -410,7 +417,7 @@ export function Modal({
     <div
       /* Backdrop blur disamakan di semua popup (FocusModal, Modal ui.tsx,
          Modal _nb.tsx): backdrop-blur-sm, tipis dan modern. */
-      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 backdrop-blur-sm p-0 sm:items-center sm:p-6"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-overlay/50 backdrop-blur-sm p-0 sm:items-center sm:p-6"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
@@ -423,6 +430,11 @@ export function Modal({
         }`}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Handle/grabber di atas header: penanda sheet di HP. */}
+        <div
+          aria-hidden
+          className="mx-auto mt-2 h-1 w-10 rounded-full bg-ink-600"
+        />
         <div className="flex items-center justify-between border-b border-ink-800 px-4 py-3 sm:px-5">
           <h2 id={titleId} className="text-lg font-bold tracking-tight text-white">
             {title}
@@ -509,7 +521,7 @@ export function Accordion({
 
 export function ErrorBox({ message }: { message: string }) {
   return (
-    <div className="rounded-xl bg-bad-400/10 px-3.5 py-2.5 text-sm text-bad-400">
+    <div className="rounded-xl bg-bad-400/10 px-3.5 py-2.5 text-sm text-bad-text">
       {message}
     </div>
   );

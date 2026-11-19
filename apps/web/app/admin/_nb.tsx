@@ -122,7 +122,7 @@ export function NBField({
 }
 
 const nbInputCls =
-  "w-full rounded-xl bg-ink-800 px-3.5 py-2.5 text-[15px] text-slate-100 placeholder:text-slate-400 shadow-sm outline-none transition-all duration-150 ease-out focus:ring-2 focus:ring-accent-500/30";
+  "w-full rounded-xl bg-ink-800 px-3.5 py-2.5 text-base text-slate-100 placeholder:text-slate-400 shadow-sm outline-none ring-1 ring-ink-700 transition-all duration-150 ease-out focus:ring-2 focus:ring-accent-500/30";
 
 export function NBInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`${nbInputCls} ${props.className ?? ""}`} />;

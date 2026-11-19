@@ -112,7 +112,7 @@ function MarkerPopup({
         </button>
       </div>
       <div
-        className={`mb-2.5 text-xs font-semibold ${s.is_online ? "text-ok-400" : "text-bad-400"}`}
+        className={`mb-2.5 text-xs font-semibold ${s.is_online ? "text-ok-text" : "text-bad-text"}`}
       >
         {s.is_online ? "● Online" : "● Offline"}
       </div>
@@ -126,7 +126,7 @@ function MarkerPopup({
           {editing ? (
             <div className="flex flex-col gap-2">
               {pendingCoords ? (
-                <div className="text-xs font-medium text-accent-400">
+                <div className="text-xs font-medium text-accent-text">
                   Posisi baru: {pendingCoords}
                 </div>
               ) : (
@@ -752,10 +752,21 @@ export default function MapsPage() {
             fillOpacity: 0.12,
           }).addTo(meLayerRef.current);
         }
+        /* Cincin putih tipis di bawah marker (radius 10) supaya tepi
+           marker aksen tetap terbaca di atas ubin peta terang maupun
+           gelap; cincin marker sendiri memakai aksen, bukan putih
+           polos, supaya terlihat di tema terang. */
+        L.circleMarker([lat, lng], {
+          radius: 10,
+          color: "#ffffff",
+          weight: 2,
+          fillColor: "#ffffff",
+          fillOpacity: 1,
+        }).addTo(meLayerRef.current);
         L.circleMarker([lat, lng], {
           radius: 8,
-          color: "#ffffff",
-          weight: 3,
+          color: "var(--nv-accent-500)",
+          weight: 2,
           fillColor: "var(--nv-accent-500)",
           fillOpacity: 1,
         }).addTo(meLayerRef.current);

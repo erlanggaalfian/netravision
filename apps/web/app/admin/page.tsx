@@ -135,7 +135,7 @@ export default function AdminDashboard() {
 
   const diskPct = disk && disk.total > 0 ? (disk.used / disk.total) * 100 : 0;
   const diskTone =
-    diskPct > 90 ? "text-bad-400" : diskPct > 70 ? "text-warn-400" : "text-white";
+    diskPct > 90 ? "text-bad-text" : diskPct > 70 ? "text-warn-400" : "text-white";
   const diskBar =
     diskPct > 90 ? "bg-bad-400" : diskPct > 70 ? "bg-warn-400" : "bg-accent-500";
 
@@ -144,7 +144,7 @@ export default function AdminDashboard() {
   const chev = (
     <span
       aria-hidden
-      className="absolute right-4 top-4 text-slate-400 transition-all duration-150 group-hover:translate-x-0.5 group-hover:text-accent-400"
+      className="absolute right-4 top-4 text-slate-400 transition-all duration-150 group-hover:translate-x-0.5 group-hover:text-accent-text"
     >
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
         <path d="M9 6l6 6-6 6" />
@@ -176,7 +176,7 @@ export default function AdminDashboard() {
       {offlineCount !== null && offlineCount > 0 && (
         <p className="-mt-2 mb-4 text-sm text-warn-400">
           {offlineCount} kamera offline,{" "}
-          <Link href="/admin/streams" className="font-medium underline underline-offset-2 hover:text-warn-300">
+          <Link href="/admin/streams" className="font-medium underline underline-offset-2 hover:text-warn-text">
             periksa di halaman Kamera
           </Link>
         </p>

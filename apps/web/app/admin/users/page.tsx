@@ -58,7 +58,7 @@ function NBCheckbox({
         className="peer h-4 w-4 cursor-pointer appearance-none rounded border border-ink-700 bg-transparent transition-colors checked:border-accent-500 checked:bg-accent-500 disabled:cursor-not-allowed disabled:opacity-40"
       />
       <svg
-        className="pointer-events-none absolute inset-0 m-auto hidden h-3 w-3 text-white peer-checked:block"
+        className="pointer-events-none absolute inset-0 m-auto hidden h-3 w-3 text-onaccent peer-checked:block"
         viewBox="0 0 12 12"
         fill="none"
         aria-hidden
@@ -433,7 +433,7 @@ export default function AdminUsersPage() {
         {/* Saat akordion terbuka boleh detail: Iklan + Dibuat oleh bertumpuk dua baris. */}
         <span className="flex flex-col items-start gap-0.5">
           <span
-            className={`text-[11px] font-medium ${u.show_ads ? "text-ok-400" : "text-slate-400"}`}
+            className={`text-[11px] font-medium ${u.show_ads ? "text-ok-text" : "text-slate-400"}`}
           >
             Iklan: {u.show_ads ? "Ya" : "Tidak"}
           </span>
@@ -810,7 +810,7 @@ export default function AdminUsersPage() {
                 {open && (
                   <div className="flex items-center justify-between gap-2 border-b border-ink-850 bg-ink-850/40 p-3 sm:px-4 md:hidden">
                     <span
-                      className={`min-w-0 text-xs font-medium leading-relaxed ${allAds ? "text-ok-400" : "text-slate-400"}`}
+                      className={`min-w-0 text-xs font-medium leading-relaxed ${allAds ? "text-ok-text" : "text-slate-400"}`}
                     >
                       Iklan: {allAds ? "Ya" : "Tidak"}
                     </span>

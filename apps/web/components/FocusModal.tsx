@@ -439,7 +439,7 @@ export function FocusModal({ stream, onClose, ad }: Props) {
       /* Backdrop blur disamakan di semua popup (FocusModal, Modal ui.tsx,
          Modal _nb.tsx): backdrop-blur-sm, tipis dan modern. Opasitas
          dilonggarkan 70 ke 60 supaya blur di balik video tetap terbaca. */
-      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 backdrop-blur-sm p-0 sm:items-center sm:p-6"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-overlay/50 backdrop-blur-sm p-0 sm:items-center sm:p-6"
       onClick={onClose}
     >
       <div
@@ -450,6 +450,11 @@ export function FocusModal({ stream, onClose, ad }: Props) {
         aria-modal="true"
         aria-label={stream.name}
       >
+        {/* Handle/grabber di atas header: penanda sheet di HP. */}
+        <div
+          aria-hidden
+          className="mx-auto mt-2 h-1 w-10 rounded-full bg-ink-600"
+        />
         {/* Header */}
         <div className="flex items-center justify-between gap-3 border-b border-ink-800 px-4 py-3 sm:px-5">
           <div className="flex min-w-0 items-center gap-3">

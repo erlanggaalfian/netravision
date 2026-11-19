@@ -662,7 +662,7 @@ export default function MonitorsPage() {
             />
             <div
               ref={gridWrapRef}
-              className="relative bg-transparent fullscreen:bg-ink-950"
+              className="relative bg-transparent fullscreen:bg-black"
             >
               {isFullscreen && (
                 <div className="absolute right-3 top-3 z-10">
@@ -789,7 +789,7 @@ export default function MonitorsPage() {
                                 </div>
                                 <div className="mt-0.5 text-xs text-neutral-400">
                                   {count} kamera ·{" "}
-                                  <span className="text-ok-400">
+                                  <span className="text-ok-text">
                                     {onlineN} online
                                   </span>{" "}
                                   · Grup kamera
@@ -892,7 +892,7 @@ export default function MonitorsPage() {
                             </div>
                             <div className="mt-0.5 text-xs text-neutral-400">
                               {count} kamera ·{" "}
-                              <span className="text-ok-400">{onlineN} online</span>{" "}
+                              <span className="text-ok-text">{onlineN} online</span>{" "}
                               · {l.cols} kolom
                             </div>
                           </div>

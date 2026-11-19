@@ -60,10 +60,19 @@
   --color-slate-400: var(--nv-slate-400);
   --color-slate-500: var(--nv-slate-500);
   --color-slate-600: var(--nv-slate-600);
+  /* PERINGATAN: text-white adalah TOKEN teks permukaan utama, BUKAN
+     putih literal. Di tema terang nilainya #101a2c (navy gelap), di
+     tema gelap #ffffff. Jangan pakai text-white di atas hitam murni
+     di luar .nv-stage (mis. tombol di atas bg-black/60 atau chip
+     aksen solid): di tema terang teksnya jadi gelap di atas gelap.
+     Untuk teks putih statis di atas aksen/hitam, pakai text-onaccent. */
   --color-white: var(--nv-white);
 
   /* Statis di kedua tema: teks di atas aksen (tombol biru, chip). */
   --color-onaccent: #ffffff;
+
+  /* Overlay gelap untuk backdrop popup, statis di kedua tema. */
+  --color-overlay: var(--nv-overlay);
 
   --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -108,6 +117,7 @@
   --nv-slate-500: #64748b;
   --nv-slate-600: #475569;
   --nv-white: #ffffff;
+  --nv-overlay: #0f172a;
 }
 
 /* ---- Tema terang: konsol siang hari.
@@ -157,6 +167,7 @@
   --nv-slate-500: #6b7684;
   --nv-slate-600: #7d8794;
   --nv-white: #101a2c;
+  --nv-overlay: #0f172a;
 }
 
 /* ---- Panggung video: SELALU gelap di kedua tema.
@@ -165,7 +176,7 @@
    dengan class ini; seluruh token --nv-* di dalamnya kembali ke gelap. */
 .nv-stage {  color-scheme: dark;
   background: #000;
-  --nv-ink-950: #070b10;
+  --nv-ink-950: #0a0e13;
   --nv-ink-900: #0d141c;
   --nv-ink-850: #111a24;
   --nv-ink-800: #16202c;
@@ -174,8 +185,8 @@
   --nv-ink-500: #3b4c61;
   --nv-accent-300: #8db9ff;
   --nv-accent-400: #5b9bff;
-  --nv-accent-500: #3b82f6;
-  --nv-accent-600: #2563eb;
+  --nv-accent-500: #2563eb;
+  --nv-accent-600: #1d4ed8;
   --nv-ok-400: #34d399;
   --nv-ok-300: #6ee7b7;
   --nv-warn-300: #fcd34d;
@@ -295,7 +306,12 @@ body {
 /* Klaster marker peta: lingkaran berisi jumlah kamera di titik itu.
    Warna mengikuti status kamera di dalamnya (hijau = semua nyala,
    kuning = ada yang mati, merah = semua mati), cincin putih supaya
-   terbaca di atas peta. Angka dipusatkan absolut agar tepat di tengah. */
+   terbaca di atas peta. Angka dipusatkan absolut agar tepat di tengah.
+   Kontras angka: isian klaster terang di kedua tema, jadi di tema
+   gelap angka memakai teks gelap (ink-950, 7,0-11,6:1); di tema
+   terang isian memakai token *-text yang lebih gelap dengan angka
+   putih (5,0-6,5:1). Jangan kembalikan ke teks putih di atas isian
+   terang di tema gelap (hanya 1,7-2,8:1). */
 .nv-cluster {
   position: relative;
   display: flex;
@@ -304,7 +320,7 @@ body {
   border-radius: 9999px;
   border: 2px solid #fff;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
-  color: #fff;
+  color: var(--nv-ink-950);
   font-size: 15px;
   font-weight: 800;
   line-height: 1;
@@ -318,6 +334,18 @@ body {
 }
 .nv-cluster-bad {
   background: var(--nv-bad-400);
+}
+[data-theme="light"] .nv-cluster {
+  color: #fff;
+}
+[data-theme="light"] .nv-cluster-ok {
+  background: var(--nv-ok-text);
+}
+[data-theme="light"] .nv-cluster-warn {
+  background: var(--nv-warn-text);
+}
+[data-theme="light"] .nv-cluster-bad {
+  background: var(--nv-bad-text);
 }
 .nv-cluster-num {
   position: absolute;
@@ -334,17 +362,17 @@ textarea {
   font-size: 16px;
 }
 
-/* Scrollbar ramping untuk panel gelap. */
+/* Scrollbar ramping, ikut token tema. */
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 *::-webkit-scrollbar-thumb {
-  background: #2a3542;
+  background: var(--nv-ink-600);
   border-radius: 8px;
 }
 [data-theme="light"] *::-webkit-scrollbar-thumb {
-  background: #b6c2d1;
+  background: var(--nv-ink-700);
 }
 *::-webkit-scrollbar-track {
   background: transparent;
@@ -426,13 +454,19 @@ textarea {
   }
 }
 
-/* Peta tema gelap (F4.6): ubin OSM terang dibalik gelap, atribusi
-   tetap tampil di bawah. */
+/* Peta (F4.6): di tema gelap ubin OSM terang dibalik gelap,
+   atribusi tetap tampil di bawah; di tema terang ubin tampil
+   normal. Latar wadah peta ikut token ink-900 di KEDUA tema
+   (gelap #0d141c, terang #ffffff) supaya tidak ada kilas abu-abu
+   default Leaflet saat peta dimuat. */
 [data-theme="dark"] .leaflet-tile-pane {
   filter: invert(1) hue-rotate(180deg);
 }
 [data-theme="dark"] .leaflet-container {
-  background: #0d141c;
+  background: var(--nv-ink-900);
+}
+[data-theme="light"] .leaflet-container {
+  background: var(--nv-ink-900);
 }
 
 /* Wadah gulir horizontal tanpa scrollbar terlihat (mis. tab admin di mobile) */
@@ -452,10 +486,6 @@ textarea {
   background: var(--nv-ink-900);
   border: 1px solid var(--nv-ink-700);
 }
-[data-theme="light"] .nv-glass {
-  background: var(--nv-ink-900);
-  border-color: var(--nv-ink-700);
-}
 /* Tab aktif: satu-satunya pemakaian aksen (teks pendamping sudah putih). */
 .nv-glass-active {
   background: var(--nv-accent-600);
@@ -471,10 +501,5 @@ textarea {
 .nv-frost {
   background: var(--nv-ink-900);
   border: 1px solid var(--nv-ink-700);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04);
-}
-[data-theme="light"] .nv-frost {
-  background: var(--nv-ink-900);
-  border-color: var(--nv-ink-700);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04);
 }

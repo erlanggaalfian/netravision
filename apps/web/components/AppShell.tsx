@@ -6,6 +6,7 @@ import { useState, type ReactNode } from "react";
 import { isAdminRole, useAuth } from "../lib/auth";
 import { useCameraStatus } from "../hooks/useCameraStatus";
 import { useIdleLogout } from "../hooks/useIdleLogout";
+import { PRIMARY_GRADIENT } from "./ui";
 import { ThemeToggle } from "./ThemeToggle";
 
 interface NavItem {
@@ -129,7 +130,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 aria-current={active ? "page" : undefined}
                 className={`flex min-h-[44px] items-center gap-3 rounded-xl px-4 py-2.5 text-sm transition-colors duration-150 active:scale-[0.98] ${
                   active
-                    ? "bg-gradient-to-r from-accent-600 to-accent-500 font-semibold text-onaccent"
+                    ? `${PRIMARY_GRADIENT} font-semibold`
                     : "font-medium text-slate-400 hover:bg-ink-800 hover:text-slate-200"
                 }`}
               >
@@ -226,7 +227,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </p>
             <button
               onClick={stayLoggedIn}
-              className="flex min-h-[48px] w-full cursor-pointer items-center justify-center rounded-xl bg-gradient-to-b from-accent-500 to-accent-600 px-4 text-sm font-semibold text-onaccent transition active:scale-[0.98]"
+              className={`flex min-h-[48px] w-full cursor-pointer items-center justify-center rounded-xl px-4 text-sm font-semibold transition active:scale-[0.98] ${PRIMARY_GRADIENT}`}
             >
               Tetap masuk
             </button>
@@ -250,7 +251,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 prefetch={n.noPrefetch ? false : undefined}
                 aria-current={active ? "page" : undefined}
                 className={`flex min-h-[56px] flex-1 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl text-[11px] font-medium leading-tight transition-colors duration-150 active:scale-95 ${
-                  active ? "bg-gradient-to-r from-accent-600 to-accent-500 text-onaccent" : "text-[#64748b]"
+                  active ? PRIMARY_GRADIENT : "text-[#64748b]"
                 }`}
               >
                 {n.icon}

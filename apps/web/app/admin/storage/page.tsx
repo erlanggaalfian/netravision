@@ -553,8 +553,11 @@ export default function AdminStoragePage() {
         title="Penyimpanan Google Drive"
         desc="Simpan rekaman CCTV ke Google Drive secara otomatis. Hubungkan akun Google, lalu tempel tautan folder."
       />
+      {/* Banner 429: teks warn-200 (#92400e di tema terang, terukur
+          5,43:1), BUKAN warn-text: warn-text sama dengan warn-400 di
+          tema terang (#b45309, hanya 3,84:1 di atas banner ini). */}
       {rateLimited && (
-        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-warn-400/15 px-4 py-3 text-sm font-medium text-warn-400 ring-1 ring-warn-400/30">
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-warn-400/15 px-4 py-3 text-sm font-medium text-warn-200 ring-1 ring-warn-400/30">
           <span className="flex-1">
             {retryAfterSecs !== null
               ? `Terlalu banyak permintaan, coba lagi dalam ${retryAfterSecs} detik.`
@@ -570,13 +573,17 @@ export default function AdminStoragePage() {
           <ErrorBox message={error} />
         </div>
       )}
+      {/* Banner sukses: teks ok-text di atas bg-ok-400/10 terukur
+          4,57:1 di tema terang (8,87:1 gelap). JANGAN naikkan ke
+          /15 (4,32:1) atau /25 (3,86:1): latar yang lebih pekat
+          justru MENURUNKAN kontras teks hijau gelap ini. */}
       {notice && (
-        <div className="mb-4 rounded-xl bg-ok-400/15 px-4 py-3 text-sm font-medium text-ok-400 ring-1 ring-ok-400/30">
+        <div className="mb-4 rounded-xl bg-ok-400/10 px-4 py-3 text-sm font-medium text-ok-text ring-1 ring-ok-400/30">
           {notice}
         </div>
       )}
       {conn && !conn.rclone_found && (
-        <div className="mb-4 rounded-xl bg-warn-400/15 px-4 py-3 text-sm font-medium text-warn-400 ring-1 ring-warn-400/30">
+        <div className="mb-4 rounded-xl bg-warn-400/15 px-4 py-3 text-sm font-medium text-warn-200 ring-1 ring-warn-400/30">
           rclone belum terinstal di server, hubungi admin server.
         </div>
       )}
@@ -733,7 +740,7 @@ export default function AdminStoragePage() {
                       href={authJob.auth_url}
                       target="_blank"
                       rel="noreferrer"
-                      className="mt-2 block break-all rounded-lg bg-ink-900 px-3 py-2 font-mono text-xs text-accent-400 underline underline-offset-2"
+                      className="mt-2 block break-all rounded-lg bg-ink-900 px-3 py-2 font-mono text-xs text-accent-text underline underline-offset-2"
                     >
                       {authJob.auth_url}
                     </a>
@@ -758,7 +765,7 @@ export default function AdminStoragePage() {
                   </div>
                 </div>
               ) : (
-                <div className="rounded-xl bg-bad-400/15 p-4 text-sm font-medium text-bad-400 ring-1 ring-bad-400/30">
+                <div className="rounded-xl bg-bad-400/15 p-4 text-sm font-medium text-bad-text ring-1 ring-bad-400/30">
                   {authJob.error || "Gagal menghubungkan akun."}
                   <div className="mt-3">
                     <NBButton variant="secondary" onClick={() => setAuthJob(null)}>
@@ -803,7 +810,7 @@ export default function AdminStoragePage() {
                       <button
                         type="button"
                         onClick={() => setShowHowTo((v) => !v)}
-                        className="text-sm font-medium text-accent-400 underline underline-offset-2"
+                        className="text-sm font-medium text-accent-text underline underline-offset-2"
                       >
                         {showHowTo ? "Sembunyikan cara mendapatkan kode" : "Cara mendapatkan kode"}
                       </button>
@@ -815,7 +822,7 @@ export default function AdminStoragePage() {
                               href="https://rclone.org/downloads/"
                               target="_blank"
                               rel="noreferrer"
-                              className="text-accent-400 underline"
+                              className="text-accent-text underline"
                             >
                               rclone.org/downloads
                             </a>
@@ -932,7 +939,7 @@ export default function AdminStoragePage() {
                             onClick={() => saveRetention(f, c.days)}
                             className={`min-h-[36px] rounded-full px-3 text-xs font-semibold transition-all ${
                               active
-                                ? "bg-accent-500 text-white shadow-sm"
+                                ? "bg-accent-500 text-onaccent shadow-sm"
                                 : "bg-ink-800 text-slate-300 hover:bg-ink-700"
                             }`}
                           >
@@ -947,7 +954,7 @@ export default function AdminStoragePage() {
                           href={f.folder_url}
                           target="_blank"
                           rel="noreferrer"
-                          className="font-medium text-accent-400 underline underline-offset-2"
+                          className="font-medium text-accent-text underline underline-offset-2"
                         >
                           Buka di Drive
                         </a>
@@ -968,7 +975,7 @@ export default function AdminStoragePage() {
                       <button
                         type="button"
                         onClick={() => setDeleting(f)}
-                        className="font-medium text-bad-400 underline underline-offset-2"
+                        className="font-medium text-bad-text underline underline-offset-2"
                       >
                         Hapus
                       </button>
@@ -1035,7 +1042,7 @@ export default function AdminStoragePage() {
                       onClick={() => setNewRetention(c.days)}
                       className={`min-h-[36px] rounded-full px-3 text-xs font-semibold transition-all ${
                         active
-                          ? "bg-accent-500 text-white shadow-sm"
+                          ? "bg-accent-500 text-onaccent shadow-sm"
                           : "bg-ink-800 text-slate-300 hover:bg-ink-700"
                       }`}
                     >

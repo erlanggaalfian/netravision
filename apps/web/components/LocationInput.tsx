@@ -10,6 +10,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../lib/api";
+import { PRIMARY_GRADIENT } from "./ui";
 
 type ResolveOut = {
   latitude: number;
@@ -106,13 +107,13 @@ export function LocationInput({
           }}
           placeholder="Tempel koordinat, tautan Google Maps, Plus Code, DMS, atau alamat"
           disabled={disabled || busy}
-          className="w-full rounded-xl bg-ink-800 px-3.5 py-2.5 text-[15px] text-slate-100 placeholder:text-slate-400 shadow-sm outline-none transition-all duration-150 ease-out focus:ring-2 focus:ring-accent-500/30"
+          className="w-full rounded-xl bg-ink-800 px-3.5 py-2.5 text-base text-slate-100 placeholder:text-slate-400 shadow-sm outline-none ring-1 ring-ink-700 transition-all duration-150 ease-out focus:ring-2 focus:ring-accent-500/30"
         />
         <button
           type="button"
           onClick={() => void resolve(text)}
           disabled={disabled || busy || text.trim() === ""}
-          className="min-h-[44px] shrink-0 rounded-xl bg-accent-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent-500 disabled:cursor-not-allowed disabled:opacity-50"
+          className={`min-h-[44px] shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all duration-150 ease-out hover:shadow-[0_6px_20px_-4px_var(--nv-accent-600)] disabled:cursor-not-allowed disabled:opacity-50 ${PRIMARY_GRADIENT}`}
         >
           {busy ? "Mencari…" : "Cari"}
         </button>

@@ -214,7 +214,7 @@ export function ShareModal({
                       disabled={isSuper}
                       className={`min-h-[44px] shrink-0 cursor-pointer rounded-full px-3.5 py-1 text-[11px] font-semibold transition-all active:scale-[0.97] disabled:cursor-default disabled:opacity-80 ${
                         playback
-                          ? "bg-accent-500/15 text-accent-300"
+                          ? "bg-accent-500/15 text-accent-text"
                           : "bg-ink-800 text-slate-400"
                       }`}
                       title={

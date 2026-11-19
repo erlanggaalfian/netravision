@@ -2,7 +2,17 @@
 
 /* P0 code-review 2026-11-18: error boundary level root (global-error).
    Menangkap error di layout root sendiri — wajib me-render <html> dan
-   <body> sendiri karena layout root ikut gagal saat error ini tampil. */
+   <body> sendiri karena layout root ikut gagal saat error ini tampil.
+
+   SENGAJA STATIS GELAP: halaman ini merender di luar provider tema dan
+   globals.css TIDAK termuat di jalur ini (CSS global hanya diimpor
+   layout root, yang justru sedang gagal), jadi kelas token Tailwind
+   (bg-ink-900, text-white, ...) tidak terdefinisi di sini dan
+   data-theme dari localStorage tidak berpengaruh. Karena itu seluruh
+   gaya memakai inline style dengan warna literal gelap. JANGAN ganti
+   ke kelas token tanpa memverifikasi globals.css termuat di jalur
+   error ini — halaman error yang gagal render lebih buruk daripada
+   halaman error yang gelap. */
 export default function GlobalError({
   error,
   reset,

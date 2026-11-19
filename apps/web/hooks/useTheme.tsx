@@ -41,6 +41,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // menulisnya ke localStorage sebelum render pertama yang benar.
   const [theme, setTheme] = useState<Theme>(resolveInitial);
 
+  /* PERILAKU YANG DIKUNCI: effect di bawah berjalan di mount pertama
+     dan MENULIS preferensi sistem (atau default gelap) ke localStorage
+     (kunci nv-theme), sehingga pilihan sistem saat itu menjadi
+     preferensi tersimpan. Setelah itu resolveInitial() selalu membaca
+     nilai tersimpan, bukan lagi prefers-color-scheme: bila pengguna
+     mengganti tema sistem di OS nanti, aplikasi TIDAK ikut berubah
+     sampai pengguna menekan ThemeToggle. Ini sengaja (preferensi
+     eksplisit mengalahkan sistem), jangan "memperbaiki" dengan
+     menghapus penulisan ini tanpa keputusan pengguna. */
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     try {

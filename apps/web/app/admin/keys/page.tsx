@@ -512,10 +512,10 @@ export default function AdminKeysPage() {
         >
           {/* Peringatan sekali tampil, bukan error: kotak kuning, bukan
               ErrorBox merah (ErrorBox hanya untuk kegagalan). */}
-          <div className="rounded-xl bg-warn-400/15 px-3.5 py-2.5 text-sm font-medium text-warn-300 ring-1 ring-warn-400/30">
+          <div className="rounded-xl bg-warn-400/15 px-3.5 py-2.5 text-sm font-medium text-warn-text ring-1 ring-warn-400/30">
             Salin key ini sekarang, tidak akan ditampilkan lagi.
           </div>
-          <p className="mt-3 break-all rounded-lg bg-ink-950 p-3 font-mono text-sm text-accent-300">
+          <p className="mt-3 break-all rounded-lg bg-ink-950 p-3 font-mono text-sm text-accent-text">
             {created.key}
           </p>
           {copyKeyError && (
@@ -692,7 +692,7 @@ function EmbedPlayerSettings() {
             <NBButton onClick={save} disabled={busy} className="min-h-[44px]">
               {busy ? "Menyimpan…" : "Simpan"}
             </NBButton>
-            {saved && <span className="text-sm text-ok-400">Tersimpan</span>}
+            {saved && <span className="text-sm text-ok-text">Tersimpan</span>}
           </div>
         </div>
       )}
@@ -766,7 +766,7 @@ function IntegrationGuideModal({
           sebelum tombol Salin mana pun, supaya tidak ada penyalinan
           URL ber-key tanpa peringatan. */}
       {key && (
-        <div className="mt-4 rounded-xl bg-warn-400/15 px-3.5 py-2.5 text-sm font-medium text-warn-300 ring-1 ring-warn-400/30">
+        <div className="mt-4 rounded-xl bg-warn-400/15 px-3.5 py-2.5 text-sm font-medium text-warn-text ring-1 ring-warn-400/30">
           Tautan di bawah berisi API key Anda. Jangan dibagikan sembarangan,
           key tersimpan di histori browser.
         </div>
@@ -779,7 +779,7 @@ function IntegrationGuideModal({
           >
             <p className="text-sm font-semibold text-white">{m.title}</p>
             <p className="mt-0.5 text-xs text-slate-400">{m.desc}</p>
-            <p className="mt-2 break-all rounded-lg bg-ink-950 p-3 font-mono text-xs text-accent-300">
+            <p className="mt-2 break-all rounded-lg bg-ink-950 p-3 font-mono text-xs text-accent-text">
               {key ? m.code : "- isi API key dulu -"}
             </p>
             <NBButton
@@ -937,7 +937,7 @@ function KeyFormModal({
             {streams.map((s) => (
               <label
                 key={s.id}
-                className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-lg px-2 hover:bg-ink-800"
+                className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-lg px-2 hover:bg-ink-700"
               >
                 <input
                   type="checkbox"
@@ -956,7 +956,7 @@ function KeyFormModal({
               {ordered.map((id, i) => (
                 <div
                   key={id}
-                  className="flex min-h-[44px] items-center gap-2 rounded-lg px-2 hover:bg-ink-800"
+                  className="flex min-h-[44px] items-center gap-2 rounded-lg px-2 hover:bg-ink-700"
                 >
                   <span className="w-6 shrink-0 text-center text-xs tabular-nums text-slate-400">
                     {i + 1}
