@@ -1214,7 +1214,7 @@ export default function PlaybackPage() {
         ) : (
           <>
             <div
-              className={`mx-auto grid w-full max-w-5xl grid-cols-1 gap-4 ${multi ? (GRID_CLASS[gridCols] ?? GRID_CLASS[2]) : ""}`}
+              className={`mx-auto grid w-full max-w-7xl grid-cols-1 gap-4 ${multi ? (GRID_CLASS[gridCols] ?? GRID_CLASS[2]) : ""}`}
             >
               {visibleStreams.map((s) => (
                 <PlaybackPanel
