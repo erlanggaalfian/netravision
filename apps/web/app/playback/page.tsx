@@ -147,7 +147,6 @@ function PlaybackPanel({
   const [active, setActive] = useState<TimelineEntry | null>(null);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
-  const [downloading, setDownloading] = useState(false);
   const [urlLoading, setUrlLoading] = useState(false);
   /* Unduh rentang: jam mulai/selesai (datetime-local), default mengikuti
      segmen aktif. */
@@ -405,30 +404,6 @@ function PlaybackPanel({
     },
     [timeline, playEntry],
   );
-
-  const downloadActive = useCallback(async () => {
-    if (!active) return;
-    setDownloading(true);
-    try {
-      const res = await apiFetch(
-        `/recordings/${streamId}/file?start=${encodeURIComponent(active.start)}&end=${encodeURIComponent(active.end)}`,
-      );
-      if (!res.ok) throw new ApiError(res.status, `HTTP ${res.status}`);
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `rekaman-${streamId}-${active.start.replace(/[:.]/g, "-")}.mp4`;
-      a.click();
-      /* Revoke setelah unduhan sempat mulai, revoke langsung bisa
-         membatalkan unduhan di sebagian browser. */
-      setTimeout(() => URL.revokeObjectURL(url), 30_000);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Gagal mengunduh");
-    } finally {
-      setDownloading(false);
-    }
-  }, [active, streamId]);
 
   /* Jam rentang mengikuti segmen aktif saat segmen berganti. */
   useEffect(() => {
@@ -862,7 +837,7 @@ function PlaybackPanel({
               )}
             </div>
             {active && (
-              <div className="flex items-center justify-between gap-2 border-t border-ink-800 px-4 py-3">
+              <div className="flex items-center gap-2 border-t border-ink-800 px-4 py-3">
                 <span className="min-w-0 flex-1 truncate text-xs text-slate-400">
                   {active.has_event && (
                     <span className="mr-2 rounded-full bg-warn-400/15 px-2 py-0.5 text-[11px] font-semibold text-warn-400">
@@ -871,14 +846,6 @@ function PlaybackPanel({
                   )}
                   {videoError ? "Rekaman gagal diputar" : "Rekaman siap diputar"}
                 </span>
-                <Button
-                  variant="primary"
-                  className="shrink-0"
-                  onClick={downloadActive}
-                  disabled={downloading}
-                >
-                  {downloading ? "Mengunduh…" : "Unduh"}
-                </Button>
               </div>
             )}
             {/* Iklan tepat di bawah video, sebelum bagian unduh. */}
