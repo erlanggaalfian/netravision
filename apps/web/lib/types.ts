@@ -191,3 +191,64 @@ export interface StatusChange {
   stream_id: number;
   is_online: boolean;
 }
+
+/* Diagnostik tambah kamera (GET /admin/diagnostics/camera-add):
+   envelope kegagalan terklasifikasi + status probe dan path. */
+export interface CameraFailure {
+  code: string;
+  judul: string;
+  penyebab: string;
+  langkah: string[];
+}
+
+export interface MediamtxStatus {
+  api_url: string;
+  reachable: boolean;
+  status: string; // ok | redirect | auth | unreachable | error
+  status_code: number | null;
+  version: string | null;
+  failure: CameraFailure | null;
+}
+
+export interface PathStatus {
+  stream_id: number;
+  name: string;
+  path: string;
+  terdaftar: boolean;
+}
+
+export interface ProbeRow {
+  stream_id: number;
+  name: string;
+  main_status: string | null; // null = belum pernah diprobe
+  sub_status: string | null;
+  checked_at: string | null;
+}
+
+export interface FailureRow extends CameraFailure {
+  id: number;
+  stream_id: number | null;
+  camera_name: string;
+  created_at: string;
+}
+
+export interface DiagnosticsData {
+  mediamtx: MediamtxStatus;
+  paths_total: number;
+  paths_terdaftar: number;
+  paths_hilang: PathStatus[];
+  rtsp: ProbeRow[];
+  riwayat: FailureRow[];
+}
+
+export interface ProbeRoleResult {
+  status: string;
+  failure: CameraFailure | null;
+}
+
+export interface ProbeResult {
+  stream_id: number;
+  name: string;
+  main: ProbeRoleResult;
+  sub: ProbeRoleResult | null;
+}

@@ -45,6 +45,13 @@ from app.schemas.stream import (
     StreamUpdate,
 )
 from app.services import rtsp_discovery
+from app.services.camera_diagnostics import (
+    classify_discovery,
+    classify_probe,
+    classify_resolver,
+    record_failure,
+    record_probe_result,
+)
 from app.services.mediamtx import MediaMTXClient, get_mediamtx_dep
 from app.services.stream_resolver import StreamResolution, resolve_stream
 
@@ -105,14 +112,18 @@ async def _register_paths(
     mediamtx: MediaMTXClient, stream_id: int, main_url: str, sub_url: str | None,
     record: bool = False, stream: Stream | None = None,
     retention_days: int | None = None,
-) -> tuple[bool, str | None]:
-    """Daftarkan path ke MediaMTX. Return (ok, pesan_error).
+) -> tuple[bool, dict | None]:
+    """Daftarkan path ke MediaMTX. Return (ok, failure).
+
+    failure adalah envelope terklasifikasi (code/judul/penyebab/langkah)
+    dari app.services.camera_diagnostics, atau None bila sukses.
 
     Kamera tetap disimpan ke DB walau gagal, dengan sync berkala (poin 3
     laporan staging), path akan terdaftar sendiri begitu MediaMTX pulih.
     Bila `stream` diberikan, recordPath multi-disk (record_path_for) dan
     retention_days diambil dari stream itu.
     """
+    from app.services.camera_diagnostics import classify_mediamtx_error
     from app.services.disks import record_path_for
     from app.services.stream_paths import register_stream
 
@@ -136,12 +147,14 @@ async def _register_paths(
         return True, None
     except Exception as e:  # noqa: BLE001 - best-effort, jangan gagalkan tambah kamera
         # Pesan MediaMTX bisa memuat source URL berkredensial (main/sub
-        # URL ikut di body request register_stream): redaksi sebelum
-        # log DAN sebelum dikembalikan sebagai mediamtx_error ke UI.
-        err = redact_url_credentials(str(e))
-        msg = f"MediaMTX tidak terjangkau (stream {stream_id}): {err}"
-        log.warning(msg)
-        return False, err
+        # URL ikut di body request register_stream): klasifikasi sudah
+        # me-redact sebelum log DAN sebelum dikembalikan ke UI.
+        failure = classify_mediamtx_error(e)
+        log.warning(
+            "registrasi MediaMTX stream %s gagal (%s): %s",
+            stream_id, failure["code"], failure["judul"],
+        )
+        return False, failure
 
 
 async def _refresh_stream_group_names(
@@ -377,6 +390,10 @@ async def admin_create_stream(
     # server lewat scan_ref; tanpa scan_ref yang sah, 400 di sini.
     rtsp_url = _resolve_scan_url(data.rtsp_url, data.scan_ref)
     sub_url = _resolve_scan_url(data.sub_url, data.scan_ref)
+    # Hasil probe terakhir, dicatat ke riwayat probe setelah kamera
+    # tersimpan (butuh stream_id). None = tidak diverifikasi (force).
+    probe_main: str | None = None
+    probe_sub: str | None = None
     if rtsp_url:
         # URL langsung: verifikasi video dulu (kecuali force).
         try:
@@ -386,17 +403,20 @@ async def admin_create_stream(
                 channel=data.channel,
             )
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            failure = classify_resolver(str(e))
+            await record_failure(
+                db, stream_id=None, camera_name=data.name, failure=failure
+            )
+            raise HTTPException(status_code=400, detail=failure)
         if not data.force:
             vp = await rtsp_discovery.verify_url(rtsp_url)
-            if vp.status != "video":
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f"URL tidak mengirim video ({vp.status}). Perbaiki URL, "
-                        "atau kirim force=true untuk tetap mendaftar."
-                    ),
+            probe_main = vp.status
+            failure = classify_probe(vp.status, "main")
+            if failure is not None:
+                await record_failure(
+                    db, stream_id=None, camera_name=data.name, failure=failure
                 )
+                raise HTTPException(status_code=400, detail=failure)
             # A-1.27: sub_url eksplisit juga diverifikasi bila
             # force=False; sebelumnya hanya rtsp_url yang dicek
             # sehingga kamera bisa tersimpan dengan sub mati tanpa
@@ -404,29 +424,26 @@ async def admin_create_stream(
             # tapi sub yang diketik manual belum tentu).
             if sub_url:
                 vs = await rtsp_discovery.verify_url(sub_url)
-                if vs.status != "video":
-                    raise HTTPException(
-                        status_code=400,
-                        detail=(
-                            "Substream tidak mengirim video "
-                            f"({vs.status}). Perbaiki URL sub, atau kirim "
-                            "force=true untuk tetap mendaftar."
-                        ),
+                probe_sub = vs.status
+                failure = classify_probe(vs.status, "sub")
+                if failure is not None:
+                    await record_failure(
+                        db, stream_id=None, camera_name=data.name, failure=failure
                     )
+                    raise HTTPException(status_code=400, detail=failure)
     elif data.host and not data.force:
         # Tanpa URL: discovery otomatis, pakai path video terbaik.
         disc = await rtsp_discovery.discover_host(
             data.host, data.port, data.user, data.password, data.channel
         )
         if not disc.best_main:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Tidak ada path yang mengirim video ("
-                    f"{disc.ringkasan()}). Periksa kredensial/path, atau kirim "
-                    "force=true beserta brand untuk tetap mendaftar."
-                ),
+            failure = classify_discovery(disc.ringkasan())
+            await record_failure(
+                db, stream_id=None, camera_name=data.name, failure=failure
             )
+            raise HTTPException(status_code=400, detail=failure)
+        probe_main = "video"
+        probe_sub = "video" if disc.best_sub else None
         res = StreamResolution(
             main_url=disc.best_main,
             sub_url=disc.best_sub,
@@ -441,7 +458,11 @@ async def admin_create_stream(
                 channel=data.channel,
             )
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            failure = classify_resolver(str(e))
+            await record_failure(
+                db, stream_id=None, camera_name=data.name, failure=failure
+            )
+            raise HTTPException(status_code=400, detail=failure)
     # TODO Fase 2: simpan data.onvif (profile token) ke streams.onvif_profile
     # bila resolver sudah mengembalikannya.
     # sub_url eksplisit (best_sub terverifikasi dari Scanner) lebih
@@ -466,20 +487,35 @@ async def admin_create_stream(
     db.add(stream)
     await db.commit()
     await db.refresh(stream)
+
+    # Hasil probe RTSP yang berhasil diverifikasi dicatat supaya halaman
+    # Diagnostik bisa menampilkan status per kamera.
+    if probe_main is not None:
+        await record_probe_result(
+            db, stream_id=stream.id, camera_name=stream.name,
+            main_status=probe_main, sub_status=probe_sub,
+        )
     # Kamera nonaktif: path MediaMTX sengaja tidak didaftarkan (sync
     # berkala hanya mendaftarkan kamera aktif); mediamtx_registered
     # tetap True supaya UI tidak menampilkan peringatan gagal yang
     # menyesatkan, karena ini bukan kegagalan.
     if data.is_active:
-        ok, err = await _register_paths(mediamtx, stream.id, res.main_url, effective_sub,
-                                        record=data.recording_enabled, stream=stream)
+        ok, failure = await _register_paths(
+            mediamtx, stream.id, res.main_url, effective_sub,
+            record=data.recording_enabled, stream=stream,
+        )
     else:
-        ok, err = True, None
+        ok, failure = True, None
     out = stream_to_out(stream, get_settings())
     # Status registrasi MediaMTX dikembalikan ke UI (bukan 500, bukan diam).
     # A-S2: field ini bagian dari StreamOut supaya tidak dipangkas response_model.
     out.mediamtx_registered = ok
-    out.mediamtx_error = err
+    out.mediamtx_error = failure["judul"] if failure else None
+    out.mediamtx_failure = failure
+    if failure is not None:
+        await record_failure(
+            db, stream_id=stream.id, camera_name=stream.name, failure=failure
+        )
     return out
 
 
@@ -589,7 +625,9 @@ async def admin_update_stream(
             )
     # URL berubah dan kamera aktif: hapus path lama lalu daftarkan ulang
     # dengan sumber baru (best-effort; sync berkala mendaftarkan sendiri
-    # bila MediaMTX sedang mati).
+    # bila MediaMTX sedang mati). Kegagalan registrasi dicatat ke
+    # riwayat diagnostik dan dikembalikan sebagai mediamtx_failure.
+    re_registered_failure: dict | None = None
     if urls_changed and stream.is_active:
         source = stream.main_url or stream.rtsp_url
         if source:
@@ -600,7 +638,7 @@ async def admin_update_stream(
                 log.warning(
                     "hapus path lama MediaMTX stream %s gagal: %s", stream_id, e
                 )
-            await _register_paths(
+            _ok, re_registered_failure = await _register_paths(
                 mediamtx, stream.id, source, stream.sub_url,
                 record=stream.recording_enabled, stream=stream)
     # Reaktivasi (nonaktif -> aktif) atau perubahan setelan rekaman
@@ -619,10 +657,18 @@ async def admin_update_stream(
     ):
         source = stream.main_url or stream.rtsp_url
         if source:
-            await _register_paths(
+            _ok, re_registered_failure = await _register_paths(
                 mediamtx, stream.id, source, stream.sub_url,
                 record=stream.recording_enabled, stream=stream)
     out = stream_to_out(stream, get_settings())
+    if re_registered_failure is not None:
+        out.mediamtx_registered = False
+        out.mediamtx_error = re_registered_failure["judul"]
+        out.mediamtx_failure = re_registered_failure
+        await record_failure(
+            db, stream_id=stream.id, camera_name=stream.name,
+            failure=re_registered_failure,
+        )
     # T-4: PUT ini super_admin-only, tetapi main/sub tetap dikembalikan
     # dengan password teredaksi (****). Frontend mengirim **** kembali
     # dan backend memulihkan password tersimpan, jadi tidak ada password

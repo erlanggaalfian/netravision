@@ -23,6 +23,7 @@ const NAV: NavItem[] = [
   { href: "/admin/ads", label: "Iklan", icon: "M4 5h16v11H4zM4 16l4-4M20 16l-4-4", superAdminOnly: true },
   { href: "/admin/keys", label: "API Key", icon: "M10 13.5a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM10 2.5v3M10 14.5v3M2.5 10h3M14.5 10h3", superAdminOnly: true },
   { href: "/admin/storage", label: "Penyimpanan", icon: "M4 7l8-4 8 4-8 4-8-4zM4 7v10l8 4 8-4V7M12 11v8", superAdminOnly: true },
+  { href: "/admin/diagnostics", label: "Diagnostik", icon: "M3 12h4l3 8 4-16 3 8h4", superAdminOnly: true },
 ];
 
 export default function AdminLayout({

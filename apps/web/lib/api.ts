@@ -7,6 +7,8 @@
 
 import { useEffect, useState } from "react";
 
+import type { CameraFailure } from "./types";
+
 const BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
 
@@ -63,16 +65,23 @@ export class ApiError extends Error {
      null untuk error HTTP biasa. Pesan sudah berbahasa Indonesia
      supaya halaman bisa menampilkannya langsung dengan tombol coba lagi. */
   code: "timeout" | "network" | null;
+  /* Envelope kegagalan terklasifikasi (judul + penyebab + langkah)
+     bila backend mengembalikan detail terstruktur, mis. tambah kamera
+     gagal karena probe RTSP atau registrasi MediaMTX. Null bila detail
+     berupa string biasa. */
+  failure: CameraFailure | null;
   constructor(
     status: number,
     message: string,
     retryAfter: number | null = null,
     code: "timeout" | "network" | null = null,
+    failure: CameraFailure | null = null,
   ) {
     super(message);
     this.status = status;
     this.retryAfter = retryAfter;
     this.code = code;
+    this.failure = failure;
   }
 }
 
@@ -280,13 +289,27 @@ export async function apiFetch(
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
+    let failure: CameraFailure | null = null;
     try {
       const data = await res.json();
-      msg = data.detail || data.message || msg;
+      /* Detail terstruktur (dict dengan code string) = envelope
+         kegagalan terklasifikasi; simpan utuh di ApiError.failure
+         supaya UI bisa menampilkan penyebab + langkah perbaikan.
+         Detail string biasa tetap jadi pesan seperti semula. */
+      if (
+        data.detail &&
+        typeof data.detail === "object" &&
+        typeof data.detail.code === "string"
+      ) {
+        failure = data.detail as CameraFailure;
+        msg = data.detail.judul || msg;
+      } else {
+        msg = data.detail || data.message || msg;
+      }
     } catch {
       /* abaikan */
     }
-    throw new ApiError(res.status, msg, parseRetryAfter(res));
+    throw new ApiError(res.status, msg, parseRetryAfter(res), null, failure);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;

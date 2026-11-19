@@ -6,7 +6,7 @@ import { ApiError, api } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import { filterStreamsForRole } from "../../../lib/scope";
 import { useCameraStatus } from "../../../hooks/useCameraStatus";
-import type { AdConfig, Disk, DriveFolder, Group, ScanPath, ScanResult, Stream } from "../../../lib/types";
+import type { AdConfig, CameraFailure, Disk, DriveFolder, Group, ScanPath, ScanResult, Stream } from "../../../lib/types";
 /* P1 code-review 2026-11-18: FocusModal dan ShareModal hanya dibutuhkan
    saat pengguna membuka popup, lazy-load supaya First Load JS halaman
    admin/streams tidak membawa kode modal. */
@@ -19,7 +19,7 @@ const FocusModal = dynamic(
   { ssr: false },
 );
 import { LocationInput } from "../../../components/LocationInput";
-import { ErrorBox, Modal, Pagination, PRIMARY_GRADIENT, Spinner, Switch } from "../../../components/ui";
+import { ErrorBox, FailureBox, Modal, Pagination, PRIMARY_GRADIENT, Spinner, Switch } from "../../../components/ui";
 import {
   NBAccordion,
   NBBadge,
@@ -1120,6 +1120,7 @@ function AddStreamModal({
   const [driveFolderId, setDriveFolderId] = useState("");
   const showDriveFolder = storageMode === "drive" || storageMode === "both";
   const [error, setError] = useState("");
+  const [failure, setFailure] = useState<CameraFailure | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function doScan() {
@@ -1153,6 +1154,7 @@ function AddStreamModal({
   async function save() {
     if (!picked) return;
     setError("");
+    setFailure(null);
     /* E-S7: validasi latitude/longitude sebelum kirim. */
     const badCoord = coordError(latitude, longitude);
     if (badCoord) {
@@ -1177,7 +1179,7 @@ function AddStreamModal({
       const lon = longitude.trim() === "" ? null : parseFloat(longitude);
       // force: path dipilih admin setelah diverifikasi video saat scan;
       // hindari sesi RTSP ganda ke kamera yang membatasi sesi.
-      const res = await api.post<Stream & { mediamtx_registered?: boolean; mediamtx_error?: string | null }>(
+      const res = await api.post<Stream & { mediamtx_registered?: boolean; mediamtx_error?: string | null; mediamtx_failure?: CameraFailure | null }>(
         "/admin/streams",
         {
           name: name.trim(),
@@ -1200,16 +1202,28 @@ function AddStreamModal({
         },
       );
       if (res.mediamtx_registered === false) {
-        setError(
-          "Kamera tersimpan, tapi gagal didaftarkan ke MediaMTX" +
-          (res.mediamtx_error ? `: ${res.mediamtx_error}` : "") +
-          ". Path akan terdaftar otomatis saat MediaMTX pulih (sync berkala)."
-        );
+        /* Kamera tersimpan, registrasi MediaMTX gagal: tampilkan
+           penyebab + langkah perbaikan, bukan pesan mentah. */
+        if (res.mediamtx_failure) {
+          setFailure(res.mediamtx_failure);
+        } else {
+          setError(
+            "Kamera tersimpan, tapi gagal didaftarkan ke MediaMTX" +
+            (res.mediamtx_error ? `: ${res.mediamtx_error}` : "") +
+            ". Path akan terdaftar otomatis saat MediaMTX pulih (sync berkala)."
+          );
+        }
         return;
       }
       onDone();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Gagal menyimpan kamera");
+      /* Kegagalan terklasifikasi (mis. probe RTSP) datang sebagai
+         envelope di ApiError.failure; tampilkan kotaknya. */
+      if (e instanceof ApiError && e.failure) {
+        setFailure(e.failure);
+      } else {
+        setError(e instanceof ApiError ? e.message : "Gagal menyimpan kamera");
+      }
     } finally {
       setBusy(false);
     }
@@ -1220,6 +1234,11 @@ function AddStreamModal({
       {error && (
         <div className="mb-4">
           <ErrorBox message={error} />
+        </div>
+      )}
+      {failure && (
+        <div className="mb-4">
+          <FailureBox failure={failure} />
         </div>
       )}
       <div className="space-y-4">

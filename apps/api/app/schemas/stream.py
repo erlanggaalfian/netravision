@@ -38,6 +38,10 @@ class StreamOut(BaseModel):
     # Status registrasi MediaMTX (A-S2): hanya diisi admin_create_stream.
     mediamtx_registered: bool = False
     mediamtx_error: str | None = None
+    # Envelope kegagalan terklasifikasi (judul + penyebab + langkah),
+    # diisi bila registrasi MediaMTX gagal. UI menampilkan ini, bukan
+    # pesan mentah mediamtx_error.
+    mediamtx_failure: dict | None = None
 
 
 class StreamCreate(BaseModel):

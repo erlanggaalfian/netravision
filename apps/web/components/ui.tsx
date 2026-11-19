@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useFocusTrap } from "../hooks/useFocusTrap";
+import type { CameraFailure } from "../lib/types";
 
 /* Komponen UI bersama, "ruang kendali siaran": permukaan bertingkat,
    hairline white/8, radius 12-16px, satu aksen biru. API tidak berubah.
@@ -555,6 +556,26 @@ export function ErrorBox({ message }: { message: string }) {
   return (
     <div className="rounded-xl bg-bad-400/10 px-3.5 py-2.5 text-sm text-bad-text">
       {message}
+    </div>
+  );
+}
+
+/* Kotak penyebab kegagalan terklasifikasi (Diagnostik tambah kamera):
+   judul, penyebab, lalu langkah perbaikan berurut. Dipakai di halaman
+   Diagnostik dan di modal Tambah Kamera saat create gagal atau
+   registrasi MediaMTX gagal. */
+export function FailureBox({ failure }: { failure: CameraFailure }) {
+  return (
+    <div className="rounded-xl border border-bad-400/30 bg-bad-400/10 px-3.5 py-3 text-sm">
+      <p className="font-semibold text-bad-text">{failure.judul}</p>
+      <p className="mt-1 text-bad-text/90">{failure.penyebab}</p>
+      {failure.langkah.length > 0 && (
+        <ol className="mt-2 list-decimal space-y-1 pl-5 text-bad-text/90">
+          {failure.langkah.map((step, i) => (
+            <li key={i}>{step}</li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }

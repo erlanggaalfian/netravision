@@ -658,7 +658,10 @@ async def test_create_stream_tanpa_video_ditolak(app_client, monkeypatch):
             "user": "admin", "password": "pw",
         })
     assert r.status_code == 400, r.text
-    assert "Tidak ada path yang mengirim video" in r.json()["detail"]
+    # Detail kini envelope terklasifikasi, bukan string biasa.
+    detail = r.json()["detail"]
+    assert detail["code"] == "rtsp_discovery"
+    assert "Tidak ada path yang mengirim video" in detail["judul"]
 
 
 async def test_create_stream_rtsp_url_verifikasi_dan_force(app_client, monkeypatch):
@@ -675,7 +678,9 @@ async def test_create_stream_rtsp_url_verifikasi_dan_force(app_client, monkeypat
     async with _client(app) as c:
         r = await c.post("/api/admin/streams", json=payload)
         assert r.status_code == 400, r.text
-        assert "auth_failed" in r.json()["detail"]
+        # Detail kini envelope terklasifikasi (code rtsp_auth), bukan
+        # string yang memuat status probe mentah.
+        assert r.json()["detail"]["code"] == "rtsp_auth"
         r = await c.post("/api/admin/streams", json={**payload, "force": True})
         assert r.status_code == 201, r.text
 

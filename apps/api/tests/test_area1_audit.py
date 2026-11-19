@@ -1072,7 +1072,11 @@ async def test_1_27_tambah_sub_tidak_video_ditolak(
             "owner": "admin",
         })
         assert r.status_code == 400, r.text
-        assert "Substream" in r.json()["detail"]
+        # Detail kini envelope terklasifikasi, bukan string biasa.
+        detail = r.json()["detail"]
+        assert detail["code"] == "rtsp_no_video"
+        assert "Substream" in detail["judul"]
+        assert detail["langkah"]
         # force=true melewati verifikasi.
         r = await c.post("/api/admin/streams", json={
             "name": "Cam", "brand": "generic",

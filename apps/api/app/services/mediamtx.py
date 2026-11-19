@@ -16,6 +16,24 @@ from app.core.config import get_settings
 
 log = logging.getLogger("netravision.mediamtx")
 
+
+class MediaMTXError(RuntimeError):
+    """Error control API MediaMTX dengan status dan jenis terawetkan.
+
+    kind: "redirect" (307/308, alamat endpoint salah),
+    "auth" (401, kredensial ditolak), "unreachable" (koneksi/timeout),
+    "http" (status lain). Subclass RuntimeError supaya kontrak lama
+    (pemanggil cukup tangkap RuntimeError) tetap berlaku.
+    """
+
+    def __init__(
+        self, message: str, *, status_code: int | None = None, kind: str = "http"
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.kind = kind
+
+
 # P0: SATU lock proses untuk semua mutasi path MediaMTX. Sync loop
 # (main.py), admin, dan reconnect memakai instance client berbeda, jadi
 # lock per-instance tidak cukup, lock ini di level modul agar
@@ -67,27 +85,56 @@ class MediaMTXClient:
         # pengulangan add bisa menduplikasi efek di sisi server, dan
         # 4xx (mis. 409 path sudah ada) tidak pernah di-retry.
         # Timeout tetap 5 detik (di AsyncClient); tidak diubah.
+        # Status HTTP diawetkan lewat MediaMTXError (kind + status_code)
+        # supaya pemanggil bisa membedakan redirect 307 (endpoint salah),
+        # 401 (kredensial ditolak), dan koneksi putus, bukan satu pesan
+        # generik "tidak terjangkau" untuk semuanya.
         attempts = 2 if method.upper() == "GET" else 1
         for attempt in range(attempts):
             try:
                 resp = await self._client.request(method, path, **kwargs)
                 if resp.status_code == 404:
                     return resp
+                if resp.status_code in (307, 308):
+                    raise MediaMTXError(
+                        "MediaMTX mengalihkan request "
+                        f"(HTTP {resp.status_code}): alamat control API "
+                        "kemungkinan salah",
+                        status_code=resp.status_code,
+                        kind="redirect",
+                    )
+                if resp.status_code == 401:
+                    raise MediaMTXError(
+                        "MediaMTX menolak kredensial control API (HTTP 401)",
+                        status_code=401,
+                        kind="auth",
+                    )
                 resp.raise_for_status()
                 return resp
+            except MediaMTXError:
+                raise
             except (httpx.ConnectError, httpx.TimeoutException) as exc:
                 if attempt + 1 < attempts:
                     await asyncio.sleep(0.3)
                     continue
-                # Semua error HTTP/timeout/connection -> RuntimeError agar
+                # Semua error HTTP/timeout/connection -> MediaMTXError agar
                 # pemanggil cukup tangkap satu tipe (kontrak: gagal =
-                # RuntimeError).
-                raise RuntimeError(
-                    f"MediaMTX tidak terjangkau di {self._client.base_url}: {exc}"
+                # RuntimeError; MediaMTXError adalah subclass-nya).
+                raise MediaMTXError(
+                    f"MediaMTX tidak terjangkau di {self._client.base_url}: {exc}",
+                    kind="unreachable",
+                ) from exc
+            except httpx.HTTPStatusError as exc:
+                raise MediaMTXError(
+                    "MediaMTX mengembalikan "
+                    f"HTTP {exc.response.status_code}",
+                    status_code=exc.response.status_code,
+                    kind="http",
                 ) from exc
             except httpx.HTTPError as exc:
-                raise RuntimeError(
-                    f"MediaMTX tidak terjangkau di {self._client.base_url}: {exc}"
+                raise MediaMTXError(
+                    f"MediaMTX tidak terjangkau di {self._client.base_url}: {exc}",
+                    kind="unreachable",
                 ) from exc
 
     async def get_paths(self) -> list[dict]:
@@ -129,6 +176,22 @@ class MediaMTXClient:
         if resp.status_code == 404:
             return None
         return resp.json()
+
+    async def get_config(self) -> dict | None:
+        """Konfigurasi global MediaMTX, atau None bila tidak bisa dibaca.
+
+        Dipakai halaman diagnostik untuk versi control API: bila
+        respons memuat key `version`, dipakai sebagai versi; bila
+        tidak ada, diagnostik melaporkan versi tidak diketahui (control
+        API tidak selalu melaporkan versi). MediaMTXError dari
+        _request dibiarkan naik supaya pemanggil bisa mengklasifikasi
+        penyebabnya (redirect/auth/tidak terjangkau).
+        """
+        resp = await self._request("GET", "/v3/config/global/get")
+        if resp.status_code == 404:
+            return None
+        data = resp.json()
+        return data if isinstance(data, dict) else None
 
     async def create_path(self, name: str, source: str,
                           record: bool = False) -> None:

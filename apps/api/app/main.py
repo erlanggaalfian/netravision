@@ -43,6 +43,7 @@ _DRIVE_RETENTION_TIMEOUT_SEC = 600
 from app.routers import (
     admin_ads,
     admin_audit,
+    admin_diagnostics,
     admin_disks,
     admin_drive,
     admin_keys,
@@ -710,6 +711,7 @@ def create_app() -> FastAPI:
     # adalah dua endpoint berbeda; tidak ada rute yang saling membayangi.
     app.include_router(admin_disks.router, prefix="/api")
     app.include_router(admin_streams.router, prefix="/api")
+    app.include_router(admin_diagnostics.router, prefix="/api")
     app.include_router(admin_scan.router, prefix="/api")
     app.include_router(admin_users.router, prefix="/api")
     app.include_router(admin_keys.router, prefix="/api")
