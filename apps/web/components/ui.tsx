@@ -166,7 +166,9 @@ export function Button({
    Jendela: halaman 1 tampil 1-5, halaman 2 tampil 1-5, halaman 3
    ke atas tampil N-2 sampai N+2, halaman terakhir tampil total-4
    sampai total. Dipakai seragam di Live, Playback, Monitor, dan
-   Admin Kamera supaya pola pagination sama di semua menu. */
+   Admin Kamera supaya pola pagination sama di semua menu.
+   Mobile (perintah user 2026-11-19): dua baris, panah << < > >>
+   di atas, nomor 1-5 di bawah. Desktop tetap satu baris. */
 export function Pagination({
   page,
   totalPages,
@@ -186,61 +188,91 @@ export function Pagination({
   for (let p = start; p <= end; p++) pages.push(p);
   const navCls = "min-h-[44px] min-w-[44px] rounded-full px-3";
   const numCls = "min-h-[44px] min-w-[44px] rounded-full px-3 tabular-nums";
-  return (
-    <div
-      className={`flex flex-wrap items-center justify-center gap-1.5 ${className}`}
-      role="navigation"
-      aria-label="Pagination"
+  const firstBtn = (
+    <Button
+      variant="subtle"
+      onClick={() => onChange(1)}
+      disabled={cur <= 1}
+      aria-label="Halaman pertama"
+      className={navCls}
     >
-      <Button
-        variant="subtle"
-        onClick={() => onChange(1)}
-        disabled={cur <= 1}
-        aria-label="Halaman pertama"
-        className={navCls}
+      «
+    </Button>
+  );
+  const prevBtn = (
+    <Button
+      variant="subtle"
+      onClick={() => onChange(cur - 1)}
+      disabled={cur <= 1}
+      aria-label="Halaman sebelumnya"
+      className={navCls}
+    >
+      ‹
+    </Button>
+  );
+  const nextBtn = (
+    <Button
+      variant="subtle"
+      onClick={() => onChange(cur + 1)}
+      disabled={cur >= totalPages}
+      aria-label="Halaman berikutnya"
+      className={navCls}
+    >
+      ›
+    </Button>
+  );
+  const lastBtn = (
+    <Button
+      variant="subtle"
+      onClick={() => onChange(totalPages)}
+      disabled={cur >= totalPages}
+      aria-label="Halaman terakhir"
+      className={navCls}
+    >
+      »
+    </Button>
+  );
+  const numBtns = pages.map((p) => (
+    <Button
+      key={p}
+      variant={p === cur ? "primary" : "subtle"}
+      onClick={() => onChange(p)}
+      aria-label={`Halaman ${p}`}
+      aria-current={p === cur ? "page" : undefined}
+      className={numCls}
+    >
+      {p}
+    </Button>
+  ));
+  return (
+    <>
+      {/* Mobile: dua baris, panah di atas, nomor di bawah */}
+      <div
+        className={`flex flex-col items-center gap-1.5 md:hidden ${className}`}
+        role="navigation"
+        aria-label="Pagination"
       >
-        «
-      </Button>
-      <Button
-        variant="subtle"
-        onClick={() => onChange(cur - 1)}
-        disabled={cur <= 1}
-        aria-label="Halaman sebelumnya"
-        className={navCls}
+        <div className="flex items-center gap-1.5">
+          {firstBtn}
+          {prevBtn}
+          {nextBtn}
+          {lastBtn}
+        </div>
+        <div className="flex items-center gap-1.5">{numBtns}</div>
+      </div>
+      {/* Desktop: satu baris seperti sebelumnya */}
+      <div
+        className={`hidden flex-wrap items-center justify-center gap-1.5 md:flex ${className}`}
+        role="navigation"
+        aria-label="Pagination"
       >
-        ‹
-      </Button>
-      {pages.map((p) => (
-        <Button
-          key={p}
-          variant={p === cur ? "primary" : "subtle"}
-          onClick={() => onChange(p)}
-          aria-label={`Halaman ${p}`}
-          aria-current={p === cur ? "page" : undefined}
-          className={numCls}
-        >
-          {p}
-        </Button>
-      ))}
-      <Button
-        variant="subtle"
-        onClick={() => onChange(cur + 1)}
-        disabled={cur >= totalPages}
-        aria-label="Halaman berikutnya"
-        className={navCls}
-      >
-        ›
-      </Button>
-      <Button
-        variant="subtle"
-        onClick={() => onChange(totalPages)}
-        disabled={cur >= totalPages}
-        aria-label="Halaman terakhir"
-        className={navCls}
-      >
-        »
-      </Button>
-    </div>
+        {firstBtn}
+        {prevBtn}
+        {numBtns}
+        {nextBtn}
+        {lastBtn}
+      </div>
+    </>
   );
 }
 
