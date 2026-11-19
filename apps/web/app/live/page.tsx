@@ -417,7 +417,7 @@ export default function LivePage() {
                   strokeLinejoin="round"
                 />
               </svg>
-              <span>Muat ulang</span>
+              <span className="hidden sm:inline">Muat ulang</span>
             </Button>
             <button
               onClick={() => setFilterOpen((v) => !v)}
@@ -524,7 +524,7 @@ export default function LivePage() {
                 </div>
               </div>
               <div
-                className="nv-scroll-x flex w-full items-center gap-1 overflow-x-auto rounded-full bg-ink-800 p-1 shadow-sm sm:w-auto"
+                className="nv-scroll-x flex w-full min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-full bg-ink-800 p-1 shadow-sm"
                 aria-label="Filter status kamera"
               >
                 {FILTERS.map((f) => (
@@ -533,7 +533,7 @@ export default function LivePage() {
                     type="button"
                     aria-pressed={filter === f.id}
                     onClick={() => setFilter(f.id)}
-                    className={`flex h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm font-semibold transition-all duration-200 active:scale-95 sm:px-5 lg:flex-none ${
+                    className={`flex h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm font-semibold transition-all duration-200 active:scale-95 sm:px-5 ${
                       filter === f.id
                         ? PRIMARY_GRADIENT
                         : "text-neutral-400 hover:bg-ink-700 hover:text-slate-200"
