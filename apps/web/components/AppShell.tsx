@@ -234,10 +234,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         )}
 
-        {/* Tab bar mobile: PUTIH menempel bawah di kedua tema
-            (keputusan pengguna), dengan padding safe-area. */}
+        {/* Tab bar mobile: menempel bawah, ikut tema terang/gelap
+            (bg-ink-900 + border-ink-800, sama seperti sidebar/topbar),
+            dengan padding safe-area. */}
         <nav
-          className="fixed inset-x-0 bottom-0 z-40 flex border-t border-[#e2e8f0] bg-[#ffffff] px-2 pb-[env(safe-area-inset-bottom)] pt-1 md:hidden"
+          className="fixed inset-x-0 bottom-0 z-40 flex border-t border-ink-800 bg-ink-900 px-2 pb-[env(safe-area-inset-bottom)] pt-1 md:hidden"
           aria-label="Navigasi utama"
         >
           {items
@@ -251,7 +252,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 prefetch={n.noPrefetch ? false : undefined}
                 aria-current={active ? "page" : undefined}
                 className={`flex min-h-[56px] flex-1 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl text-[11px] font-medium leading-tight transition-colors duration-150 active:scale-95 ${
-                  active ? PRIMARY_GRADIENT : "text-[#64748b]"
+                  active ? PRIMARY_GRADIENT : "text-slate-400"
                 }`}
               >
                 {n.icon}
