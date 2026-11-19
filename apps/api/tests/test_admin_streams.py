@@ -560,3 +560,22 @@ def test_record_disk_rclone_ditolak():
     with __import__("pytest").raises(HTTPException) as exc:
         _validate_record_disk("gdrive")
     assert exc.value.status_code == 400
+
+
+async def test_admin_streams_rate_limit_60_per_menit(app_client):
+    """admin-streams dibatasi 60/menit per IP (dulu 20): satu muat halaman
+    Admin Kamera super_admin menembak ~12 request ke router ini (daftar
+    kamera + daftar grup + camera-grants per grup), jadi 60 request
+    pertama lolos dan request ke-61 kena 429."""
+    app, _, db = app_client
+    su = await _seed_super(db)
+    auth_as(app, su)
+    async with _client(app) as c:
+        statuses = []
+        for _ in range(60):
+            r = await c.get("/api/admin/streams")
+            statuses.append(r.status_code)
+        assert statuses == [200] * 60, statuses
+        r = await c.get("/api/admin/streams")
+        assert r.status_code == 429, r.text
+        assert "retry-after" in {k.lower() for k in r.headers}

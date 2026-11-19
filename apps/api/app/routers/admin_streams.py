@@ -52,9 +52,12 @@ router = APIRouter(
     tags=["admin-streams"],
     # 4.7: seluruh router ini sebelumnya tanpa rate limit (kecuali
     # /admin/scan): daftar kamera, sharing, grants, groups, dan
-    # disk-summary bisa dibanjiri. 20/menit per IP seperti router admin
-    # lain; endpoint scan yang mahal tetap punya batas sendiri (10/menit).
-    dependencies=[Depends(require_roles("admin")), Depends(rate_limited(20, 60))],
+    # disk-summary bisa dibanjiri. 60/menit per IP (dulu 20): satu
+    # muat halaman Admin Kamera super_admin menembak ~12 request ke
+    # router ini (daftar kamera + daftar grup + camera-grants per
+    # grup), jadi 20/menit habis oleh 2 muat halaman dan mengembalikan
+    # 429; endpoint scan yang mahal tetap punya batas sendiri (10/menit).
+    dependencies=[Depends(require_roles("admin")), Depends(rate_limited(60, 60))],
 )
 log = logging.getLogger("netravision.admin_streams")
 
