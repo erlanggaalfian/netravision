@@ -314,6 +314,70 @@ async def _folder_link_segments(
     return out
 
 
+async def _drive_uploads_segments(
+    stream: Stream, day: date | None, db: AsyncSession
+) -> list[Segment]:
+    """Segmen Drive dari tabel drive_uploads (DB lokal, cepat).
+
+    drive_uploads mencatat segmen yang sudah terkonfirmasi terunggah ke
+    Drive via rclone, jadi linimasa bisa menampilkan segmen Drive tanpa
+    memanggil `rclone lsjson` ke Google. Ini penopang saat Google lambat
+    atau rate-limit: lsjson bisa menggantung sampai timeout (8 detik di
+    _rclone_segments) dan membuat segmen Drive hilang dari linimasa,
+    padahal rekamannya ada di Drive (contoh: MIM MRI 1, 2026-11-20,
+    26 segmen Drive 00:07-04:18 tidak tampil, linimasa hanya 40 menit
+    dari segmen lokal). Ukuran file tidak tersimpan di jejak upload,
+    jadi size=0; pemutaran mengunduh lewat rclone_path seperti biasa.
+    """
+    from app.models.drive import DriveUpload
+
+    out: list[Segment] = []
+    target_day = day or date.today()
+    try:
+        rows = await _drive_folders(db)
+        if stream.drive_folder_id:
+            row = next((r for r in rows if r[0] == stream.drive_folder_id), None)
+        else:
+            row = rows[0] if rows else None
+    except Exception as e:  # noqa: BLE001
+        log.warning("drive-uploads folder kamera %s gagal: %s", stream.name, e)
+        return out
+    if row is None or not row[2] or not row[3]:
+        return out
+    remote_name = row[3]
+    cam_name = stream.name or f"Kamera {stream.id}"
+    base = f"{row[2]}/{cam_name}"
+    try:
+        q = (
+            await db.execute(
+                select(DriveUpload.segment_name).where(
+                    DriveUpload.stream_id == stream.id,
+                    DriveUpload.segment_name.like(f"{target_day.isoformat()}%"),
+                )
+            )
+        ).all()
+    except Exception as e:  # noqa: BLE001
+        log.warning("drive-uploads list %s gagal: %s", stream.name, e)
+        return out
+    for (name,) in q:
+        if not name.endswith(".mp4"):
+            continue
+        start = parse_segment_name(name)
+        if start is None or start.date() != target_day:
+            continue
+        out.append(
+            Segment(
+                start=start,
+                path="",
+                size=0,
+                name=name,
+                rclone_remote=remote_name,
+                rclone_path=f"{base}/{name}",
+            )
+        )
+    return out
+
+
 async def _rclone_segments(
     stream: Stream, day: date | None, db: AsyncSession
 ) -> list[Segment]:
@@ -421,8 +485,8 @@ async def _all_segments(
     """Gabungan segmen lokal + folder-link + Drive akun kamera ini.
 
     Lokal menang bila nama sama, lalu folder-link, lalu folder OAuth.
-    6.6: tiga sumber Drive (folder-link, rclone lsjson, OAuth
-    list_files) independen dan kini jalan PARALEL dengan
+    6.6: sumber Drive (folder-link, rclone lsjson, OAuth list_files,
+    jejak drive_uploads) independen dan kini jalan PARALEL dengan
     asyncio.gather, bukan berurutan. Satu AsyncSession tidak aman
     dipakai paralel, jadi tiap sumber membuka sesi sendiri dari
     factory turunan engine sesi pemanggil (lihat
@@ -474,6 +538,13 @@ async def _all_segments(
                     segs.append(s)
         except Exception as e:  # noqa: BLE001
             log.warning("drive rclone %s gagal: %s", stream.name, e)
+        try:
+            for s in await _drive_uploads_segments(stream, day, db):
+                if s.name not in names:
+                    names.add(s.name)
+                    segs.append(s)
+        except Exception as e:  # noqa: BLE001
+            log.warning("drive uploads %s gagal: %s", stream.name, e)
         if settings.drive_enabled:
             try:
                 for s in await _oauth_segments(stream, day, db):
@@ -492,17 +563,24 @@ async def _all_segments(
         async with factory() as sdb:
             return await _rclone_segments(stream, day, sdb)
 
+    async def _drive_uploads_own() -> list[Segment]:
+        async with factory() as sdb:
+            return await _drive_uploads_segments(stream, day, sdb)
+
     async def _oauth_own() -> list[Segment]:
         async with factory() as sdb:
             return await _oauth_segments(stream, day, sdb)
 
-    # Urutan gather = prioritas dedup: folder-link, rclone, OAuth.
-    folder_link, rclone, oauth = await asyncio.gather(
+    # Urutan gather = prioritas dedup: folder-link, rclone,
+    # drive-uploads (jejak DB, penopang saat lsjson lambat/gagal),
+    # OAuth.
+    folder_link, rclone, drive_uploads, oauth = await asyncio.gather(
         _run_source("folder-link", _folder_link_own),
         _run_source("rclone", _rclone_own),
+        _run_source("drive-uploads", _drive_uploads_own),
         _run_source("list", _oauth_own),
     )
-    for src in (folder_link, rclone, oauth):
+    for src in (folder_link, rclone, drive_uploads, oauth):
         for s in src:
             if s.name not in names:
                 names.add(s.name)

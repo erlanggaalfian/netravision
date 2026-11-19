@@ -746,3 +746,61 @@ async def test_download_range_recordings_dir_relatif(app_client, monkeypatch, tm
         out.write_bytes(r.content)
         dur = _mp4_duration(str(out))
         assert 18 <= dur <= 22, dur
+
+
+async def test_timeline_drive_uploads_saat_lsjson_gagal(app_client, monkeypatch, tmp_path):
+    """Linimasa tetap menampilkan segmen Drive dari drive_uploads bila
+    rclone lsjson gagal (Google lambat/rate-limit).
+
+    Regresi 2026-11-20: MIM MRI 1 punya 26 segmen Drive hari itu tapi
+    linimasa hanya menampilkan 40 menit (segmen lokal), karena
+    _rclone_segments timeout 8 detik saat Google lambat dan tidak ada
+    sumber Drive lain. Jejak drive_uploads (DB lokal) kini menjadi
+    penopang: segmen yang terkonfirmasi terunggah tetap tampil tanpa
+    memanggil Google."""
+    from app.models.drive import DriveUpload, GoogleDriveFolder
+    from app.services import gdrive_rclone as gr
+
+    app, _, db = app_client
+    s = await _seed(app, db, monkeypatch, tmp_path)
+    s.storage_mode = "drive"
+    folder = GoogleDriveFolder(
+        folder_url="https://drive.google.com/drive/folders/folder-abc",
+        folder_id="folder-abc",
+        folder_name="netravision",
+        remote_name="gdrive",
+    )
+    db.add(folder)
+    await db.commit()
+    s.drive_folder_id = folder.id
+    await db.commit()
+    db.add_all(
+        [
+            DriveUpload(
+                stream_id=s.id,
+                segment_name="2026-11-02_10-00-00-000000.mp4",
+                folder_name="netravision",
+            ),
+            DriveUpload(
+                stream_id=s.id,
+                segment_name="2026-11-02_10-10-00-000000.mp4",
+                folder_name="netravision",
+            ),
+        ]
+    )
+    await db.commit()
+
+    async def _fake_list_gagal(remote_name, path, timeout=60):
+        raise RuntimeError("rclone lsjson gagal: timeout")
+
+    monkeypatch.setattr(gr, "list_rclone_files", _fake_list_gagal)
+
+    async with _client(app) as c:
+        r = await c.get(
+            f"/api/recordings/{s.id}/timeline", params={"date": "2026-11-02"}
+        )
+        assert r.status_code == 200, r.text
+        entries = r.json()["entries"]
+        assert len(entries) == 2, entries
+        assert entries[0]["start"].startswith("2026-11-02T10:00:00")
+        assert entries[1]["start"].startswith("2026-11-02T10:10:00")
