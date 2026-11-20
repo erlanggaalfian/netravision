@@ -7,6 +7,7 @@ import { isAdminRole, useAuth } from "../lib/auth";
 import { useCameraStatus } from "../hooks/useCameraStatus";
 import { useIdleLogout } from "../hooks/useIdleLogout";
 import { PRIMARY_GRADIENT } from "./ui";
+import { GoogleDriveReminder } from "./GoogleDriveReminder";
 import { ThemeToggle } from "./ThemeToggle";
 
 interface NavItem {
@@ -262,6 +263,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           })}
         </nav>
 
+        {/* Pengingat akun Google Drive putus/error: popup tiap 5 menit
+            untuk super_admin, kecuali di halaman Penyimpanan. */}
+        <GoogleDriveReminder />
       </div>
     </div>
   );
