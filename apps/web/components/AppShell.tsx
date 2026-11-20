@@ -95,8 +95,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-dvh bg-ink-950">
-      {/* Sidebar desktop */}
-      <aside className="hidden w-64 shrink-0 flex-col border-r border-ink-800 bg-ink-900 md:flex">
+      {/* Sidebar desktop: menempel di viewport (sticky + tinggi layar),
+          tidak ikut scroll bersama isi halaman. self-start supaya tidak
+          meregang setinggi wadah flex; overflow-y-auto untuk layar pendek. */}
+      <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col self-start overflow-y-auto border-r border-ink-800 bg-ink-900 md:flex">
         <div className="flex items-center gap-3 px-5 pb-1 pt-6">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {/* F5.11: turunan kecil logo-96.webp (4,1 KB), bukan logo.png 174 KB. */}
